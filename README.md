@@ -93,19 +93,19 @@ Recommended local install with symlinks:
 
 ```bash
 mkdir -p ~/.codex/skills
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-sdd-pipeline" ~/.codex/skills/to-sdd-pipeline
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-product-idea" ~/.codex/skills/to-product-idea
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-prd" ~/.codex/skills/to-prd
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-project-context" ~/.codex/skills/to-project-context
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-user-journey" ~/.codex/skills/to-user-journey
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-screen-map" ~/.codex/skills/to-screen-map
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-wireframes" ~/.codex/skills/to-wireframes
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-design-brief" ~/.codex/skills/to-design-brief
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-architecture" ~/.codex/skills/to-architecture
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-dod-evals" ~/.codex/skills/to-dod-evals
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-guardrails" ~/.codex/skills/to-guardrails
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-qa-checklist" ~/.codex/skills/to-qa-checklist
-ln -s "/Users/ingwar/Documents/Codex Skills/skills/to-development-plan" ~/.codex/skills/to-development-plan
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-sdd-pipeline" ~/.codex/skills/to-sdd-pipeline
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-product-idea" ~/.codex/skills/to-product-idea
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-prd" ~/.codex/skills/to-prd
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-project-context" ~/.codex/skills/to-project-context
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-user-journey" ~/.codex/skills/to-user-journey
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-screen-map" ~/.codex/skills/to-screen-map
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-wireframes" ~/.codex/skills/to-wireframes
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-design-brief" ~/.codex/skills/to-design-brief
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-architecture" ~/.codex/skills/to-architecture
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-dod-evals" ~/.codex/skills/to-dod-evals
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-guardrails" ~/.codex/skills/to-guardrails
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-qa-checklist" ~/.codex/skills/to-qa-checklist
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-development-plan" ~/.codex/skills/to-development-plan
 ```
 
 If a symlink already exists, remove or update only that symlink. Do not overwrite an existing personal skill with the same name unless that is intentional.

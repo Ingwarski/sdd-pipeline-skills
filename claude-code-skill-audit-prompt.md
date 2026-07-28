@@ -3,7 +3,7 @@
 You are auditing a set of Codex skills. Do not modify files unless explicitly asked later. Your task is to deeply review whether these created skills match the user's needs and whether they properly reuse proven mechanisms from existing external skills instead of reinventing weak templates.
 
 Workspace:
-`/Users/ingwar/Documents/Codex Skills`
+`/Users/ingwar/Projects/Codex Skills`
 
 ## Created Skills To Audit
 
@@ -331,7 +331,7 @@ If any file or URL is unavailable, say that explicitly. Do not pretend it was in
 Core behavior, source-of-truth, gap-check:
 
 - `/Users/ingwar/.codex/skills/grill-me/SKILL.md`
-- `/Users/ingwar/Documents/Codex Skills/skills/to-product-idea/SKILL.md`
+- `/Users/ingwar/Projects/Codex Skills/skills/to-product-idea/SKILL.md`
 - `/Users/ingwar/.codex/skills/to-prd/SKILL.md`
 - `/Users/ingwar/.codex/skills/.system/skill-creator/SKILL.md`
 - `/Users/ingwar/.codex/plugins/cache/openai-curated/superpowers/d6169bef/skills/writing-skills/SKILL.md`
