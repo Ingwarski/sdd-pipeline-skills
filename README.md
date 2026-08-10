@@ -1,6 +1,6 @@
 # Codex SDD Skills
 
-This repository contains a design-first Codex SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, a coherent pre-design specification, exactly three runnable prototype candidates, one whole-design approval, and implementation planning for a production frontend and backend.
+This repository contains reusable Codex skills. Its core is a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, a coherent pre-design specification, exactly three runnable prototype candidates, one whole-design approval, and implementation planning for a production frontend and backend. It also contains bounded standalone workflows such as communications audits and certificate issuance.
 
 The skills are designed for **SDD - Specification Driven Development**. They are not a TDD workflow and they are not generic prompt templates. Every domain artifact has exactly one owner, and every owner invocation is confined to its declared output boundary. Most owners create one artifact; `to-project-context` is the explicit cohesive two-file bundle owner. `to-sdd-pipeline` owns only the machine-readable orchestration manifest and invokes or re-invokes artifact owners autonomously.
 
@@ -45,6 +45,7 @@ rough-description-or-existing-or-imported-idea -> to-product-idea -> product-ide
 | `to-guardrails` | `docs/guardrails.md` | Defines source-of-truth order, AI autonomy boundaries, scope limits, conflict handling, stop conditions, and verification policy. |
 | `to-qa-checklist` | `docs/qa-checklist.md` | Creates a source-backed QA checklist with acceptance, UX/UI, responsive, accessibility, visual regression, evidence, and release-readiness checks. |
 | `to-development-plan` | `docs/development-plan.md` | Converts the current validated SDD plus Approved Visual Baseline into frontend/backend units, interface seams, dependency order, acceptance checks, and verification steps. |
+| `communications-audit` | Professional `.docx` audit report | Audits websites and sales or marketing materials through seven communication dimensions, then produces an evidence-led scorecard, prioritized findings, and implementation roadmap. |
 
 ## Core Rules
 
@@ -106,6 +107,7 @@ ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-dod-evals" ~/.codex/skills/
 ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-guardrails" ~/.codex/skills/to-guardrails
 ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-qa-checklist" ~/.codex/skills/to-qa-checklist
 ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-development-plan" ~/.codex/skills/to-development-plan
+ln -s "/Users/ingwar/Projects/Codex Skills/skills/communications-audit" ~/.codex/skills/communications-audit
 ```
 
 If a symlink already exists, remove or update only that symlink. Do not overwrite an existing personal skill with the same name unless that is intentional.
@@ -249,6 +251,11 @@ skills/
     SKILL.md
   to-development-plan/
     SKILL.md
+  communications-audit/
+    SKILL.md
+    agents/openai.yaml
+    references/
+    scripts/build_report.py
 
 claude-code-skill-audit-prompt.md
 ```

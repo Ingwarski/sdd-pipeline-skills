@@ -1,0 +1,4 @@
+interface:
+  display_name: "Communications Audit"
+  short_description: "Create evidence-led communications audit reports"
+  default_prompt: "Use $communications-audit to audit these sales or marketing communications and create a professional DOCX report."
