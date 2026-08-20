@@ -91,7 +91,7 @@ These references were used to design this skill. They are not product source fil
 - `quality-run-quality-gates`: `https://github.com/dawiddutoit/custom-claude/blob/main/skills/quality-run-quality-gates/SKILL.md`
   - Used: gate detection mindset, pass/fail reporting, rerun-after-fix loop, and "Definition of Done met/not met" blocking semantics.
   - Not used: command-runner behavior, tool-specific scripts, or executing gates during artifact creation.
-- `verification-before-completion`: `/Users/ingwar/.codex/plugins/cache/openai-curated/superpowers/d6169bef/skills/verification-before-completion/SKILL.md`
+- the installed `verification-before-completion` skill available during authoring
   - Used: evidence before claims, identify/run/read/verify gate function, no completion claim without fresh evidence.
   - Not used: runtime execution as the artifact output; this skill writes the reusable DoD/eval contract.
 - `breakdown-plan`: `https://github.com/github/awesome-copilot/blob/main/skills/breakdown-plan/SKILL.md`
