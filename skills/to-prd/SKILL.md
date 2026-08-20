@@ -67,6 +67,7 @@ Reference downstream owners instead of prematurely writing their artifacts insid
 - Describe the problem and solution from the user's perspective.
 - Make user stories extensive enough to close the product boundary, but do not duplicate the same requirement as filler.
 - Use stable sequential story IDs and the form `As a <role>, I want <capability>, so that <outcome>`.
+- Keep each FR/NFR traceable at clause level. When one numbered requirement contains multiple independently testable obligations, enumerate those obligations explicitly under that stable ID; downstream appearance of the parent ID alone must not be mistaken for complete coverage.
 - Separate product behavior from implementation constraints and testing decisions.
 - Prefer externally observable test seams and the highest practical seam. Tests verify the agreed product; they do not become the source of product truth.
 - Preserve the product's autonomy model. Do not add approval gates unless the source requires them or the action crosses a high-risk authorization boundary.
@@ -100,7 +101,7 @@ Ask only when a missing answer materially changes product scope or a high-risk b
 6. Capture only source-backed product-level implementation decisions; defer architecture details to their owner.
 7. Define observable testing decisions, evidence limits, and minimum end-to-end acceptance scenarios.
 8. Reconcile contradictions against the product idea. Stop only if the unresolved choice materially changes scope or a high-risk boundary.
-9. Validate that every load-bearing requirement traces to the product idea, project evidence, or an explicit answer.
+9. Validate that every load-bearing requirement and every distinct obligation inside it traces to the product idea, project evidence, or an explicit answer. Split compound prose into explicit sub-obligations without inventing new behavior.
 10. Create or update only `docs/prd.md`.
 
 When invoked by `to-sdd-pipeline`, return control immediately after validation so the orchestrator can hash the artifact and dispatch downstream owners. Do not ask the user whether to continue.

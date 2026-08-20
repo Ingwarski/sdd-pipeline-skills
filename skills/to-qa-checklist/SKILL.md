@@ -15,6 +15,8 @@ Create only the final output file. Do not write unverified assumptions into the 
 
 If a gap-check ran, or if the skill synthesized decisions not fully determined by source files, play back the resolved decisions in a pithy summary and continue with the smallest reversible, source-grounded check unless the missing answer materially changes product scope or a high-risk boundary. Playback is not an approval gate. If a correction would change an already Approved Visual Baseline, record `baseline_change_required` for the orchestrator instead of asking or approving inside this skill.
 
+Never write a repository-state observation as a bare fact. Record `<claim> — observed <ISO date> via <command>` plus the exact observed paths and content hashes in the orchestrator's scoped repository observation. Never assert that something does not exist without naming the command that would prove it still does not.
+
 ## Input
 Read:
 - `README.md`, if present
@@ -29,6 +31,8 @@ Read:
 - `docs/architecture.md`
 - `docs/dod-evals.md`
 - `docs/guardrails.md`
+- the codebase, when one exists: package manifest, source/test directories, CI, build, runtime, and deployment configuration, to confirm which checks are currently executable
+- `docs/development-plan.md`, only when it already exists and only to observe declared destination/receipt paths after implementation began; it is never a prerequisite or source of QA rules
 
 Use confirmed relevant platforms, devices, locales, roles, operational constraints, risks, and canonical vocabulary from the context bundle only when they change an applicable check or fixture. Do not copy descriptive context, promote assumptions to checks, add product scope, or let either file override the owning SDD or Approved Visual Baseline. Record only the exact sections or terms consumed when pipeline provenance is requested.
 
@@ -103,6 +107,7 @@ If acceptance criteria, required states, or target platforms are missing and can
 
 ## Workflow
 1. Inspect the input files.
+   Re-run the exact repository-observation commands for any codebase-derived status; confirmed code may narrow or close a blocker but cannot add product scope.
 2. Derive checks only from current validated SDD artifacts. Before prototype approval, define visual verification against the proposed design contract without pretending that an Approved Visual Baseline exists. After whole-prototype approval, instantiate the visual-DoD checks against the active Baseline ID, immutable visual-target reference/hash, covered route/state/viewport combinations, permitted variance, and referenced prototype without requesting another approval. A changed or superseded Baseline ID, target hash, or recorded operator override invalidates the affected visual checks and requires this artifact to be regenerated before development planning or release evaluation continues.
 3. Group checklist items by product behavior, journey, screens, states, UX/UI, responsive, accessibility, and release readiness.
 4. Include source references for important checklist groups. `Product Acceptance` items must cite the PRD requirement or user story they verify instead of restating it.
@@ -110,10 +115,12 @@ If acceptance criteria, required states, or target platforms are missing and can
 6. Include expected evidence for checks that will later require implementation or screenshots.
 7. State evidence limits where docs cannot prove runtime behavior.
 8. Avoid adding requirements, architecture decisions, DoD rules, or implementation details.
+   When a current development plan declares traced prototype reuse and a declared destination exists, verify that the Phase 3 receipt exists at the declared path and that its recorded `copy | adapt | reimplement` strategy matches. Record absence or mismatch as a blocking fidelity finding; never synthesize the receipt and never make the plan a dependency of the pre-design QA node.
 9. Before writing the artifact, verify the planned content:
    - Every checklist group traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
+   - Clause-level coverage: every distinct observable obligation inside each applicable FR/NFR maps to at least one concrete check or an explicit blocker. Repeating the parent requirement ID is not clause coverage.
 10. Create or update only `docs/qa-checklist.md`.
 
 ## Required Output Structure

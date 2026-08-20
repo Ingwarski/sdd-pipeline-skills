@@ -24,6 +24,7 @@ rough-description-or-existing-or-imported-idea -> to-product-idea -> product-ide
 -> one whole-design approval
 -> design-brief and QA reconciliation
 -> to-development-plan
+-> awaiting-implementation-prompt
 ```
 
 `to-product-idea` solely owns `docs/product-idea.md` and uses a foreground, resumable, one-question-at-a-time intake. `Create product idea and start SDD` atomically creates or versions the file only when needed, preserves an unchanged existing file byte-for-byte, and records its handoff receipt; it is an execution command, not an approval. `to-prd` is the first SDD domain-artifact owner dispatched by `to-sdd-pipeline` after that handoff. `to-project-context` runs immediately after the PRD and both bundle members must validate before later owners run. `docs/wireframes.md` never depends on the later design brief, and the development plan is deliberately post-approval because it consumes the Approved Visual Baseline.
@@ -33,7 +34,7 @@ rough-description-or-existing-or-imported-idea -> to-product-idea -> product-ide
 | Skill | Output | Purpose |
 |---|---|---|
 | `to-product-idea` | `docs/product-idea.md` | Runs the visible Product Idea Intake, asks only material non-inferable questions one at a time, and atomically creates or versions the operator-confirmed upstream product mandate. |
-| `to-sdd-pipeline` | `forge/sdd-manifest.json` | Dispatches artifact owners, tracks dependencies and hashes, runs prototype comparison, resumes after the one approval, and propagates invalidation without editing domain artifacts directly. |
+| `to-sdd-pipeline` | `forge/sdd-manifest.json` | Dispatches artifact owners, tracks dependencies and hashes, runs prototype comparison, pauses after the validated development plan at `awaiting-implementation-prompt`, and propagates invalidation without editing domain artifacts directly. |
 | `to-prd` | `docs/prd.md` | Converts the product idea and current project evidence into the first file-based domain artifact without issue-tracker side effects. |
 | `to-project-context` | `docs/project-context.md` and `docs/canonical-terms.md` | Creates the atomic context/vocabulary bundle after PRD validation; the two outputs are validated and hashed separately under one owner invocation. |
 | `to-user-journey` | `docs/user-journey.md` | Maps the real user, goal, context, journey stages, friction, decisions, failure path, and success state. |
@@ -65,6 +66,7 @@ All skills follow the same operating contract:
 - Artifacts reference prior artifacts instead of duplicating them.
 - Artifact boundaries must be preserved.
 - The only normal design approval is approval of the complete integrated prototype. Risk-specific authorization is separate and just in time.
+- After `docs/development-plan.md` validates, the pipeline enters `awaiting-implementation-prompt`. Production implementation requires a later, separate prompt that explicitly asks to start Phase 3; a generic continuation or automatic resume cannot release the gate.
 
 ## Artifact Boundaries
 
@@ -143,7 +145,7 @@ The intake asks one material question at a time with a recommendation and ration
 Use to-sdd-pipeline for this project.
 ```
 
-The orchestrator dispatches every ready artifact owner without asking the user to continue. A later material product-intent gap returns to the same Intake surface, versions the idea through its owner, and invalidates only transitive dependents. It otherwise pauses only for the one whole-design approval or a just-in-time high-risk authorization. `to-guardrails` runs after the PRD and is regenerated only when a named upstream change invalidates one of its rules; the mere appearance of later UX files is not a rerun trigger.
+The orchestrator dispatches every ready artifact owner through `docs/development-plan.md` without asking the user to continue. After that final SDD artifact validates, it pauses at `awaiting-implementation-prompt`; only a later explicit implementation prompt can release Phase 3. A later material product-intent gap returns to the same Intake surface, versions the idea through its owner, and invalidates only transitive dependents. The pipeline otherwise pauses for the one whole-design approval or a just-in-time high-risk authorization. `to-guardrails` runs after the PRD and is regenerated only when a named upstream change invalidates one of its rules; the mere appearance of later UX files is not a rerun trigger.
 
 Individual owner skills remain callable for targeted artifact work. In that mode the caller is responsible for their documented prerequisites and invalidation. Artifact readiness means validated/current, not separately human-approved.
 

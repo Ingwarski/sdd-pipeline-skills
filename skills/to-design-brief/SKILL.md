@@ -27,6 +27,7 @@ Read:
 - `docs/screen-map.md`
 - `docs/wireframes.md`
 - `docs/guardrails.md`
+- the current Phase 2 executor/handoff metadata supplied by `to-sdd-pipeline`, when present
 
 Use confirmed relevant audience, platform, localization, brand/provenance, content, constraint, and vocabulary facts from the context bundle. Do not copy descriptive context, promote assumptions to facts, add product scope, or let either file override PRD/journey/screen/wireframe behavior. Record only the exact sections or terms consumed when pipeline provenance is requested.
 
@@ -70,7 +71,7 @@ Adapt the strongest UX Coach mechanics into a single SDD artifact:
 - Treat the brief as two spines inside one file: `Design Spine` and `Experience Spine`.
 - The Design Spine is the visual contract: brand/style, colors, typography, spacing, radius, elevation, component appearance, visual do/don't rules.
 - The Experience Spine is the behavior contract: form factor, IA implications, voice/tone rules, component behavior, state patterns, interaction primitives, accessibility, key flows.
-- Before design approval, the Design Spine and Experience Spine guide candidate generation. After the engineer approves the complete integrated prototype, the `Approved Visual Baseline` section in this file is the single canonical baseline manifest, the concrete source of truth for visual composition, interaction detail, and frontend presentation, and the visual Definition of Done for every user-visible frontend unit. Do not create a second competing baseline receipt elsewhere. The spines remain authoritative for reusable system rules, unshown states, responsive behavior, and accessibility, and must be reconciled with the approved baseline. PRD and journey artifacts remain authoritative for product scope and behavior. Unapproved explorations and implementation preference never override either source.
+- Before design approval, the Design Spine and Experience Spine guide candidate generation in either Codex or Claude Design. After the engineer approves the complete integrated prototype in Codex, the `Approved Visual Baseline` section in this file is the single canonical baseline manifest, the concrete source of truth for visual composition, interaction detail, and frontend presentation, and the visual Definition of Done for every user-visible frontend unit. Selection in Claude Design identifies the version to export but is not this approval. Do not create a second competing baseline receipt elsewhere. The spines remain authoritative for reusable system rules, unshown states, responsive behavior, and accessibility, and must be reconciled with the approved baseline. PRD and journey artifacts remain authoritative for product scope and behavior. Unapproved explorations and implementation preference never override either source.
 - Keep a `Decision Log` for selected directions, rejected directions, scope cuts, tool choices, and user overrides.
 - Run a concern scan: accessibility, platform conventions, brand voice, regulated language, motion, internationalization, dark mode, offline behavior, content density, input modalities, notifications, AI control and reversibility.
 - Surface UI system inheritance. If shadcn, MUI, Tailwind, native UIKit, Compose, or an internal design system exists, extend or reference it instead of inventing a parallel system.
@@ -113,9 +114,9 @@ If audience, product category, platform priorities, existing-system inheritance,
 8. Critique the planned Design Spine against generic AI defaults: templated palettes, interchangeable type pairings, decorative filler, and styles that could belong to any product in the category. Name one signature element or one deliberate restraint principle grounded in the product's domain, and state where the design spends or withholds boldness. If the direction is not product-specific, revise it or turn the strongest source-grounded alternatives into clearly labeled Prototype Mockup Candidates for whole-design comparison; do not add a pre-mockup selection gate. These candidates are design-only interaction simulations, not application implementations.
 9. Define semantic tokens and component appearance principles without overbuilding a design-system monster.
 10. Define responsive, accessibility, state, and interaction expectations.
-11. Add handoff prompts or guidance for Figma, v0, Stitch, or Codex only when useful and only from captured content.
+11. Add handoff prompts or guidance for Figma, v0, Stitch, Codex, or Claude Design only when useful and only from captured content. Handoff guidance must name frozen inputs and equivalent design scope, never grant the design tool authority to edit SDD artifacts or production code.
 12. Run the Validation Pass defined below before creating or updating the artifact.
-13. When an integrated prototype has been approved, atomically update the canonical `Approved Visual Baseline` section with its stable Baseline ID, selected candidate/version, immutable visual target/hash, frozen prototype source root/tree hash, artifact references, visual-DoD scope, coverage, approval receipt, and permitted variance. Keep the prior approved baseline active while a revision is only proposed. An explicit scoped operator correction becomes a recorded baseline override for that scope; a newly approved integrated whole creates a new active Baseline ID and marks the old immutable baseline superseded. Record the prior ID and receipt in the Decision Log and downstream invalidation intent in this artifact. Do not create another design approval merely to acknowledge an operator-authored correction. Only the orchestrator changes manifest/runtime status, re-invokes QA and development-plan owners, and marks affected production units invalidated.
+13. When an integrated prototype has been approved, atomically update the canonical `Approved Visual Baseline` section with its stable Baseline ID, selected candidate/version, origin `codex | claude_design`, handoff ID when applicable, immutable visual target/hash, frozen normalized prototype source root/tree hash and algorithm, durable repository-relative artifact references, visual-DoD scope, coverage, Codex whole-design approval receipt, and permitted variance. Never use a Claude chat URL, temporary export path, or external result ID as the sole durable baseline reference. Keep the prior approved baseline active while a revision is only proposed. An explicit scoped operator correction becomes a recorded baseline override for that scope; a newly approved integrated whole creates a new active Baseline ID and marks the old immutable baseline superseded. Record the prior ID and receipt in the Decision Log and downstream invalidation intent in this artifact. Do not create another design approval merely to acknowledge an operator-authored correction. Only the orchestrator changes manifest/runtime status, re-invokes QA and development-plan owners, and marks affected production units invalidated.
 14. Avoid changing scope, adding screens, or rewriting wireframes.
 15. Before writing the artifact, verify the planned content:
    - Every load-bearing claim traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
@@ -207,8 +208,9 @@ Token values live only in `### Design Tokens`; other spine sections reference to
 - Status: proposed | approved | superseded
 - Baseline ID:
 - Selected Candidate And Version:
+- Candidate Origin And Handoff ID:
 - Immutable Visual Target Reference And Hash:
-- Frozen Prototype Source Root And Tree Hash:
+- Frozen Prototype Source Root Tree Hash And Algorithm:
 - Prototype Artifact References:
 - Visual Definition Of Done Scope:
 - Covered Screens States And Viewports:

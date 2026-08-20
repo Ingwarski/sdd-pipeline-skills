@@ -15,6 +15,8 @@ Create only the final output file. Do not write unverified assumptions into the 
 
 If a gap-check ran, or if the skill synthesized verification rules not fully determined by source files or existing code, play back the resolved decisions in a pithy summary and continue with the smallest reversible, source-grounded rule unless the missing answer materially changes product scope or a high-risk boundary. Playback is not an approval gate. If a proposed rule would change an already Approved Visual Baseline, record `baseline_change_required` for the orchestrator instead of asking or approving inside this skill.
 
+Never write a repository-state observation as a bare fact. Record `<claim> — observed <ISO date> via <command>` plus the exact observed paths and content hashes in the orchestrator's scoped repository observation. Never assert that something does not exist without naming the command that would prove it still does not.
+
 ## Input
 Read:
 - `README.md`, if present
@@ -71,7 +73,7 @@ Adapt the useful parts of proven DoD, quality-gate, planning, and eval reference
 - From eval/lane-gate patterns: attach eval definitions to workflow state transitions; a lane promotion is blocked until required evals pass; evals have standard result shape and persistable evidence.
 - From SDD guardrails: source docs and confirmed code win over agent self-assessment.
 - Split intended truth by concern: current validated SDD owns product scope and behavior; the engineer-approved integrated prototype owns visual composition, interaction detail, and frontend presentation and is the visual Definition of Done for every user-visible frontend unit; architecture and guardrails own technical and risk boundaries. Treat even the Approved Visual Baseline as design/visual evidence, not proof of completed functionality, until implementation is connected to real state/data/actions, runner evidence, and required DoD gates.
-- Define one reusable parameterized gate named `approved_visual_baseline_fidelity` for frontend, full-stack, and integration units with user-visible output. Parameterize it with the active Baseline ID, immutable target hash, affected routes/states/viewports, permitted variance, concrete QA check IDs, `VisualQAEvidence`, and the `PrototypePromotionReceipt` when prototype code was reused. Pass only when the baseline is current, required coverage exists, every deviation is permitted or source-backed, and no blocking fidelity finding remains. A stale or superseded baseline, missing target/coverage, unexplained material drift, P0, P1, or blocking P2 blocks the gate; advisory P2/P3 remains follow-up.
+- Define one reusable parameterized gate named `approved_visual_baseline_fidelity` for frontend, full-stack, and integration units with user-visible output. Parameterize it with the active Baseline ID, immutable target hash, affected routes/states/viewports, permitted variance, concrete QA check IDs, `VisualQAEvidence`, and the `PrototypePromotionReceipt` when prototype code was reused. Pass only when the baseline is current, required coverage exists, every deviation is permitted or source-backed, and no blocking fidelity finding remains. When the development plan declares traced prototype reuse, the receipt must exist at its declared path and its recorded promotion strategy must match the plan's `copy | adapt | reimplement` value. A missing receipt for a unit whose declared production destination exists is blocking, not `not applicable`. A stale or superseded baseline, missing target/coverage, unexplained material drift, P0, P1, or blocking P2 blocks the gate; advisory P2/P3 remains follow-up.
 
 Do not copy these source skills wholesale:
 - Do not turn this into a command runner. This skill writes the DoD/evals source-of-truth document; it does not execute gates.
@@ -136,6 +138,7 @@ Ask DoD/eval questions with recommended answers based on sources. Prefer:
 5. Separate acceptance criteria, DoD, QA checklist items, and implementation tasks.
 6. Define the standing DoD model.
 7. Define verification profile tiers: hard gates, unit checks, system checks, UX/UI checks, evidence, static-surface limits, and release/merge checks. For any user-visible frontend scope, include the parameterized `approved_visual_baseline_fidelity` gate and bind it to the current baseline plus concrete QA checks rather than restating the design.
+   When a gate is superseded or declared non-active, remove it from the Gate Matrix and requirement traceability tables or repoint those requirements to the active gate. A gate cannot be simultaneously inactive and load-bearing.
 8. Define lane/state promotion gates only when sources define engineering delivery lanes, execution states, or completion transitions. Ordinary product UI states do not create engineering gates.
 9. Define eval result format with pass/fail/blocked status, evidence, owner, timestamp/source, and rerun rule.
 10. Define failure and blocker classification without duplicating `docs/qa-checklist.md`.
@@ -144,6 +147,7 @@ Ask DoD/eval questions with recommended answers based on sources. Prefer:
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
    - The artifact does not invent tests, scripts, CI, PR policy, or implementation scope.
+   - Clause-level coverage: split each FR/NFR into its distinct observable obligations and map every applicable obligation to an active gate or an explicit blocker. A requirement ID appearing once is not proof that all its clauses are covered.
 12. Create or update only `docs/dod-evals.md`.
 
 ## Required Output Structure
@@ -206,7 +210,7 @@ For every gate or eval include:
 - `Pass Condition`
 - `Fail Or Block Condition`
 - `Rerun Rule`
-- `Automation Status`: `automated`, `manual`, `not available yet`, or `open question`
+- `Automation Status`: `automated`, `manual`, `not available yet — pending <named condition>`, or `open question`. A named pending condition must be re-evaluated against the current repository observation on every invocation.
 
 For `approved_visual_baseline_fidelity` additionally include:
 - `Baseline ID`

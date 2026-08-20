@@ -15,6 +15,8 @@ Create only the final output file. Do not write unverified assumptions into the 
 
 If a gap-check ran, or if the skill synthesized architecture decisions not fully determined by source files or existing code, play back the resolved decisions in a pithy summary and continue with the simplest reversible architecture that satisfies the sources unless the missing answer materially changes product scope or a high-risk boundary. Playback is not an approval gate; architecture does not create a pre-prototype design gate.
 
+Never write a repository-state observation as a bare fact. Record `<claim> — observed <ISO date> via <command>` plus the exact observed paths and content hashes in the orchestrator's scoped repository observation. Never assert that something does not exist without naming the command that would prove it still does not.
+
 ## Input
 Read:
 - `README.md`, if present
@@ -47,6 +49,7 @@ Do not modify unrelated files.
 - integration map
 - runtime and automation model
 - technology stack constraints when source-backed or codebase-confirmed
+- required runtime configuration: environment variables, platform bindings, secrets by name, and required build outputs
 - security, privacy, reliability, performance, and observability architecture concerns
 - architecture decision log with alternatives and consequences
 - architecture risks and mitigations
@@ -108,6 +111,7 @@ Before writing, verify that sources or code identify:
 - performance, reliability, offline, observability, or scalability needs, if relevant
 - deployment, hosting, repository, or automation constraints, if relevant
 - architecture decisions that are already settled versus open
+- required environment variables, platform bindings, secrets by name, and build outputs for each deployable unit
 
 If stack, runtime, data ownership, integrations, security boundaries, or deployment constraints are missing, ask only when the unresolved answer materially changes product scope or a high-risk boundary. Otherwise choose or defer the simplest reversible source-compatible architecture, record the open decision and migration seam, and continue.
 
@@ -133,12 +137,14 @@ Ask architecture questions with recommended answers based on sources. Prefer:
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
    - The architecture does not invent product scope, screens, features, or implementation tasks.
+   - Clause-level coverage: for every FR and NFR, enumerate its distinct obligations and name the architecture element that realizes each one. An obligation with no named element goes to `Open Questions`; an ID appearing in a traceability table is not coverage of that ID's clauses.
+   - A deferred numeric, catalog value, or threshold that a DoD gate must compare against is recorded as a named blocker for that gate, not only as an open question. Deferral is legitimate; an unmeasurable gate is not.
 12. Create or update only `docs/architecture.md`.
 
 ## Required Output Structure
 Use this structure:
 
-Required contract sections are `Source References`, `Architecture Overview`, `Architecture Principles`, `Module And Boundary Map`, `Data And State Model`, `Integration Map`, `Architecture Decision Log`, `Risks And Mitigations`, `Out Of Scope`, and `Open Questions`. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. List omitted optional sections in the Final Report.
+Required contract sections are `Source References`, `Architecture Overview`, `Architecture Principles`, `Module And Boundary Map`, `Data And State Model`, `Integration Map`, `Configuration And Binding Contract`, `Architecture Decision Log`, `Risks And Mitigations`, `Out Of Scope`, and `Open Questions`. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. List omitted optional sections in the Final Report.
 
 ```markdown
 # Architecture
@@ -160,6 +166,8 @@ Required contract sections are `Source References`, `Architecture Overview`, `Ar
 ## Integration Map
 
 ## Technology Stack And Constraints
+
+## Configuration And Binding Contract
 
 ## Security Privacy And Access Model
 
