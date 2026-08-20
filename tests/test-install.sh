@@ -27,7 +27,12 @@ while IFS='|' read -r skill_name relative_path legacy_name; do
   [[ -L "$claude_dir/$skill_name" ]]
   cmp -s "$repo_root/$relative_path/SKILL.md" "$codex_dir/$skill_name/SKILL.md"
   cmp -s "$repo_root/$relative_path/SKILL.md" "$claude_dir/$skill_name/SKILL.md"
+  grep -q 'working_language' "$repo_root/$relative_path/SKILL.md"
+  grep -Fq 'For Ukrainian (`uk`)' "$repo_root/$relative_path/SKILL.md"
 done < <(sed -nE 's/^[[:space:]]*\{"name": "([^"]+)", "path": "([^"]+)", "legacy_name": (null|"([^"]*)")\},?$/\1|\2|\4/p' "$repo_root/skills-manifest.json")
+
+grep -q 'working_language' "$repo_root/skills/to-sdd-pipeline/references/claude-design-handoff.md"
+grep -q 'preserved_english_terms' "$repo_root/skills/to-sdd-pipeline/references/claude-design-handoff.md"
 
 [[ ! -e "$codex_dir/to-prd" && ! -L "$codex_dir/to-prd" ]]
 [[ -f "$claude_dir/to-prd/marker.txt" ]]

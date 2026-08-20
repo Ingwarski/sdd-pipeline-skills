@@ -10,6 +10,10 @@ Run the SDD workflow as one autonomous dependency graph while preserving exclusi
 
 Treat Product Idea Intake as the visible Phase 0 immediately upstream of this graph. Never silently invent or generate missing product intent. When `docs/product-idea.md` is absent or materially incomplete, dispatch or resume `to-product-idea` through the DAS Forge foreground intake adapter and return `awaiting-product-idea-intake`; do not continue into PRD generation.
 
+Resolve and persist `working_language` before Phase 0: an explicit language instruction wins; otherwise retain a current recorded preference unless the user changes it; otherwise use the language of the latest substantive user message. Pass it to every owner and design adapter. Use it for all questions, recommendations, playbacks, displayed state labels, final reports, and natural-language headings and prose in SDD artifacts. English headings listed in skills are semantic templates, not literal output strings.
+
+For Ukrainian (`uk`), require natural, idiomatic Ukrainian. Keep English only in immutable filenames/paths, code and commands, machine-readable schema or enum values, API/identifier names, proper names or verbatim quotations, and established IT terms such as `SDD Pipeline`; record accepted English terms and their Ukrainian meaning through `to-project-context`. Do not leave ordinary headings, prose, or displayed statuses in English and do not produce literal calques. A few English IT terms do not switch the working language. Track product content locales separately: an explicitly source-backed product locale may control UI copy while pipeline communication and specification prose remain Ukrainian.
+
 ## Entry Inputs And Node Prerequisites
 
 A pre-existing `docs/product-idea.md` is optional and must never be an onboarding or pipeline-entry prerequisite. Accept any of these entry sources:
@@ -103,7 +107,7 @@ Use `to-product-idea` as the sole owner of `docs/product-idea.md`. The DAS Forge
 - resume automatically after each answer without a separate continuation command;
 - never convert a timeout, silence, recommendation, or non-response into consent for material product intent;
 - after `Create product idea and start SDD`, atomically create or version `docs/product-idea.md` only when absent or confirmed intent changed, otherwise preserve the validated existing file byte-for-byte, then hash the final file;
-- write `forge/intake/product-idea-handoff.json` with at least intake/session ID, source mode, artifact path, content hash, answered decision IDs, assumptions, unresolved non-blocking questions, submission event, and timestamp.
+- write `forge/intake/product-idea-handoff.json` with at least intake/session ID, source mode, `working_language`, language-selection source, distinct product content locales, artifact path, content hash, answered decision IDs, assumptions, unresolved non-blocking questions, submission event, and timestamp.
 
 `Create product idea and start SDD` is the initial execution command, not an approval receipt. Draft playback, answering questions, editing prior answers, resuming intake, and submitting intent do not add approval gates. The only normal product-creation approval remains approval of the complete integrated design baseline.
 
@@ -124,6 +128,8 @@ Pass both validated files to every downstream artifact owner as candidate upstre
 - `canonical-terms.md` governs downstream naming and aliases only; it cannot redefine PRD behavior or silently rename established technical identifiers;
 - assumptions remain assumptions, and descriptive or irrelevant content must not be copied merely to prove the files were read.
 
+Also pass the manifest's current language record to every owner. `project-context.md` records the working language separately from product content locales. `canonical-terms.md` records each deliberately preserved English IT term, its Ukrainian meaning, and its usage boundary when `working_language` is Ukrainian. A missing or contradictory language record makes the context bundle incomplete.
+
 For each downstream artifact, record only the exact context sections or canonical-term entries it consumed in that artifact's manifest provenance. Hash those consumed fragments independently so an unrelated prose edit does not invalidate the whole pipeline. A change to a consumed context fact or term invalidates only its transitive dependents. A PRD or authoritative product-intent change invalidates both bundle members together. If the bundle exposes an upstream contradiction, re-invoke the upstream owner first and then regenerate the bundle; never patch the PRD from `to-project-context` or create a dependency cycle.
 
 ## Autonomy And Stop Rules
@@ -143,7 +149,7 @@ An owner result of `baseline_change_required` is not a question gate. Invalidate
 
 ## Prototype Mockup Candidate Contract
 
-After the coherent pre-design SDD baseline validates, resolve the Phase 2 executor and invoke its adapter. In `codex` mode, use the normal local flow: Codex creates exactly three candidates in the candidate workspace, validates them, and opens all three external-browser pages before the one whole-design approval. In `claude_design` mode, first build the complete source manifest from `docs/design-brief.md`, run the Codex access preflight, and require the Claude source-read receipt described in [Claude Design Handoff Contract](references/claude-design-handoff.md). If any required material is not accessible/readable, remain at `awaiting_design_source_access` and do not generate candidates. Only after that gate passes may Codex generate the frozen-input prompt with resolved project paths; Claude Design creates exactly three candidates, the operator selects one exact version there, Claude Design directly exports only that selection to the handoff inbox when available, and Codex validates/imports/opens it before whole-design approval. The documented transfer fallbacks may be used when direct export is unavailable, including manual transfer as the last viable option. Never silently substitute Codex design generation for a selected Claude Design mode.
+After the coherent pre-design SDD baseline validates, resolve the Phase 2 executor and invoke its adapter. In `codex` mode, use the normal local flow: Codex creates exactly three candidates in the candidate workspace, validates them, and opens all three external-browser pages before the one whole-design approval. In `claude_design` mode, first build the complete source manifest from `docs/design-brief.md`, run the Codex access preflight, and require the Claude source-read receipt described in [Claude Design Handoff Contract](references/claude-design-handoff.md). If any required material is not accessible/readable, remain at `awaiting_design_source_access` and do not generate candidates. Only after that gate passes may Codex generate the frozen-input prompt with resolved project paths and the complete language record; write that handoff prompt and all operator-facing Claude instructions in `working_language`. Claude Design creates exactly three candidates, the operator selects one exact version there, Claude Design directly exports only that selection to the handoff inbox when available, and Codex validates/imports/opens it before whole-design approval. The documented transfer fallbacks may be used when direct export is unavailable, including manual transfer as the last viable option. Never silently substitute Codex design generation for a selected Claude Design mode.
 
 Both modes must present exactly three meaningfully distinct, equivalent-scope, interaction-simulated Prototype Mockup Candidates at the comparison stage. `Whole-product` means coverage of the required product screens, flows, states, representative data, and viewports; it never means that Phase 2 implements the whole application. Candidate interactions are design simulations only and must not implement or claim production backend, auth, persistence, provider calls, repository mutations, Feature Unit execution, integrations, or other application runtime behavior. In Claude Design mode, preserve the three tool-native candidate references and the operator's selected reference in the handoff record; only the selected export becomes a normalized repository candidate. Do not fabricate local source hashes or browser receipts for the two candidates that were not exported.
 
@@ -156,6 +162,7 @@ For every Codex candidate and the selected normalized Claude Design import requi
 - source artifact IDs/hashes
 - stable live URL and route
 - covered journey, screens, states, representative data, locale, and viewports
+- working language used for review text and specification-facing explanations, distinct from product UI/content locales
 - internal visual-QA evidence
 - external-default-browser open result
 
@@ -183,7 +190,7 @@ The `Approved Visual Baseline` section of `docs/design-brief.md` is the single c
 2. re-invoke `to-qa-checklist` so concrete visual checks reference the Baseline ID;
 3. invoke `to-development-plan` only after both updates validate.
 
-If a source hash changes, invalidate only transitive dependents. Keep the current approved baseline active and immutable while a revision is merely proposed. Atomically switch the active Baseline ID only when the operator approves a revised integrated whole or explicitly directs and accepts a scoped baseline correction; record the latter as an operator override without a redundant approval prompt. When a later baseline supersedes the prior one, re-invoke the QA and development-plan owners automatically, invalidate `implementation_gate`, and mark affected production Feature Units `execution_invalidated` in the manifest/runtime projection. This skill does not own production implementation agents; the DAS Forge Phase 3 runner may dispatch them only after the current plan validates and a later explicit implementation prompt releases the gate. An implementation agent cannot create an override or make its own drift authoritative.
+If a source hash changes, invalidate only transitive dependents. A confirmed `working_language` change invalidates every human-readable SDD artifact and operator-facing report whose prose uses the prior language, plus language-dependent prototype content; it does not by itself rewrite immutable paths, code identifiers, or explicitly distinct product-locale content. Keep the current approved baseline active and immutable while a revision is merely proposed. Atomically switch the active Baseline ID only when the operator approves a revised integrated whole or explicitly directs and accepts a scoped baseline correction; record the latter as an operator override without a redundant approval prompt. When a later baseline supersedes the prior one, re-invoke the QA and development-plan owners automatically, invalidate `implementation_gate`, and mark affected production Feature Units `execution_invalidated` in the manifest/runtime projection. This skill does not own production implementation agents; the DAS Forge Phase 3 runner may dispatch them only after the current plan validates and a later explicit implementation prompt releases the gate. An implementation agent cannot create an override or make its own drift authoritative.
 
 ## Implementation Execution Gate
 
@@ -208,6 +215,13 @@ Store `project-context` and `canonical-terms` as two separate entries in `artifa
 {
   "pipeline_version": "string",
   "state": "string",
+  "language": {
+    "working_language": "BCP-47 language tag",
+    "selection_source": "explicit|recorded-preference|latest-user-message",
+    "artifact_language": "BCP-47 language tag",
+    "product_content_locales": [],
+    "preserved_english_terms": []
+  },
   "product_idea_intake": {
     "status": "not_started|awaiting_answer|ready_to_submit|handed_off|superseded",
     "intake_id": "string|null",
@@ -301,6 +315,8 @@ Store `project-context` and `canonical-terms` as two separate entries in `artifa
 
 Artifact `status` is orchestration state, while `mission_control_status` is its operator-facing projection. Map an unanswered material question to internal `input_needed` and operator-facing `Input needed`; it is neither a failure nor an approval. Map `validated` to `Done`, `invalidated` to `Needs attention` until it becomes ready again, and `blocked` to `Blocked`; `ready` means machine-ready for dispatch and is never an approval. `Approved design` is reserved for the active whole-design baseline state, not ordinary artifact completion. Keep `source_version`, `source_hashes`, `dependencies`, and `dependency_status` explicit for every artifact so readiness and invalidation do not have to be inferred from prose or filesystem order.
 
+Machine-readable keys and enum values remain exactly as defined above. Translate every displayed Mission Control label and final-report heading into `working_language`; for Ukrainian, do not display ordinary English labels such as `Input needed`, `Done`, or `Next Executable Action` even though their stored enum values remain unchanged.
+
 The implementation gate is separate from artifact readiness and design approval. `awaiting_implementation_prompt` means the SDD set, including the current development plan, is complete but production execution is intentionally paused. `authorized_for_phase3` is valid only when the prompt receipt matches the current plan hash and Approved Baseline ID. A generic continuation event must never advance this gate.
 
 When an owner inspects the repository, create a scoped repository observation containing only the exact paths and commands that support its claims, then record its ID on that artifact. Re-observe those paths on the next invocation; a changed observed path invalidates the dependent claim exactly as a changed source fragment does. Never use one whole-repository fingerprint that makes unrelated code changes invalidate every artifact, and treat an unobserved repository assertion as invalidated.
@@ -311,7 +327,7 @@ Do not store secrets. Use stable IDs and content hashes so resume and invalidati
 
 ## Workflow
 
-1. Load or initialize the manifest from actual files; never trust stale manifest state over filesystem evidence.
+1. Load or initialize the manifest from actual files; never trust stale manifest state over filesystem evidence. Resolve and persist the language record before asking a question or dispatching an owner, then pass it to every owner and design adapter.
 2. Resolve the optional entry source. With no pre-existing `docs/product-idea.md`, set `awaiting-product-idea-intake`, dispatch or resume `to-product-idea` from the rough description or saved intake, persist any typed request, and return control without launching downstream owners. With an existing/imported file, validate it first; hand it off without redundant questions when coherent, or dispatch only the focused material questions needed when incomplete, stale, contradictory, or explicitly corrected.
 3. When `Create product idea and start SDD` supplies a valid matching handoff receipt, clear the intake pause and continue automatically. Do not request another confirmation.
 4. When resuming from a later product-scope answer, design-approval receipt, or risk-authorization receipt, validate and persist the response, clear `pause_reason`, recompute hashes and ready nodes, and continue automatically in the same pipeline run. Do not require a separate resume confirmation.
@@ -331,6 +347,7 @@ Do not store secrets. Use stable IDs and content hashes so resume and invalidati
 Return:
 - `Result`
 - `Pipeline State`
+- `Working Language And Product Content Locales`
 - `Manifest`
 - `Product Idea Intake And Handoff`
 - `Validated Artifacts`

@@ -38,6 +38,7 @@ Read these files completely:
 9. The goal is not document proliferation. The goal is to reliably move from PRD to high-quality UX/UI design and then implementation planning.
 10. If proven mechanisms already exist in other skills, use them. Do not reward shallow original templates.
 11. The final audit must be direct, evidence-based, and specific. Do not give vague praise.
+12. The pipeline must resolve and persist one working language before intake, pass it to every owner and design adapter, and keep product content locales separate. For Ukrainian, questions, reports, displayed statuses, headings, and artifact prose must be idiomatic Ukrainian; English may remain only for immutable paths/filenames, code/commands, machine values, API/identifiers, names/quotations, and approved IT terms such as `SDD Pipeline`, recorded with Ukrainian meanings in `canonical-terms.md`.
 
 ## Expected Output Artifacts In The Pipeline
 
@@ -69,11 +70,11 @@ Must not own architecture, visual design, detailed journeys/screens/wireframes, 
 
 ### `docs/project-context.md`
 
-Owns confirmed product context, users, platforms, boundaries, constraints, assumptions, risks, and open questions derived after PRD work. It must not redefine PRD behavior or downstream architecture/design/DoD decisions.
+Owns confirmed product context, working language, separate product content locales, users, platforms, boundaries, constraints, assumptions, risks, and open questions derived after PRD work. It must not redefine PRD behavior or downstream architecture/design/DoD decisions.
 
 ### `docs/canonical-terms.md`
 
-Owns downstream product vocabulary, aliases, and terms to avoid. It must not redefine PRD behavior or silently rename established technical identifiers.
+Owns downstream product vocabulary, aliases, terms to avoid, and deliberately preserved English IT terms with their Ukrainian meanings and usage boundaries. It must not redefine PRD behavior or silently rename established technical identifiers.
 
 ### `docs/user-journey.md`
 

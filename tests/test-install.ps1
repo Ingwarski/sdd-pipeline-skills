@@ -23,6 +23,10 @@ try {
     $Manifest = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills-manifest.json') -Raw | ConvertFrom-Json
     foreach ($Skill in $Manifest.skills) {
         $SourceSkill = Join-Path (Join-Path $RepoRoot $Skill.path) 'SKILL.md'
+        $SkillText = Get-Content -LiteralPath $SourceSkill -Raw
+        if (-not $SkillText.Contains('working_language') -or -not $SkillText.Contains('For Ukrainian (`uk`)')) {
+            throw "$SourceSkill is missing the working-language contract"
+        }
         foreach ($InstallRoot in @($CodexDir, $ClaudeDir)) {
             $Destination = Join-Path $InstallRoot $Skill.name
             $Item = Get-Item -LiteralPath $Destination -Force
@@ -37,6 +41,11 @@ try {
                 throw "$InstalledSkill hash mismatch"
             }
         }
+    }
+
+    $ClaudeHandoff = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills/to-sdd-pipeline/references/claude-design-handoff.md') -Raw
+    if (-not $ClaudeHandoff.Contains('working_language') -or -not $ClaudeHandoff.Contains('preserved_english_terms')) {
+        throw 'Claude Design handoff is missing the working-language contract.'
     }
 
     if (-not (Test-Path -LiteralPath (Join-Path $UnrelatedPrd 'marker.txt'))) {
