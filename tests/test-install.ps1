@@ -52,7 +52,7 @@ try {
     $RepairDestination = Join-Path $CodexDir $RepairSkill.name
     $PriorRepairSource = Join-Path $PriorClone $RepairSkill.path
     New-Item -ItemType Directory -Path $PriorRepairSource -Force | Out-Null
-    Remove-Item -LiteralPath $RepairDestination -Force
+    [System.IO.Directory]::Delete($RepairDestination)
     New-Item -ItemType Junction -Path $RepairDestination -Target $PriorRepairSource | Out-Null
     Set-Content -LiteralPath (Join-Path $CodexDir '.codex-sdd-skills-source') -Value $PriorClone
     & (Join-Path $RepoRoot 'install.ps1') -Codex -Repair -CodexDir $CodexDir
@@ -62,10 +62,10 @@ try {
     }
 
     $ConflictPath = Join-Path $CodexDir 'to-sdd-pipeline'
-    Remove-Item -LiteralPath $ConflictPath -Force
+    [System.IO.Directory]::Delete($ConflictPath)
     New-Item -ItemType Directory -Path $ConflictPath | Out-Null
     $AtomicityPath = Join-Path $CodexDir 'to-wireframes'
-    Remove-Item -LiteralPath $AtomicityPath -Force
+    [System.IO.Directory]::Delete($AtomicityPath)
     $ConflictDetected = $false
     try {
         & (Join-Path $RepoRoot 'install.ps1') -Codex -CodexDir $CodexDir

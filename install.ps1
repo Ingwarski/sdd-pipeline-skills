@@ -207,6 +207,21 @@ function New-DirectoryLink([string]$Destination, [string]$SourceDir) {
     }
 }
 
+function Remove-DirectoryLink([string]$Path) {
+    $Item = Get-InstallItem $Path
+    if ($null -eq $Item -or [string]::IsNullOrWhiteSpace([string]$Item.LinkType)) {
+        throw "Refusing to remove a non-link destination: $Path"
+    }
+
+    # Windows PowerShell 5.1 can throw a NullReferenceException when Remove-Item
+    # handles a directory symbolic link. Directory.Delete removes the reparse
+    # point itself and does not recurse into its target.
+    [System.IO.Directory]::Delete($Path)
+    if ($null -ne (Get-InstallItem $Path)) {
+        throw "Failed to remove directory link: $Path"
+    }
+}
+
 function Install-Root([string]$InstallRoot, [string]$ToolLabel) {
     $PriorRoot = Get-ReceiptRoot $InstallRoot
     New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
@@ -217,7 +232,7 @@ function Install-Root([string]$InstallRoot, [string]$ToolLabel) {
 
         if ($Uninstall) {
             if ((Test-LinkPointsTo $Destination $SourceDir) -or (Test-RepairAuthorized $Destination $Skill.path $PriorRoot)) {
-                Remove-Item -LiteralPath $Destination -Force
+                Remove-DirectoryLink $Destination
                 $script:Removed++
                 Write-Host "$ToolLabel $($Skill.name): removed"
             } elseif ($null -ne (Get-InstallItem $Destination)) {
@@ -230,7 +245,7 @@ function Install-Root([string]$InstallRoot, [string]$ToolLabel) {
                 $CurrentLegacySource = Normalize-Path (Join-Path $RepoRoot "skills/$($Skill.legacy_name)")
                 $PriorLegacySource = if ([string]::IsNullOrWhiteSpace($PriorRoot)) { '' } else { Normalize-Path (Join-Path $PriorRoot "skills/$($Skill.legacy_name)") }
                 if ($null -ne $LegacyTarget -and ($LegacyTarget -eq $CurrentLegacySource -or (-not [string]::IsNullOrWhiteSpace($PriorLegacySource) -and $LegacyTarget -eq $PriorLegacySource))) {
-                    Remove-Item -LiteralPath $LegacyDestination -Force
+                    Remove-DirectoryLink $LegacyDestination
                     $script:Removed++
                     Write-Host "$ToolLabel $($Skill.legacy_name): removed legacy repository link"
                 } elseif ($null -ne (Get-InstallItem $LegacyDestination)) {
@@ -245,7 +260,7 @@ function Install-Root([string]$InstallRoot, [string]$ToolLabel) {
             Write-Host "$ToolLabel $($Skill.name): already installed"
         } else {
             if ($null -ne (Get-InstallItem $Destination) -and (Test-RepairAuthorized $Destination $Skill.path $PriorRoot)) {
-                Remove-Item -LiteralPath $Destination -Force
+                Remove-DirectoryLink $Destination
             }
             $LinkType = New-DirectoryLink $Destination $SourceDir
             $script:Created++
@@ -272,7 +287,7 @@ function Install-Root([string]$InstallRoot, [string]$ToolLabel) {
             $CurrentLegacySource = Normalize-Path (Join-Path $RepoRoot "skills/$($Skill.legacy_name)")
             $PriorLegacySource = if ([string]::IsNullOrWhiteSpace($PriorRoot)) { '' } else { Normalize-Path (Join-Path $PriorRoot "skills/$($Skill.legacy_name)") }
             if ($null -ne $LegacyTarget -and ($LegacyTarget -eq $CurrentLegacySource -or (-not [string]::IsNullOrWhiteSpace($PriorLegacySource) -and $LegacyTarget -eq $PriorLegacySource))) {
-                Remove-Item -LiteralPath $LegacyDestination -Force
+                Remove-DirectoryLink $LegacyDestination
                 $script:Migrated++
                 Write-Host "$ToolLabel $($Skill.legacy_name): removed legacy repository link"
             } elseif ($null -ne (Get-InstallItem $LegacyDestination)) {
