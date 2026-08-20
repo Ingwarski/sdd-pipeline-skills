@@ -56,6 +56,8 @@ When `claude_design` is selected, the pipeline inserts `design-source-access-pre
 All skills follow the same operating contract:
 
 - AI is not the source of truth. Source files and explicit user answers are.
+- The orchestrator resolves one `working_language` before intake and passes it to every owner and design adapter. Questions, recommendations, playbacks, displayed states, reports, and natural-language SDD artifact prose use that language; product UI/content locales remain a separate source-backed setting.
+- With Ukrainian `working_language`, all ordinary headings and prose must be natural Ukrainian. English remains only in immutable filenames/paths, code/commands, machine values, API/identifier names, proper names or quotations, and approved IT terms such as `SDD Pipeline`; approved English IT terms and their Ukrainian meanings live in `canonical-terms.md`.
 - Missing product intent is surfaced through the foreground Product Idea Intake, never silently generated in background logs. Material questions persist as `Input needed`; silence, timeout, and recommendations are not consent.
 - Intake answers and `Create product idea and start SDD` are input/start actions, not approval receipts. The only normal approval is still approval of the complete integrated prototype.
 - Discoverable information must be read from sources or code instead of asked. A focused grill-me gap-check runs only for genuinely non-inferable information that materially changes product scope, the whole-design baseline, or a high-risk boundary.
@@ -77,8 +79,8 @@ All skills follow the same operating contract:
 The documents are intentionally separated:
 
 - `product-idea.md` owns the current operator-confirmed product mandate. `to-product-idea` is its sole owner; runtime draft/session data and `ProductIdeaHandoffReceipt` remain operational provenance under `forge/intake/`.
-- `project-context.md` owns confirmed product context, users, platforms, boundaries, constraints, assumptions, risks, and open questions derived after PRD work.
-- `canonical-terms.md` owns normalized downstream vocabulary and aliases without redefining PRD behavior or established technical identifiers.
+- `project-context.md` owns confirmed product context, working language, distinct product content locales, users, platforms, boundaries, constraints, assumptions, risks, and open questions derived after PRD work.
+- `canonical-terms.md` owns normalized downstream vocabulary and aliases, including deliberately preserved English IT terms with their Ukrainian meanings and usage boundaries, without redefining PRD behavior or established technical identifiers.
 - `user-journey.md` owns user behavior and journey logic.
 - `screen-map.md` owns which screens and states exist.
 - `wireframes.md` owns screen structure and state structure.
@@ -88,7 +90,7 @@ The documents are intentionally separated:
 - `guardrails.md` owns AI behavior, source-of-truth policy, and behavioral evidence policy.
 - `qa-checklist.md` owns concrete verification checks and per-check evidence artifacts.
 - `development-plan.md` owns implementation units and build order.
-- `forge/sdd-manifest.json` owns orchestration state, owner invocation/output-set mapping, source versions and hashes, consumed source fragments, explicit dependencies and dependency states, content hashes, validation, invalidation, and resume state; it does not own domain truth. Internal `validated` projects to Mission Control `Done`, while `ready` means machine-ready rather than approved.
+- `forge/sdd-manifest.json` owns orchestration state, the working-language record, owner invocation/output-set mapping, source versions and hashes, consumed source fragments, explicit dependencies and dependency states, content hashes, validation, invalidation, and resume state; it does not own domain truth. Machine enum values remain stable while operator-facing labels are localized. Internal `validated` projects to Mission Control `Done`, while `ready` means machine-ready rather than approved.
 
 If one artifact needs information from another, it should cite or reference that artifact rather than restating it.
 

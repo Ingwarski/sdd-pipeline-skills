@@ -2,13 +2,15 @@
 
 Use this contract only when `design_executor: claude_design` is explicitly selected. Candidate selection in Claude Design is not design approval. The later whole-design approval in Codex makes the validated imported version the source of truth.
 
+Carry the pipeline language record unchanged through the handoff. Write the paste-ready prompt, operator instructions, source-access failures, selection/export guidance, and return report in `working_language`. Keep product UI/content locales separate. For Ukrainian, require idiomatic Ukrainian and permit English only for immutable paths/filenames, code/commands, machine values, API/identifier names, names/quotations, and the approved IT terms listed in `preserved_english_terms`, such as `SDD Pipeline`.
+
 ## Required Design Source Access Gate
 
 `docs/design-brief.md` owns the `Design Source Material Inventory`. It is the authoritative list of every design source Claude Design must be able to see: local files, screenshots, captured assets, Figma/Storybook/Drive links, design-system references, brand assets, and reference products. The orchestrator must not derive a smaller list by selecting only the frozen SDD files.
 
 For each Claude Design handoff, create and hash these operational records under `forge/design/handoffs/{handoff_id}/`:
 
-- `design-source-manifest.json`: one entry for every inventory item, with `material_id`, `kind`, `required`, exact location or captured-bundle path, purpose, source basis, access mode, and content hash or capture ID;
+- `design-source-manifest.json`: the current language record plus one entry for every inventory item, with `material_id`, `kind`, `required`, exact location or captured-bundle path, purpose, source basis, access mode, and content hash or capture ID;
 - `codex-access-receipt.json`: the preflight result for every item, with resolved location, status `accessible | inaccessible | not_required`, observed hash or capture ID, checked-at timestamp, and an error or note when applicable;
 - `claude-source-read-receipt.json`: Claude Design's receipt after it has opened/read every required item, with the manifest hash, one result per `material_id`, observed hash or capture ID, and unresolved items.
 
@@ -29,6 +31,7 @@ This gate is separate from whole-design approval. A source-access receipt proves
 Generate one paste-ready prompt containing:
 
 - the resolved absolute project root;
+- `working_language`, its selection source, distinct product content locales, and every approved preserved English IT term with its Ukrainian meaning when applicable;
 - `handoff_id` and the exact inbox path `forge/design/inbox/{handoff_id}/selected-export/`;
 - resolved absolute paths for every frozen SDD input, including `docs/design-brief.md`, `docs/wireframes.md`, `docs/screen-map.md`, `docs/user-journey.md`, `docs/prd.md`, and `docs/guardrails.md`;
 - the content hash of each input and the approved locale/viewports/state coverage;
@@ -36,11 +39,13 @@ Generate one paste-ready prompt containing:
 - the exact authorized path for `claude-source-read-receipt.json`;
 - a complete, one-line-per-item inventory of every required and optional design material: `material_id`, kind, exact location or capture path, required flag, purpose, access mode, and observed hash/capture ID;
 - an explicit instruction to open/read every required material before candidate generation and return `claude-source-read-receipt.json` with one result for every `material_id`;
+- an explicit instruction to use `working_language` for all explanations, candidate names, review text, and specification-facing copy, while using only source-backed product locales for product UI/content;
+- for Ukrainian, an explicit instruction not to leave ordinary headings, prose, controls, or statuses in English and not to literal-translate English phrasing; only the recorded exception classes and approved IT terms may remain English;
 - an instruction to create exactly three meaningfully distinct, equivalent-scope, interaction-simulated visual candidates in Claude Design;
 - the Phase 2 boundary: no production backend, auth, persistence, provider calls, integrations, repository mutation, or production-source writes;
 - an instruction that the operator selects one exact candidate/version in Claude Design before export;
 - an instruction that, after selection, Claude Design directly exports only that selected version as a self-contained folder or standalone HTML under the exact inbox path and writes nowhere else in the project;
-- a return instruction: report `handoff_id`, selected candidate/version, export shape, and exact export path, then tell the operator to return to Codex and resume that handoff.
+- a return instruction in `working_language`: report `handoff_id`, selected candidate/version, export shape, and exact export path, then tell the operator to return to Codex and resume that handoff.
 
 Claude Design may read the frozen inputs and source materials named in the prompt. It may not edit them, the manifest, receipts, production code, other candidates, or any project path outside its selected-export directory and the authorized handoff-receipt path. It must stop and return the inaccessible `material_id` values instead of guessing or silently replacing a required source.
 
@@ -58,7 +63,7 @@ If required source access is missing, remain at `awaiting_design_source_access` 
 
 On resume, Codex must:
 
-1. validate the Claude source-read receipt against the exact manifest hash and require one successful read result for every required `material_id`; otherwise remain at `awaiting_design_source_access`;
+1. validate the Claude source-read receipt against the exact manifest hash and language record, and require one successful read result for every required `material_id`; otherwise remain at `awaiting_design_source_access`;
 2. resolve the selected export beneath the handoff inbox and reject path escape, multiple selected versions, missing assets, external runtime dependencies, secrets, executable backend behavior, or production-source writes;
 3. normalize the selected export into a new immutable candidate/version under `forge/design/candidates/{candidate_id}/{version}/` and evidence under `forge/design/evidence/`;
 4. compute `sdd-tree-sha256-v1`, record source-input hashes, source-manifest/receipt hashes, import transport, origin `claude_design`, handoff ID, changed paths, and validation evidence;

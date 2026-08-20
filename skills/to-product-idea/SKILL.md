@@ -10,6 +10,10 @@ Turn operator-confirmed intent into the authoritative `docs/product-idea.md` inp
 
 This is the Phase 0 artifact owner immediately upstream of `to-sdd-pipeline`. Product Idea Intake is a Product Creation Run, not a Feature Unit and not a design approval.
 
+Working-language contract: use the orchestrator-supplied `working_language`; in standalone use, prefer an explicit language request, otherwise use the language of the latest substantive user message. Use that language for every question, recommendation, rationale, playback, status, final report, and all natural-language headings and prose in `docs/product-idea.md`. English headings shown in this skill are semantic templates, not literal output strings.
+
+For Ukrainian (`uk`), write natural, idiomatic Ukrainian. Keep English only in immutable filenames/paths, code and commands, machine-readable schema or enum values, API/identifier names, proper names or verbatim quotations, and established IT terms such as `SDD Pipeline`; do not leave ordinary headings, prose, or displayed status labels in English and do not produce literal calques. A few English IT terms do not change `working_language`. Keep product content locales separate: an explicitly required product locale may control UI/content examples while intake, specification prose, and reports remain in `working_language`.
+
 ## Inputs
 
 Accept any combination of:
@@ -52,6 +56,7 @@ When running inside DAS Forge, never bury a question in agent logs or continue s
 ```yaml
 status: awaiting_operator_input
 question_id: stable-id
+working_language: BCP-47 language tag
 question: one material question
 why_material: why the answer changes product intent
 recommendation: preferred answer with concise rationale
@@ -112,7 +117,7 @@ Present the complete draft in Mission Control. The operator action `Create produ
 
 1. atomically create or version `docs/product-idea.md` when it is absent or confirmed intent changed; otherwise preserve the validated existing file byte-for-byte;
 2. validate that final file and compute its content hash;
-3. return the hash, source mode, intake/session ID, answered decision IDs, assumptions, unresolved non-blocking questions, and submission timestamp to the runtime;
+3. return the hash, source mode, `working_language`, its selection source, any distinct product content locales, intake/session ID, answered decision IDs, assumptions, unresolved non-blocking questions, and submission timestamp to the runtime;
 4. let the runtime write `forge/intake/product-idea-handoff.json` and dispatch `to-sdd-pipeline` automatically.
 
 Use `source_mode: existing-file` for a repository-existing file, `source_mode: imported` for an externally supplied file, and `seed` or `interview` for a no-file path as applicable.
@@ -154,6 +159,7 @@ Return:
 
 - `Result`
 - `Created/Updated File`
+- `Working Language And Product Content Locales`
 - `Product Idea Hash`
 - `Source Mode`
 - `Confirmed Decisions`
