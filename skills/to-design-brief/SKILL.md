@@ -53,6 +53,7 @@ Do not modify unrelated files.
 - responsive behavior
 - accessibility floor
 - design handoff guidance
+- the complete Design Source Material Inventory used by design executors
 - approved visual-baseline metadata and references after the whole prototype is approved
 
 For states: `docs/screen-map.md` owns which states exist per screen; `docs/wireframes.md` owns each state's structure; this file owns system-wide state appearance and behavior patterns. Reference the screen-map state list; do not re-derive it.
@@ -105,7 +106,7 @@ If audience, product category, platform priorities, existing-system inheritance,
 
 ## Workflow
 1. Inspect the input files.
-2. Find grounding material before inventing: design docs, screenshots, Figma links, Storybook, tokens, components, CSS variables, brand assets, or reference products named by the user.
+2. Find grounding material before inventing: design docs, screenshots, Figma links, Storybook, tokens, components, CSS variables, brand assets, or reference products named by the user. Catalog every discovered material or link in `Design Source Material Inventory`; do not leave a source implicit in prose.
 3. Extract UX intent from the PRD, user journey, screen map, and wireframes.
 4. Identify the product type, stakes, form factor, and level of visual sophistication needed.
 5. Run the concern scan and decide which concerns deserve sections.
@@ -114,7 +115,7 @@ If audience, product category, platform priorities, existing-system inheritance,
 8. Critique the planned Design Spine against generic AI defaults: templated palettes, interchangeable type pairings, decorative filler, and styles that could belong to any product in the category. Name one signature element or one deliberate restraint principle grounded in the product's domain, and state where the design spends or withholds boldness. If the direction is not product-specific, revise it or turn the strongest source-grounded alternatives into clearly labeled Prototype Mockup Candidates for whole-design comparison; do not add a pre-mockup selection gate. These candidates are design-only interaction simulations, not application implementations.
 9. Define semantic tokens and component appearance principles without overbuilding a design-system monster.
 10. Define responsive, accessibility, state, and interaction expectations.
-11. Add handoff prompts or guidance for Figma, v0, Stitch, Codex, or Claude Design only when useful and only from captured content. Handoff guidance must name frozen inputs and equivalent design scope, never grant the design tool authority to edit SDD artifacts or production code.
+11. Add handoff prompts or guidance for Figma, v0, Stitch, Codex, or Claude Design only when useful and only from captured content. Handoff guidance must name frozen inputs, the complete Design Source Material Inventory, and equivalent design scope, never grant the design tool authority to edit SDD artifacts or production code.
 12. Run the Validation Pass defined below before creating or updating the artifact.
 13. When an integrated prototype has been approved, atomically update the canonical `Approved Visual Baseline` section with its stable Baseline ID, selected candidate/version, origin `codex | claude_design`, handoff ID when applicable, immutable visual target/hash, frozen normalized prototype source root/tree hash and algorithm, durable repository-relative artifact references, visual-DoD scope, coverage, Codex whole-design approval receipt, and permitted variance. Never use a Claude chat URL, temporary export path, or external result ID as the sole durable baseline reference. Keep the prior approved baseline active while a revision is only proposed. An explicit scoped operator correction becomes a recorded baseline override for that scope; a newly approved integrated whole creates a new active Baseline ID and marks the old immutable baseline superseded. Record the prior ID and receipt in the Decision Log and downstream invalidation intent in this artifact. Do not create another design approval merely to acknowledge an operator-authored correction. Only the orchestrator changes manifest/runtime status, re-invokes QA and development-plan owners, and marks affected production units invalidated.
 14. Avoid changing scope, adding screens, or rewriting wireframes.
@@ -132,7 +133,9 @@ Pass 1 - Mechanical coverage:
 - Every token referenced anywhere in the brief resolves to a defined value in the Design Spine.
 - Every component named in either spine has both an appearance principle and a behavior principle.
 - Every screen and state in `docs/screen-map.md` is covered by a state pattern or explicitly deferred with a reason.
-- Every visual reference, link, or source named in the brief resolves; unavailable sources are flagged, never silently dropped.
+- Every visual reference, link, or source named in the brief has exactly one inventory entry with a required/optional decision, location, access status, and content hash or capture ID when applicable.
+- Every required inventory entry resolves in the executor environment or has an authorized self-contained capture/bundle; unavailable required sources are blocking and are listed in `Open Questions`, never silently dropped.
+- Every link or material named elsewhere in the brief appears in the inventory, and every inventory entry is referenced by the brief or handoff contract.
 
 Pass 2 - Judgment:
 - Bloat: no pixel specs where tokens suffice, no decorative prose, no sections filled to satisfy the template.
@@ -142,12 +145,16 @@ Pass 2 - Judgment:
 ## Required Output Structure
 Use this structure:
 
-Required contract sections are `Source References`, `Design Brief`, `Decision Log`, `Product Experience Goal`, `Design Spine`, `Experience Spine`, `Approved Visual Baseline`, `Validation Report`, and `Open Questions`. Before prototype approval, `Approved Visual Baseline` uses `Status: proposed`; after approval it must identify the approved whole. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. List omitted optional sections in the Final Report.
+Required contract sections are `Source References`, `Design Source Material Inventory`, `Design Brief`, `Decision Log`, `Product Experience Goal`, `Design Spine`, `Experience Spine`, `Approved Visual Baseline`, `Validation Report`, and `Open Questions`. Before prototype approval, `Approved Visual Baseline` uses `Status: proposed`; after approval it must identify the approved whole. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. List omitted optional sections in the Final Report.
+
+Each inventory entry must record `material_id`, `kind`, `location` (repository-relative path or URL), `required_for_candidate_generation`, `purpose`, `source_basis`, `access_status` (`resolved`, `unavailable`, or `not_required`), and `content_hash_or_capture_id` when applicable. For external material also record the authorized access mode (`browser_open`, `captured_bundle`, or `handoff_export`). A required item with `access_status: unavailable` is a source-access blocker; it is not an approval decision and must not be converted into a guessed substitute.
 
 ```markdown
 # Design Brief
 
 ## Source References
+
+## Design Source Material Inventory
 
 ## Design Brief
 

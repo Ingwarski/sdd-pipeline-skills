@@ -52,7 +52,7 @@ It must never directly create or edit a domain artifact. Invoke or re-invoke the
 
 An owner invocation may change only its declared artifact path or declared cohesive output set. `to-project-context` is one coupled two-output owner invocation: both files are required, validated and hashed separately, and recorded with the same owner-invocation ID. A missing, stale, or invalid member makes `project-context-bundle` incomplete and re-invokes that owner for the whole bundle. Every artifact still has exactly one owner. The orchestrator validates owner output, records its hash and provenance, then dispatches every newly ready SDD node through `docs/development-plan.md` without asking the user to continue. Once that final artifact validates, the implementation execution gate below takes control; no Phase 3 runner or implementation agent may be dispatched automatically.
 
-The mockup producer is a runtime adapter, not an SDD artifact owner. In `codex` mode it may write candidate-specific design code/assets only under `forge/design/candidates/{candidate_id}/{version}/`, optional shared mockup-preview infrastructure only under the versioned `forge/design/candidate-sets/{candidate_set_id}/{set_version}/shared/` workspace, and normalized evidence under `forge/design/evidence/`. In `claude_design` mode, Claude Design may read the frozen handoff inputs and, after the operator selects one exact version there, write only that selected export under `forge/design/inbox/{handoff_id}/selected-export/`; the Codex import adapter alone normalizes it into candidate/evidence paths. Shared preview reuse resolves to that candidate-set version and cannot hide mutable source elsewhere. No design adapter may write production application source directories, production application logic, domain SDD artifacts, or the orchestration manifest. Every write records adapter, origin, handoff when applicable, candidate/version or candidate-set version, target hash, and changed paths. Phase 3 implementation agents own production-code writes under the bounds of the approved development plan.
+The mockup producer is a runtime adapter, not an SDD artifact owner. In `codex` mode it may write candidate-specific design code/assets only under `forge/design/candidates/{candidate_id}/{version}/`, optional shared mockup-preview infrastructure only under the versioned `forge/design/candidate-sets/{candidate_set_id}/{set_version}/shared/` workspace, and normalized evidence under `forge/design/evidence/`. In `claude_design` mode, Claude Design may read the complete source inventory only after the source-access preflight and source-read receipt pass; after the operator selects one exact version there, it may write only that selected export under `forge/design/inbox/{handoff_id}/selected-export/` plus the authorized handoff receipt. The Codex import adapter alone normalizes it into candidate/evidence paths. Shared preview reuse resolves to that candidate-set version and cannot hide mutable source elsewhere. No design adapter may write production application source directories, production application logic, domain SDD artifacts, or the orchestration manifest. Every write records adapter, origin, handoff when applicable, candidate/version or candidate-set version, target hash, and changed paths. Phase 3 implementation agents own production-code writes under the bounds of the approved development plan.
 
 ## Dependency Graph
 
@@ -75,6 +75,7 @@ product-idea-intake
 -> qa-checklist-proposed
 -> coherent-pre-design-sdd
 -> design-executor-choice
+-> design-source-access-preflight
 -> prototype-candidates
 -> awaiting-design-approval
 -> approved-visual-baseline
@@ -83,7 +84,7 @@ product-idea-intake
 -> awaiting-implementation-prompt
 ```
 
-In pipeline mode, `to-project-context` reads only the product idea, PRD, explicit user decisions, README/CODEX, and independent project evidence; it never reads downstream SDD artifacts back into the context bundle. `docs/guardrails.md` depends only on the PRD, the validated context bundle, and explicitly authoritative upstream intent; it never reads downstream artifacts back into itself. `docs/wireframes.md` never depends on `docs/design-brief.md`. `docs/development-plan.md` never belongs to the pre-design baseline because it requires the Approved Visual Baseline. `awaiting-implementation-prompt` is the terminal state of this SDD artifact graph; Phase 3 implementation is outside the graph and requires the separate execution prompt.
+In pipeline mode, `to-project-context` reads only the product idea, PRD, explicit user decisions, README/CODEX, and independent project evidence; it never reads downstream SDD artifacts back into the context bundle. `docs/guardrails.md` depends only on the PRD, the validated context bundle, and explicitly authoritative upstream intent; it never reads downstream artifacts back into itself. `docs/wireframes.md` never depends on `docs/design-brief.md`. `design-source-access-preflight` reads the complete `Design Source Material Inventory` plus the frozen SDD inputs and produces only operational handoff receipts; it never edits `docs/design-brief.md` or other domain artifacts. `docs/development-plan.md` never belongs to the pre-design baseline because it requires the Approved Visual Baseline. `awaiting-implementation-prompt` is the terminal state of this SDD artifact graph; Phase 3 implementation is outside the graph and requires the separate execution prompt.
 
 Run independent ready nodes in parallel when their owner skills and workspace safety allow it. Serialize nodes that share a source file being updated.
 
@@ -133,7 +134,8 @@ Pause only for:
 1. Product Idea Intake or a later genuinely non-inferable decision that materially changes product scope, surfaced through a foreground `Input needed` request;
 2. the engineer's one approval of the complete integrated prototype, which also selects the candidate and creates the Approved Visual Baseline;
 3. just-in-time authorization before an irreversible, destructive, financial, legal, public, privileged, security-sensitive, privacy-sensitive, or external side effect;
-4. the separate implementation execution prompt after the current `docs/development-plan.md` validates. This is a command gate, not an additional design approval or a product-intent question.
+4. incomplete access to a required design source material, surfaced internally as `awaiting_design_source_access` and projected at pipeline level as `awaiting-design-source-access`, with the exact material IDs and the needed authorized path/capture. This is a source-visibility gate, not a design approval or product-intent question;
+5. the separate implementation execution prompt after the current `docs/development-plan.md` validates. This is a command gate, not an additional design approval or a product-intent question.
 
 Artifact playback, validation, preview visibility, candidate recommendation, advisory P2/P3 findings, and ordinary reversible changes are not approval gates.
 
@@ -141,7 +143,7 @@ An owner result of `baseline_change_required` is not a question gate. Invalidate
 
 ## Prototype Mockup Candidate Contract
 
-After the coherent pre-design SDD baseline validates, resolve the Phase 2 executor and invoke its adapter. In `codex` mode, use the normal local flow: Codex creates exactly three candidates in the candidate workspace, validates them, and opens all three external-browser pages before the one whole-design approval. In `claude_design` mode, follow [Claude Design Handoff Contract](references/claude-design-handoff.md): Codex generates the frozen-input prompt with resolved project paths; Claude Design creates exactly three candidates, the operator selects one exact version there, Claude Design directly exports only that selection to the handoff inbox when available, and Codex validates/imports/opens it before whole-design approval. The documented transfer fallbacks may be used when direct export is unavailable, including manual transfer as the last viable option. Never silently substitute Codex design generation for a selected Claude Design mode.
+After the coherent pre-design SDD baseline validates, resolve the Phase 2 executor and invoke its adapter. In `codex` mode, use the normal local flow: Codex creates exactly three candidates in the candidate workspace, validates them, and opens all three external-browser pages before the one whole-design approval. In `claude_design` mode, first build the complete source manifest from `docs/design-brief.md`, run the Codex access preflight, and require the Claude source-read receipt described in [Claude Design Handoff Contract](references/claude-design-handoff.md). If any required material is not accessible/readable, remain at `awaiting_design_source_access` and do not generate candidates. Only after that gate passes may Codex generate the frozen-input prompt with resolved project paths; Claude Design creates exactly three candidates, the operator selects one exact version there, Claude Design directly exports only that selection to the handoff inbox when available, and Codex validates/imports/opens it before whole-design approval. The documented transfer fallbacks may be used when direct export is unavailable, including manual transfer as the last viable option. Never silently substitute Codex design generation for a selected Claude Design mode.
 
 Both modes must present exactly three meaningfully distinct, equivalent-scope, interaction-simulated Prototype Mockup Candidates at the comparison stage. `Whole-product` means coverage of the required product screens, flows, states, representative data, and viewports; it never means that Phase 2 implements the whole application. Candidate interactions are design simulations only and must not implement or claim production backend, auth, persistence, provider calls, repository mutations, Feature Unit execution, integrations, or other application runtime behavior. In Claude Design mode, preserve the three tool-native candidate references and the operator's selected reference in the handoff record; only the selected export becomes a normalized repository candidate. Do not fabricate local source hashes or browser receipts for the two candidates that were not exported.
 
@@ -246,9 +248,19 @@ Store `project-context` and `canonical-terms` as two separate entries in `artifa
   "design_execution": {
     "mode": "codex|claude_design|null",
     "handoff_id": "string|null",
-    "state": "not_started|awaiting_executor_choice|generating_candidates|awaiting_claude_design_selection|awaiting_claude_design_export|awaiting_export_transfer|validating_import|awaiting_design_approval|approved_visual_baseline",
+    "state": "not_started|awaiting_executor_choice|preflighting_source_access|awaiting_design_source_access|generating_candidates|awaiting_claude_design_selection|awaiting_claude_design_export|awaiting_export_transfer|validating_import|awaiting_design_approval|approved_visual_baseline",
     "inbox_path": "string|null",
     "transport": "direct_export|codex_assisted_import|manual_transfer|authorized_url_capture|null",
+    "source_manifest_path": "string|null",
+    "source_manifest_hash": "string|null",
+    "codex_access_receipt_path": "string|null",
+    "codex_access_receipt_hash": "string|null",
+    "claude_source_read_receipt_path": "string|null",
+    "claude_source_read_receipt_hash": "string|null",
+    "required_source_count": "number|null",
+    "codex_accessible_required_source_count": "number|null",
+    "claude_read_required_source_count": "number|null",
+    "unresolved_required_source_ids": [],
     "claude_candidate_references": [],
     "selected_candidate_version": "string|null",
     "selection_receipt": "object|null"
@@ -308,7 +320,7 @@ Do not store secrets. Use stable IDs and content hashes so resume and invalidati
 7. After each result, validate the owner boundary, source traceability, required structure, open questions, and content hash. Convert a material non-inferable product-intent question into a typed `Input needed` request instead of leaving it in background logs.
 8. Reconcile terminology against `docs/canonical-terms.md` and cross-artifact conflicts by re-invoking owners; never patch their artifacts directly. Record only consumed context/term fragments so unrelated bundle edits do not trigger broad invalidation.
 9. Continue until the coherent pre-design SDD baseline validates.
-10. Resolve `design_executor`. For `codex`, run the normal three-local-candidate flow, validate it, and open all three pages. For `claude_design`, generate the handoff/return prompt, persist the handoff state through selection/export/transfer/import, validate the selected normalized import, and open it. Pause at `awaiting_design_approval` only after the applicable path is ready for whole-design approval.
+10. Resolve `design_executor`. For `codex`, run the normal three-local-candidate flow, validate it, and open all three pages. For `claude_design`, build the complete source manifest, run `preflighting_source_access`, and persist both Codex and Claude access receipts. If any required source is unresolved, set `awaiting_design_source_access`, report the exact IDs and next access action, and do not invoke candidate generation. Only after all required sources are accessible/read does the pipeline generate the handoff prompt, persist the handoff state through selection/export/transfer/import, validate the selected normalized import, and open it. Pause at `awaiting_design_approval` only after the applicable path is ready for whole-design approval.
 11. Persist the Approved Visual Baseline through its owner, update QA through its owner, and create the development plan through its owner.
 12. After the validated development plan is written, record its hash and enter `awaiting-implementation-prompt`. Return control without dispatching Phase 3 or any production-code creator.
 13. On a later resume with a separate explicit implementation prompt, revalidate the current plan and baseline hashes, record the prompt receipt, set `implementation_gate.state` to `authorized_for_phase3`, and hand off to the Phase 3 runner. Do not infer this prompt from a generic resume or a previous pipeline command.
@@ -326,6 +338,8 @@ Return:
 - `Approved Baseline ID`, when approved
 - `Baseline Integrity`, when a baseline exists
 - `Design Executor Handoff And Import`, when Claude Design was selected
+- `Design Source Manifest And Access Receipts`, when Claude Design was selected
+- `Unresolved Design Sources`, when source access is incomplete
 - `Implementation Execution Gate`
 - `Implementation Prompt Receipt`, when Phase 3 has been explicitly released
 - `Invalidated Or Regenerated Artifacts`

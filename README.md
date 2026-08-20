@@ -20,12 +20,15 @@ rough-description-or-existing-or-imported-idea -> to-product-idea -> product-ide
 -> to-architecture
 -> to-dod-evals
 -> to-qa-checklist (proposed visual checks)
+-> design-source-access-preflight (Claude Design only)
 -> three prototype candidates
 -> one whole-design approval
 -> design-brief and QA reconciliation
 -> to-development-plan
 -> awaiting-implementation-prompt
 ```
+
+When `claude_design` is selected, the pipeline inserts `design-source-access-preflight` between the coherent SDD baseline and prototype generation. It inventories every design material and link named by the validated design brief, records a Codex access receipt, and requires Claude Design to return a source-read receipt for every required item. Missing access pauses the handoff at `awaiting-design-source-access`; Claude Design must not generate candidates from an incomplete or guessed source set.
 
 `to-product-idea` solely owns `docs/product-idea.md` and uses a foreground, resumable, one-question-at-a-time intake. `Create product idea and start SDD` atomically creates or versions the file only when needed, preserves an unchanged existing file byte-for-byte, and records its handoff receipt; it is an execution command, not an approval. `to-prd` is the first SDD domain-artifact owner dispatched by `to-sdd-pipeline` after that handoff. `to-project-context` runs immediately after the PRD and both bundle members must validate before later owners run. `docs/wireframes.md` never depends on the later design brief, and the development plan is deliberately post-approval because it consumes the Approved Visual Baseline.
 
@@ -56,6 +59,7 @@ All skills follow the same operating contract:
 - Missing product intent is surfaced through the foreground Product Idea Intake, never silently generated in background logs. Material questions persist as `Input needed`; silence, timeout, and recommendations are not consent.
 - Intake answers and `Create product idea and start SDD` are input/start actions, not approval receipts. The only normal approval is still approval of the complete integrated prototype.
 - Discoverable information must be read from sources or code instead of asked. A focused grill-me gap-check runs only for genuinely non-inferable information that materially changes product scope, the whole-design baseline, or a high-risk boundary.
+- When Claude Design is the executor, every design source material and link is catalogued with a required/optional status, location, access mode, and hash/capture receipt before candidate generation. A URL alone is not evidence that the design executor saw the material.
 - Every material gap-check walks one relevant decision branch, asks one question, gives a recommended answer and rationale, cites the source basis or says no source confirms it, names affected downstream artifacts or boundaries, and plays back the confirmed decision plus consequences before continuing.
 - Non-material gaps use the smallest reversible source-grounded default, are recorded, and do not become approval gates.
 - An owner invocation creates only its declared final output path or cohesive output set. No draft output files.
