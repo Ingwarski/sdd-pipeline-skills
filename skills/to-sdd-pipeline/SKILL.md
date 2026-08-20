@@ -21,7 +21,7 @@ A pre-existing `docs/product-idea.md` is optional and must never be an onboardin
 
 For the no-file path, dispatch or resume `to-product-idea` and remain at `awaiting-product-idea-intake` until the foreground intake materializes the file. For the existing-file path, validate the selected file as candidate product intent: if it is coherent and complete, create the handoff without a redundant full interview; if it has a material gap or contradiction, preserve it as the starting source and ask only the focused questions needed to resolve that gap. Record a repository-existing file as `source_mode: existing-file` and an externally supplied file as `source_mode: imported`.
 
-Only the downstream `to-prd` node requires a validated current `docs/product-idea.md`. In DAS Forge it also requires a current `ProductIdeaHandoffReceipt` whose recorded content hash matches that file. These are preconditions for `to-prd`, not prerequisites for starting the Product Creation Run or invoking this orchestrator. In a direct non-DAS invocation, a validated existing file may serve as the handoff source without a runtime receipt, while its source mode and content hash still remain explicit in the manifest.
+Only the downstream `to-sdd-prd` node requires a validated current `docs/product-idea.md`. In DAS Forge it also requires a current `ProductIdeaHandoffReceipt` whose recorded content hash matches that file. These are preconditions for `to-sdd-prd`, not prerequisites for starting the Product Creation Run or invoking this orchestrator. In a direct non-DAS invocation, a validated existing file may serve as the handoff source without a runtime receipt, while its source mode and content hash still remain explicit in the manifest.
 
 The artifact-owner skills listed below must be available before their nodes run. A project-supported mockup producer or Product Design adapter is required only before the prototype-mockup node runs. Phase 2 accepts `design_executor: codex | claude_design`; if it is unset, present the choice as `Input needed` with `codex` recommended. This is an executor choice, not an approval.
 
@@ -37,7 +37,7 @@ It must never directly create or edit a domain artifact. Invoke or re-invoke the
 | Artifact | Owner |
 |---|---|
 | `docs/product-idea.md` | `to-product-idea` (foreground Phase 0; invoked for no-file intake, incomplete intent, imported or existing-file validation/handoff, missing or stale handoff, or an explicit upstream change) |
-| `docs/prd.md` | `to-prd` |
+| `docs/prd.md` | `to-sdd-prd` |
 | `docs/project-context.md` | `to-project-context` |
 | `docs/canonical-terms.md` | `to-project-context` |
 | `docs/guardrails.md` | `to-guardrails` |
@@ -315,7 +315,7 @@ Do not store secrets. Use stable IDs and content hashes so resume and invalidati
 2. Resolve the optional entry source. With no pre-existing `docs/product-idea.md`, set `awaiting-product-idea-intake`, dispatch or resume `to-product-idea` from the rough description or saved intake, persist any typed request, and return control without launching downstream owners. With an existing/imported file, validate it first; hand it off without redundant questions when coherent, or dispatch only the focused material questions needed when incomplete, stale, contradictory, or explicitly corrected.
 3. When `Create product idea and start SDD` supplies a valid matching handoff receipt, clear the intake pause and continue automatically. Do not request another confirmation.
 4. When resuming from a later product-scope answer, design-approval receipt, or risk-authorization receipt, validate and persist the response, clear `pause_reason`, recompute hashes and ready nodes, and continue automatically in the same pipeline run. Do not require a separate resume confirmation.
-5. Validate `docs/product-idea.md` and its current handoff hash, dispatch `to-prd` if required, then invoke `to-project-context` once for the two-file bundle. Validate both members separately, verify their shared owner-invocation ID and current source hashes, and do not make `guardrails` ready until both pass.
+5. Validate `docs/product-idea.md` and its current handoff hash, dispatch `to-sdd-prd` if required, then invoke `to-project-context` once for the two-file bundle. Validate both members separately, verify their shared owner-invocation ID and current source hashes, and do not make `guardrails` ready until both pass.
 6. Compute ready nodes from the dependency graph and dispatch their owner skills with the validated context bundle available as relevance-scoped upstream sources.
 7. After each result, validate the owner boundary, source traceability, required structure, open questions, and content hash. Convert a material non-inferable product-intent question into a typed `Input needed` request instead of leaving it in background logs.
 8. Reconcile terminology against `docs/canonical-terms.md` and cross-artifact conflicts by re-invoking owners; never patch their artifacts directly. Record only consumed context/term fragments so unrelated bundle edits do not trigger broad invalidation.

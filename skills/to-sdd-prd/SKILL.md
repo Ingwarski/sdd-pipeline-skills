@@ -1,8 +1,8 @@
 ---
-name: to-prd
+name: to-sdd-prd
 description: Create or update docs/prd.md from docs/product-idea.md and current project evidence. Use when the user wants a file-based product requirements document, the first domain artifact in an autonomous SDD pipeline, or a PRD reconciled with an updated product idea.
 ---
-# to-prd
+# to-sdd-prd
 
 ## Universal SDD Rule
 

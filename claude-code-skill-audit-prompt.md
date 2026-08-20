@@ -3,7 +3,7 @@
 You are auditing a set of Codex skills. Do not modify files unless explicitly asked later. Your task is to deeply review whether these created skills match the user's needs and whether they properly reuse proven mechanisms from existing external skills instead of reinventing weak templates.
 
 Workspace:
-`/Users/ingwar/Projects/Codex Skills`
+the repository root containing this prompt
 
 ## Created Skills To Audit
 
@@ -11,7 +11,7 @@ Read these files completely:
 
 - `skills/to-product-idea/SKILL.md`
 - `skills/to-sdd-pipeline/SKILL.md`
-- `skills/to-prd/SKILL.md`
+- `skills/to-sdd-prd/SKILL.md`
 - `skills/to-project-context/SKILL.md`
 - `skills/to-user-journey/SKILL.md`
 - `skills/to-screen-map/SKILL.md`
@@ -27,7 +27,7 @@ Read these files completely:
 
 1. This is an SDD pipeline, not TDD.
 2. The intended chain is:
-   `rough description or existing idea -> visible to-product-idea intake -> product-idea handoff -> to-prd -> to-project-context (project-context.md + canonical-terms.md) -> to-guardrails -> to-user-journey -> to-screen-map -> to-wireframes -> to-design-brief -> to-architecture -> to-dod-evals -> to-qa-checklist -> three prototypes -> one design approval -> to-development-plan`
+   `rough description or existing idea -> visible to-product-idea intake -> product-idea handoff -> to-sdd-prd -> to-project-context (project-context.md + canonical-terms.md) -> to-guardrails -> to-user-journey -> to-screen-map -> to-wireframes -> to-design-brief -> to-architecture -> to-dod-evals -> to-qa-checklist -> three prototypes -> one design approval -> to-development-plan`
    A pre-existing `docs/product-idea.md` is optional, never a pipeline-entry prerequisite. Audit both required entry scenarios: no file plus a rough description, and an existing/imported file selected for validation.
 3. Every artifact must have exactly one owner, and each owner invocation must stay inside its declared output boundary. `to-project-context` is the explicit cohesive two-file output bundle; its two members must be validated and hashed separately under one invocation.
 4. Output files must be strictly separated by responsibility and must not duplicate or contradict one another.
@@ -322,49 +322,37 @@ Must not own:
 
 ## External And Proven Skills To Inspect
 
-Do not limit the audit to BMAD UX. BMAD UX is central for UX/UI planning, but the final skills must also learn from verified non-BMAD local skills: grill-me, to-prd, modern-ux-ui-2026, Product Design plugin skills, Figma plugin skills, verification-before-completion, writing-plans, executing-plans, and QA/design-QA equivalents.
+Do not limit the audit to BMAD UX. BMAD UX is central for UX/UI planning, but the final skills must also learn from verified non-BMAD local skills: grill-me, to-sdd-prd, modern-ux-ui-2026, Product Design plugin skills, Figma plugin skills, verification-before-completion, writing-plans, executing-plans, and QA/design-QA equivalents.
 
 If any file or URL is unavailable, say that explicitly. Do not pretend it was inspected.
 
-### A. Verified Non-BMAD Local Skills Available On This Machine
+### A. Non-BMAD Local Skills To Discover On The Current Machine
 
-Core behavior, source-of-truth, gap-check:
+Do not assume a username, home-directory layout, plugin-cache version, or operating system. Resolve available skills by name from the current agent's advertised skill catalog and its documented personal, project, system, and plugin skill roots. Read the installed `SKILL.md` and only the references it routes you to. Record the resolved path and version when available; list a source as unavailable when it cannot be found.
 
-- `/Users/ingwar/.codex/skills/grill-me/SKILL.md`
-- `/Users/ingwar/Projects/Codex Skills/skills/to-product-idea/SKILL.md`
-- `/Users/ingwar/.codex/skills/to-prd/SKILL.md`
-- `/Users/ingwar/.codex/skills/.system/skill-creator/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated/superpowers/d6169bef/skills/writing-skills/SKILL.md`
+Core behavior, source-of-truth, and gap-check:
+
+- `grill-me`
+- this repository's `to-product-idea` and `to-sdd-prd`
+- `skill-creator` or the current platform's equivalent skill-authoring guide
+- `writing-skills`, if installed
 
 UX/UI and design quality:
 
-- `/Users/ingwar/.codex/skills/modern-ux-ui-2026/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/skills/get-context/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/skills/audit/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/skills/audit/references/design-audit-framework.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/skills/ideate/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/skills/image-to-code/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/skills/prototype/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/skills/url-to-code/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/skills/design-qa/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/skills/research/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/product-design/0.1.48/references/critical-overrides.md`
+- `modern-ux-ui-2026`
+- current Product Design skills for context gathering, audit, ideation, image-to-code, prototyping, URL-to-code, design QA, and research
+- the Product Design audit framework and critical overrides referenced by those skills
 
 Figma and design handoff, if relevant:
 
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/figma/2.0.14/skills/figma-generate-design/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/figma/2.0.14/skills/figma-generate-library/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/figma/2.0.14/skills/figma-use/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/figma/2.0.14/skills/figma-generate-diagram/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/figma/2.0.14/skills/figma-implement-motion/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated-remote/figma/2.0.14/skills/figma-use-motion/SKILL.md`
+- current Figma skills for using Figma, generating designs or libraries, diagramming, and motion handoff
 
-Architecture, DoD, QA, verification, planning:
+Architecture, DoD, QA, verification, and planning:
 
-- `/Users/ingwar/.codex/plugins/cache/openai-curated/superpowers/d6169bef/skills/verification-before-completion/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated/superpowers/d6169bef/skills/writing-plans/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated/superpowers/d6169bef/skills/executing-plans/SKILL.md`
-- `/Users/ingwar/.codex/plugins/cache/openai-curated/superpowers/d6169bef/skills/test-driven-development/SKILL.md`, only to identify what not to import because this workflow is SDD, not TDD.
+- `verification-before-completion`
+- `writing-plans`
+- `executing-plans`
+- `test-driven-development`, if installed, only to identify what not to import because this workflow is SDD, not TDD
 - `https://github.com/luongnv89/skills/blob/main/skills/tad-generator/SKILL.md`
 - `https://github.com/addyosmani/agent-skills/blob/main/skills/documentation-and-adrs/SKILL.md`
 - `https://raw.githubusercontent.com/addyosmani/agent-skills/main/references/definition-of-done.md`
@@ -469,7 +457,7 @@ If none of these candidate skills can be found as actual readable `SKILL.md` fil
 10. Pay special attention to `to-design-brief`: it must be strong enough to guide high-quality UX/UI design, not just produce a generic design brief.
 11. Pay special attention to `to-guardrails`: it must prevent AI from inventing scope, silently ignoring missing sources, or claiming completion without evidence.
 12. Pay special attention to `to-product-idea`: it must make missing intent visible to the operator, ask one material question at a time, persist/recover the session, never treat a recommendation as consent, write only the final authoritative artifact, preserve an unchanged coherent existing file byte-for-byte, and hand off automatically without creating an approval gate.
-13. Pay special attention to whether `to-sdd-pipeline` treats a pre-existing `docs/product-idea.md` as optional at entry and required only as validated input before `to-prd`; routes no-file, missing/stale-handoff, incomplete, or later-invalidated intent through `to-product-idea`; validates both the no-file and coherent-existing-file paths; and invalidates only transitive dependents.
+13. Pay special attention to whether `to-sdd-pipeline` treats a pre-existing `docs/product-idea.md` as optional at entry and required only as validated input before `to-sdd-prd`; routes no-file, missing/stale-handoff, incomplete, or later-invalidated intent through `to-product-idea`; validates both the no-file and coherent-existing-file paths; and invalidates only transitive dependents.
 14. Pay special attention to duplicated ownership between artifacts.
 15. Pay special attention to whether the current skills say "source-backed" but still allow vague output.
 

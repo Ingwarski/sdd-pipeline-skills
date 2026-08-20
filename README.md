@@ -1,6 +1,6 @@
 # Codex SDD Skills
 
-This repository contains reusable Codex skills. Its core is a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, a coherent pre-design specification, exactly three runnable prototype candidates, one whole-design approval, and implementation planning for a production frontend and backend. It also contains bounded standalone workflows such as communications audits and certificate issuance.
+This repository contains reusable Codex and Claude Code skills. Its core is a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, a coherent pre-design specification, exactly three runnable prototype candidates, one whole-design approval, and implementation planning for a production frontend and backend. It also contains bounded standalone workflows such as communications audits and certificate issuance.
 
 The skills are designed for **SDD - Specification Driven Development**. They are not a TDD workflow and they are not generic prompt templates. Every domain artifact has exactly one owner, and every owner invocation is confined to its declared output boundary. Most owners create one artifact; `to-project-context` is the explicit cohesive two-file bundle owner. `to-sdd-pipeline` owns only the machine-readable orchestration manifest and invokes or re-invokes artifact owners autonomously.
 
@@ -10,7 +10,7 @@ Use `to-product-idea` as the visible Phase 0 owner when the product idea is abse
 
 ```text
 rough-description-or-existing-or-imported-idea -> to-product-idea -> product-idea handoff
--> to-prd
+-> to-sdd-prd
 -> to-project-context (project-context.md + canonical-terms.md)
 -> to-guardrails
 -> to-user-journey
@@ -30,7 +30,7 @@ rough-description-or-existing-or-imported-idea -> to-product-idea -> product-ide
 
 When `claude_design` is selected, the pipeline inserts `design-source-access-preflight` between the coherent SDD baseline and prototype generation. It inventories every design material and link named by the validated design brief, records a Codex access receipt, and requires Claude Design to return a source-read receipt for every required item. Missing access pauses the handoff at `awaiting-design-source-access`; Claude Design must not generate candidates from an incomplete or guessed source set.
 
-`to-product-idea` solely owns `docs/product-idea.md` and uses a foreground, resumable, one-question-at-a-time intake. `Create product idea and start SDD` atomically creates or versions the file only when needed, preserves an unchanged existing file byte-for-byte, and records its handoff receipt; it is an execution command, not an approval. `to-prd` is the first SDD domain-artifact owner dispatched by `to-sdd-pipeline` after that handoff. `to-project-context` runs immediately after the PRD and both bundle members must validate before later owners run. `docs/wireframes.md` never depends on the later design brief, and the development plan is deliberately post-approval because it consumes the Approved Visual Baseline.
+`to-product-idea` solely owns `docs/product-idea.md` and uses a foreground, resumable, one-question-at-a-time intake. `Create product idea and start SDD` atomically creates or versions the file only when needed, preserves an unchanged existing file byte-for-byte, and records its handoff receipt; it is an execution command, not an approval. `to-sdd-prd` is the first SDD domain-artifact owner dispatched by `to-sdd-pipeline` after that handoff. Its namespaced identity deliberately avoids collisions with unrelated `to-prd` skills. `to-project-context` runs immediately after the PRD and both bundle members must validate before later owners run. `docs/wireframes.md` never depends on the later design brief, and the development plan is deliberately post-approval because it consumes the Approved Visual Baseline.
 
 ## Included Skills
 
@@ -38,7 +38,7 @@ When `claude_design` is selected, the pipeline inserts `design-source-access-pre
 |---|---|---|
 | `to-product-idea` | `docs/product-idea.md` | Runs the visible Product Idea Intake, asks only material non-inferable questions one at a time, and atomically creates or versions the operator-confirmed upstream product mandate. |
 | `to-sdd-pipeline` | `forge/sdd-manifest.json` | Dispatches artifact owners, tracks dependencies and hashes, runs prototype comparison, pauses after the validated development plan at `awaiting-implementation-prompt`, and propagates invalidation without editing domain artifacts directly. |
-| `to-prd` | `docs/prd.md` | Converts the product idea and current project evidence into the first file-based domain artifact without issue-tracker side effects. |
+| `to-sdd-prd` | `docs/prd.md` | Converts the product idea and current project evidence into the first file-based domain artifact without issue-tracker side effects. The namespaced name can coexist with third-party `to-prd` skills. |
 | `to-project-context` | `docs/project-context.md` and `docs/canonical-terms.md` | Creates the atomic context/vocabulary bundle after PRD validation; the two outputs are validated and hashed separately under one owner invocation. |
 | `to-user-journey` | `docs/user-journey.md` | Maps the real user, goal, context, journey stages, friction, decisions, failure path, and success state. |
 | `to-screen-map` | `docs/screen-map.md` | Defines screens, surfaces, routes, navigation, transitions, entry/exit points, and the canonical state list per screen. |
@@ -94,29 +94,59 @@ If one artifact needs information from another, it should cite or reference that
 
 ## Installation
 
-For Codex to discover these skills, place each skill directory under your Codex skills directory.
+Clone this repository and run its installer. The installer creates directory links from each Codex or Claude Code personal skill location to the corresponding directory under this clone; it never copies a skill directory. A later `git pull` therefore updates the installed skills in place.
 
-Recommended local install with symlinks:
+### Recommended agent-assisted installation
 
-```bash
-mkdir -p ~/.codex/skills
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-sdd-pipeline" ~/.codex/skills/to-sdd-pipeline
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-product-idea" ~/.codex/skills/to-product-idea
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-prd" ~/.codex/skills/to-prd
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-project-context" ~/.codex/skills/to-project-context
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-user-journey" ~/.codex/skills/to-user-journey
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-screen-map" ~/.codex/skills/to-screen-map
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-wireframes" ~/.codex/skills/to-wireframes
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-design-brief" ~/.codex/skills/to-design-brief
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-architecture" ~/.codex/skills/to-architecture
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-dod-evals" ~/.codex/skills/to-dod-evals
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-guardrails" ~/.codex/skills/to-guardrails
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-qa-checklist" ~/.codex/skills/to-qa-checklist
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/to-development-plan" ~/.codex/skills/to-development-plan
-ln -s "/Users/ingwar/Projects/Codex Skills/skills/communications-audit" ~/.codex/skills/communications-audit
+An unskilled user should open Codex or Claude Code, paste the prompt below, and let the agent perform and verify the installation. The repository's `AGENTS.md` and `CLAUDE.md` give both agents the same safety contract.
+
+```text
+Install the complete SDD skill set from https://github.com/Ingwarski/codex-skills for local Codex and local Claude Code.
+
+If this workspace is not already a durable Git clone of that repository, clone it under my normal Projects directory; do not use a temporary, cache, or download directory. If a durable clone already exists, verify its origin and update it only by a clean fast-forward; preserve local changes and stop instead of overwriting them. Then read the repository's AGENTS.md or CLAUDE.md, the README Installation section, and skills-manifest.json.
+
+Detect my operating system and run the repository-provided installer: install.sh on macOS/Linux or install.ps1 on Windows. Do not recreate the link logic manually and never copy skill directories. Preserve existing real directories and links owned by another source. In particular, keep any unrelated skill named to-prd; this repository's PRD owner is to-sdd-prd. On Windows, let the installer use a directory junction if a true symbolic link is unavailable.
+
+Install all 13 SDD skills for both tools, run the installer a second time to prove it is idempotent, and verify every installed SKILL.md through its destination path. Report the durable clone path, Codex and Claude Code destination roots, link type used, 13/13 validation result, preserved conflicts, and whether either tool needs a restart. Ask me only if a real conflict or permission boundary remains after the installer has exhausted its safe fallback.
 ```
 
-If a symlink already exists, remove or update only that symlink. Do not overwrite an existing personal skill with the same name unless that is intentional.
+The prompt moves platform detection, link creation, conflict handling, and verification to the agent. It does not authorize silent installation merely because the repository was opened.
+
+macOS or Linux:
+
+```bash
+./install.sh --all
+```
+
+Windows PowerShell:
+
+```powershell
+.\install.ps1 -All
+```
+
+Nontechnical users can double-click `Install Skills.command` on macOS or `Install Skills.cmd` on Windows. Both launch the same platform installer and install the complete 13-skill SDD set for local Codex and local Claude Code.
+
+The source of every link is always this repository clone. For example, if Windows cloned the repository to `C:\Users\Alex\Projects\codex-skills`, the Claude Code link is `%USERPROFILE%\.claude\skills\to-sdd-pipeline -> C:\Users\Alex\Projects\codex-skills\skills\to-sdd-pipeline`. Codex uses `$HOME/.agents/skills` by default. Existing installations that already use `$CODEX_HOME/skills` or the legacy `$HOME/.codex/skills` continue there. Override detection with `CODEX_SKILLS_DIR`, `CLAUDE_SKILLS_DIR`, `--codex-dir`/`--claude-dir`, or `-CodexDir`/`-ClaudeDir`.
+
+Windows first attempts a true directory symbolic link. When local policy blocks that operation, it creates an NTFS directory junction instead. Both remain links to the clone; neither copies skill contents.
+
+The installers are idempotent and preflight all sources and destinations before changing anything. A matching link is left unchanged; a real directory, file, or link to another source is reported as a conflict and is never overwritten. `--repair`/`-Repair` may replace only links recorded by a prior run of this installer. `--uninstall`/`-Uninstall` removes only links owned by this clone.
+
+The SDD PRD owner is named `to-sdd-prd` so it can coexist with third-party skills named `to-prd`, including older Matt Pocock installations. During migration, the installer removes `to-prd` only when it is an old symlink to this repository. Any unrelated `to-prd` is preserved.
+
+Install only one local agent when needed:
+
+```bash
+./install.sh --codex
+./install.sh --claude
+```
+
+```powershell
+.\install.ps1 -Codex
+.\install.ps1 -Claude
+```
+
+Moving or deleting the clone breaks its links. Re-run the installer from the new clone with `--repair` or `-Repair`; the installer uses its prior source receipt to replace only links it owns. These personal filesystem links apply to local Codex and Claude Code sessions, not remote/cloud sessions that cannot read the user's local disk.
 
 ## How To Use
 
@@ -221,7 +251,7 @@ For `to-dod-evals`, the main authoring references were:
 
 - `definition-of-done`: `https://raw.githubusercontent.com/addyosmani/agent-skills/main/references/definition-of-done.md`
 - `quality-run-quality-gates`: `https://github.com/dawiddutoit/custom-claude/blob/main/skills/quality-run-quality-gates/SKILL.md`
-- `verification-before-completion`: `/Users/ingwar/.codex/plugins/cache/openai-curated/superpowers/d6169bef/skills/verification-before-completion/SKILL.md`
+- the installed `verification-before-completion` skill available during authoring
 - `breakdown-plan`: `https://github.com/github/awesome-copilot/blob/main/skills/breakdown-plan/SKILL.md`
 - Hermes eval/lane-gate proposal: `https://github.com/NousResearch/hermes-agent/issues/44000`
 
@@ -235,7 +265,7 @@ skills/
     SKILL.md
   to-sdd-pipeline/
     SKILL.md
-  to-prd/
+  to-sdd-prd/
     SKILL.md
   to-project-context/
     SKILL.md

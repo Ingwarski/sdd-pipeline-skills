@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "skill_set": "sdd-pipeline",
+  "skill_count": 13,
+  "skills": [
+    {"name": "to-product-idea", "path": "skills/to-product-idea", "legacy_name": null},
+    {"name": "to-sdd-prd", "path": "skills/to-sdd-prd", "legacy_name": "to-prd"},
+    {"name": "to-project-context", "path": "skills/to-project-context", "legacy_name": null},
+    {"name": "to-guardrails", "path": "skills/to-guardrails", "legacy_name": null},
+    {"name": "to-user-journey", "path": "skills/to-user-journey", "legacy_name": null},
+    {"name": "to-screen-map", "path": "skills/to-screen-map", "legacy_name": null},
+    {"name": "to-wireframes", "path": "skills/to-wireframes", "legacy_name": null},
+    {"name": "to-design-brief", "path": "skills/to-design-brief", "legacy_name": null},
+    {"name": "to-architecture", "path": "skills/to-architecture", "legacy_name": null},
+    {"name": "to-dod-evals", "path": "skills/to-dod-evals", "legacy_name": null},
+    {"name": "to-qa-checklist", "path": "skills/to-qa-checklist", "legacy_name": null},
+    {"name": "to-development-plan", "path": "skills/to-development-plan", "legacy_name": null},
+    {"name": "to-sdd-pipeline", "path": "skills/to-sdd-pipeline", "legacy_name": null}
+  ]
+}
