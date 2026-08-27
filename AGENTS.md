@@ -1,5 +1,9 @@
 # Repository Agent Instructions
 
+This repository owns only the 13 SDD skills in `skills-manifest.json`.
+Standalone skills belong to `Ingwarski/custom-agent-skills`; preserve that
+collection's links and `.custom-agent-skills-source` receipt.
+
 When the user asks to install, update, repair, or uninstall this repository's SDD skills:
 
 1. Read `README.md` Installation and `skills-manifest.json`.

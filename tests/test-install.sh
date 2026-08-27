@@ -19,8 +19,32 @@ mkdir -p "$codex_dir" "$claude_dir/to-prd"
 printf '%s\n' 'unrelated skill' > "$claude_dir/to-prd/marker.txt"
 ln -s "$repo_root/skills/to-prd" "$codex_dir/to-prd"
 
+custom_clone="$test_root/custom-clone"
+mkdir -p "$custom_clone/skills/communications-audit"
+printf '%s\n' 'custom skill fixture' > "$custom_clone/skills/communications-audit/SKILL.md"
+for install_dir in "$codex_dir" "$claude_dir"; do
+  ln -s "$custom_clone/skills/communications-audit" "$install_dir/communications-audit"
+  printf '%s\n' "$custom_clone" > "$install_dir/.custom-agent-skills-source"
+done
+
+assert_custom_preserved() {
+  for install_dir in "$codex_dir" "$claude_dir"; do
+    [[ "$(readlink "$install_dir/communications-audit")" == "$custom_clone/skills/communications-audit" ]]
+    [[ "$(sed -n '1p' "$install_dir/.custom-agent-skills-source")" == "$custom_clone" ]]
+    cmp -s "$custom_clone/skills/communications-audit/SKILL.md" "$install_dir/communications-audit/SKILL.md"
+  done
+}
+
+source_count=0
+for source_dir in "$repo_root"/skills/*; do
+  [[ -d "$source_dir" && -f "$source_dir/SKILL.md" ]]
+  source_count=$((source_count + 1))
+done
+[[ "$source_count" -eq 13 ]]
+
 first_output=$("$repo_root/install.sh" --all --codex-dir "$codex_dir" --claude-dir "$claude_dir")
 printf '%s\n' "$first_output"
+assert_custom_preserved
 
 while IFS='|' read -r skill_name relative_path legacy_name; do
   [[ -L "$codex_dir/$skill_name" ]]
@@ -42,6 +66,7 @@ grep -q 'heuristic_usability_review' "$repo_root/skills/to-sdd-pipeline/referenc
 second_output=$("$repo_root/install.sh" --all --codex-dir "$codex_dir" --claude-dir "$claude_dir")
 printf '%s\n' "$second_output"
 [[ "$second_output" == *"created=0 already-installed=26"* ]]
+assert_custom_preserved
 
 prior_clone="$test_root/prior-clone"
 rm "$codex_dir/to-screen-map"
@@ -49,6 +74,7 @@ ln -s "$prior_clone/skills/to-screen-map" "$codex_dir/to-screen-map"
 printf '%s\n' "$prior_clone" > "$codex_dir/.codex-sdd-skills-source"
 "$repo_root/install.sh" --codex --repair --codex-dir "$codex_dir" > /dev/null
 cmp -s "$repo_root/skills/to-screen-map/SKILL.md" "$codex_dir/to-screen-map/SKILL.md"
+assert_custom_preserved
 
 rm "$codex_dir/to-sdd-pipeline"
 mkdir "$codex_dir/to-sdd-pipeline"
@@ -69,4 +95,5 @@ while IFS='|' read -r skill_name relative_path legacy_name; do
 done < <(sed -nE 's/^[[:space:]]*\{"name": "([^"]+)", "path": "([^"]+)", "legacy_name": (null|"([^"]*)")\},?$/\1|\2|\4/p' "$repo_root/skills-manifest.json")
 [[ -f "$claude_dir/to-prd/marker.txt" ]]
 
+assert_custom_preserved
 printf '%s\n' 'Unix installer tests passed.'

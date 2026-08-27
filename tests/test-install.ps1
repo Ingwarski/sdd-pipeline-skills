@@ -6,6 +6,24 @@ $TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-sdd-installer-" 
 $CodexDir = Join-Path $TestRoot 'codex'
 $ClaudeDir = Join-Path $TestRoot 'claude'
 
+$CustomClone = Join-Path $TestRoot 'custom-clone'
+function Assert-CustomPreserved {
+    foreach ($InstallRoot in @($CodexDir, $ClaudeDir)) {
+        $CustomLink = Get-Item -LiteralPath (Join-Path $InstallRoot 'communications-audit') -Force
+        if ([string]::IsNullOrWhiteSpace([string]$CustomLink.LinkType) -or
+            [System.IO.Path]::GetFullPath(@($CustomLink.Target)[0]) -ne [System.IO.Path]::GetFullPath((Join-Path $CustomClone 'skills/communications-audit'))) {
+            throw 'Custom skill link changed.'
+        }
+        if ((Get-Content -LiteralPath (Join-Path $InstallRoot '.custom-agent-skills-source') -Raw).Trim() -ne $CustomClone) {
+            throw 'Custom collection receipt changed.'
+        }
+        if ((Get-FileHash -LiteralPath (Join-Path $CustomClone 'skills/communications-audit/SKILL.md')).Hash -ne
+            (Get-FileHash -LiteralPath (Join-Path $InstallRoot 'communications-audit/SKILL.md')).Hash) {
+            throw 'Custom skill content changed.'
+        }
+    }
+}
+
 try {
     New-Item -ItemType Directory -Path $CodexDir -Force | Out-Null
     $UnrelatedPrd = Join-Path $ClaudeDir 'to-prd'
@@ -18,7 +36,19 @@ try {
     New-Item -ItemType Junction -Path (Join-Path $CodexDir 'to-prd') -Target $PriorLegacySource | Out-Null
     Set-Content -LiteralPath (Join-Path $CodexDir '.codex-sdd-skills-source') -Value $PriorClone
 
+    $CustomSource = Join-Path $CustomClone 'skills/communications-audit'
+    New-Item -ItemType Directory -Path $CustomSource -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $CustomSource 'SKILL.md') -Value 'custom skill fixture'
+    foreach ($InstallRoot in @($CodexDir, $ClaudeDir)) {
+        New-Item -ItemType Junction -Path (Join-Path $InstallRoot 'communications-audit') -Target $CustomSource | Out-Null
+        Set-Content -LiteralPath (Join-Path $InstallRoot '.custom-agent-skills-source') -Value $CustomClone
+    }
+    if (@(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'skills') -Directory).Count -ne 13) {
+        throw 'Expected exactly 13 SDD skill directories.'
+    }
+
     & (Join-Path $RepoRoot 'install.ps1') -All -CodexDir $CodexDir -ClaudeDir $ClaudeDir
+    Assert-CustomPreserved
 
     $Manifest = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills-manifest.json') -Raw | ConvertFrom-Json
     foreach ($Skill in $Manifest.skills) {
@@ -57,6 +87,7 @@ try {
 
     & (Join-Path $RepoRoot 'install.ps1') -All -CodexDir $CodexDir -ClaudeDir $ClaudeDir
 
+    Assert-CustomPreserved
     $RepairSkill = $Manifest.skills | Where-Object { $_.name -eq 'to-screen-map' }
     $RepairDestination = Join-Path $CodexDir $RepairSkill.name
     $PriorRepairSource = Join-Path $PriorClone $RepairSkill.path
@@ -100,6 +131,7 @@ try {
         throw 'Unrelated to-prd skill was removed during uninstall.'
     }
 
+    Assert-CustomPreserved
     Write-Host 'Windows installer tests passed.'
 } finally {
     if ($TestRoot.StartsWith([System.IO.Path]::GetTempPath(), [System.StringComparison]::OrdinalIgnoreCase)) {

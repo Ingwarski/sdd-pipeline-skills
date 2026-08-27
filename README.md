@@ -1,6 +1,6 @@
 # SDD Pipeline Skills
 
-This repository contains reusable Codex and Claude Code skills. Its core is a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, explicit Jobs To Be Done and product use cases, a coherent pre-design specification, formal H1-H10 heuristic review, exactly three runnable prototype candidates, one whole-design approval, representative-user validation of applicable critical flows, and implementation planning for a production frontend and backend. It also contains bounded standalone workflows such as communications audits and certificate issuance.
+This repository contains the 13 Codex and Claude Code skills of a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, explicit Jobs To Be Done and product use cases, a coherent pre-design specification, formal H1-H10 heuristic review, exactly three runnable prototype candidates, one whole-design approval, representative-user validation of applicable critical flows, and implementation planning for a production frontend and backend.
 
 ## Repository Identity
 
@@ -10,6 +10,30 @@ The user-facing repository name is **SDD Pipeline Skills**.
 - Local clone directory: `SDD Pipeline Skills`
 - Stable skill invocation names: `to-product-idea`, `to-sdd-prd`, `to-sdd-pipeline`, and the other existing `to-*` names
 - Stable machine contract: `skills-manifest.json`, `skill_set: sdd-pipeline`, output paths, installer options, and the 13-skill manifest remain unchanged
+
+## Separate Skill Collections
+
+This repository contains only SDD pipeline skills. The standalone
+`communications-audit` and `issue-happypro-certificate` skills now live in
+[Custom Agent Skills](https://github.com/Ingwarski/custom-agent-skills), a separate
+private repository. Their names and behavior are unchanged; their earlier history
+remains in this repository.
+
+Each collection has its own `skills-manifest.json` and installation receipt:
+
+- SDD Pipeline Skills: 13 skills; `.codex-sdd-skills-source`.
+- Custom Agent Skills: 2 skills; `.custom-agent-skills-source`.
+
+A receipt records the source clone so the installer can repair only its own
+links. Update each clone separately with `git pull --ff-only`. Neither installer
+manages the other collection or changes third-party/plugin-managed skills.
+There is no submodule or runtime dependency between the repositories.
+
+Existing student SDD installations keep the same GitHub address, installer
+commands, and skill names. If standalone links still point to the former combined
+clone, use the Custom Agent Skills installer's documented `--migrate-from` /
+`-MigrateFrom` option with that exact old clone path. The SDD installer does not
+migrate standalone skills. Agents can still use other installed skills when needed.
 
 ## Version Notes
 
@@ -67,7 +91,6 @@ When `claude_design` is selected, the pipeline inserts `design-source-access-pre
 | `to-guardrails` | `docs/guardrails.md` | Defines source-of-truth order, AI autonomy boundaries, scope limits, conflict handling, stop conditions, and verification policy. |
 | `to-qa-checklist` | `docs/qa-checklist.md` | Creates a source-backed QA checklist with H1-H10 heuristic, usability-validation, UX/UI, responsive, accessibility, visual regression, evidence, and release-readiness checks. |
 | `to-development-plan` | `docs/development-plan.md` | Converts the current validated SDD plus Approved Visual Baseline into frontend/backend units, interface seams, dependency order, acceptance checks, and verification steps. |
-| `communications-audit` | Professional `.docx` audit report | Audits websites and sales or marketing materials through seven communication dimensions, then produces an evidence-led scorecard, prioritized findings, and implementation roadmap. |
 
 ## Core Rules
 
@@ -343,11 +366,6 @@ skills/
     SKILL.md
   to-development-plan/
     SKILL.md
-  communications-audit/
-    SKILL.md
-    agents/openai.yaml
-    references/
-    scripts/build_report.py
 
 claude-code-skill-audit-prompt.md
 ```
