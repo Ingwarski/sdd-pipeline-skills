@@ -11,6 +11,10 @@ The user-facing repository name is **SDD Pipeline Skills**.
 - Stable skill invocation names: `to-product-idea`, `to-sdd-prd`, `to-sdd-pipeline`, and the other existing `to-*` names
 - Stable machine contract: `skills-manifest.json`, `skill_set: sdd-pipeline`, output paths, installer options, and the 13-skill manifest remain unchanged
 
+## Version Notes
+
+- [Version 2.0 — Design Quality Update](VERSION-2.0.md)
+
 The rename changes the repository label and transport location only. Agents must continue calling the existing skill names; no compatibility alias or duplicate skill is needed.
 
 The skills are designed for **SDD - Specification Driven Development**. They are not a TDD workflow and they are not generic prompt templates. Every domain artifact has exactly one owner, and every owner invocation is confined to its declared output boundary. Most owners create one artifact; `to-project-context` is the explicit cohesive two-file bundle owner. `to-sdd-pipeline` owns only the machine-readable orchestration manifest and invokes or re-invokes artifact owners autonomously.
