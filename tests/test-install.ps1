@@ -7,18 +7,18 @@ $CodexDir = Join-Path $TestRoot 'codex'
 $ClaudeDir = Join-Path $TestRoot 'claude'
 
 $CustomClone = Join-Path $TestRoot 'custom-clone'
-function Assert-CustomPreserved {
+function Assert-UnrelatedPreserved {
     foreach ($InstallRoot in @($CodexDir, $ClaudeDir)) {
-        $CustomLink = Get-Item -LiteralPath (Join-Path $InstallRoot 'communications-audit') -Force
+        $CustomLink = Get-Item -LiteralPath (Join-Path $InstallRoot 'unrelated-business-skill') -Force
         if ([string]::IsNullOrWhiteSpace([string]$CustomLink.LinkType) -or
-            [System.IO.Path]::GetFullPath(@($CustomLink.Target)[0]) -ne [System.IO.Path]::GetFullPath((Join-Path $CustomClone 'skills/communications-audit'))) {
+            [System.IO.Path]::GetFullPath(@($CustomLink.Target)[0]) -ne [System.IO.Path]::GetFullPath((Join-Path $CustomClone 'skills/unrelated-business-skill'))) {
             throw 'Custom skill link changed.'
         }
         if ((Get-Content -LiteralPath (Join-Path $InstallRoot '.custom-agent-skills-source') -Raw).Trim() -ne $CustomClone) {
             throw 'Custom collection receipt changed.'
         }
-        if ((Get-FileHash -LiteralPath (Join-Path $CustomClone 'skills/communications-audit/SKILL.md')).Hash -ne
-            (Get-FileHash -LiteralPath (Join-Path $InstallRoot 'communications-audit/SKILL.md')).Hash) {
+        if ((Get-FileHash -LiteralPath (Join-Path $CustomClone 'skills/unrelated-business-skill/SKILL.md')).Hash -ne
+            (Get-FileHash -LiteralPath (Join-Path $InstallRoot 'unrelated-business-skill/SKILL.md')).Hash) {
             throw 'Custom skill content changed.'
         }
     }
@@ -36,11 +36,11 @@ try {
     New-Item -ItemType Junction -Path (Join-Path $CodexDir 'to-prd') -Target $PriorLegacySource | Out-Null
     Set-Content -LiteralPath (Join-Path $CodexDir '.codex-sdd-skills-source') -Value $PriorClone
 
-    $CustomSource = Join-Path $CustomClone 'skills/communications-audit'
+    $CustomSource = Join-Path $CustomClone 'skills/unrelated-business-skill'
     New-Item -ItemType Directory -Path $CustomSource -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $CustomSource 'SKILL.md') -Value 'custom skill fixture'
     foreach ($InstallRoot in @($CodexDir, $ClaudeDir)) {
-        New-Item -ItemType Junction -Path (Join-Path $InstallRoot 'communications-audit') -Target $CustomSource | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $InstallRoot 'unrelated-business-skill') -Target $CustomSource | Out-Null
         Set-Content -LiteralPath (Join-Path $InstallRoot '.custom-agent-skills-source') -Value $CustomClone
     }
     if (@(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'skills') -Directory).Count -ne 13) {
@@ -48,7 +48,7 @@ try {
     }
 
     & (Join-Path $RepoRoot 'install.ps1') -All -CodexDir $CodexDir -ClaudeDir $ClaudeDir
-    Assert-CustomPreserved
+    Assert-UnrelatedPreserved
 
     $Manifest = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills-manifest.json') -Raw | ConvertFrom-Json
     foreach ($Skill in $Manifest.skills) {
@@ -87,7 +87,7 @@ try {
 
     & (Join-Path $RepoRoot 'install.ps1') -All -CodexDir $CodexDir -ClaudeDir $ClaudeDir
 
-    Assert-CustomPreserved
+    Assert-UnrelatedPreserved
     $RepairSkill = $Manifest.skills | Where-Object { $_.name -eq 'to-screen-map' }
     $RepairDestination = Join-Path $CodexDir $RepairSkill.name
     $PriorRepairSource = Join-Path $PriorClone $RepairSkill.path
@@ -131,9 +131,16 @@ try {
         throw 'Unrelated to-prd skill was removed during uninstall.'
     }
 
-    Assert-CustomPreserved
+    Assert-UnrelatedPreserved
     Write-Host 'Windows installer tests passed.'
 } finally {
+    foreach ($Root in @($CodexDir, $ClaudeDir)) {
+        if (Test-Path -LiteralPath $Root) {
+            foreach ($Item in Get-ChildItem -LiteralPath $Root -Force) {
+                if ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { [System.IO.Directory]::Delete($Item.FullName) }
+            }
+        }
+    }
     if ($TestRoot.StartsWith([System.IO.Path]::GetTempPath(), [System.StringComparison]::OrdinalIgnoreCase)) {
         Remove-Item -LiteralPath $TestRoot -Recurse -Force -ErrorAction SilentlyContinue
     }

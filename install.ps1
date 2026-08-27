@@ -184,11 +184,14 @@ function Test-DestinationRoot([string]$InstallRoot) {
 }
 
 if (-not $Uninstall) {
+    . (Join-Path $RepoRoot 'scripts/retired-skills.ps1')
+    Initialize-RetiredCleanup
+    Invoke-RetiredCleanup
     $DestinationConflicts = 0
     if ($Codex) { $DestinationConflicts += Test-DestinationRoot $CodexDir }
     if ($Claude) { $DestinationConflicts += Test-DestinationRoot $ClaudeDir }
     if ($DestinationConflicts -ne 0) {
-        throw "Installation stopped before changes: $DestinationConflicts conflict(s)"
+        throw "Installation stopped before SDD link changes: $DestinationConflicts conflict(s)"
     }
 }
 
@@ -313,12 +316,6 @@ function Install-Root([string]$InstallRoot, [string]$ToolLabel) {
     } elseif ($script:PostFailures -eq 0) {
         Set-Content -LiteralPath $ReceiptPath -Value $RepoRoot -Encoding UTF8
     }
-}
-
-if (-not $Uninstall) {
-    . (Join-Path $RepoRoot 'scripts/retired-skills.ps1')
-    Initialize-RetiredCleanup
-    Invoke-RetiredCleanup
 }
 
 if ($Codex) { Install-Root $CodexDir 'Codex' }

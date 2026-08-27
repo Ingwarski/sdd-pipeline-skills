@@ -27,7 +27,9 @@ usage() {
     "                    [--codex-dir PATH] [--claude-dir PATH]" \
     "                    [--retired-source OLD_CLONE] [--cleanup-dir SKILL_ROOT]" \
     "" \
-    "With no platform flag, both Codex and Claude Code are installed."
+    "With no platform flag, both Codex and Claude Code are installed." \
+    "Install/update permanently deletes communications-audit and issue-happypro-certificate." \
+    "No backups are made. Other skills are not retired."
 }
 
 while [[ $# -gt 0 ]]; do
@@ -205,6 +207,12 @@ if [[ $preflight_failures -ne 0 ]]; then
   exit 1
 fi
 
+if [[ $uninstall -eq 0 ]]; then
+  source "$repo_root/scripts/retired-skills.sh"
+  retired_prepare
+  retired_apply
+fi
+
 link_raw_target() {
   readlink "$1" 2>/dev/null || true
 }
@@ -266,7 +274,7 @@ if [[ $uninstall -eq 0 ]]; then
   [[ $want_codex -eq 0 ]] || preflight_destination_root "$codex_dir"
   [[ $want_claude -eq 0 ]] || preflight_destination_root "$claude_dir"
   if [[ $destination_conflicts -ne 0 ]]; then
-    printf 'Installation stopped before changes: %d conflict(s)\n' "$destination_conflicts" >&2
+    printf 'Installation stopped before SDD link changes: %d conflict(s)\n' "$destination_conflicts" >&2
     exit 1
   fi
 fi
@@ -366,12 +374,6 @@ install_root() {
     printf '%s\n' "$repo_root" > "$receipt_path"
   fi
 }
-
-if [[ $uninstall -eq 0 ]]; then
-  source "$repo_root/scripts/retired-skills.sh"
-  retired_prepare
-  retired_apply
-fi
 
 if [[ $want_codex -eq 1 ]]; then
   install_root "$codex_dir" 'Codex      '

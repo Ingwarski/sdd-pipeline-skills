@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 test_parent="${TMPDIR:-/tmp}"
 test_root=$(mktemp -d "$test_parent/sdd-retirement.XXXXXX")
@@ -11,138 +10,124 @@ cleanup() {
   esac
 }
 trap cleanup EXIT
-export SDD_SKILL_BACKUP_DIR="$test_root/backups"
+export SDD_SKILL_BACKUP_DIR="$test_root/former-backups"
 codex_dir="$test_root/codex"
 claude_dir="$test_root/claude"
 history="$test_root/history"
-mkdir -p "$codex_dir" "$claude_dir" "$history"
+mkdir -p "$codex_dir" "$claude_dir" "$history" "$test_root/external"
+printf keep > "$test_root/external/marker.txt"
 git -C "$repo_root" archive 31ae0fefe00e5b79c99a6a39d418125a291731fd \
   skills/communications-audit skills/issue-happypro-certificate | tar -xf - -C "$history"
-
-install() {
-  "$repo_root/install.sh" --all --repair --codex-dir "$codex_dir" --claude-dir "$claude_dir" "$@"
-}
-expect_review() {
-  if install "$@" > "$test_root/review.log" 2>&1; then
-    printf 'Expected review-required failure.\n' >&2; exit 1
-  fi
-  grep -q 'REVIEW REQUIRED' "$test_root/review.log"
-}
+install() { "$repo_root/install.sh" --all --repair --codex-dir "$codex_dir" --claude-dir "$claude_dir" "$@"; }
 assert_absent() { [[ ! -e "$1" && ! -L "$1" ]]; }
+assert_retired_absent() {
+  local root
+  for root in "$codex_dir" "$claude_dir"; do
+    assert_absent "$root/communications-audit"
+    assert_absent "$root/issue-happypro-certificate"
+  done
+}
 
-# Current and recorded former sources, including a relative broken link.
-install > /dev/null
-old_root="$test_root/missing old clone"
-ln -s "$repo_root/skills/communications-audit" "$codex_dir/communications-audit"
-ln -s "../missing old clone/skills/issue-happypro-certificate" "$claude_dir/issue-happypro-certificate"
-printf '%s\n' "$old_root" > "$claude_dir/.codex-sdd-skills-source"
-result=$(install)
-[[ "$result" == *"links-removed=2 copies-archived=0"* ]]
-assert_absent "$codex_dir/communications-audit"
-assert_absent "$claude_dir/issue-happypro-certificate"
-[[ ! -e "$SDD_SKILL_BACKUP_DIR" ]]
-result=$(install)
-[[ "$result" == *"links-removed=0 copies-archived=0"* ]]
-
-# Whole-copy checks accept both original LF and Windows CRLF file contents.
+# Original, edited, extra-file, and Windows-line-ending copies are deleted.
 cp -R "$history/skills/communications-audit" "$codex_dir/communications-audit"
+printf '\nEdited local content\n' >> "$codex_dir/communications-audit/references/report-contract.md"
+printf extra > "$codex_dir/communications-audit/local-notes.txt"
+ln -s "$test_root/external" "$codex_dir/communications-audit/nested-link"
 mkdir "$claude_dir/issue-happypro-certificate"
 awk '{printf "%s\r\n",$0}' "$history/skills/issue-happypro-certificate/SKILL.md" > "$claude_dir/issue-happypro-certificate/SKILL.md"
-cp "$claude_dir/issue-happypro-certificate/SKILL.md" "$test_root/crlf-certificate.md"
 result=$(install)
-[[ "$result" == *"links-removed=0 copies-archived=2"* ]]
-assert_absent "$codex_dir/communications-audit"
-assert_absent "$claude_dir/issue-happypro-certificate"
-audit_backup=$(find "$SDD_SKILL_BACKUP_DIR" -type d -name communications-audit)
-certificate_backup=$(find "$SDD_SKILL_BACKUP_DIR" -type d -name issue-happypro-certificate)
-diff -r "$history/skills/communications-audit" "$audit_backup"
-cmp -s "$test_root/crlf-certificate.md" "$certificate_backup/SKILL.md"
+[[ "$result" == *"permanently-deleted=2"* && "$result" == *"remaining=0 backups-created=0"* ]]
+assert_retired_absent
+[[ -f "$test_root/external/marker.txt" && ! -e "$SDD_SKILL_BACKUP_DIR" ]]
 result=$(install)
-[[ "$result" == *"copies-archived=0"* ]]
+[[ "$result" == *"permanently-deleted=0"* ]]
 
-# Recovery must be outside active skill folders; reject before creating it.
-cp -R "$history/skills/issue-happypro-certificate" "$codex_dir/issue-happypro-certificate"
-if SDD_SKILL_BACKUP_DIR="$codex_dir/recovery" install > "$test_root/backup-error.log" 2>&1; then
-  printf 'Expected unsafe recovery location to be refused.\n' >&2; exit 1
-fi
-grep -q 'outside every skill directory' "$test_root/backup-error.log"
-[[ -f "$codex_dir/issue-happypro-certificate/SKILL.md" && ! -e "$codex_dir/recovery" ]]
+# Broken links and unknown origins need no ownership exception or receipt.
+ln -s "$test_root/missing/skills/communications-audit" "$codex_dir/communications-audit"
+ln -s "../missing/issue-happypro-certificate" "$claude_dir/issue-happypro-certificate"
 install > /dev/null
+assert_retired_absent
 
-# A changed support file blocks every planned cleanup and install mutation.
-cp -R "$history/skills/communications-audit" "$codex_dir/communications-audit"
-printf '\nUser changes must survive.\n' >> "$codex_dir/communications-audit/references/report-contract.md"
-cp "$codex_dir/communications-audit/references/report-contract.md" "$test_root/edited-reference.md"
-ln -s "$repo_root/skills/issue-happypro-certificate" "$codex_dir/issue-happypro-certificate"
-rm "$codex_dir/to-wireframes"
-expect_review
-cmp -s "$test_root/edited-reference.md" "$codex_dir/communications-audit/references/report-contract.md"
-[[ -L "$codex_dir/issue-happypro-certificate" ]]
-assert_absent "$codex_dir/to-wireframes"
-mv "$codex_dir/communications-audit" "$test_root/preserved-user-copy"
+# A custom-source receipt does not exempt either retired name.
+for name in communications-audit issue-happypro-certificate; do
+  ln -s "$history/skills/$name" "$codex_dir/$name"
+done
+printf '%s\n' "$history" > "$codex_dir/.custom-agent-skills-source"
 install > /dev/null
+assert_retired_absent
+[[ -f "$history/skills/communications-audit/SKILL.md" ]]
+[[ -f "$history/skills/issue-happypro-certificate/SKILL.md" ]]
 
-# Missing or unrecognized old clone roots need explicit confirmation.
-ln -s "$old_root/skills/communications-audit" "$codex_dir/communications-audit"
-expect_review
-[[ -L "$codex_dir/communications-audit" ]]
-result=$(install --retired-source "$old_root")
-[[ "$result" == *"links-removed=1"* ]]
-assert_absent "$codex_dir/communications-audit"
-
-# Existing old repositories identify their own links without name-based guesses.
-old_repo="$test_root/old repository"
-mkdir -p "$old_repo/skills/communications-audit"
-git -C "$old_repo" init --quiet
-git -C "$old_repo" remote add origin https://github.com/Ingwarski/codex-skills.git
-ln -s "$old_repo/skills/communications-audit" "$codex_dir/communications-audit"
-result=$(install)
-[[ "$result" == *"links-removed=1"* ]]
-[[ -d "$old_repo/skills/communications-audit" ]]
-assert_absent "$codex_dir/communications-audit"
-
-# A known project-local install root is cleaned only when explicitly supplied.
+# Other project skill folders are explicitly included, without a whole-disk scan.
 project_skills="$test_root/project/.agents/skills"
-mkdir -p "$project_skills"
-cp -R "$history/skills/issue-happypro-certificate" "$project_skills/issue-happypro-certificate"
-printf '%s\n' 'unrelated data' > "$project_skills/unrelated.txt"
-install > /dev/null
-[[ -f "$project_skills/issue-happypro-certificate/SKILL.md" ]]
-result=$(install --cleanup-dir "$project_skills")
-[[ "$result" == *"copies-archived=1"* ]]
-assert_absent "$project_skills/issue-happypro-certificate"
+mkdir -p "$project_skills/communications-audit"
+printf local-copy > "$project_skills/communications-audit/SKILL.md"
+printf keep > "$project_skills/unrelated.txt"
+install --cleanup-dir "$project_skills" > /dev/null
+assert_absent "$project_skills/communications-audit"
 [[ -f "$project_skills/unrelated.txt" ]]
 
-# A leftover copied folder in the source checkout is retired too (ZIP-style export).
+# Purge known backups left by the previous updater; create no replacements.
+for name in communications-audit issue-happypro-certificate; do
+  former="$SDD_SKILL_BACKUP_DIR/$name.ABC123"
+  mkdir -p "$former"
+  cp -R "$history/skills/$name" "$former/$name"
+  printf '%s\r\n' "$codex_dir/$name" > "$former/original-path.txt"
+done
+result=$(install)
+[[ "$result" == *"former-backups-deleted=2 remaining=0 backups-created=0"* ]]
+assert_absent "$SDD_SKILL_BACKUP_DIR/communications-audit.ABC123"
+assert_absent "$SDD_SKILL_BACKUP_DIR/issue-happypro-certificate.ABC123"
+
+# A deletion failure must fail the run, not print a successful cleanup.
+mkdir -p "$codex_dir/communications-audit" "$test_root/bin"
+printf undeleted > "$codex_dir/communications-audit/SKILL.md"
+export SDD_RETIRE_TEST_REAL_RM
+SDD_RETIRE_TEST_REAL_RM=$(command -v rm)
+export SDD_RETIRE_TEST_FAIL="$(cd "$codex_dir" && pwd -P)/communications-audit"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'for arg in "$@"; do [[ "$arg" != "$SDD_RETIRE_TEST_FAIL" ]] || exit 1; done' \
+  'exec "$SDD_RETIRE_TEST_REAL_RM" "$@"' > "$test_root/bin/rm"
+chmod +x "$test_root/bin/rm"
+if PATH="$test_root/bin:$PATH" install > "$test_root/failure.log" 2>&1; then
+  printf 'Expected deletion failure.\n' >&2; exit 1
+fi
+grep -q 'Retirement deletion failed' "$test_root/failure.log"
+! grep -q 'Retirement summary:' "$test_root/failure.log"
+[[ -f "$codex_dir/communications-audit/SKILL.md" ]]
+install > /dev/null
+assert_retired_absent
+
+# An unrelated SDD conflict does not prevent retirement; no other links change.
+rm "$codex_dir/to-wireframes" "$codex_dir/to-sdd-pipeline"
+mkdir -p "$codex_dir/to-sdd-pipeline" "$codex_dir/issue-happypro-certificate"
+if install > "$test_root/conflict.log" 2>&1; then exit 1; fi
+assert_absent "$codex_dir/issue-happypro-certificate"
+assert_absent "$codex_dir/to-wireframes"
+rmdir "$codex_dir/to-sdd-pipeline"
+install > /dev/null
+
+# Delete source-checkout and repo-local installs as well.
 export_root="$test_root/source export"
 export_dest="$test_root/export installs"
-mkdir -p "$export_root"
-cp "$repo_root/install.sh" "$repo_root/skills-manifest.json" "$repo_root/retired-skills.tsv" "$export_root/"
+mkdir -p "$export_root/.agents/skills/issue-happypro-certificate"
+cp "$repo_root/install.sh" "$repo_root/skills-manifest.json" "$repo_root/retired-skills.txt" "$export_root/"
 cp -R "$repo_root/scripts" "$repo_root/skills" "$export_root/"
 cp -R "$history/skills/communications-audit" "$export_root/skills/communications-audit"
-result=$("$export_root/install.sh" --codex --codex-dir "$export_dest")
-[[ "$result" == *"copies-archived=1"* ]]
+"$export_root/install.sh" --codex --codex-dir "$export_dest" > /dev/null
 assert_absent "$export_root/skills/communications-audit"
+assert_absent "$export_root/.agents/skills/issue-happypro-certificate"
 [[ -f "$export_dest/to-sdd-pipeline/SKILL.md" ]]
 
-# Independent installs win even if an obsolete SDD receipt names that same root.
-custom_root="$test_root/custom clone"
-mkdir -p "$custom_root/skills"
-printf '%s\n' '{"skill_set":"custom-agent-skills"}' > "$custom_root/skills-manifest.json"
-cp -R "$history/skills/communications-audit" "$custom_root/skills/communications-audit"
-cp -R "$history/skills/issue-happypro-certificate" "$custom_root/skills/issue-happypro-certificate"
-ln -s "$custom_root/skills/communications-audit" "$codex_dir/communications-audit"
-ln -s "$custom_root/skills/issue-happypro-certificate" "$claude_dir/issue-happypro-certificate"
-printf '%s\n' "$custom_root" > "$codex_dir/.custom-agent-skills-source"
-printf '%s\n' "$custom_root" > "$claude_dir/.codex-sdd-skills-source"
-result=$(install --retired-source "$custom_root")
-[[ "$result" == *"links-removed=0 copies-archived=0 independent-preserved=2"* ]]
-[[ -L "$codex_dir/communications-audit" && -L "$claude_dir/issue-happypro-certificate" ]]
-[[ "$(sed -n '1p' "$codex_dir/.custom-agent-skills-source")" == "$custom_root" ]]
-diff -r "$history/skills/communications-audit" "$custom_root/skills/communications-audit"
+# The policy cannot silently expand deletion to another skill.
+mkdir "$export_dest/communications-audit"
+printf '%s\n' 'communications-audit' 'issue-happypro-certificate' 'to-wireframes' > "$export_root/retired-skills.txt"
+if "$export_root/install.sh" --codex --codex-dir "$export_dest" > "$test_root/policy.log" 2>&1; then exit 1; fi
+grep -q 'Invalid retirement policy' "$test_root/policy.log"
+[[ -d "$export_dest/communications-audit" && -f "$export_dest/to-wireframes/SKILL.md" ]]
 
 while IFS='|' read -r name relative; do
   cmp -s "$repo_root/$relative/SKILL.md" "$codex_dir/$name/SKILL.md"
   cmp -s "$repo_root/$relative/SKILL.md" "$claude_dir/$name/SKILL.md"
 done < <(sed -nE 's/^[[:space:]]*\{"name": "([^"]+)", "path": "([^"]+)".*$/\1|\2/p' "$repo_root/skills-manifest.json")
-printf '%s\n' 'Retirement tests passed: old/broken links, LF/CRLF copies, recovery safety, edits, source copies, explicit roots, independent installs, idempotence.'
+printf '%s\n' 'Permanent retirement tests passed: copies, edits, broken links, receipts, former backups, failure, source/project roots, no link traversal, idempotence.'

@@ -7,125 +7,110 @@ $ClaudeDir = Join-Path $TestRoot 'claude'
 $History = Join-Path $TestRoot 'history'
 $ExportDest = Join-Path $TestRoot 'export installs'
 $OriginalBackup = $env:SDD_SKILL_BACKUP_DIR
+$LockedFile = $null
 
-function Assert-True([bool]$Condition, [string]$Message) {
-    if (-not $Condition) { throw $Message }
-}
+function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Assert-Absent([string]$Path) {
     $Parent = Split-Path -Parent $Path
     $Name = Split-Path -Leaf $Path
     Assert-True (@(Get-ChildItem -LiteralPath $Parent -Force | Where-Object { $_.Name -eq $Name }).Count -eq 0) "Retired path still exists: $Path"
 }
+function Assert-RetiredAbsent {
+    foreach ($Root in @($CodexDir, $ClaudeDir)) {
+        foreach ($Name in @('communications-audit', 'issue-happypro-certificate')) { Assert-Absent (Join-Path $Root $Name) }
+    }
+}
 function Run-Install([hashtable]$Extra = @{}) {
     & (Join-Path $RepoRoot 'install.ps1') -All -Repair -CodexDir $CodexDir -ClaudeDir $ClaudeDir @Extra
-}
-function Expect-Review([hashtable]$Extra = @{}) {
-    $Detected = $false
-    try { Run-Install $Extra } catch {
-        if ($_.Exception.Message -notlike '*Cleanup needs review*') { throw }
-        $Detected = $true
-    }
-    Assert-True $Detected 'Expected a review-required failure.'
-}
-function Assert-SameTree([string]$Source, [string]$Destination) {
-    $SourceFiles = @(Get-ChildItem -LiteralPath $Source -Recurse -File)
-    $DestinationFiles = @(Get-ChildItem -LiteralPath $Destination -Recurse -File)
-    Assert-True ($SourceFiles.Count -eq $DestinationFiles.Count) 'Backup inventory changed.'
-    foreach ($File in $SourceFiles) {
-        $Relative = $File.FullName.Substring($Source.Length + 1)
-        Assert-True ((Get-FileHash -LiteralPath $File.FullName).Hash -eq (Get-FileHash -LiteralPath (Join-Path $Destination $Relative)).Hash) "Backup changed: $Relative"
-    }
+    Assert-True ($LASTEXITCODE -eq 0) 'Installer returned failure.'
 }
 
 try {
-    foreach ($Directory in @($CodexDir, $ClaudeDir, $History)) { New-Item -ItemType Directory -Path $Directory -Force | Out-Null }
-    $env:SDD_SKILL_BACKUP_DIR = Join-Path $TestRoot 'backups'
+    foreach ($Directory in @($CodexDir, $ClaudeDir, $History, (Join-Path $TestRoot 'external'))) {
+        New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+    }
+    $External = Join-Path $TestRoot 'external'
+    Set-Content -LiteralPath (Join-Path $External 'marker.txt') -Value keep
+    $env:SDD_SKILL_BACKUP_DIR = Join-Path $TestRoot 'former-backups'
     $Archive = Join-Path $TestRoot 'history.tar'
     & git -C $RepoRoot archive -o $Archive 31ae0fefe00e5b79c99a6a39d418125a291731fd skills/communications-audit skills/issue-happypro-certificate
-    Assert-True ($LASTEXITCODE -eq 0) 'Historical fixtures require Git history (fetch-depth: 0 in CI).'
+    Assert-True ($LASTEXITCODE -eq 0) 'Historical fixtures require full Git history.'
     & tar -xf $Archive -C $History
     Assert-True ($LASTEXITCODE -eq 0) 'Could not extract historical fixtures.'
-    Run-Install
 
-    # Both live and broken junctions to a recorded old clone must be removed.
-    $OldRoot = Join-Path $TestRoot 'old combined clone'
-    foreach ($Name in @('communications-audit', 'issue-happypro-certificate')) {
-        New-Item -ItemType Directory -Path (Join-Path $OldRoot "skills/$Name") -Force | Out-Null
-    }
-    New-Item -ItemType Junction -Path (Join-Path $CodexDir 'communications-audit') -Target (Join-Path $OldRoot 'skills/communications-audit') | Out-Null
-    New-Item -ItemType Junction -Path (Join-Path $ClaudeDir 'issue-happypro-certificate') -Target (Join-Path $OldRoot 'skills/issue-happypro-certificate') | Out-Null
-    [System.IO.Directory]::Delete((Join-Path $OldRoot 'skills/issue-happypro-certificate'))
-    foreach ($Root in @($CodexDir, $ClaudeDir)) { Set-Content -LiteralPath (Join-Path $Root '.codex-sdd-skills-source') -Value $OldRoot }
-    Run-Install
-    Assert-Absent (Join-Path $CodexDir 'communications-audit')
-    Assert-Absent (Join-Path $ClaudeDir 'issue-happypro-certificate')
-    Assert-True (Test-Path -LiteralPath (Join-Path $OldRoot 'skills/communications-audit')) 'Cleanup deleted a link target.'
-    Assert-True (-not (Test-Path -LiteralPath $env:SDD_SKILL_BACKUP_DIR)) 'Link-only cleanup created an unnecessary backup.'
-    Run-Install
-
+    # Delete originals, edited copies, additional files, and CRLF copies.
     Copy-Item -LiteralPath (Join-Path $History 'skills/communications-audit') -Destination (Join-Path $CodexDir 'communications-audit') -Recurse
+    Add-Content -LiteralPath (Join-Path $CodexDir 'communications-audit/references/report-contract.md') -Value 'Edited local content'
+    Set-Content -LiteralPath (Join-Path $CodexDir 'communications-audit/local-notes.txt') -Value extra
+    New-Item -ItemType Junction -Path (Join-Path $CodexDir 'communications-audit/nested-link') -Target $External | Out-Null
     Copy-Item -LiteralPath (Join-Path $History 'skills/issue-happypro-certificate') -Destination (Join-Path $ClaudeDir 'issue-happypro-certificate') -Recurse
     $CertificateFile = Join-Path $ClaudeDir 'issue-happypro-certificate/SKILL.md'
     $CrlfText = [System.IO.File]::ReadAllText($CertificateFile) -replace '\r?\n', "`r`n"
     [System.IO.File]::WriteAllText($CertificateFile, $CrlfText, (New-Object System.Text.UTF8Encoding($false)))
-    $CrlfHash = (Get-FileHash -LiteralPath $CertificateFile).Hash
+    (Get-Item -LiteralPath $CertificateFile).IsReadOnly = $true
     Run-Install
-    Assert-Absent (Join-Path $CodexDir 'communications-audit')
-    Assert-Absent (Join-Path $ClaudeDir 'issue-happypro-certificate')
-    $AuditBackup = @(Get-ChildItem -LiteralPath $env:SDD_SKILL_BACKUP_DIR -Directory -Recurse | Where-Object { $_.Name -eq 'communications-audit' })[0].FullName
-    $CertificateBackup = @(Get-ChildItem -LiteralPath $env:SDD_SKILL_BACKUP_DIR -Directory -Recurse | Where-Object { $_.Name -eq 'issue-happypro-certificate' })[0].FullName
-    Assert-SameTree (Join-Path $History 'skills/communications-audit') $AuditBackup
-    Assert-True ((Get-FileHash -LiteralPath (Join-Path $CertificateBackup 'SKILL.md')).Hash -eq $CrlfHash) 'CRLF backup changed.'
-    $BackupCount = @(Get-ChildItem -LiteralPath $env:SDD_SKILL_BACKUP_DIR -Directory).Count
-    Run-Install
-    Assert-True (@(Get-ChildItem -LiteralPath $env:SDD_SKILL_BACKUP_DIR -Directory).Count -eq $BackupCount) 'Repeat created new backups.'
-
-    Copy-Item -LiteralPath (Join-Path $History 'skills/issue-happypro-certificate') -Destination (Join-Path $CodexDir 'issue-happypro-certificate') -Recurse
-    $SafeBackup = $env:SDD_SKILL_BACKUP_DIR
-    $UnsafeBackup = Join-Path $CodexDir 'recovery'
-    $env:SDD_SKILL_BACKUP_DIR = $UnsafeBackup
-    $BackupRefused = $false
-    try { Run-Install } catch {
-        if ($_.Exception.Message -notlike '*outside every skill directory*') { throw }
-        $BackupRefused = $true
-    } finally { $env:SDD_SKILL_BACKUP_DIR = $SafeBackup }
-    Assert-True $BackupRefused 'Unsafe recovery location was accepted.'
-    Assert-True (Test-Path -LiteralPath (Join-Path $CodexDir 'issue-happypro-certificate/SKILL.md')) 'Copy changed before recovery check.'
-    Assert-True (-not (Test-Path -LiteralPath $UnsafeBackup)) 'Unsafe recovery folder was created.'
+    Assert-RetiredAbsent
+    Assert-True (Test-Path -LiteralPath (Join-Path $External 'marker.txt')) 'Cleanup followed a nested junction.'
+    Assert-True (-not (Test-Path -LiteralPath $env:SDD_SKILL_BACKUP_DIR)) 'Cleanup created a backup.'
     Run-Install
 
-    Copy-Item -LiteralPath (Join-Path $History 'skills/communications-audit') -Destination (Join-Path $CodexDir 'communications-audit') -Recurse
-    $Edited = Join-Path $CodexDir 'communications-audit/references/report-contract.md'
-    Add-Content -LiteralPath $Edited -Value 'User changes must survive.'
-    $EditedHash = (Get-FileHash -LiteralPath $Edited).Hash
-    New-Item -ItemType Junction -Path (Join-Path $CodexDir 'issue-happypro-certificate') -Target (Join-Path $History 'skills/issue-happypro-certificate') | Out-Null
-    Set-Content -LiteralPath (Join-Path $CodexDir '.codex-sdd-skills-source') -Value $History
-    [System.IO.Directory]::Delete((Join-Path $CodexDir 'to-wireframes'))
-    Expect-Review
-    Assert-True ((Get-FileHash -LiteralPath $Edited).Hash -eq $EditedHash) 'Modified copy was changed.'
-    Assert-True (-not [string]::IsNullOrWhiteSpace([string](Get-Item -LiteralPath (Join-Path $CodexDir 'issue-happypro-certificate') -Force).LinkType)) 'Preflight removed another link.'
-    Assert-Absent (Join-Path $CodexDir 'to-wireframes')
-    Move-Item -LiteralPath (Join-Path $CodexDir 'communications-audit') -Destination (Join-Path $TestRoot 'preserved-user-copy')
+    # Broken links and custom-source receipts are not exceptions.
+    $OldSource = Join-Path $TestRoot 'old source/skills/communications-audit'
+    New-Item -ItemType Directory -Path $OldSource -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $CodexDir 'communications-audit') -Target $OldSource | Out-Null
+    [System.IO.Directory]::Delete($OldSource)
+    New-Item -ItemType Junction -Path (Join-Path $ClaudeDir 'issue-happypro-certificate') -Target (Join-Path $History 'skills/issue-happypro-certificate') | Out-Null
+    Set-Content -LiteralPath (Join-Path $ClaudeDir '.custom-agent-skills-source') -Value $History
     Run-Install
-
-    New-Item -ItemType Junction -Path (Join-Path $CodexDir 'communications-audit') -Target (Join-Path $OldRoot 'skills/communications-audit') | Out-Null
-    Expect-Review
-    Run-Install @{ RetiredSource=@($OldRoot) }
-    Assert-Absent (Join-Path $CodexDir 'communications-audit')
+    Assert-RetiredAbsent
+    Assert-True (Test-Path -LiteralPath (Join-Path $History 'skills/issue-happypro-certificate/SKILL.md')) 'Cleanup traversed an external source.'
 
     $ProjectSkills = Join-Path $TestRoot 'project/.agents/skills'
-    New-Item -ItemType Directory -Path $ProjectSkills -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $History 'skills/issue-happypro-certificate') -Destination (Join-Path $ProjectSkills 'issue-happypro-certificate') -Recurse
-    Set-Content -LiteralPath (Join-Path $ProjectSkills 'unrelated.txt') -Value 'keep'
-    Run-Install
-    Assert-True (Test-Path -LiteralPath (Join-Path $ProjectSkills 'issue-happypro-certificate/SKILL.md')) 'Unrequested root was changed.'
+    New-Item -ItemType Directory -Path (Join-Path $ProjectSkills 'communications-audit') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $ProjectSkills 'unrelated.txt') -Value keep
     Run-Install @{ CleanupDir=@($ProjectSkills) }
-    Assert-Absent (Join-Path $ProjectSkills 'issue-happypro-certificate')
+    Assert-Absent (Join-Path $ProjectSkills 'communications-audit')
     Assert-True (Test-Path -LiteralPath (Join-Path $ProjectSkills 'unrelated.txt')) 'Unrelated file was deleted.'
 
+    # Remove backup copies produced by the former updater, without replacements.
+    foreach ($Name in @('communications-audit', 'issue-happypro-certificate')) {
+        $Former = Join-Path $env:SDD_SKILL_BACKUP_DIR "$Name.ABC123"
+        New-Item -ItemType Directory -Path $Former -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $History "skills/$Name") -Destination (Join-Path $Former $Name) -Recurse
+        Set-Content -LiteralPath (Join-Path $Former 'original-path.txt') -Value (Join-Path $CodexDir $Name) -Encoding UTF8
+    }
+    Run-Install
+    Assert-Absent (Join-Path $env:SDD_SKILL_BACKUP_DIR 'communications-audit.ABC123')
+    Assert-Absent (Join-Path $env:SDD_SKILL_BACKUP_DIR 'issue-happypro-certificate.ABC123')
+
+    # A locked file makes the update fail until deletion can actually finish.
+    $LockedPath = Join-Path $CodexDir 'communications-audit/SKILL.md'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $LockedPath) | Out-Null
+    Set-Content -LiteralPath $LockedPath -Value undeleted
+    $LockedFile = [System.IO.File]::Open($LockedPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+    $DeletionFailed = $false
+    try { Run-Install } catch { $DeletionFailed = $true } finally { $LockedFile.Dispose(); $LockedFile = $null }
+    Assert-True $DeletionFailed 'Expected deletion failure.'
+    Assert-True (Test-Path -LiteralPath $LockedPath) 'Locked fixture was not present.'
+    Run-Install
+    Assert-RetiredAbsent
+
+    # Retire the business skills even when unrelated SDD links need attention.
+    [System.IO.Directory]::Delete((Join-Path $CodexDir 'to-wireframes'))
+    [System.IO.Directory]::Delete((Join-Path $CodexDir 'to-sdd-pipeline'))
+    New-Item -ItemType Directory -Path (Join-Path $CodexDir 'to-sdd-pipeline') | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $CodexDir 'issue-happypro-certificate') | Out-Null
+    $Conflict = $false
+    try { Run-Install } catch { $Conflict = $true }
+    Assert-True $Conflict 'Expected active-skill conflict.'
+    Assert-Absent (Join-Path $CodexDir 'issue-happypro-certificate')
+    Assert-Absent (Join-Path $CodexDir 'to-wireframes')
+    [System.IO.Directory]::Delete((Join-Path $CodexDir 'to-sdd-pipeline'))
+    Run-Install
+
     $ExportRoot = Join-Path $TestRoot 'source export'
-    New-Item -ItemType Directory -Path $ExportRoot | Out-Null
-    foreach ($File in @('install.ps1', 'skills-manifest.json', 'retired-skills.tsv')) {
+    New-Item -ItemType Directory -Path (Join-Path $ExportRoot '.agents/skills/issue-happypro-certificate') -Force | Out-Null
+    foreach ($File in @('install.ps1', 'skills-manifest.json', 'retired-skills.txt')) {
         Copy-Item -LiteralPath (Join-Path $RepoRoot $File) -Destination (Join-Path $ExportRoot $File)
     }
     foreach ($Directory in @('scripts', 'skills')) {
@@ -134,29 +119,23 @@ try {
     Copy-Item -LiteralPath (Join-Path $History 'skills/communications-audit') -Destination (Join-Path $ExportRoot 'skills/communications-audit') -Recurse
     & (Join-Path $ExportRoot 'install.ps1') -Codex -CodexDir $ExportDest
     Assert-Absent (Join-Path $ExportRoot 'skills/communications-audit')
-    Assert-True (Test-Path -LiteralPath (Join-Path $ExportDest 'to-sdd-pipeline/SKILL.md')) 'Source export did not install.'
-    $CustomRoot = Join-Path $TestRoot 'custom clone'
-    New-Item -ItemType Directory -Path (Join-Path $CustomRoot 'skills') -Force | Out-Null
-    Set-Content -LiteralPath (Join-Path $CustomRoot 'skills-manifest.json') -Value '{"skill_set":"custom-agent-skills"}'
-    foreach ($Name in @('communications-audit', 'issue-happypro-certificate')) {
-        Copy-Item -LiteralPath (Join-Path $History "skills/$Name") -Destination (Join-Path $CustomRoot "skills/$Name") -Recurse
-    }
-    New-Item -ItemType Junction -Path (Join-Path $CodexDir 'communications-audit') -Target (Join-Path $CustomRoot 'skills/communications-audit') | Out-Null
-    New-Item -ItemType Junction -Path (Join-Path $ClaudeDir 'issue-happypro-certificate') -Target (Join-Path $CustomRoot 'skills/issue-happypro-certificate') | Out-Null
-    Set-Content -LiteralPath (Join-Path $CodexDir '.custom-agent-skills-source') -Value $CustomRoot
-    Set-Content -LiteralPath (Join-Path $ClaudeDir '.codex-sdd-skills-source') -Value $CustomRoot
-    Run-Install @{ RetiredSource=@($CustomRoot) }
-    Assert-True (Test-Path -LiteralPath (Join-Path $CodexDir 'communications-audit/SKILL.md')) 'Independent audit install was removed.'
-    Assert-True (Test-Path -LiteralPath (Join-Path $ClaudeDir 'issue-happypro-certificate/SKILL.md')) 'Independent certificate install was removed.'
-    Assert-SameTree (Join-Path $History 'skills/communications-audit') (Join-Path $CustomRoot 'skills/communications-audit')
-    Assert-True ((Get-Content -LiteralPath (Join-Path $CodexDir '.custom-agent-skills-source') -Raw).Trim() -eq $CustomRoot) 'Independent receipt changed.'
-    Write-Host 'Windows retirement tests passed.'
+    Assert-Absent (Join-Path $ExportRoot '.agents/skills/issue-happypro-certificate')
+
+    New-Item -ItemType Directory -Path (Join-Path $ExportDest 'communications-audit') | Out-Null
+    Set-Content -LiteralPath (Join-Path $ExportRoot 'retired-skills.txt') -Value @('communications-audit', 'issue-happypro-certificate', 'to-wireframes')
+    $PolicyFailed = $false
+    try { & (Join-Path $ExportRoot 'install.ps1') -Codex -CodexDir $ExportDest } catch { $PolicyFailed = $true }
+    Assert-True $PolicyFailed 'Invalid retirement policy was accepted.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $ExportDest 'communications-audit')) 'Invalid policy changed files.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $ExportDest 'to-wireframes/SKILL.md')) 'Policy retired an unrelated skill.'
+    Write-Host 'Windows permanent retirement tests passed.'
 } finally {
+    if ($null -ne $LockedFile) { $LockedFile.Dispose() }
     $env:SDD_SKILL_BACKUP_DIR = $OriginalBackup
     foreach ($Root in @($CodexDir, $ClaudeDir, $ExportDest)) {
         if (Test-Path -LiteralPath $Root) {
             foreach ($Item in Get-ChildItem -LiteralPath $Root -Force) {
-                if (-not [string]::IsNullOrWhiteSpace([string]$Item.LinkType)) { [System.IO.Directory]::Delete($Item.FullName) }
+                if ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { [System.IO.Directory]::Delete($Item.FullName) }
             }
         }
     }

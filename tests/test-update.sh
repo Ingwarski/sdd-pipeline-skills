@@ -16,10 +16,10 @@ remote="$test_root/remote.git"
 mkdir -p "$publisher/scripts" "$test_root/bin"
 cp "$repo_root/update.sh" "$publisher/update.sh"
 cp "$repo_root/scripts/retired-skills.sh" "$publisher/scripts/retired-skills.sh"
-cp "$repo_root/retired-skills.tsv" "$publisher/retired-skills.tsv"
+cp "$repo_root/retired-skills.txt" "$publisher/retired-skills.txt"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 99' > "$publisher/install.sh"
 git -C "$publisher" init --quiet --initial-branch=main
-git -C "$publisher" add -- update.sh install.sh scripts/retired-skills.sh retired-skills.tsv
+git -C "$publisher" add -- update.sh install.sh scripts/retired-skills.sh retired-skills.txt
 git -C "$publisher" -c user.name='SDD tests' -c user.email='sdd-tests@example.invalid' commit --quiet -m initial
 git clone --quiet --bare "$publisher" "$remote"
 git clone --quiet "$remote" "$checkout"
@@ -89,4 +89,30 @@ git -C "$publisher" -c user.name='SDD tests' -c user.email='sdd-tests@example.in
 git -C "$publisher" push --quiet "$remote" main
 expect_failure 'diverge'
 [[ "$(git -C "$checkout" rev-parse HEAD)" == "$local_head" && ! -e "$checkout/upstream.txt" ]]
+
+# End-to-end: a student's update downloads the real installer and deletes copies.
+student="$test_root/student"
+student_codex="$test_root/student-codex"
+student_claude="$test_root/student-claude"
+git clone --quiet "$remote" "$student"
+git -C "$student" remote set-url origin https://github.com/Ingwarski/sdd-pipeline-skills.git
+cp "$repo_root/install.sh" "$repo_root/skills-manifest.json" "$publisher/"
+cp -R "$repo_root/skills" "$publisher/skills"
+git -C "$publisher" add -- install.sh skills-manifest.json skills
+git -C "$publisher" -c user.name='SDD tests' -c user.email='sdd-tests@example.invalid' commit --quiet -m real-installer
+git -C "$publisher" push --quiet "$remote" main
+for install_root in "$student_codex" "$student_claude"; do
+  for name in communications-audit issue-happypro-certificate; do
+    mkdir -p "$install_root/$name"
+    printf edited-copy > "$install_root/$name/SKILL.md"
+  done
+done
+export SDD_SKILL_BACKUP_DIR="$test_root/former-backups"
+PATH="$test_root/bin:$PATH" bash "$student/update.sh" --all --codex-dir "$student_codex" --claude-dir "$student_claude" > "$test_root/student-update.log"
+grep -q 'permanently-deleted=4 former-backups-deleted=0 remaining=0 backups-created=0' "$test_root/student-update.log"
+for install_root in "$student_codex" "$student_claude"; do
+  [[ ! -e "$install_root/communications-audit" && ! -e "$install_root/issue-happypro-certificate" ]]
+  [[ -f "$install_root/to-sdd-pipeline/SKILL.md" ]]
+done
+[[ ! -e "$SDD_SKILL_BACKUP_DIR" ]]
 printf '%s\n' 'Updater tests passed: fresh installer, flags, dirty tree, branch, origin, old URL, ahead/diverged history.'
