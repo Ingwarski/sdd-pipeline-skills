@@ -5,7 +5,7 @@ $TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('sdd-update-' + [guid]:
 $Publisher = Join-Path $TestRoot 'publisher'
 $Checkout = Join-Path $TestRoot 'checkout'
 $Remote = Join-Path $TestRoot 'remote.git'
-$NativeGit = (Get-Command git -CommandType Application).Source
+$NativeGit = (Get-Command git -CommandType Application | Select-Object -First 1).Source
 $OldResult = $env:SDD_UPDATE_TEST_RESULT
 
 function Test-Git([string]$Root, [string[]]$Arguments) {
