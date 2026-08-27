@@ -6,7 +6,7 @@ description: Create or update docs/product-idea.md through a visible, resumable,
 
 ## Mission
 
-Turn operator-confirmed intent into the authoritative `docs/product-idea.md` input without inventing the product mandate. Make the interview foreground and inspectable. Reduce operator work by discovering repository facts first, asking only material non-inferable questions, recommending an answer for every question, and asking one question at a time.
+Turn operator-confirmed intent into the authoritative `docs/product-idea.md` input without inventing the product mandate. Make the interview foreground and inspectable. Reduce operator work by discovering repository facts first, asking only material non-inferable questions, recommending an answer for every question, and asking one question at a time. Make the product intent design-ready by capturing the primary job-to-be-done, the situation and trigger that create it, the desired progress and outcome, the current alternative, and the user conditions that materially shape the later journey and interface.
 
 This is the Phase 0 artifact owner immediately upstream of `to-sdd-pipeline`. Product Idea Intake is a Product Creation Run, not a Feature Unit and not a design approval.
 
@@ -80,6 +80,7 @@ In a direct interactive Codex session without the DAS Forge adapter, ask the sam
 - State what downstream artifacts or boundaries change if the answer differs.
 - After the answer, play back the confirmed decision and consequences before continuing or handing off.
 - Ask only when the answer is genuinely non-inferable and materially changes user, problem, outcome, primary journey, MVP boundary, business rule, data/authority boundary, target surface, or another upstream product commitment.
+- When design quality depends on an unresolved user or usage condition, ask about the job, situation, trigger, desired progress, current alternative, outcome, constraints, or trust concern before asking about solution shape. Do not use these questions to prescribe screens, visual style, components, or technology.
 - Inspect source files and the codebase instead of asking for discoverable facts.
 - Resolve non-material detail with the smallest reversible source-grounded assumption and show it in the draft coverage view.
 - Do not ask for architecture, framework, database, API shape, implementation sequencing, visual styling, or other decisions owned downstream unless the operator explicitly made them part of product intent.
@@ -98,9 +99,28 @@ Continue the adaptive interview until the available sources and explicit answers
 - business rules, data sensitivity, authority limits, and external commitments;
 - autonomy, intervention, and high-risk authorization expectations;
 - observable success outcomes;
+- the primary job-to-be-done, including the situation, trigger, desired progress, expected outcome, and current alternative when those facts are material and not discoverable;
+- the functional, emotional, or social dimension of the job when it changes trust, motivation, language, interaction, or prioritization;
+- the real operating conditions that affect design: device, environment, time pressure, attention, accessibility needs, language, connectivity, and interruption or recovery needs;
+- the highest-cost user mistake, failure consequence, and required recovery or control boundary;
+- the evidence or observable signal that would show the user made progress and completed the job;
 - unresolved risks or decisions that are safe to defer.
 
 There is no fixed question count. Show coverage as `confirmed`, `source-inferred`, `assumed`, or `missing-material` so the operator knows what remains without receiving a large static form.
+
+## Design-Readiness Discovery Branch
+
+When the product idea or available evidence does not establish design-critical intent, walk only the relevant branch and ask one question at a time. Inspect sources first. Use the following sequence as a decision tree, not as a mandatory questionnaire:
+
+1. **Job and progress:** What is the user trying to accomplish in their own situation, and what progress do they want?
+2. **Situation and trigger:** What event, need, or frustration starts the session, and what makes the user act now?
+3. **Outcome and alternatives:** What outcome counts as success, and what do users do today instead?
+4. **Conditions:** Which device, environment, time pressure, attention, accessibility, language, connectivity, or interruption conditions materially affect the experience?
+5. **Trust and risk:** What could make the user hesitate, what is the highest-cost mistake, and what must be reversible or explicitly confirmed?
+6. **Content and evidence:** What information, proof, data, or explanation is needed to decide or complete the job?
+7. **Success signal:** What observable user or business outcome indicates that the job was completed rather than merely that a screen was viewed?
+
+For each question, include the source basis or state that no source confirms it, a recommended answer with rationale, the affected product-intent fields and downstream artifacts, and a short playback after the answer. Record unresolved non-material details as assumptions. Do not ask a visual-styling question merely to make the product idea look complete; visual direction belongs to `to-design-brief`.
 
 ## Completion And Handoff
 
@@ -110,6 +130,8 @@ Before writing the artifact, validate that:
 - all submitted operator answers appear without semantic distortion;
 - no unresolved contradiction or materially ambiguous product boundary remains;
 - primary user/problem/outcome and V1 boundary are explicit;
+- every material primary job has a stable `JOB-*` ID, a source-backed or user-confirmed statement, and a clearly labeled confidence status;
+- each primary `JOB-*` is traceable to at least one core workflow or use-case candidate, or the missing relationship is recorded in `Open Questions`;
 - assumptions remain labeled and reversible;
 - downstream architecture, design, DoD, QA, and implementation ownership is preserved.
 
@@ -142,6 +164,7 @@ Use the smallest structure that captures confirmed intent. Preserve an existing 
 ## Positioning
 ## Target User And Problem
 ## Product Outcome
+## Jobs To Be Done
 ## Core Workflow
 ## V1 Scope
 ## Explicit Exclusions
@@ -150,6 +173,23 @@ Use the smallest structure that captures confirmed intent. Preserve an existing 
 ## Assumptions And Open Questions
 ## Source Notes
 ```
+
+When `## Jobs To Be Done` is applicable, keep it concise and use one entry per materially distinct job:
+
+```markdown
+### JOB-01: <canonical job name>
+- Job statement: When <situation>, I want <desired progress>, so I can <outcome>.
+- Primary user:
+- Trigger and urgency:
+- Current alternative:
+- Functional, emotional, or social dimension:
+- Design-relevant conditions:
+- Success signal:
+- Evidence and confidence: confirmed | source-inferred | assumed
+- Downstream references: core workflow / use-case candidate / open question
+```
+
+Do not turn jobs into feature requests, duplicate user stories, or restate the entire journey. A job may be omitted when the sources do not establish it and the unresolved gap is non-material; a missing material primary job remains an intake question.
 
 Do not add empty ceremonial sections.
 
@@ -162,6 +202,7 @@ Return:
 - `Working Language And Product Content Locales`
 - `Product Idea Hash`
 - `Source Mode`
+- `Confirmed Jobs To Be Done`
 - `Confirmed Decisions`
 - `Assumptions`
 - `Open Questions`

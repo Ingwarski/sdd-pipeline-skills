@@ -45,6 +45,8 @@ Do not modify unrelated files.
 - state variants per screen
 - interaction notes needed to understand layout behavior
 
+Wireframes may reference `JOB-*` and `UC-*` IDs from upstream artifacts, but they do not redefine the job, use-case paths, or product requirements.
+
 For states: `docs/screen-map.md` owns which states exist per screen - reference its list; this file owns each state's structure only.
 
 It must not define:
@@ -62,6 +64,7 @@ The final product goal is high-quality UX/UI design. This artifact supports that
 ## Proven Mechanics To Use
 - Run a wireframe-readiness preflight, not a design-brief gate and not a human approval: derive what each screen must help the user do, which structural or existing-system constraints apply, and how interactive the final experience must be from the PRD, journey, screen map, guardrails, and available product evidence. The dependency order is `screen-map -> wireframes -> design-brief -> interactive Prototype Mockup Candidates`; `docs/wireframes.md` must never depend on `docs/design-brief.md`. Defer typography, color, visual mood, tokens, and component styling to the later design brief. Missing non-material visual direction does not block structural wireframes. `Whole-product` candidate scope means complete design coverage, not implementation of the application.
 - Use a concrete notation, not prose. For every screen: an ordered content-zone list with a hierarchy level and priority per zone; an ASCII layout sketch for any screen whose layout is not a single column; state variants expressed as deltas from the default blueprint (for example: "Error: zone 3 replaced by inline message; primary CTA disabled").
+- Keep the primary user intent and primary CTA traceable to the applicable `JOB-*`, `UC-*`, journey stage, and screen-map state without copying the upstream definitions.
 - Prefer source capture over guessing. If an existing product, design system, screenshot, Storybook, component library, or token file exists, use it as grounding material.
 - Differentiate structure before style: vary hierarchy, grouping, interaction model, and CTA emphasis before discussing brand style.
 - Use this separation priority inside wireframes: spacing, grouping, alignment, and hierarchy first; simple dividers second; subtle surface tint third; borders fourth; shadows last.
@@ -72,6 +75,7 @@ The final product goal is high-quality UX/UI design. This artifact supports that
 ## Gap-Check
 Before writing, verify that sources identify:
 - the screen inventory
+- the applicable `JOB-*`, `UC-*`, journey-stage, and screen-map references
 - primary action per screen
 - required content or data per screen
 - required states per screen
@@ -84,16 +88,17 @@ If block priority, CTAs, forms, or state behavior are missing or contradictory, 
 ## Workflow
 1. Inspect the input files.
 2. Use `docs/screen-map.md` as the source for screens and states.
-3. For each screen, define purpose, user intent, content hierarchy, CTAs, inputs, and state variants.
-4. Keep wireframes low-fidelity and structural.
-5. Define responsive structural behavior only where it affects content priority or interaction.
-6. Preserve traceability to PRD requirements, user journey stages, and screen-map entries.
-7. Avoid adding features, screens, fields, or flows outside approved sources.
-8. Before writing the artifact, verify the planned content:
+3. Preserve the applicable `JOB-*`, `UC-*`, journey-stage, and screen-map references.
+4. For each screen, define purpose, user intent, content hierarchy, CTAs, inputs, and state variants.
+5. Keep wireframes low-fidelity and structural.
+6. Define responsive structural behavior only where it affects content priority or interaction.
+7. Preserve traceability to PRD requirements, user journey stages, and screen-map entries.
+8. Avoid adding features, screens, fields, or flows outside approved sources.
+9. Before writing the artifact, verify the planned content:
    - Every load-bearing claim traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
-9. Create or update only `docs/wireframes.md`.
+10. Create or update only `docs/wireframes.md`.
 
 ## Required Output Structure
 Use this structure:
@@ -126,6 +131,7 @@ Only notes that span multiple screens. Per-screen notes belong in each blueprint
 
 For each screen blueprint include:
 - `Source Screen`
+- `Job And Use-Case References`: applicable `JOB-*`, `UC-*`, journey-stage, and screen-map state IDs
 - `Purpose`
 - `Primary User Intent`
 - `Layout Structure`

@@ -6,7 +6,7 @@ description: Orchestrate a design-first SDD pipeline from a rough product descri
 
 ## Mission
 
-Run the SDD workflow as one autonomous dependency graph while preserving exclusive artifact ownership. The process exists to reduce an engineer's coordination work. Do not add file-by-file, screen-by-screen, or step-by-step approval gates.
+Run the SDD workflow as one autonomous dependency graph while preserving exclusive artifact ownership. The process exists to reduce an engineer's coordination work. Do not add file-by-file, screen-by-screen, or step-by-step approval gates. Preserve traceability from product intent (`JOB-*`) through product behavior (`UC-*`) to the journey, screen/state, design, QA, and implementation plan; do not create a second artifact or approval gate for that trace.
 
 Treat Product Idea Intake as the visible Phase 0 immediately upstream of this graph. Never silently invent or generate missing product intent. When `docs/product-idea.md` is absent or materially incomplete, dispatch or resume `to-product-idea` through the DAS Forge foreground intake adapter and return `awaiting-product-idea-intake`; do not continue into PRD generation.
 
@@ -87,6 +87,10 @@ product-idea-intake
 -> development-plan
 -> awaiting-implementation-prompt
 ```
+
+`to-product-idea` is the canonical owner of `JOB-*` Jobs To Be Done: situation, desired progress, outcome, alternatives, and design-relevant conditions. `to-sdd-prd` is the canonical owner of `UC-*` product use cases: actors, triggers, system-facing paths, alternate/error recovery, postconditions, and authority/data boundaries. Journey, screen map, wireframes, design brief, QA, DoD, and development-plan skills reference these IDs and add only their owned concern. No `docs/jtbd.md` or `docs/use-cases.md` node is added, so the graph remains acyclic and artifact ownership remains exclusive.
+
+Representative-user task validation is likewise not a new pipeline node. `to-design-brief` defines the validation plan for critical flows, `to-qa-checklist` owns concrete checks and per-check evidence, `to-dod-evals` owns the reusable `representative_user_task_validation` gate, and `to-development-plan` maps that gate to implementation units. Heuristic review, visual/browser evidence, and representative-user evidence remain distinct; validation is evidence, not a second design approval.
 
 In pipeline mode, `to-project-context` reads only the product idea, PRD, explicit user decisions, README/CODEX, and independent project evidence; it never reads downstream SDD artifacts back into the context bundle. `docs/guardrails.md` depends only on the PRD, the validated context bundle, and explicitly authoritative upstream intent; it never reads downstream artifacts back into itself. `docs/wireframes.md` never depends on `docs/design-brief.md`. `design-source-access-preflight` reads the complete `Design Source Material Inventory` plus the frozen SDD inputs and produces only operational handoff receipts; it never edits `docs/design-brief.md` or other domain artifacts. `docs/development-plan.md` never belongs to the pre-design baseline because it requires the Approved Visual Baseline. `awaiting-implementation-prompt` is the terminal state of this SDD artifact graph; Phase 3 implementation is outside the graph and requires the separate execution prompt.
 
@@ -176,6 +180,8 @@ Every revision creates a new candidate version, immutable target reference, and 
 
 Treat vendor Work Mode, `terminal.local`, Sites, cloud-browser, or in-app-browser requirements as adapter transport. Persist internal `VisualQAEvidence` separately from the operator-visible browser receipt. Apply DAS Forge release-effect policy to imported findings; a vendor P2 is not automatically blocking.
 
+Visual-QA and browser receipts do not prove that representative users can complete a critical task. Preserve any applicable `representative_user_task_validation` plan and result separately, with its `JOB-*`, `UC-*`, task, success criterion, user group, device/viewport, evidence, and findings. Do not synthesize user evidence from an AI review or a prototype interaction.
+
 Normalize `VisualQAEvidence` with adapter/environment, candidate or Baseline ID, target reference/hash, canonical preview URL, route/state/viewport/theme/content fixture, source and implementation capture IDs, interactions checked, console result, QA result, findings with severity and release effect, and timestamp. Retain raw provider reports only as attachments.
 
 Treat image-to-code output as a Phase 2 interactive frontend mockup preview, not an application implementation. It may simulate product states for design review but does not implement or prove production auth, persistence, backend/API, provider execution, integrations, security boundaries, repository effects, or exhaustive edge cases. Presentation-layer mockup code may optionally seed production work only through the traced promote/diff contract in `docs/development-plan.md`. The Phase 3 runner, not this orchestrator, the planning skill, or implementation-agent prose, owns the resulting `forge/runs/{unit_id}/{run_id}/prototype-promotion.json` receipt derived from the actual Git diff.
@@ -189,6 +195,8 @@ The `Approved Visual Baseline` section of `docs/design-brief.md` is the single c
 1. re-invoke `to-design-brief` to set `Status: approved`, Baseline ID, candidate/version, immutable target reference/hash, frozen prototype source root/tree hash and algorithm, prototype references, origin/handoff when applicable, coverage, receipt, visual-DoD scope, permitted variance, and supersession;
 2. re-invoke `to-qa-checklist` so concrete visual checks reference the Baseline ID;
 3. invoke `to-development-plan` only after both updates validate.
+
+Approval of the visual baseline does not establish usability validation. Where `representative_user_task_validation` is applicable, its QA evidence remains a separate DoD input after implementation and must be mapped to the approved flow; a visual baseline, heuristic audit, or browser receipt cannot replace it.
 
 If a source hash changes, invalidate only transitive dependents. A confirmed `working_language` change invalidates every human-readable SDD artifact and operator-facing report whose prose uses the prior language, plus language-dependent prototype content; it does not by itself rewrite immutable paths, code identifiers, or explicitly distinct product-locale content. Keep the current approved baseline active and immutable while a revision is merely proposed. Atomically switch the active Baseline ID only when the operator approves a revised integrated whole or explicitly directs and accepts a scoped baseline correction; record the latter as an operator override without a redundant approval prompt. When a later baseline supersedes the prior one, re-invoke the QA and development-plan owners automatically, invalidate `implementation_gate`, and mark affected production Feature Units `execution_invalidated` in the manifest/runtime projection. This skill does not own production implementation agents; the DAS Forge Phase 3 runner may dispatch them only after the current plan validates and a later explicit implementation prompt releases the gate. An implementation agent cannot create an override or make its own drift authoritative.
 

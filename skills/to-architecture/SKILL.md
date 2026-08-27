@@ -55,6 +55,7 @@ Do not modify unrelated files.
 - security, privacy, reliability, performance, and observability architecture concerns
 - architecture decision log with alternatives and consequences
 - architecture risks and mitigations
+- technical mapping from applicable `UC-*` product behaviors to system boundaries, without redefining those use cases
 
 It must not define:
 - new product requirements
@@ -74,6 +75,7 @@ Adapt the useful parts of proven architecture/documentation skills without impor
 - From `breakdown-epic-arch`: use a high-level architecture diagram and identify technical enablers, but do not hard-code any stack or epic path.
 - From durable architecture-doc patterns: make the document useful for future agents so they do not re-derive architecture every session.
 - From SDD guardrails: PRD and journey artifacts own product behavior; the engineer-approved integrated prototype owns visual composition, interaction detail, and frontend presentation; confirmed code owns existing implementation facts; architecture owns technical boundaries. Unapproved mockups, assistant preference, and generic stack defaults override none of them.
+- Use `UC-*` references as the product-behavior inputs for technical mapping. Architecture may identify the modules, data, interfaces, and runtime boundaries that realize a use case, but it must not rewrite the use-case path or add product behavior.
 - Static design artifacts can inform UI architecture boundaries, but they cannot prove runtime behavior, real state/data/actions, or completed functionality.
 
 Do not copy these source skills wholesale:
@@ -105,6 +107,7 @@ These references were used to design this skill. They are not product source fil
 ## Gap-Check
 Before writing, verify that sources or code identify:
 - product scope and architectural drivers
+- material `UC-*` references and product behaviors that require technical mapping
 - target platform and runtime environment
 - major modules, surfaces, services, or subsystems
 - data/state objects and ownership
@@ -126,9 +129,9 @@ Ask architecture questions with recommended answers based on sources. Prefer:
 ## Workflow
 1. Inspect the input files.
 2. Inspect codebase structure when a codebase exists: package manifests, app routes, source directories, schemas, configs, tests, build scripts, and environment examples.
-3. Extract architecture drivers from source artifacts: scope, users, screens, states, integrations, data, automation, constraints, and non-goals.
+3. Extract architecture drivers from source artifacts: scope, users, `UC-*` product behaviors, screens, states, integrations, data, automation, constraints, and non-goals.
 4. Identify existing architecture facts separately from proposed architecture decisions.
-5. Define system context and module boundaries without adding product scope.
+5. Define system context and module boundaries without adding product scope; map each applicable `UC-*` to the boundaries it crosses.
 6. Define data/state ownership and flow.
 7. Define integration and runtime/automation boundaries.
 8. Define technology constraints only where source-backed or codebase-confirmed.

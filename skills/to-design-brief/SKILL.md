@@ -55,6 +55,7 @@ Do not modify unrelated files.
 - responsive behavior
 - accessibility floor
 - design handoff guidance
+- design-relevant usability validation plan and evidence status for critical user flows
 - the complete Design Source Material Inventory used by design executors
 - approved visual-baseline metadata and references after the whole prototype is approved
 
@@ -72,6 +73,7 @@ Reference prior artifacts instead of restating them.
 ## Proven Mechanics To Use
 Adapt the strongest UX Coach mechanics into a single SDD artifact:
 - Treat the brief as two spines inside one file: `Design Spine` and `Experience Spine`.
+- Keep the design intent traceable from `JOB-*` to `UC-*` to journey stage and covered screen/state; reference upstream behavior instead of redefining it.
 - The Design Spine is the visual contract: brand/style, colors, typography, spacing, radius, elevation, component appearance, visual do/don't rules.
 - The Experience Spine is the behavior contract: form factor, IA implications, voice/tone rules, component behavior, state patterns, interaction primitives, accessibility, key flows.
 - Before design approval, the Design Spine and Experience Spine guide candidate generation in either Codex or Claude Design. After the engineer approves the complete integrated prototype in Codex, the `Approved Visual Baseline` section in this file is the single canonical baseline manifest, the concrete source of truth for visual composition, interaction detail, and frontend presentation, and the visual Definition of Done for every user-visible frontend unit. Selection in Claude Design identifies the version to export but is not this approval. Do not create a second competing baseline receipt elsewhere. The spines remain authoritative for reusable system rules, unshown states, responsive behavior, and accessibility, and must be reconciled with the approved baseline. PRD and journey artifacts remain authoritative for product scope and behavior. Unapproved explorations and implementation preference never override either source.
@@ -83,6 +85,7 @@ Adapt the strongest UX Coach mechanics into a single SDD artifact:
 
 Use the strongest production UX/UI mechanics:
 - Start from user goal, audience, primary action, and product context.
+- For every critical flow, define a representative-user task validation plan with the applicable `JOB-*`/`UC-*`, user group, task, device or viewport, success criterion, and evidence status. A plan or heuristic review is not user research; if representative-user validation was not run, label that as an assumption or open risk.
 - Match experience type: SaaS/operational tool, checkout, AI product, course/content, dashboard, landing/sales, mobile app, internal tool, or regulated workflow.
 - Preserve existing design systems unless the user explicitly wants a redesign.
 - Define complete states: default, hover, focus, active, disabled, loading, empty, error, success, long-content, offline, and permission-denied when relevant.
@@ -102,6 +105,7 @@ Before writing, verify that sources identify:
 - visual constraints, if any
 - existing design system, visual source, brand deck, screenshots, tokens, component library, or inspiration/rejection references
 - expected interactivity and motion level
+- primary `JOB-*` and `UC-*` references, and whether representative-user task validation is required, available, or explicitly deferred
 - whether the user wants a fast path with explicit assumptions or a coached path with decisions resolved section by section
 
 If audience, product category, platform priorities, existing-system inheritance, or another constraint is missing or contradictory, ask only when the answer would materially change product scope or a high-risk boundary. Missing aesthetic direction alone is not a blocker: derive up to three source-grounded candidate directions, record the reversible assumptions, and continue to whole-prototype comparison.
@@ -110,22 +114,24 @@ If audience, product category, platform priorities, existing-system inheritance,
 1. Inspect the input files.
 2. Find grounding material before inventing: design docs, screenshots, Figma links, Storybook, tokens, components, CSS variables, brand assets, or reference products named by the user. Catalog every discovered material or link in `Design Source Material Inventory`; do not leave a source implicit in prose.
 3. Extract UX intent from the PRD, user journey, screen map, and wireframes.
-4. Identify the product type, stakes, form factor, and level of visual sophistication needed.
-5. Run the concern scan and decide which concerns deserve sections.
-6. Define a source-backed Design Spine.
-7. Define a source-backed Experience Spine.
-8. Critique the planned Design Spine against generic AI defaults: templated palettes, interchangeable type pairings, decorative filler, and styles that could belong to any product in the category. Name one signature element or one deliberate restraint principle grounded in the product's domain, and state where the design spends or withholds boldness. If the direction is not product-specific, revise it or turn the strongest source-grounded alternatives into clearly labeled Prototype Mockup Candidates for whole-design comparison; do not add a pre-mockup selection gate. These candidates are design-only interaction simulations, not application implementations.
-9. Define semantic tokens and component appearance principles without overbuilding a design-system monster.
-10. Define responsive, accessibility, state, and interaction expectations.
-11. Add handoff prompts or guidance for Figma, v0, Stitch, Codex, or Claude Design only when useful and only from captured content. Handoff guidance must name frozen inputs, the complete Design Source Material Inventory, and equivalent design scope, never grant the design tool authority to edit SDD artifacts or production code.
-12. Run the Validation Pass defined below before creating or updating the artifact.
-13. When an integrated prototype has been approved, atomically update the canonical `Approved Visual Baseline` section with its stable Baseline ID, selected candidate/version, origin `codex | claude_design`, handoff ID when applicable, immutable visual target/hash, frozen normalized prototype source root/tree hash and algorithm, durable repository-relative artifact references, visual-DoD scope, coverage, Codex whole-design approval receipt, and permitted variance. Never use a Claude chat URL, temporary export path, or external result ID as the sole durable baseline reference. Keep the prior approved baseline active while a revision is only proposed. An explicit scoped operator correction becomes a recorded baseline override for that scope; a newly approved integrated whole creates a new active Baseline ID and marks the old immutable baseline superseded. Record the prior ID and receipt in the Decision Log and downstream invalidation intent in this artifact. Do not create another design approval merely to acknowledge an operator-authored correction. Only the orchestrator changes manifest/runtime status, re-invokes QA and development-plan owners, and marks affected production units invalidated.
-14. Avoid changing scope, adding screens, or rewriting wireframes.
-15. Before writing the artifact, verify the planned content:
+4. Resolve the applicable `JOB-*` and `UC-*` references without restating their definitions.
+5. Identify the product type, stakes, form factor, and level of visual sophistication needed.
+6. Run the concern scan and decide which concerns deserve sections.
+7. Define a source-backed Design Spine.
+8. Define a source-backed Experience Spine.
+9. Define the representative-user task validation plan for critical flows; keep execution evidence and per-check results in QA/DoD owners.
+10. Critique the planned Design Spine against generic AI defaults: templated palettes, interchangeable type pairings, decorative filler, and styles that could belong to any product in the category. Name one signature element or one deliberate restraint principle grounded in the product's domain, and state where the design spends or withholds boldness. If the direction is not product-specific, revise it or turn the strongest source-grounded alternatives into clearly labeled Prototype Mockup Candidates for whole-design comparison; do not add a pre-mockup selection gate. These candidates are design-only interaction simulations, not application implementations.
+11. Define semantic tokens and component appearance principles without overbuilding a design-system monster.
+12. Define responsive, accessibility, state, and interaction expectations.
+13. Add handoff prompts or guidance for Figma, v0, Stitch, Codex, or Claude Design only when useful and only from captured content. Handoff guidance must name frozen inputs, the complete Design Source Material Inventory, and equivalent design scope, never grant the design tool authority to edit SDD artifacts or production code.
+14. Run the Validation Pass defined below before creating or updating the artifact.
+15. When an integrated prototype has been approved, atomically update the canonical `Approved Visual Baseline` section with its stable Baseline ID, selected candidate/version, origin `codex | claude_design`, handoff ID when applicable, immutable visual target/hash, frozen normalized prototype source root/tree hash and algorithm, durable repository-relative artifact references, visual-DoD scope, coverage, Codex whole-design approval receipt, and permitted variance. Never use a Claude chat URL, temporary export path, or external result ID as the sole durable baseline reference. Keep the prior approved baseline active while a revision is only proposed. An explicit scoped operator correction becomes a recorded baseline override for that scope; a newly approved integrated whole creates a new active Baseline ID and marks the old immutable baseline superseded. Record the prior ID and receipt in the Decision Log and downstream invalidation intent in this artifact. Do not create another design approval merely to acknowledge an operator-authored correction. Only the orchestrator changes manifest/runtime status, re-invokes QA and development-plan owners, and marks affected production units invalidated.
+16. Avoid changing scope, adding screens, or rewriting wireframes.
+17. Before writing the artifact, verify the planned content:
    - Every load-bearing claim traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
-16. Create or update only `docs/design-brief.md`.
+18. Create or update only `docs/design-brief.md`.
 
 ## Validation Pass
 Run both passes on the planned artifact content. Record results in the artifact's `Validation Report` as findings ranked by downstream impact: Critical, High, Medium, Low. If a pass has no findings, state `0 findings` for that pass.
@@ -138,6 +144,7 @@ Pass 1 - Mechanical coverage:
 - Every visual reference, link, or source named in the brief has exactly one inventory entry with a required/optional decision, location, access status, and content hash or capture ID when applicable.
 - Every required inventory entry resolves in the executor environment or has an authorized self-contained capture/bundle; unavailable required sources are blocking and are listed in `Open Questions`, never silently dropped.
 - Every link or material named elsewhere in the brief appears in the inventory, and every inventory entry is referenced by the brief or handoff contract.
+- Every `JOB-*` and `UC-*` reference resolves to an upstream artifact, and every critical flow has a representative-user task validation plan with an explicit `run`, `deferred`, or `not applicable` status and reason.
 
 Pass 2 - Judgment:
 - Bloat: no pixel specs where tokens suffice, no decorative prose, no sections filled to satisfy the template.
@@ -207,6 +214,8 @@ Token values live only in `### Design Tokens`; other spine sections reference to
 ### Accessibility Floor
 
 ### Key Flow Implications
+
+## Usability Validation Plan
 
 ## Responsive And Platform Behavior
 

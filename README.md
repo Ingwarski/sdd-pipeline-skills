@@ -1,6 +1,6 @@
 # Codex SDD Skills
 
-This repository contains reusable Codex and Claude Code skills. Its core is a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, a coherent pre-design specification, exactly three runnable prototype candidates, one whole-design approval, and implementation planning for a production frontend and backend. It also contains bounded standalone workflows such as communications audits and certificate issuance.
+This repository contains reusable Codex and Claude Code skills. Its core is a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, explicit Jobs To Be Done and product use cases, a coherent pre-design specification, exactly three runnable prototype candidates, one whole-design approval, representative-user validation of applicable critical flows, and implementation planning for a production frontend and backend. It also contains bounded standalone workflows such as communications audits and certificate issuance.
 
 The skills are designed for **SDD - Specification Driven Development**. They are not a TDD workflow and they are not generic prompt templates. Every domain artifact has exactly one owner, and every owner invocation is confined to its declared output boundary. Most owners create one artifact; `to-project-context` is the explicit cohesive two-file bundle owner. `to-sdd-pipeline` owns only the machine-readable orchestration manifest and invokes or re-invokes artifact owners autonomously.
 
@@ -28,6 +28,8 @@ rough-description-or-existing-or-imported-idea -> to-product-idea -> product-ide
 -> awaiting-implementation-prompt
 ```
 
+The product-intent to behavior trace is explicit and remains inside the existing graph: `JOB-*` is canonical in `to-product-idea` / `docs/product-idea.md`, while `UC-*` is canonical in `to-sdd-prd` / `docs/prd.md`. `to-user-journey`, `to-screen-map`, `to-wireframes`, `to-design-brief`, `to-architecture`, `to-qa-checklist`, `to-dod-evals`, and `to-development-plan` reference those IDs without copying or redefining their content. No separate JTBD or use-case artifact is created.
+
 When `claude_design` is selected, the pipeline inserts `design-source-access-preflight` between the coherent SDD baseline and prototype generation. It inventories every design material and link named by the validated design brief, records a Codex access receipt, and requires Claude Design to return a source-read receipt for every required item. Missing access pauses the handoff at `awaiting-design-source-access`; Claude Design must not generate candidates from an incomplete or guessed source set.
 
 `to-product-idea` solely owns `docs/product-idea.md` and uses a foreground, resumable, one-question-at-a-time intake. `Create product idea and start SDD` atomically creates or versions the file only when needed, preserves an unchanged existing file byte-for-byte, and records its handoff receipt; it is an execution command, not an approval. `to-sdd-prd` is the first SDD domain-artifact owner dispatched by `to-sdd-pipeline` after that handoff. Its namespaced identity deliberately avoids collisions with unrelated `to-prd` skills. `to-project-context` runs immediately after the PRD and both bundle members must validate before later owners run. `docs/wireframes.md` never depends on the later design brief, and the development plan is deliberately post-approval because it consumes the Approved Visual Baseline.
@@ -36,18 +38,18 @@ When `claude_design` is selected, the pipeline inserts `design-source-access-pre
 
 | Skill | Output | Purpose |
 |---|---|---|
-| `to-product-idea` | `docs/product-idea.md` | Runs the visible Product Idea Intake, asks only material non-inferable questions one at a time, and atomically creates or versions the operator-confirmed upstream product mandate. |
+| `to-product-idea` | `docs/product-idea.md` | Runs the visible Product Idea Intake, asks only material non-inferable questions one at a time, captures stable `JOB-*` Jobs To Be Done, and atomically creates or versions the operator-confirmed upstream product mandate. |
 | `to-sdd-pipeline` | `forge/sdd-manifest.json` | Dispatches artifact owners, tracks dependencies and hashes, runs prototype comparison, pauses after the validated development plan at `awaiting-implementation-prompt`, and propagates invalidation without editing domain artifacts directly. |
-| `to-sdd-prd` | `docs/prd.md` | Converts the product idea and current project evidence into the first file-based domain artifact without issue-tracker side effects. The namespaced name can coexist with third-party `to-prd` skills. |
+| `to-sdd-prd` | `docs/prd.md` | Converts the product idea and current project evidence into the first file-based domain artifact, defines stable `UC-*` product use cases and their alternate/error paths, and has no issue-tracker side effects. The namespaced name can coexist with third-party `to-prd` skills. |
 | `to-project-context` | `docs/project-context.md` and `docs/canonical-terms.md` | Creates the atomic context/vocabulary bundle after PRD validation; the two outputs are validated and hashed separately under one owner invocation. |
 | `to-user-journey` | `docs/user-journey.md` | Maps the real user, goal, context, journey stages, friction, decisions, failure path, and success state. |
 | `to-screen-map` | `docs/screen-map.md` | Defines screens, surfaces, routes, navigation, transitions, entry/exit points, and the canonical state list per screen. |
 | `to-wireframes` | `docs/wireframes.md` | Converts the screen map into low-fidelity screen structures, hierarchy, CTAs, forms, content zones, and state variants. |
-| `to-design-brief` | `docs/design-brief.md` | Defines the UX/UI direction and owns the single canonical Approved Visual Baseline manifest after whole-prototype approval. |
+| `to-design-brief` | `docs/design-brief.md` | Defines the UX/UI direction, traces jobs/use cases through the experience, and owns the single canonical Approved Visual Baseline manifest plus the representative-user validation plan for critical flows. |
 | `to-architecture` | `docs/architecture.md` | Defines system architecture, modules, boundaries, data/state model, integrations, runtime model, architecture decisions, and risks. |
-| `to-dod-evals` | `docs/dod-evals.md` | Defines Definition of Done, reusable eval gates, verification profile, evidence requirements, state/lane gates, and PR/merge completion rules. |
+| `to-dod-evals` | `docs/dod-evals.md` | Defines Definition of Done, reusable eval gates including `representative_user_task_validation`, verification profile, evidence requirements, state/lane gates, and PR/merge completion rules. |
 | `to-guardrails` | `docs/guardrails.md` | Defines source-of-truth order, AI autonomy boundaries, scope limits, conflict handling, stop conditions, and verification policy. |
-| `to-qa-checklist` | `docs/qa-checklist.md` | Creates a source-backed QA checklist with acceptance, UX/UI, responsive, accessibility, visual regression, evidence, and release-readiness checks. |
+| `to-qa-checklist` | `docs/qa-checklist.md` | Creates a source-backed QA checklist with acceptance, usability-validation, UX/UI, responsive, accessibility, visual regression, evidence, and release-readiness checks. |
 | `to-development-plan` | `docs/development-plan.md` | Converts the current validated SDD plus Approved Visual Baseline into frontend/backend units, interface seams, dependency order, acceptance checks, and verification steps. |
 | `communications-audit` | Professional `.docx` audit report | Audits websites and sales or marketing materials through seven communication dimensions, then produces an evidence-led scorecard, prioritized findings, and implementation roadmap. |
 
@@ -71,6 +73,12 @@ All skills follow the same operating contract:
 - The orchestrator never edits a domain artifact directly; it dispatches the owning skill and owns only `forge/sdd-manifest.json`.
 - Artifacts reference prior artifacts instead of duplicating them.
 - Artifact boundaries must be preserved.
+- `JOB-*` is the canonical product-intent unit: situation, desired progress, outcome, current alternative, and design-relevant conditions. Jobs are not feature lists, user-story duplicates, or a second journey document.
+- `UC-*` is the canonical product-behavior unit: actor, trigger, goal, preconditions, main success path, alternate/error recovery, postconditions, authority/data boundaries, and linked requirements. Use cases are not screen layouts or implementation tasks.
+- Preserve the trace `JOB-* -> UC-* -> journey stage -> screen/state -> wireframe -> design brief -> architecture/QA -> implementation unit`. Downstream artifacts reference IDs and add only their own concern.
+- `to-product-idea` uses a grill-me-style design-readiness branch to resolve job/progress, situation/trigger, outcome/alternative, operating conditions, trust/risk, content/evidence, and observable success before the product idea is handed downstream. It asks one material question at a time and records assumptions or open questions explicitly.
+- Representative-user validation, heuristic/usability review (including Nielsen Norman-style heuristic checks), visual-QA/browser evidence, and functional/runtime evidence are separate evidence classes. None may be silently substituted for another; no user session, participant, result, or success may be fabricated.
+- Applicable critical or consequential user-visible flows require a `representative_user_task_validation` plan/check/evidence path. Validation is a quality gate and evidence of usability, not a second design approval; the only normal design approval remains the complete integrated prototype baseline.
 - The only normal design approval is approval of the complete integrated prototype. Risk-specific authorization is separate and just in time.
 - After `docs/development-plan.md` validates, the pipeline enters `awaiting-implementation-prompt`. Production implementation requires a later, separate prompt that explicitly asks to start Phase 3; a generic continuation or automatic resume cannot release the gate.
 
@@ -79,16 +87,18 @@ All skills follow the same operating contract:
 The documents are intentionally separated:
 
 - `product-idea.md` owns the current operator-confirmed product mandate. `to-product-idea` is its sole owner; runtime draft/session data and `ProductIdeaHandoffReceipt` remain operational provenance under `forge/intake/`.
+- `product-idea.md` also owns the canonical `JOB-*` Jobs To Be Done and the design-readiness discovery decisions that define situation, progress, outcome, alternatives, conditions, trust/risk, content/evidence, and success signals. It does not own product use-case system paths, screens, layouts, or visual direction.
 - `project-context.md` owns confirmed product context, working language, distinct product content locales, users, platforms, boundaries, constraints, assumptions, risks, and open questions derived after PRD work.
 - `canonical-terms.md` owns normalized downstream vocabulary and aliases, including deliberately preserved English IT terms with their Ukrainian meanings and usage boundaries, without redefining PRD behavior or established technical identifiers.
 - `user-journey.md` owns user behavior and journey logic.
 - `screen-map.md` owns which screens and states exist.
 - `wireframes.md` owns screen structure and state structure.
-- `design-brief.md` owns visual and experience direction plus the single canonical Approved Visual Baseline section. The approved prototype owns concrete visual composition, interaction detail, and frontend presentation; PRD/journey artifacts own product behavior.
+- `design-brief.md` owns visual and experience direction, the trace through applicable `JOB-*`/`UC-*` references, the representative-user validation plan for critical flows, and the single canonical Approved Visual Baseline section. The approved prototype owns concrete visual composition, interaction detail, and frontend presentation; PRD/journey artifacts own product behavior.
 - `architecture.md` owns system architecture, module boundaries, data/state model, integrations, runtime model, and architecture decisions.
-- `dod-evals.md` owns Definition of Done, reusable gates, eval result format, completion evidence requirements, and completion rules.
+- `architecture.md` may map applicable `UC-*` product behaviors to technical modules, interfaces, data, and runtime boundaries, but it does not redefine the product use cases.
+- `dod-evals.md` owns Definition of Done, reusable gates including `representative_user_task_validation`, eval result format, completion evidence requirements, and completion rules. It does not own the per-flow task plan or per-check evidence.
 - `guardrails.md` owns AI behavior, source-of-truth policy, and behavioral evidence policy.
-- `qa-checklist.md` owns concrete verification checks and per-check evidence artifacts.
+- `qa-checklist.md` owns concrete verification checks and per-check evidence artifacts, including representative-user task checks for applicable critical flows. It does not redefine the design-brief plan or the DoD gate.
 - `development-plan.md` owns implementation units and build order.
 - `forge/sdd-manifest.json` owns orchestration state, the working-language record, owner invocation/output-set mapping, source versions and hashes, consumed source fragments, explicit dependencies and dependency states, content hashes, validation, invalidation, and resume state; it does not own domain truth. Machine enum values remain stable while operator-facing labels are localized. Internal `validated` projects to Mission Control `Done`, while `ready` means machine-ready rather than approved.
 
@@ -199,6 +209,16 @@ When a genuinely material, non-inferable product-intent gap exists, `to-product-
 
 If the gap is not blocking, the skill should use the smallest reversible source-grounded choice, write the artifact, trace the choice, and list any residual uncertainty in `Open Questions`.
 
+## Jobs To Be Done, Use Cases, And Design Validation
+
+The design-first chain now establishes three complementary layers before implementation:
+
+1. `JOB-*` answers why the user acts, in which situation, what progress they want, what outcome signals success, what they use today, and which operating/trust conditions affect design.
+2. `UC-*` answers how the product behaves for that job: actors, trigger, preconditions, main path, alternate/error recovery, postconditions, data/authority boundaries, and requirements covered.
+3. Journey, screens, wireframes, design brief, QA, DoD, and development plan translate and verify those upstream decisions without becoming competing sources of truth.
+
+The design brief plans representative-user task validation for critical flows. QA turns that plan into concrete checks and records evidence; DoD evaluates the reusable gate; the development plan maps the gate to implementation units. A heuristic review can identify likely usability issues, including issues described by Nielsen Norman heuristics, but it is not evidence that representative users completed the task. Likewise, a visual baseline or browser receipt proves visual/runtime evidence only within its stated scope.
+
 ## Design Quality
 
 The UX/UI part of the chain is built around proven product-design mechanisms:
@@ -215,6 +235,9 @@ The UX/UI part of the chain is built around proven product-design mechanisms:
 - recommendation without automatic selection;
 - one engineer approval of the selected complete integrated design baseline;
 - a frozen visual-target reference and content hash for reproducible implementation and QA.
+- explicit `JOB-*`/`UC-*` traceability from product intent to implementation;
+- design-readiness discovery before PRD generation, covering user situation, progress, conditions, trust, content, and success;
+- a representative-user task validation plan and concrete evidence path for applicable critical flows, separate from heuristic review and visual QA.
 
 For operational products, a deliberate restraint principle can be the right design decision. The skills should not force decorative design when the product needs density, clarity, and repeat-use efficiency.
 
@@ -237,6 +260,8 @@ Severity and release effect are separate:
 `to-development-plan` is SDD-first. Tests and verification support the current validated spec, but they do not become the source of product truth. It applies project context only where a confirmed fact changes implementation and uses canonical terms only where naming is relevant; it does not duplicate personas or context prose. User-visible units map the Approved Baseline ID; cross-layer units name interfaces produced/consumed and integration evidence; prototype code is only an optional traced frontend seed, never proof of production backend, auth, persistence, or integrations.
 
 `to-dod-evals` separates acceptance criteria from Definition of Done. Acceptance criteria confirm that a specific item was built correctly; DoD/eval gates define the standing completion bar and evidence required before anything can be called done. A mockup, screenshot, prototype, or visually convincing static surface is design/visual evidence only; it is not completed functionality unless connected to source-backed behavior, real state/data/actions, runner evidence, and required DoD gates.
+
+For usability quality, `to-qa-checklist` records the concrete task, representative user group, device/viewport, success criterion, evidence, result, severity, and release effect. `to-dod-evals` evaluates those checks through `representative_user_task_validation`: an applicable critical flow cannot pass merely because a heuristic review, screenshot, browser receipt, or prototype interaction looks correct. If validation is not available, the evidence limit and risk must remain explicit; it cannot be silently marked as passed.
 
 ## Authoring References
 

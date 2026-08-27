@@ -45,6 +45,7 @@ Do not publish to an issue tracker, create issues, apply labels, send messages, 
 - problem and product outcome
 - product boundary and value proposition
 - actors and user stories
+- product-level use cases and their main, alternate, and failure scenarios
 - functional and non-functional product requirements
 - design-first workflow and approval semantics when source-backed
 - product-level implementation constraints and decisions
@@ -67,9 +68,12 @@ Reference downstream owners instead of prematurely writing their artifacts insid
 ## Proven Mechanics
 
 - Describe the problem and solution from the user's perspective.
+- Translate each material `JOB-*` from `docs/product-idea.md` into one or more product-level use-case candidates without turning the job into a feature list.
 - Make user stories extensive enough to close the product boundary, but do not duplicate the same requirement as filler.
 - Use stable sequential story IDs and the form `As a <role>, I want <capability>, so that <outcome>`.
 - Keep each FR/NFR traceable at clause level. When one numbered requirement contains multiple independently testable obligations, enumerate those obligations explicitly under that stable ID; downstream appearance of the parent ID alone must not be mistaken for complete coverage.
+- Give each material use case a stable `UC-*` ID and capture actor, trigger, goal, preconditions, main success path, alternate/error paths, postconditions, authority or data boundaries, and linked requirements.
+- Keep use cases at product behavior level: `to-user-journey` owns the human context and journey stages, `to-screen-map` owns screens and states, `to-wireframes` owns layout structure, and `to-design-brief` owns visual and interaction direction.
 - Separate product behavior from implementation constraints and testing decisions.
 - Prefer externally observable test seams and the highest practical seam. Tests verify the agreed product; they do not become the source of product truth.
 - Preserve the product's autonomy model. Do not add approval gates unless the source requires them or the action crosses a high-risk authorization boundary.
@@ -93,18 +97,45 @@ Before writing, resolve:
 
 Ask only when a missing answer materially changes product scope or a high-risk boundary. Otherwise use the smallest reversible source-grounded choice, record it, and continue.
 
+## Use-Case Contract
+
+When use cases are applicable, define one entry per materially distinct product behavior. Use cases are the canonical owner of system-facing behavior; downstream artifacts reference their IDs instead of copying their paths.
+
+```markdown
+### UC-01: <canonical use-case name>
+- Job references: JOB-01
+- Primary actor:
+- Supporting actors or systems:
+- Trigger:
+- Goal:
+- Preconditions:
+- Main success scenario:
+  1. Actor ...
+  2. System ...
+- Alternate paths:
+- Error and recovery paths:
+- Postconditions:
+- Authority, privacy, and data boundaries:
+- Requirements covered: FR-...
+- Acceptance scenarios: AC-...
+- Downstream references: user journey / screen map / QA
+```
+
+Do not use a use case to define visual styling, detailed layout, or implementation tasks. Do not create a use case merely to duplicate a user story: one `UC-*` may cover several related stories, and one `JOB-*` may lead to several use cases when the system behavior differs. Every material `JOB-*` must map to at least one `UC-*`, or the unresolved relationship must be recorded in `Open Questions`.
+
 ## Workflow
 
 1. Read `docs/product-idea.md` completely.
 2. Inspect relevant current project evidence and preserve established terminology.
 3. Build a source-to-requirement map before drafting.
 4. Define the product boundary, actors, workflow, and success outcomes.
-5. Write sequential user stories that cover the source without adding unsupported scope.
-6. Capture only source-backed product-level implementation decisions; defer architecture details to their owner.
-7. Define observable testing decisions, evidence limits, and minimum end-to-end acceptance scenarios.
-8. Reconcile contradictions against the product idea. Stop only if the unresolved choice materially changes scope or a high-risk boundary.
-9. Validate that every load-bearing requirement and every distinct obligation inside it traces to the product idea, project evidence, or an explicit answer. Split compound prose into explicit sub-obligations without inventing new behavior.
-10. Create or update only `docs/prd.md`.
+5. Reconcile each material `JOB-*` with the product boundary and define the corresponding `UC-*` use cases.
+6. Write sequential user stories that cover the source without adding unsupported scope.
+7. Capture only source-backed product-level implementation decisions; defer architecture details to their owner.
+8. Define observable testing decisions, evidence limits, and minimum end-to-end acceptance scenarios.
+9. Reconcile contradictions against the product idea. Stop only if the unresolved choice materially changes scope or a high-risk boundary.
+10. Validate that every load-bearing requirement, use case path, and distinct obligation inside each requirement traces to the product idea, project evidence, or an explicit answer. Split compound prose into explicit sub-obligations without inventing new behavior.
+11. Create or update only `docs/prd.md`.
 
 When invoked by `to-sdd-pipeline`, return control immediately after validation so the orchestrator can hash the artifact and dispatch downstream owners. Do not ask the user whether to continue.
 
@@ -122,6 +153,8 @@ Use the smallest structure that fully represents the source. Preserve equivalent
 ## Product Boundary And Operating Model
 
 ## Core Workflow
+
+## Use Cases
 
 ## User Stories
 

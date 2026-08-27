@@ -45,6 +45,7 @@ Do not modify unrelated files.
 - verification expectations
 - document separation rules
 - mockup, prototype, screenshot, and static-surface limits for completion claims
+- evidence boundary between representative-user validation, heuristic review, visual evidence, and browser/runtime evidence
 
 This file owns the behavioral evidence policy: when the AI must verify, what counts as evidence, and when missing evidence must stop work. `docs/dod-evals.md` owns the reusable completion/eval contract: which gates and evidence make work Done. `docs/qa-checklist.md` owns concrete per-release or per-screen checks and per-check evidence artifacts that cite both.
 
@@ -62,6 +63,7 @@ Other artifacts may follow these rules, but they must not duplicate this documen
 - Evidence before claims, as an operational gate: identify what proves the claim, run it fresh, read the full output, and only then state the result with the evidence. No success, completion, quality, or compliance claim without this sequence.
 - Split authority by concern: PRD and journey artifacts own product scope and behavior; after the engineer's one whole-prototype approval, the Approved Visual Baseline owns visual composition, interaction detail, and frontend presentation; architecture, guardrails, and applicable standards own technical, safety, accessibility, privacy, and legal boundaries. Before approval, wireframes and design-brief spines guide candidate generation. Generic defaults, unapproved mockups, implementation guesses, and assistant preference never override these sources.
 - A mockup, screenshot, prototype, or visually convincing static surface is design/visual evidence only; it is not completed functionality unless connected to source-backed behavior, real state/data/actions, runner evidence, and required DoD gates.
+- Representative-user task validation is a separate evidence class for applicable critical or consequential flows. A heuristic review, Nielsen Norman heuristic check, screenshot, browser receipt, visual-QA result, or agent self-assessment cannot be reported as user validation. Do not fabricate participants, sessions, findings, or success. If required validation is unavailable, record the evidence limit and risk and stop the applicable completion/release claim at the DoD gate rather than silently treating it as passed.
 - Extract, do not ingest: when sources are long, pull only the relevant decisions and cite them. Do not paraphrase entire source files into this artifact.
 - Right-size rigor to stakes: hobby, internal, consumer, paid, regulated, accessibility-critical, or safety-sensitive products need different guardrails.
 - Default to autonomous reversible decisions within approved product intent. Define exactly one normal design approval for the complete integrated prototype and reserve separate just-in-time authorization for irreversible, destructive, financial, legal, public, security-sensitive, privacy-sensitive, privileged, or external side effects.
@@ -80,6 +82,7 @@ Before writing, verify that sources identify:
 - where visual/static evidence ends and functionality evidence begins
 - which visual/design sources are authoritative, if any
 - whether AI may propose aesthetic options or must wait for user-provided direction
+- whether critical flows require representative-user task validation and what evidence is available
 
 If authority, autonomy, forbidden actions, or conflict rules are missing or contradictory and the unresolved answer materially changes product scope, compliance, or a high-risk boundary, stop and ask grill-me questions before producing the output. Otherwise use the recommended stakes baseline, record the reversible choice, and continue.
 
@@ -99,13 +102,14 @@ Sources rarely state guardrails explicitly. Do not run an open-ended interview. 
 6. Define visual/design authority rules.
 7. Define conflict resolution and stop conditions.
 8. Define verification rules for SDD artifacts and future implementation.
-9. Define mockup, prototype, screenshot, and static-surface limits for completion claims.
-10. Preserve strict artifact separation.
-11. Before writing the artifact, verify the planned content:
+9. Define the evidence classes separately: representative-user task validation, heuristic/usability review, visual-QA/browser evidence, and functional/runtime evidence. State which claims each class can and cannot support.
+10. Define mockup, prototype, screenshot, and static-surface limits for completion claims.
+11. Preserve strict artifact separation.
+12. Before writing the artifact, verify the planned content:
    - Every load-bearing rule traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
-12. Create or update only `docs/guardrails.md`.
+13. Create or update only `docs/guardrails.md`.
 
 ## Required Output Structure
 Use this structure:

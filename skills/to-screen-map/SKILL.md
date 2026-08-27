@@ -44,6 +44,8 @@ Do not modify unrelated files.
 - empty, loading, error, success, and permission states
 - links from screens to PRD requirements and journey stages
 
+Each screen or surface may reference applicable `JOB-*` and `UC-*` IDs, but this artifact does not redefine the job or use-case behavior.
+
 This file is the canonical owner of which states exist per screen. Wireframes own each state's structure; the design brief owns system-wide state appearance and behavior; the QA checklist verifies this list. Later artifacts reference this list instead of re-deriving it.
 
 It must not define:
@@ -58,6 +60,7 @@ Later artifacts may reference this file, but they must not duplicate its content
 
 ## Proven Mechanics To Use
 - Apply surface closure: every stated journey need must have a screen, surface, system response, or explicit non-screen explanation.
+- Preserve traceability from `JOB-*` to `UC-*` to journey stage to screen/surface; do not use a screen as a substitute for a missing product behavior definition.
 - Apply scope closure: every screen must trace back to `docs/prd.md` or `docs/user-journey.md`.
 - Treat screens as contracts, not layouts. A screen map says what exists and how it connects; wireframes decide the internal structure.
 - Model states explicitly. At minimum consider empty, loading, error, success, permission-denied, offline, and long-content states when relevant.
@@ -67,6 +70,7 @@ Later artifacts may reference this file, but they must not duplicate its content
 ## Gap-Check
 Before writing, verify that sources identify:
 - core screens needed to complete the main journey
+- applicable `JOB-*` and `UC-*` references for the main journey, when defined upstream
 - required navigation or route model
 - completion, cancellation, error, and return paths
 - important state transitions
@@ -78,12 +82,12 @@ If routes, completion paths, or state logic are missing or contradictory, ask on
 ## Workflow
 1. Inspect the input files.
 2. Extract the product's main workflow from `docs/prd.md` and `docs/user-journey.md`.
-3. Identify all screens and surfaces required for the MVP journey.
+3. Preserve the upstream `JOB-*` and `UC-*` references while identifying all screens and surfaces required for the MVP journey.
 4. Map entry points, exits, transitions, and return paths.
 5. Identify required screen states.
 6. Build a journey-to-screen coverage matrix.
 7. Check surface closure: every journey stage must have a supporting screen or explicit non-screen explanation.
-8. Check scope closure: every screen must trace to the PRD or user journey.
+8. Check scope closure: every screen must trace to the PRD or user journey and, when applicable, to a `UC-*`.
 9. Flag screens or states that would require new product scope.
 10. Before writing the artifact, verify the planned content:
    - Every load-bearing claim traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
@@ -133,3 +137,5 @@ Return:
 - `Open Questions`
 - `Next Recommended Action`
 - `Next Recommended Skill`
+
+For each in-scope screen or surface, include the applicable `JOB-*`, `UC-*`, journey-stage, and PRD requirement references in the inventory or trace matrix. Do not repeat the use-case steps; the reference is sufficient for downstream traceability.

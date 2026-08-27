@@ -50,6 +50,7 @@ Do not modify unrelated files.
 - journey completion checks
 - screen and state coverage checks
 - UX/UI consistency checks
+- representative-user task validation checks for applicable critical flows, including per-check evidence and findings
 - responsive checks
 - accessibility checks
 - browser/device checks
@@ -80,6 +81,7 @@ Reference source artifacts instead of repeating their full content.
 - Evidence before claims: the checklist must define what evidence proves each important claim.
 - Separate UX risks from accessibility risks and visual polish issues.
 - Tie every recommendation back to the user goal, workflow, screen state, or accessibility outcome.
+- For every applicable critical or consequential flow, include a concrete representative-user task validation check traced to its `JOB-*` and `UC-*` references. The check verifies an observed task against a defined success criterion; heuristic review, visual comparison, and browser evidence do not substitute for real-user validation. If validation is unavailable, record the evidence limit, risk, owner, and explicit `deferred` or `not applicable` result rather than implying that it ran.
 - Do not imply WCAG compliance from screenshots or static docs alone. State verification limits.
 - Include complete state checks: default, hover, focus, active, disabled, loading, empty, error, success, long-content, offline, permission-denied, and repeat-click where relevant.
 - Include responsive reflow and zoom resilience checks.
@@ -103,6 +105,7 @@ Before writing, verify that sources identify:
 - DoD/eval gates, if `docs/dod-evals.md` exists
 - accessibility target
 - source of visual truth for UI comparison, if any
+- representative users, task scenarios, success criteria, device/viewport, and available validation evidence for critical flows, when applicable
 - verification limits, if some checks require implementation rather than docs
 
 If acceptance criteria, required states, or target platforms are missing and cannot be derived from current sources, ask only when the unresolved answer materially changes product scope or a high-risk boundary. Otherwise use the smallest applicable source-backed or documented fallback check, record applicability and evidence limits, and continue.
@@ -116,19 +119,20 @@ If acceptance criteria, required states, or target platforms are missing and can
 5. Include checks that verify architecture and DoD/eval contracts when `docs/architecture.md` or `docs/dod-evals.md` exist, without redefining those contracts.
 6. Include expected evidence for checks that will later require implementation or screenshots.
 7. State evidence limits where docs cannot prove runtime behavior.
-8. Avoid adding requirements, architecture decisions, DoD rules, or implementation details.
+8. For each applicable critical `JOB-*`/`UC-*` flow, add a usability validation check with a representative user group, task, device/viewport, success criterion, evidence status, severity, and release effect. A deferred check is not a pass for an applicable critical flow; a `not applicable` result requires a source-backed rationale.
+9. Avoid adding requirements, architecture decisions, DoD rules, or implementation details.
    When a current development plan declares traced prototype reuse and a declared destination exists, verify that the Phase 3 receipt exists at the declared path and that its recorded `copy | adapt | reimplement` strategy matches. Record absence or mismatch as a blocking fidelity finding; never synthesize the receipt and never make the plan a dependency of the pre-design QA node.
-9. Before writing the artifact, verify the planned content:
+10. Before writing the artifact, verify the planned content:
    - Every checklist group traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
    - Clause-level coverage: every distinct observable obligation inside each applicable FR/NFR maps to at least one concrete check or an explicit blocker. Repeating the parent requirement ID is not clause coverage.
-10. Create or update only `docs/qa-checklist.md`.
+11. Create or update only `docs/qa-checklist.md`.
 
 ## Required Output Structure
 Use this structure:
 
-Required contract sections are `Source References`, `Product Acceptance`, `Screen And State Checks`, `UX/UI Checks`, `Evidence Requirements`, `Evidence Limits`, `Release Readiness`, and `Open Questions`. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. When the baseline is approved, `Source References` records its Baseline ID and immutable target hash. Every checklist item carries `Check ID`, `Severity: P0 | P1 | P2 | P3`, `Release Effect: blocking | advisory`, applicability, source, evidence, and rationale. Every visual-DoD item additionally carries `Baseline ID`, `Target Hash`, `Route`, `State`, `Viewport`, `Permitted Variance`, and `Result: passed | blocked | advisory`. `Release Readiness` must conclude with exactly `passed` or `blocked`, with blockers named when blocked. List omitted optional sections in the Final Report.
+Required contract sections are `Source References`, `Product Acceptance`, `Screen And State Checks`, `UX/UI Checks`, `Evidence Requirements`, `Evidence Limits`, `Release Readiness`, and `Open Questions`. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. When the baseline is approved, `Source References` records its Baseline ID and immutable target hash. Every checklist item carries `Check ID`, `Severity: P0 | P1 | P2 | P3`, `Release Effect: blocking | advisory`, applicability, source, evidence, and rationale. Every usability validation item additionally carries `JOB-*`, `UC-*`, representative user group, task, device/viewport, success criterion, evidence status, result `passed | blocked | deferred | not applicable`, and rationale. Every visual-DoD item additionally carries `Baseline ID`, `Target Hash`, `Route`, `State`, `Viewport`, `Permitted Variance`, and `Result: passed | blocked | advisory`. `Release Readiness` must conclude with exactly `passed` or `blocked`, with blockers named when blocked. List omitted optional sections in the Final Report.
 
 ```markdown
 # QA Checklist
@@ -138,6 +142,8 @@ Required contract sections are `Source References`, `Product Acceptance`, `Scree
 ## Product Acceptance
 
 ## User Journey Checks
+
+## Usability Validation Checks
 
 ## Screen And State Checks
 

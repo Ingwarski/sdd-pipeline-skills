@@ -49,6 +49,7 @@ Do not modify unrelated files.
 - distinction between acceptance criteria and standing DoD
 - reusable verification profile
 - hard gates, unit checks, system checks, UX/UI checks, and release gates
+- reusable representative-user task validation gate for applicable critical or consequential user-visible flows
 - engineering lane/state promotion gates only when sources define a delivery or execution-state promotion contract
 - eval result format
 - completion evidence requirements
@@ -76,6 +77,7 @@ Adapt the useful parts of proven DoD, quality-gate, planning, and eval reference
 - From SDD guardrails: source docs and confirmed code win over agent self-assessment.
 - Split intended truth by concern: current validated SDD owns product scope and behavior; the engineer-approved integrated prototype owns visual composition, interaction detail, and frontend presentation and is the visual Definition of Done for every user-visible frontend unit; architecture and guardrails own technical and risk boundaries. Treat even the Approved Visual Baseline as design/visual evidence, not proof of completed functionality, until implementation is connected to real state/data/actions, runner evidence, and required DoD gates.
 - Define one reusable parameterized gate named `approved_visual_baseline_fidelity` for frontend, full-stack, and integration units with user-visible output. Parameterize it with the active Baseline ID, immutable target hash, affected routes/states/viewports, permitted variance, concrete QA check IDs, `VisualQAEvidence`, and the `PrototypePromotionReceipt` when prototype code was reused. Pass only when the baseline is current, required coverage exists, every deviation is permitted or source-backed, and no blocking fidelity finding remains. When the development plan declares traced prototype reuse, the receipt must exist at its declared path and its recorded promotion strategy must match the plan's `copy | adapt | reimplement` value. A missing receipt for a unit whose declared production destination exists is blocking, not `not applicable`. A stale or superseded baseline, missing target/coverage, unexplained material drift, P0, P1, or blocking P2 blocks the gate; advisory P2/P3 remains follow-up.
+- Define one reusable parameterized gate named `representative_user_task_validation` for applicable critical, consequential, new, or behavior-changing user-visible flows. Parameterize it with the traced `JOB-*` and `UC-*` references, representative user group, task, device/viewport, success criterion, validation evidence, findings, and applicability decision. Pass only when the task was observed with representative user(s), the defined outcome and evidence are recorded, and any blocking findings are closed or explicitly handled by the applicable release rules. `not applicable` is valid only with a source-backed rationale; `deferred` is not a pass for an applicable critical flow. A plan, heuristic review, screenshot, browser receipt, or agent self-assessment does not substitute for representative-user evidence. This gate is evidence of usability validation, not a second design approval gate.
 
 Do not copy these source skills wholesale:
 - Do not turn this into a command runner. This skill writes the DoD/evals source-of-truth document; it does not execute gates.
@@ -115,6 +117,7 @@ Before writing, verify that sources or code identify:
 - engineering workflow lanes or completion transitions, when sources define them
 - required hard gates such as build, lint, typecheck, tests, security scan, or manual approval
 - UX/UI verification expectations
+- representative-user task validation expectations for critical flows
 - PR, merge, branch, commit, or release rules, if relevant
 - what evidence counts for completion claims
 - whether UI/design evidence is connected to real behavior, state, data, and actions when functionality is claimed
@@ -139,7 +142,7 @@ Ask DoD/eval questions with recommended answers based on sources. Prefer:
 4. Extract architecture-driven verification needs from `docs/architecture.md`.
 5. Separate acceptance criteria, DoD, QA checklist items, and implementation tasks.
 6. Define the standing DoD model.
-7. Define verification profile tiers: hard gates, unit checks, system checks, UX/UI checks, evidence, static-surface limits, and release/merge checks. For any user-visible frontend scope, include the parameterized `approved_visual_baseline_fidelity` gate and bind it to the current baseline plus concrete QA checks rather than restating the design.
+7. Define verification profile tiers: hard gates, unit checks, system checks, UX/UI checks, evidence, static-surface limits, and release/merge checks. For any user-visible frontend scope, include the parameterized `approved_visual_baseline_fidelity` gate and bind it to the current baseline plus concrete QA checks rather than restating the design. For any applicable critical or consequential user-visible flow, include `representative_user_task_validation` and bind it to concrete QA usability checks rather than restating the task plan.
    When a gate is superseded or declared non-active, remove it from the Gate Matrix and requirement traceability tables or repoint those requirements to the active gate. A gate cannot be simultaneously inactive and load-bearing.
 8. Define lane/state promotion gates only when sources define engineering delivery lanes, execution states, or completion transitions. Ordinary product UI states do not create engineering gates.
 9. Define eval result format with pass/fail/blocked status, evidence, owner, timestamp/source, and rerun rule.
@@ -222,6 +225,16 @@ For `approved_visual_baseline_fidelity` additionally include:
 - `QA Check IDs`
 - `VisualQAEvidence References`
 - `PrototypePromotionReceipt`, when prototype code was reused
+
+For `representative_user_task_validation` additionally include:
+- `JOB-*` and `UC-*` references
+- `Representative User Group`
+- `Task And Success Criterion`
+- `Device Or Viewport`
+- `Validation Evidence References`
+- `Findings And Disposition`
+- `Applicability Decision`
+- `Validation Result: passed | blocked | deferred | not applicable`
 
 For every finding classification include:
 - `Severity: P0 | P1 | P2 | P3`

@@ -48,6 +48,8 @@ Do not modify unrelated files.
 - climax beat: the moment the user gets value or hits the central friction
 - MVP journey risks
 
+The journey may reference `JOB-*` and `UC-*` IDs from the upstream artifacts, but it does not redefine their statements or system paths.
+
 It must not define:
 - screen inventory or routes
 - wireframe layouts
@@ -59,6 +61,7 @@ Later artifacts may reference this file, but they must not duplicate its content
 
 ## Proven Mechanics To Use
 - Start from a real person doing a real thing, not from a feature list.
+- Start each primary journey from a source-backed `JOB-*` and, when available, a product-level `UC-*`; keep the job as the user's desired progress and the use case as the system behavior being traversed.
 - Use a named protagonist only when sources support it or the user confirms one. Never invent a persona name. If unnamed, use the role label and log the gap in Open Questions.
 - Capture the journey as numbered steps with a climax beat and, where relevant, a failure path.
 - Probe for stakes early: hobby, internal tool, consumer product, regulated product, paid workflow, sensitive data, or accessibility-critical usage.
@@ -73,6 +76,7 @@ Before writing, verify that sources identify:
 - important constraints or risks
 - the form factor or usage context, if it affects the journey
 - the user's main fear, friction, or trust concern, if the PRD depends on behavior change
+- the material `JOB-*` and `UC-*` references that the journey must cover, when those upstream artifacts define them
 
 If any of these are missing or contradictory, ask only when the unresolved answer materially changes product scope or a high-risk boundary. Otherwise derive the smallest reversible journey interpretation from the PRD and guardrails, record the gap, and continue.
 
@@ -81,16 +85,17 @@ If any of these are missing or contradictory, ask only when the unresolved answe
 2. Identify the primary user from sources.
 3. Identify the real session: where the user is, what triggers the session, what device or context matters, and what pressure exists.
 4. Extract the main user goal, success state, and failure path.
-5. Map the journey stages from entry to completion as numbered steps.
-6. Name the climax beat.
-7. Capture actions, decisions, friction, trust concerns, exit points, and risks.
-8. Trace every claim to source files or explicit user answers.
-9. Avoid adding features, personas, flows, or goals outside the PRD.
-10. Before writing the artifact, verify the planned content:
+5. Link the primary journey to the applicable `JOB-*` and `UC-*` IDs without copying their definitions.
+6. Map the journey stages from entry to completion as numbered steps.
+7. Name the climax beat.
+8. Capture actions, decisions, friction, trust concerns, exit points, and risks.
+9. Trace every claim to source files or explicit user answers.
+10. Avoid adding features, personas, flows, or goals outside the PRD and upstream use-case contract.
+11. Before writing the artifact, verify the planned content:
    - Every load-bearing claim traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
-11. Create or update only `docs/user-journey.md`.
+12. Create or update only `docs/user-journey.md`.
 
 ## Required Output Structure
 Use this structure:
@@ -142,3 +147,5 @@ Return:
 - `Open Questions`
 - `Next Recommended Action`
 - `Next Recommended Skill`
+
+For the primary journey, record the applicable `JOB-*` and `UC-*` references beside the journey overview or stage list. Keep only the user-facing context, motivation, actions, decisions, friction, and outcomes here; system steps remain referenced from the PRD use case.

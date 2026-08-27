@@ -53,6 +53,7 @@ Do not modify unrelated files.
 - verification steps
 - risk sequencing
 - handoff notes for implementation
+- traceability and verification mapping for representative-user validation of applicable critical user-visible units
 - approved-baseline visual-DoD mapping and permitted visual variance per user-visible unit
 - planned prototype-to-production source/destination mapping and promotion boundaries when prototype code exists
 - frontend/backend interface contracts and integration seams for cross-layer units
@@ -78,6 +79,7 @@ This is an SDD development plan. It may include tests and verification, but it m
 - Every unit needs source references, work items, acceptance checks, and verification.
 - Evidence before completion: the plan must say what proves each unit is done.
 - SDD-first: tests and verification support the agreed spec; they do not become the source of product truth.
+- Preserve the upstream trace `JOB-* -> UC-* -> journey stage -> screen/state` in every user-visible unit. When `representative_user_task_validation` applies, map the unit to the corresponding QA usability check and validation evidence; do not invent participants, findings, or research results in the plan.
 - Use the PRD and journey artifacts for behavior and scope, and treat the Approved Visual Baseline as the visual Definition of Done for visual composition, interaction detail, and frontend presentation in every user-visible frontend unit. Architecture, guardrails, and applicable standards remain hard technical and risk boundaries. Do not reinterpret or re-approve the design inside the development plan. An explicit recorded operator correction overrides the prior visual expectation only for its named scope.
 - Treat image-to-code or equivalent prototype output as design evidence and an optional frontend seed, not as proof of production auth, persistence, backend/API, integrations, security boundaries, or exhaustive edge-case behavior. When prototype code will be reused, define a traced promote/diff contract and keep Phase 3 frontend, backend, and integration responsibilities explicit.
 - A traced promote/diff contract freezes the approved candidate source root/tree hash, names only the prototype source paths to reuse, maps each to an explicit production destination with `copy | adapt | reimplement`, records the production base commit and allowed adaptations, and lists every production capability missing from the prototype. The Phase 3 runner applies that bounded map, derives the actual Git diff, and writes `forge/runs/{unit_id}/{run_id}/prototype-promotion.json`; the planning skill never writes that receipt and the implementation agent's free-form report cannot substitute for it.
@@ -98,6 +100,7 @@ Before writing, verify that sources identify:
 - architecture constraints, if available
 - DoD/eval gates, if available
 - acceptance or QA criteria
+- representative-user task validation plan, applicable critical-flow status, and available evidence, when defined upstream
 - required verification commands, if available
 - existing architecture, file structure, or component system when a codebase exists
 - deployment or runtime constraints that affect build order
@@ -117,8 +120,8 @@ If stack, constraints, dependencies, or verification expectations are missing, f
 7. Map likely files, modules, routes, components, services, and tests before defining tasks.
 8. Break work into implementation units that can be built and verified.
 9. Order units by dependency and user-value sequence.
-10. Attach behavioral SDD references and, for every user-visible unit, Approved Baseline ID, target hash, covered screens/states/viewports, design contract, permitted variance/operator override, and the `approved_visual_baseline_fidelity` verification reference. For backend-only units, state whether the unit enables user-visible states, data, or actions. When prototype code exists, identify whether the unit reuses none of it or uses traced promote/diff; for traced reuse record the frozen source root/tree hash, source-to-destination path map, `copy | adapt | reimplement` strategy, production base commit, allowed adaptations, receipt path, and every production capability still implemented outside the prototype. For every cross-layer or independently parallelizable frontend/backend unit, name interfaces produced and consumed, API/data-contract references, ownership, compatibility expectations, and integration verification.
-11. Include verification steps derived from `docs/qa-checklist.md` and `docs/dod-evals.md`.
+10. Attach behavioral SDD references and, for every user-visible unit, Approved Baseline ID, target hash, covered screens/states/viewports, design contract, permitted variance/operator override, and the `approved_visual_baseline_fidelity` verification reference. For every applicable critical or consequential user-visible unit, also attach the `JOB-*`/`UC-*` references and the `representative_user_task_validation` verification reference, including the upstream task, success criterion, applicability, and evidence status. For backend-only units, state whether the unit enables user-visible states, data, or actions. When prototype code exists, identify whether the unit reuses none of it or uses traced promote/diff; for traced reuse record the frozen source root/tree hash, source-to-destination path map, `copy | adapt | reimplement` strategy, production base commit, allowed adaptations, receipt path, and every production capability still implemented outside the prototype. For every cross-layer or independently parallelizable frontend/backend unit, name interfaces produced and consumed, API/data-contract references, ownership, compatibility expectations, and integration verification.
+11. Include verification steps derived from `docs/qa-checklist.md` and `docs/dod-evals.md`, including the concrete usability validation check and evidence reference when the validation gate applies.
 12. Self-review coverage: every distinct obligation inside each PRD requirement and every screen and state in `docs/screen-map.md` maps to an implementation unit or to Out Of Scope / Open Questions with a reason; the Approved Visual Baseline maps to every user-visible unit; architecture constraints from `docs/architecture.md` and DoD/eval gates from `docs/dod-evals.md` map to verification or sequencing notes; cross-layer interfaces have both a producer and consumer; unit names and references follow applicable canonical terms; every applied context fact has a concrete implementation consequence; assumptions were not promoted to facts; no context prose was duplicated; no placeholders remain. For traced reuse, the planned strategy, existing destination shape, and any current receipt agree; a parent requirement ID or a declared `adapt` label alone is not evidence of coverage or actual adaptation.
 13. Avoid tiny commit choreography as the main teaching frame.
 14. Avoid adding product scope, architecture decisions, DoD rules, or design decisions.
@@ -163,6 +166,7 @@ For each implementation unit include:
 - `Unit`
 - `Purpose`
 - `Source References`
+- `Job And Use-Case References`, for user-visible units
 - `Depends On`
 - `Work Items`
 - `Acceptance Checks`
@@ -174,6 +178,9 @@ For each implementation unit include:
 - `Design Contract And Permitted Variance`, for user-visible units
 - `Operator Visual Overrides`, when present for the unit scope
 - `Visual Fidelity Verification: approved_visual_baseline_fidelity`, for user-visible units
+- `Representative User Validation: representative_user_task_validation`, when applicable
+- `Validation Task And Success Criterion`, when `representative_user_task_validation` applies
+- `Validation Evidence`, when validation has already run
 - `Baseline Impact: none | user-visible states/data/actions enabled`, for backend-only units
 - `Prototype Reuse: none | traced promote/diff`, when prototype code exists
 - `Prototype Source Root And Tree Hash`, for traced promote/diff
