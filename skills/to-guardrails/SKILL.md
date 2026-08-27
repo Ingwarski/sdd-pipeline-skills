@@ -1,164 +1,46 @@
 ---
 name: to-guardrails
-description: Use when an SDD workflow needs AI guardrails, source-of-truth order, autonomy limits, scope boundaries, conflict resolution, stop conditions, or verification rules. Can run any time after docs/prd.md exists; running it before the design artifacts is recommended.
+description: Define SDD source authority, autonomy, scope, conflict handling, stop conditions and evidence policy after the PRD.
 ---
 # to-guardrails
 
-## Universal SDD Rule
-AI is not the source of truth. Source files and explicit user answers are the source of truth. Mirror source terminology exactly; when sources use conflicting terms for one concept, do not pick silently - ask or flag it in `Open Questions`, then record the canonical term and aliases to avoid.
+Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve the link from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
 
-Working-language contract: use the orchestrator-supplied `working_language`; in standalone use, prefer an explicit request, otherwise use the language of the latest substantive user message. Use it for all questions, playbacks, reports, and natural-language headings and prose in the owned artifact. English template headings are semantic labels, not literal output. For Ukrainian (`uk`), write idiomatic Ukrainian and keep English only in immutable filenames/paths, code/commands, machine values, API/identifier names, names/quotations, and established IT terms such as `SDD Pipeline`; do not leave ordinary English prose or calques. Keep explicit product content locales separate from the specification language.
+## Inputs
 
-If information is missing from the source files, inspect available sources and the codebase first. Use a focused grill-me gap-check before writing only when the answer is genuinely non-inferable and materially changes product scope or a high-risk boundary. Resolve the decision tree one branch at a time, ask one question at a time, and include a recommended answer. For all other gaps, including pre-approval design ambiguity, use the smallest reversible source-grounded choice, record it, and continue. Do not turn guesses into facts.
+Required before starting: `docs/prd.md`; in pipeline mode also the validated `docs/project-context.md` and `docs/canonical-terms.md` bundle.
 
-Grill-me gap-check style: when a material question is necessary, walk the relevant decision branch instead of asking a flat questionnaire. Ask exactly one question, state the recommended answer and rationale, cite the source basis or say no source confirms it, state what downstream artifacts or boundaries change if the answer differs, and after the answer play back the confirmed decision and consequences before continuing or returning to the orchestrator.
+Optional grounding: README, explicit user decisions, relevant confirmed context/terms, and `docs/product-idea.md` only when the PRD names it as authoritative or the user requests it.
 
-Create only the final output file. Do not write unverified assumptions into the artifact. Before creating or updating `docs/guardrails.md`, every load-bearing rule must be source-backed, user-confirmed, or left in `Open Questions`.
+Read [verification boundaries](../to-sdd-pipeline/references/verification-contract.md) and, for user-visible scope, the [heuristic contract](../to-sdd-pipeline/references/heuristic-usability-review.md). These are installed skill resources, not project prerequisites.
 
-If a gap-check ran, or if the skill synthesized decisions not fully determined by source files, play back the resolved decisions in a pithy summary and continue with the smallest reversible, source-grounded rule unless the missing answer would materially change product scope or a high-risk action. Playback is not an approval gate; guardrails do not select or approve a design direction.
+Never import downstream UX, architecture, DoD, QA or planning decisions into guardrails.
 
-## Input
-Read:
-- `README.md`, if present
-- `docs/prd.md`
-- `docs/project-context.md`, when present or supplied by `to-sdd-pipeline`
-- `docs/canonical-terms.md`, when present or supplied by `to-sdd-pipeline`
-- `docs/product-idea.md`, only when `docs/prd.md` names it as authoritative or the user asks to use it
-- `skills/to-sdd-pipeline/references/heuristic-usability-review.md`, when defining or validating the formal H1-H10 heuristic evidence policy
+## Output and ownership
 
-This skill runs after `docs/prd.md` and the validated context bundle in pipeline mode, and before downstream UX, architecture, DoD/eval, and QA artifacts. Use only confirmed relevant context constraints and canonical vocabulary; do not turn assumptions into guardrails or let either context file override PRD behavior. Record exact consumed sections or terms when the orchestrator requests provenance. Re-run only when the PRD, an explicitly authoritative product-idea source, a consumed context/term fragment, or a user decision invalidates a named rule or introduces a new authority/risk boundary. Never read downstream artifacts back into guardrails; this keeps the dependency graph acyclic.
+Write only `docs/guardrails.md`. Own source priority, AI autonomy, allowed/forbidden changes, scope, conflict resolution, questions/stops, artifact separation and behavioral evidence policy.
 
-## Output
-Create or update exactly one artifact:
-- `docs/guardrails.md`
-
-Do not modify unrelated files.
-
-## Artifact Boundary
-`docs/guardrails.md` owns:
-- source-of-truth hierarchy
-- AI autonomy boundaries
-- allowed and forbidden changes
-- scope boundaries
-- conflict resolution rules
-- when to ask before acting
-- when to stop
-- verification expectations
-- document separation rules
-- mockup, prototype, screenshot, and static-surface limits for completion claims
-- evidence boundary between representative-user validation, heuristic review, visual evidence, and browser/runtime evidence
-
-This file owns the behavioral evidence policy: when the AI must verify, what counts as evidence, and when missing evidence must stop work. `docs/dod-evals.md` owns the reusable completion/eval contract: which gates and evidence make work Done. `docs/qa-checklist.md` owns concrete per-release or per-screen checks and per-check evidence artifacts that cite both.
-
-It must not define:
-- user journey content
-- screen inventory
-- wireframe layouts
-- visual design direction
-- QA checklist details
-- implementation tasks
-
-Other artifacts may follow these rules, but they must not duplicate this document.
-
-## Proven Mechanics To Use
-- Evidence before claims, as an operational gate: identify what proves the claim, run it fresh, read the full output, and only then state the result with the evidence. No success, completion, quality, or compliance claim without this sequence.
-- Split authority by concern: PRD and journey artifacts own product scope and behavior; after the engineer's one whole-prototype approval, the Approved Visual Baseline owns visual composition, interaction detail, and frontend presentation; architecture, guardrails, and applicable standards own technical, safety, accessibility, privacy, and legal boundaries. Before approval, wireframes and design-brief spines guide candidate generation. Generic defaults, unapproved mockups, implementation guesses, and assistant preference never override these sources.
-- A mockup, screenshot, prototype, or visually convincing static surface is design/visual evidence only; it is not completed functionality unless connected to source-backed behavior, real state/data/actions, runner evidence, and required DoD gates.
-- Representative-user task validation is a separate evidence class for applicable critical or consequential flows. A heuristic review, Nielsen Norman heuristic check, screenshot, browser receipt, visual-QA result, or agent self-assessment cannot be reported as user validation. Do not fabricate participants, sessions, findings, or success. If required validation is unavailable, record the evidence limit and risk and stop the applicable completion/release claim at the DoD gate rather than silently treating it as passed.
-- The formal heuristic layer must use the shared H1-H10 reference and preserve applicability, expected behavior, required evidence, route/state/viewport coverage, findings, severity, and release effect. An incomplete heuristic matrix cannot be reported as a complete usability review; an H1-H10 review is still not representative-user research.
-- Extract, do not ingest: when sources are long, pull only the relevant decisions and cite them. Do not paraphrase entire source files into this artifact.
-- Right-size rigor to stakes: hobby, internal, consumer, paid, regulated, accessibility-critical, or safety-sensitive products need different guardrails.
-- Default to autonomous reversible decisions within approved product intent. Define exactly one normal design approval for the complete integrated prototype and reserve separate just-in-time authorization for irreversible, destructive, financial, legal, public, security-sensitive, privacy-sensitive, privileged, or external side effects.
-- Preserve artifact boundaries: later docs may reference earlier docs, not silently rewrite them.
-- Stop before acting when an inaccessible named source, design system, or requirement is material to product scope, a compliance claim, or a high-risk action. An inaccessible aesthetic reference alone does not create a pre-prototype approval gate: record it, disclose the fallback, and continue with source-grounded candidate directions when possible.
-- Never silently ignore unavailable files, screenshots, links, tokens, or brand materials; classify their materiality and trace the fallback or blocker.
-
-## Gap-Check
-Before writing, verify that sources identify:
-- which documents are authoritative
-- what AI may decide independently
-- what requires explicit user approval
-- what is forbidden
-- how conflicts should be resolved
-- required verification standard
-- where visual/static evidence ends and functionality evidence begins
-- which visual/design sources are authoritative, if any
-- whether AI may propose aesthetic options or must wait for user-provided direction
-- whether critical flows require representative-user task validation and what evidence is available
-- whether the H1-H10 heuristic layer is applicable and what review/evidence coverage is available
-
-If authority, autonomy, forbidden actions, or conflict rules are missing or contradictory and the unresolved answer materially changes product scope, compliance, or a high-risk boundary, stop and ask grill-me questions before producing the output. Otherwise use the recommended stakes baseline, record the reversible choice, and continue.
-
-### Default Baseline For Recommendations
-Sources rarely state guardrails explicitly. Do not run an open-ended interview. Identify the stakes tier first, present the matching baseline as the recommended answer for each gap-check question, and grill only on deviations and items the user marks as sensitive.
-
-- Hobby / internal: AI may autonomously create and revise reversible SDD, layout, copy, visual, and technical details inside product intent. Ask only for material scope changes, deletion without safe recovery, the one whole-design approval, or a high-risk action.
-- Consumer / paid: AI may autonomously create, revise, reconcile, and validate reversible user-facing details inside approved product intent. The engineer approves the complete integrated prototype once; ordinary artifact, screen, terminology, and transition changes do not require separate approval. Evidence remains required for completion claims.
-- Regulated / accessibility-critical / sensitive data: AI may draft and revise source-backed artifacts autonomously, but compliance claims and high-risk effects require named evidence and risk-specific authorization. Do not require approval for every user-facing edit; retain the one whole-design approval and escalate only material product intent or regulated/high-risk decisions.
+DoD owns reusable completion gates; QA owns concrete checks/results. Do not write journeys, screens, layouts, visual direction, gate definitions, QA items or implementation tasks.
 
 ## Workflow
-1. Inspect the input files.
-2. Identify all available sources of truth.
-3. Define source priority from most authoritative to least authoritative.
-4. Define AI autonomy boundaries.
-5. Define scope boundaries and forbidden behavior.
-6. Define visual/design authority rules.
-7. Define conflict resolution and stop conditions.
-8. Define verification rules for SDD artifacts and future implementation.
-9. Define the evidence classes separately: representative-user task validation, formal H1-H10 heuristic review, visual-QA/browser evidence, accessibility verification, and functional/runtime evidence. State which claims each class can and cannot support, using the shared heuristic reference for the formal review contract.
-10. Define mockup, prototype, screenshot, and static-surface limits for completion claims.
-11. Preserve strict artifact separation.
-12. Before writing the artifact, verify the planned content:
-   - Every load-bearing rule traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
-   - No content belongs to another artifact's ownership per the Artifact Boundary.
-   - No placeholder text and no generic filler written to satisfy the template.
-13. Create or update only `docs/guardrails.md`.
 
-## Required Output Structure
-Use this structure:
+1. Identify authoritative inputs and stakes: hobby/internal, consumer/paid, or regulated/accessibility-critical/sensitive-data.
+2. Assign authority by concern: PRD/journey for behavior; the approved integrated baseline for presentation/interaction detail; architecture, guardrails and applicable standards for technical and risk boundaries.
+3. Allow reversible, source-grounded work within intent. Keep one whole-design approval and just-in-time authorization for irreversible, destructive, financial, legal, public, privileged, security/privacy-sensitive or external effects.
+4. Define conflict routing to the owner and when a material non-inferable answer is needed. Do not interview about discoverable facts or every user-facing edit.
+5. Distinguish representative-user validation, H1-H10 review, visual/browser observations, accessibility checks and functional/runtime evidence. None substitutes for another; no fabricated sessions, findings, results or compliance claims.
+6. Require fresh verification before completion claims: identify evidence, run the authorized check, read its output, then report the supported result. A mockup/static surface does not prove real data, actions, persistence or integrations.
+7. Classify unavailable sources. Missing material scope/compliance/high-risk evidence blocks the affected claim. A merely aesthetic reference permits a disclosed source-grounded fallback; an executor's explicitly required source-access gate still applies.
+8. Validate source coverage, ownership and open risks; write only the owned artifact.
 
-Required contract sections are `Source References`, `Source Of Truth Order`, `AI Autonomy Boundaries`, `Forbidden Changes`, `When To Ask`, `When To Stop`, `Artifact Separation Rules`, `Verification Rules`, and `Open Questions`. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. List omitted optional sections in the Final Report.
+Re-run only when a named upstream decision or consumed source fragment changes a rule or authority boundary. Later files appearing is not a rerun trigger.
 
-```markdown
-# Guardrails
+## Artifact coverage
 
-## Source References
+Required semantic sections: Source References; Source Of Truth Order; AI Autonomy Boundaries; Forbidden Changes; When To Ask; When To Stop; Artifact Separation Rules; Verification Rules; Open Questions.
 
-## Source Of Truth Order
+Add Allowed Changes, Scope Boundaries, Design Authority, Conflict Resolution, Evidence Requirements or Source Access Failures only when they add decisions. Cite shared evidence definitions; do not copy them.
 
-## AI Autonomy Boundaries
+## Return
 
-## Allowed Changes
-
-## Forbidden Changes
-
-## Scope Boundaries
-
-## Design Authority Rules
-
-## Conflict Resolution
-
-## When To Ask
-
-## When To Stop
-
-## Artifact Separation Rules
-
-## Verification Rules
-
-## Evidence Requirements
-
-## Source Access Failures
-
-## Open Questions
-```
-
-## Final Report
-Return:
-- `Result`
-- `Created/Updated File`
-- `Confirmed Rules And Constraints`
-- `Omitted Optional Sections`, if any
-- `Open Questions`
-- `Next Recommended Action`
-- `Next Recommended Skill`
+Report the file, changed rules, validation evidence, open risks and next owner. Follow the shared provenance contract; playback and document validation are not approvals.

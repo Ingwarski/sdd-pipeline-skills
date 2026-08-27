@@ -1,0 +1,64 @@
+{
+  "first_setup_with_retry": {
+    "description": "New comparison product, Ukrainian working language and English UI; one design-brief retry, then approval reconciliation.",
+    "seed": "Create a comparison tool for people deciding between options on mobile and desktop. Preserve their selections after an error. Use Ukrainian for SDD and English for the interface.",
+    "invocations": [
+      "to-sdd-pipeline",
+      "to-product-idea",
+      "to-sdd-prd",
+      "to-project-context",
+      "to-guardrails",
+      "to-user-journey",
+      "to-screen-map",
+      "to-wireframes",
+      "to-design-brief",
+      "to-design-brief",
+      "to-architecture",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-design-brief",
+      "to-architecture",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-development-plan"
+    ],
+    "retries": 1,
+    "intake": true,
+    "prototype_reuse": false,
+    "claude_design": false
+  },
+  "approved_design_revision": {
+    "description": "Existing operational product changes an approved interaction; revalidate affected owners, including one QA retry.",
+    "seed": "Use the accepted revision of our operational dashboard. Preserve the existing approved version and history; update only affected architecture, checks and units, then wait for a new implementation prompt.",
+    "invocations": [
+      "to-sdd-pipeline",
+      "to-design-brief",
+      "to-architecture",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-qa-checklist",
+      "to-development-plan"
+    ],
+    "retries": 1,
+    "intake": false,
+    "prototype_reuse": true,
+    "claude_design": false
+  },
+  "interrupted_claude_resume": {
+    "description": "Resume an interrupted Claude Design handoff without another intake; verify current references and one retry after an incomplete receipt.",
+    "seed": "Resume the selected Claude Design export after an interrupted session. Recheck source receipts and keep my saved answers and earlier approval history. Do not implement production code.",
+    "invocations": [
+      "to-sdd-pipeline",
+      "to-sdd-pipeline",
+      "to-design-brief",
+      "to-architecture",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-development-plan"
+    ],
+    "retries": 1,
+    "intake": false,
+    "prototype_reuse": false,
+    "claude_design": true
+  }
+}

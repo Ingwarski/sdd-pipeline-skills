@@ -119,7 +119,10 @@ try {
         Copy-Item -LiteralPath (Join-Path $RepoRoot $File) -Destination (Join-Path $Publisher $File)
     }
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'skills') -Destination (Join-Path $Publisher 'skills') -Recurse
-    Test-Git $Publisher @('add','--','install.ps1','skills-manifest.json','skills')
+    Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'scripts') -File | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $Publisher 'scripts')
+    }
+    Test-Git $Publisher @('add','--','install.ps1','skills-manifest.json','scripts','skills')
     Commit-Fixture $Publisher real-installer
     Test-Git $Publisher @('push','--quiet',$Remote,'main')
     foreach ($Root in $StudentRoots) {

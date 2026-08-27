@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "context_bundle": [
+    "project-context",
+    "canonical-terms"
+  ],
+  "artifacts": {
+    "product-idea": {
+      "path": "docs/product-idea.md",
+      "owner_skill": "to-product-idea",
+      "required_before": [],
+      "consulted_later": [
+        "prd"
+      ]
+    },
+    "prd": {
+      "path": "docs/prd.md",
+      "owner_skill": "to-sdd-prd",
+      "required_before": [
+        "product-idea"
+      ],
+      "consulted_later": []
+    },
+    "project-context": {
+      "path": "docs/project-context.md",
+      "owner_skill": "to-project-context",
+      "required_before": [
+        "product-idea",
+        "prd"
+      ],
+      "consulted_later": []
+    },
+    "canonical-terms": {
+      "path": "docs/canonical-terms.md",
+      "owner_skill": "to-project-context",
+      "required_before": [
+        "product-idea",
+        "prd"
+      ],
+      "consulted_later": []
+    },
+    "guardrails": {
+      "path": "docs/guardrails.md",
+      "owner_skill": "to-guardrails",
+      "required_before": [
+        "prd",
+        "project-context",
+        "canonical-terms"
+      ],
+      "consulted_later": []
+    },
+    "user-journey": {
+      "path": "docs/user-journey.md",
+      "owner_skill": "to-user-journey",
+      "required_before": [
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails"
+      ],
+      "consulted_later": []
+    },
+    "screen-map": {
+      "path": "docs/screen-map.md",
+      "owner_skill": "to-screen-map",
+      "required_before": [
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey"
+      ],
+      "consulted_later": []
+    },
+    "wireframes": {
+      "path": "docs/wireframes.md",
+      "owner_skill": "to-wireframes",
+      "required_before": [
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map"
+      ],
+      "consulted_later": []
+    },
+    "design-brief": {
+      "path": "docs/design-brief.md",
+      "owner_skill": "to-design-brief",
+      "required_before": [
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map",
+        "wireframes"
+      ],
+      "consulted_later": [
+        "qa-checklist"
+      ]
+    },
+    "architecture": {
+      "path": "docs/architecture.md",
+      "owner_skill": "to-architecture",
+      "required_before": [
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map",
+        "wireframes",
+        "design-brief"
+      ],
+      "consulted_later": []
+    },
+    "dod-evals": {
+      "path": "docs/dod-evals.md",
+      "owner_skill": "to-dod-evals",
+      "required_before": [
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map",
+        "wireframes",
+        "design-brief",
+        "architecture"
+      ],
+      "consulted_later": [
+        "qa-checklist",
+        "development-plan"
+      ]
+    },
+    "qa-checklist": {
+      "path": "docs/qa-checklist.md",
+      "owner_skill": "to-qa-checklist",
+      "required_before": [
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map",
+        "wireframes",
+        "design-brief",
+        "architecture",
+        "dod-evals"
+      ],
+      "consulted_later": [
+        "development-plan"
+      ]
+    },
+    "development-plan": {
+      "path": "docs/development-plan.md",
+      "owner_skill": "to-development-plan",
+      "required_before": [
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map",
+        "wireframes",
+        "design-brief",
+        "architecture",
+        "dod-evals",
+        "qa-checklist"
+      ],
+      "consulted_later": []
+    }
+  },
+  "nodes": {
+    "development-plan": {
+      "owner_artifact": "development-plan",
+      "baseline_required": true,
+      "verification_required": true
+    },
+    "project-context-bundle": {
+      "required_before": [
+        "product-idea",
+        "prd"
+      ],
+      "outputs": [
+        "project-context",
+        "canonical-terms"
+      ]
+    },
+    "qa-checklist-proposed": {
+      "owner_artifact": "qa-checklist"
+    },
+    "architecture-approved": {
+      "owner_artifact": "architecture",
+      "baseline_required": true
+    },
+    "dod-evals-approved": {
+      "owner_artifact": "dod-evals",
+      "baseline_required": true
+    },
+    "qa-checklist-approved": {
+      "owner_artifact": "qa-checklist",
+      "baseline_required": true
+    },
+    "prototype-candidates": {
+      "required_before": [
+        "product-idea",
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map",
+        "wireframes",
+        "design-brief",
+        "architecture",
+        "dod-evals",
+        "qa-checklist"
+      ],
+      "outputs": [],
+      "source_access_required": true,
+      "candidates_after": true
+    },
+    "design-approval": {
+      "required_before": [
+        "product-idea",
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map",
+        "wireframes",
+        "design-brief",
+        "architecture",
+        "dod-evals",
+        "qa-checklist"
+      ],
+      "outputs": [],
+      "candidates_required": true
+    },
+    "implementation": {
+      "required_before": [
+        "product-idea",
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map",
+        "wireframes",
+        "design-brief",
+        "architecture",
+        "dod-evals",
+        "qa-checklist",
+        "development-plan"
+      ],
+      "outputs": [],
+      "baseline_required": true,
+      "verification_required": true,
+      "authorization_required": true
+    },
+    "release": {
+      "required_before": [
+        "product-idea",
+        "prd",
+        "project-context",
+        "canonical-terms",
+        "guardrails",
+        "user-journey",
+        "screen-map",
+        "wireframes",
+        "design-brief",
+        "architecture",
+        "dod-evals",
+        "qa-checklist",
+        "development-plan"
+      ],
+      "outputs": [],
+      "baseline_required": true,
+      "verification_required": true,
+      "authorization_required": true,
+      "release_required": true
+    }
+  }
+}

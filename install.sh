@@ -138,39 +138,17 @@ if [[ -z "$claude_dir" ]]; then
 fi
 
 manifest_entries() {
-  sed -nE 's/^[[:space:]]*\{"name": "([^"]+)", "path": "([^"]+)", "legacy_name": (null|"([^"]*)")\},?$/\1|\2|\4/p' "$manifest_path"
+  printf '%s\n' "$validated_manifest_rows"
 }
 
-frontmatter_value() {
-  key=$1
-  file=$2
-  awk -v wanted="$key" '
-    NR == 1 && $0 == "---" { inside = 1; next }
-    inside && $0 == "---" { exit }
-    inside && index($0, wanted ":") == 1 {
-      sub("^[^:]+:[[:space:]]*", "", $0)
-      print
-      exit
-    }
-  ' "$file"
-}
-
-strip_quotes() {
-  value=$1
-  value=${value#\"}
-  value=${value%\"}
-  value=${value#\'}
-  value=${value%\'}
-  printf '%s' "$value"
-}
-
-expected_count=$(sed -nE 's/^[[:space:]]*"skill_count": ([0-9]+),?$/\1/p' "$manifest_path")
-actual_count=$(manifest_entries | awk 'END { print NR + 0 }')
-
-if [[ -z "$expected_count" || "$actual_count" -ne "$expected_count" ]]; then
-  printf 'Manifest count mismatch: expected=%s parsed=%s\n' "${expected_count:-missing}" "$actual_count" >&2
+if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+  printf '%s\n' 'Python 3.9+ is required. Install Python 3, then rerun; no installation changes made.' >&2
   exit 1
 fi
+manifest_args=(--root "$repo_root")
+[[ $retire_only -eq 0 ]] || manifest_args+=(--metadata-only)
+# Capture success before using rows: process substitutions can hide parser errors.
+validated_manifest_rows=$(python3 "$repo_root/scripts/install_manifest.py" "${manifest_args[@]}") || exit 1
 
 if [[ $retire_only -eq 1 ]]; then
   source "$repo_root/scripts/retired-skills.sh"
@@ -179,45 +157,7 @@ if [[ $retire_only -eq 1 ]]; then
   exit 0
 fi
 
-preflight_failures=0
-while IFS='|' read -r skill_name relative_path legacy_name; do
-  case "$relative_path" in
-    skills/*) ;;
-    *)
-      printf '%-24s INVALID source path: %s\n' "$skill_name" "$relative_path" >&2
-      preflight_failures=$((preflight_failures + 1))
-      continue
-      ;;
-  esac
-  if [[ "$relative_path" == *".."* ]]; then
-    printf '%-24s INVALID path traversal\n' "$skill_name" >&2
-    preflight_failures=$((preflight_failures + 1))
-    continue
-  fi
-
-  source_dir="$repo_root/$relative_path"
-  skill_file="$source_dir/SKILL.md"
-  if [[ ! -d "$source_dir" || ! -r "$skill_file" ]]; then
-    printf '%-24s INVALID missing readable SKILL.md\n' "$skill_name" >&2
-    preflight_failures=$((preflight_failures + 1))
-    continue
-  fi
-
-  first_line=$(sed -n '1p' "$skill_file")
-  declared_name=$(strip_quotes "$(frontmatter_value name "$skill_file")")
-  declared_description=$(strip_quotes "$(frontmatter_value description "$skill_file")")
-  if [[ "$first_line" != '---' || "$declared_name" != "$skill_name" || -z "$declared_description" ]]; then
-    printf '%-24s INVALID frontmatter name/description\n' "$skill_name" >&2
-    preflight_failures=$((preflight_failures + 1))
-  else
-    printf '%-24s source valid\n' "$skill_name"
-  fi
-done < <(manifest_entries)
-
-if [[ $preflight_failures -ne 0 ]]; then
-  printf 'Source validation failed: %d skill(s)\n' "$preflight_failures" >&2
-  exit 1
-fi
+printf 'Validated %d source skills and their shared references.\n' 13
 
 if [[ $uninstall -eq 0 ]]; then
   source "$repo_root/scripts/retired-skills.sh"

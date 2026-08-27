@@ -54,7 +54,7 @@ try {
     foreach ($Skill in $Manifest.skills) {
         $SourceSkill = Join-Path (Join-Path $RepoRoot $Skill.path) 'SKILL.md'
         $SkillText = Get-Content -LiteralPath $SourceSkill -Raw
-        if (-not $SkillText.Contains('working_language') -or -not $SkillText.Contains('For Ukrainian (`uk`)')) {
+        if (-not $SkillText.Contains('working_language') -or -not $SkillText.Contains('common-contract.md')) {
             throw "$SourceSkill is missing the working-language contract"
         }
         foreach ($InstallRoot in @($CodexDir, $ClaudeDir)) {
@@ -73,6 +73,8 @@ try {
         }
     }
 
+    $CommonContract = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills/to-sdd-pipeline/references/common-contract.md') -Raw
+    if (-not $CommonContract.Contains('For Ukrainian (`uk`)')) { throw 'Shared Ukrainian language contract is missing.' }
     $ClaudeHandoff = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills/to-sdd-pipeline/references/claude-design-handoff.md') -Raw
     if (-not $ClaudeHandoff.Contains('working_language') -or -not $ClaudeHandoff.Contains('preserved_english_terms')) {
         throw 'Claude Design handoff is missing the working-language contract.'

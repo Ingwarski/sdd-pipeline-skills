@@ -52,8 +52,10 @@ while IFS='|' read -r skill_name relative_path legacy_name; do
   cmp -s "$repo_root/$relative_path/SKILL.md" "$codex_dir/$skill_name/SKILL.md"
   cmp -s "$repo_root/$relative_path/SKILL.md" "$claude_dir/$skill_name/SKILL.md"
   grep -q 'working_language' "$repo_root/$relative_path/SKILL.md"
-  grep -Fq 'For Ukrainian (`uk`)' "$repo_root/$relative_path/SKILL.md"
-done < <(sed -nE 's/^[[:space:]]*\{"name": "([^"]+)", "path": "([^"]+)", "legacy_name": (null|"([^"]*)")\},?$/\1|\2|\4/p' "$repo_root/skills-manifest.json")
+  grep -Fq 'common-contract.md' "$repo_root/$relative_path/SKILL.md"
+done < <(python3 "$repo_root/scripts/install_manifest.py" --root "$repo_root" --metadata-only)
+
+grep -Fq 'For Ukrainian (`uk`)' "$repo_root/skills/to-sdd-pipeline/references/common-contract.md"
 
 grep -q 'working_language' "$repo_root/skills/to-sdd-pipeline/references/claude-design-handoff.md"
 grep -q 'preserved_english_terms' "$repo_root/skills/to-sdd-pipeline/references/claude-design-handoff.md"
@@ -92,7 +94,7 @@ rmdir "$codex_dir/to-sdd-pipeline"
 while IFS='|' read -r skill_name relative_path legacy_name; do
   [[ ! -e "$codex_dir/$skill_name" && ! -L "$codex_dir/$skill_name" ]]
   [[ ! -e "$claude_dir/$skill_name" && ! -L "$claude_dir/$skill_name" ]]
-done < <(sed -nE 's/^[[:space:]]*\{"name": "([^"]+)", "path": "([^"]+)", "legacy_name": (null|"([^"]*)")\},?$/\1|\2|\4/p' "$repo_root/skills-manifest.json")
+done < <(python3 "$repo_root/scripts/install_manifest.py" --root "$repo_root" --metadata-only)
 [[ -f "$claude_dir/to-prd/marker.txt" ]]
 
 assert_unrelated_preserved

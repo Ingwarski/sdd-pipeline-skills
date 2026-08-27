@@ -1,280 +1,73 @@
 ---
 name: to-design-brief
-description: Use when docs/wireframes.md exists and the user wants the design brief, design direction, visual system, design tokens, typography and color direction, interaction rules, or design handoff.
+description: Define design and experience rules, tokens, usability coverage, source inventory and the canonical approved visual baseline from structural wireframes.
 ---
 # to-design-brief
 
-## Universal SDD Rule
-AI is not the source of truth. Source files and explicit user answers are the source of truth. Mirror source terminology exactly; when sources use conflicting terms for one concept, do not pick silently - ask or flag it in `Open Questions`, then record the canonical term and aliases to avoid.
-
-Working-language contract: use the orchestrator-supplied `working_language`; in standalone use, prefer an explicit request, otherwise use the language of the latest substantive user message. Use it for all questions, playbacks, reports, and natural-language headings and prose in the owned artifact. English template headings are semantic labels, not literal output. For Ukrainian (`uk`), write idiomatic Ukrainian and keep English only in immutable filenames/paths, code/commands, machine values, API/identifier names, names/quotations, and established IT terms such as `SDD Pipeline`; do not leave ordinary English prose or calques. Keep explicit product content locales separate from the specification language.
-
-If information is missing from the source files, inspect available sources and the codebase first. Use a focused grill-me gap-check before writing only when the answer is genuinely non-inferable and materially changes product scope or a high-risk boundary. Resolve the decision tree one branch at a time, ask one question at a time, and include a recommended answer. For all other gaps, including pre-approval design ambiguity, use the smallest reversible source-grounded choice, record it, and continue. Do not turn guesses into facts.
-
-Grill-me gap-check style: when a material question is necessary, walk the relevant decision branch instead of asking a flat questionnaire. Ask exactly one question, state the recommended answer and rationale, cite the source basis or say no source confirms it, state what downstream artifacts or boundaries change if the answer differs, and after the answer play back the confirmed decision and consequences before continuing or returning to the orchestrator.
-
-For aesthetic direction, the assistant may define up to three clearly labeled, source-grounded candidate directions. Do not require the user to select one before the brief or Prototype Mockup Candidates are created. Record shared constraints, candidate differences, and rationale; the final visual direction is established only by the engineer-approved integrated mockup.
-
-Create only the final output file. Do not write unverified assumptions into the artifact. Before creating or updating `docs/design-brief.md`, every load-bearing claim must be source-backed, user-confirmed, or left in `Open Questions`.
-
-If a gap-check ran, or if the skill synthesized decisions not fully determined by source files, play back the resolved decisions in a pithy summary and continue with the smallest reversible, source-grounded choice unless the missing answer would materially change product scope or a high-risk action. Playback is not an approval gate. Pre-approval design ambiguity becomes candidate directions; the only normal design approval is the engineer's approval of the complete integrated prototype after candidate comparison.
-
-## Input
-Read:
-- `README.md`, if present
-- `docs/prd.md`
-- `docs/project-context.md`, when present or supplied by `to-sdd-pipeline`
-- `docs/canonical-terms.md`, when present or supplied by `to-sdd-pipeline`
-- `docs/user-journey.md`
-- `docs/screen-map.md`
-- `docs/wireframes.md`
-- `docs/guardrails.md`
-- `skills/to-sdd-pipeline/references/heuristic-usability-review.md`, when creating or validating the formal H1-H10 review layer
-- the current Phase 2 executor/handoff metadata supplied by `to-sdd-pipeline`, when present
-
-Use confirmed relevant audience, platform, localization, brand/provenance, content, constraint, and vocabulary facts from the context bundle. Do not copy descriptive context, promote assumptions to facts, add product scope, or let either file override PRD/journey/screen/wireframe behavior. Record only the exact sections or terms consumed when pipeline provenance is requested.
-
-## Output
-Create or update exactly one artifact:
-- `docs/design-brief.md`
-
-Do not modify unrelated files.
-
-## Artifact Boundary
-`docs/design-brief.md` owns:
-- UX/UI design intent
-- visual direction
-- design brief
-- design decision log
-- information density and interface tone
-- semantic design tokens
-- typography direction
-- color direction
-- spacing and layout rhythm
-- component appearance principles
-- interaction feel
-- responsive behavior
-- accessibility floor
-- design handoff guidance
-- design-relevant usability validation plan and evidence status for critical user flows
-- formal H1-H10 heuristic coverage and design-time review status, using the shared heuristic reference
-- the complete Design Source Material Inventory used by design executors
-- approved visual-baseline metadata and references after the whole prototype is approved
-
-For states: `docs/screen-map.md` owns which states exist per screen; `docs/wireframes.md` owns each state's structure; this file owns system-wide state appearance and behavior patterns. Reference the screen-map state list; do not re-derive it.
-
-It must not define:
-- new product features
-- new screens or routes
-- detailed wireframe structure already owned by `docs/wireframes.md`
-- QA checklist items
-- implementation tasks
-
-Reference prior artifacts instead of restating them.
-
-## Proven Mechanics To Use
-Adapt the strongest UX Coach mechanics into a single SDD artifact:
-- Treat the brief as two spines inside one file: `Design Spine` and `Experience Spine`.
-- Keep the design intent traceable from `JOB-*` to `UC-*` to journey stage and covered screen/state; reference upstream behavior instead of redefining it.
-- Use `skills/to-sdd-pipeline/references/heuristic-usability-review.md` as the canonical H1-H10 vocabulary. This skill owns design-time heuristic coverage, expected behavior, applicability, planned evidence, and open risks; `to-qa-checklist` owns concrete checks/evidence and `to-dod-evals` owns the reusable gate. Do not duplicate the full definitions here.
-- The Design Spine is the visual contract: brand/style, colors, typography, spacing, radius, elevation, component appearance, visual do/don't rules.
-- The Experience Spine is the behavior contract: form factor, IA implications, voice/tone rules, component behavior, state patterns, interaction primitives, accessibility, key flows.
-- Before design approval, the Design Spine and Experience Spine guide candidate generation in either Codex or Claude Design. After the engineer approves the complete integrated prototype in Codex, the `Approved Visual Baseline` section in this file is the single canonical baseline manifest, the concrete source of truth for visual composition, interaction detail, and frontend presentation, and the visual Definition of Done for every user-visible frontend unit. Selection in Claude Design identifies the version to export but is not this approval. Do not create a second competing baseline receipt elsewhere. The spines remain authoritative for reusable system rules, unshown states, responsive behavior, and accessibility, and must be reconciled with the approved baseline. PRD and journey artifacts remain authoritative for product scope and behavior. Unapproved explorations and implementation preference never override either source.
-- Keep a `Decision Log` for selected directions, rejected directions, scope cuts, tool choices, and user overrides.
-- Run a concern scan: accessibility, platform conventions, brand voice, regulated language, motion, internationalization, dark mode, offline behavior, content density, input modalities, notifications, AI control and reversibility.
-- Surface UI system inheritance. If shadcn, MUI, Tailwind, native UIKit, Compose, or an internal design system exists, extend or reference it instead of inventing a parallel system.
-- Use visual-first structures where useful: token tables, state matrices, component spec tables, Mermaid flow diagrams, and small swatch/type/spacing examples.
-- When current UI systems, accessibility standards, platform HIGs, or named visual references may have changed, verify them with current sources before creating or updating the artifact.
-
-Use the strongest production UX/UI mechanics:
-- Start from user goal, audience, primary action, and product context.
-- For every critical flow, define a representative-user task validation plan with the applicable `JOB-*`/`UC-*`, user group, task, device or viewport, success criterion, validation timing, and evidence status. For regulated, accessibility-critical, safety-sensitive, or otherwise high-risk flows, default validation timing to pre-approval when feasible; if it is not run, label the assumption/open risk explicitly and never call the flow user-validated.
-- For every relevant H1-H10 heuristic, define a review row for the primary journey and representative screens/states/routes/viewports. Include expected behavior, applicability, planned evidence, status, and the downstream QA check reference. Cover desktop and mobile when supported, plus error/recovery and accessibility-critical actions.
-- Apply explicit H7 rules for a simple novice default flow, expert shortcuts, bulk/repeated workflows, keyboard/touch alternatives, and effort-reducing customization only when a source-backed efficiency need exists.
-- Apply explicit H10 rules for contextual help, searchable documentation when needed, actionable empty states, concise inline instructions, recovery links, and task-oriented help.
-- For every applicable error/recovery state, use `cause -> what was preserved -> next action -> retry/undo option -> condition for successful completion`.
-- Match experience type: SaaS/operational tool, checkout, AI product, course/content, dashboard, landing/sales, mobile app, internal tool, or regulated workflow.
-- Preserve existing design systems unless the user explicitly wants a redesign.
-- Define complete states: default, hover, focus, active, disabled, loading, empty, error, success, long-content, offline, and permission-denied when relevant.
-- Meet WCAG 2.2 AA by default: contrast, visible focus, keyboard access, semantic structure, labels, errors, and target sizes.
-- Preserve source-approved motion and make required state or information understandable without relying on animation alone. Do not invent a reduced-motion variant or automatically remove, replace, or simplify approved motion unless an explicit product source requires it.
-- When project principles or user policy define font constraints, verify font licensing and provenance before selection. If provenance cannot be confidently verified, prefer system stacks or verified independent foundries.
-- Plan responsive behavior at 390, 430, 768, 1280, and 1440px unless sources specify different target devices.
-- Avoid one-note palettes, decorative blobs, meaningless gradients, hidden scrollbars, card-in-card layouts, and visual trend choices that weaken usability.
-
-## Gap-Check
-Before writing, verify that sources identify:
-- target audience and product category
-- brand or desired product feeling
-- platform and device priorities
-- complexity and information-density needs
-- accessibility expectations
-- visual constraints, if any
-- existing design system, visual source, brand deck, screenshots, tokens, component library, or inspiration/rejection references
-- expected interactivity and motion level
-- primary `JOB-*` and `UC-*` references, and whether representative-user task validation is required, available, and timed pre-approval, post-implementation, or both
-- which H1-H10 heuristics apply to the primary journey, representative screens/states/routes/viewports, and whether the review is covered, deferred, or not applicable
-- whether the user wants a fast path with explicit assumptions or a coached path with decisions resolved section by section
+Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) and [H1-H10 contract](../to-sdd-pipeline/references/heuristic-usability-review.md) before work. Resolve links from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
 
-If audience, product category, platform priorities, existing-system inheritance, or another constraint is missing or contradictory, ask only when the answer would materially change product scope or a high-risk boundary. Missing aesthetic direction alone is not a blocker: derive up to three source-grounded candidate directions, record the reversible assumptions, and continue to whole-prototype comparison.
+## Inputs
 
-## Workflow
-1. Inspect the input files.
-2. Find grounding material before inventing: design docs, screenshots, Figma links, Storybook, tokens, components, CSS variables, brand assets, or reference products named by the user. Catalog every discovered material or link in `Design Source Material Inventory`; do not leave a source implicit in prose.
-3. Extract UX intent from the PRD, user journey, screen map, and wireframes.
-4. Resolve the applicable `JOB-*` and `UC-*` references without restating their definitions.
-5. Identify the product type, stakes, form factor, and level of visual sophistication needed.
-6. Run the concern scan and decide which concerns deserve sections.
-7. Define a source-backed Design Spine.
-8. Define a source-backed Experience Spine.
-9. Define the representative-user task validation plan for critical flows; keep execution evidence and per-check results in QA/DoD owners.
-10. Define the formal H1-H10 heuristic review coverage using the shared reference; keep concrete execution findings and evidence in QA/DoD owners.
-11. Critique the planned Design Spine against generic AI defaults: templated palettes, interchangeable type pairings, decorative filler, and styles that could belong to any product in the category. Name one signature element or one deliberate restraint principle grounded in the product's domain, and state where the design spends or withholds boldness. If the direction is not product-specific, revise it or turn the strongest source-grounded alternatives into clearly labeled Prototype Mockup Candidates for whole-design comparison; do not add a pre-mockup selection gate. These candidates are design-only interaction simulations, not application implementations.
-12. Define semantic tokens and component appearance principles without overbuilding a design-system monster.
-13. Define responsive, accessibility, state, and interaction expectations.
-14. Add handoff prompts or guidance for Figma, v0, Stitch, Codex, or Claude Design only when useful and only from captured content. Handoff guidance must name frozen inputs, the complete Design Source Material Inventory, and equivalent design scope, never grant the design tool authority to edit SDD artifacts or production code.
-15. Run the Validation Pass defined below before creating or updating the artifact.
-16. When an integrated prototype has been approved, atomically update the canonical `Approved Visual Baseline` section with its stable Baseline ID, selected candidate/version, origin `codex | claude_design`, handoff ID when applicable, immutable visual target/hash, frozen normalized prototype source root/tree hash and algorithm, durable repository-relative artifact references, visual-DoD scope, coverage, Codex whole-design approval receipt, and permitted variance. Never use a Claude chat URL, temporary export path, or external result ID as the sole durable baseline reference. Keep the prior approved baseline active while a revision is only proposed. An explicit scoped operator correction becomes a recorded baseline override for that scope; a newly approved integrated whole creates a new active Baseline ID and marks the old immutable baseline superseded. Record the prior ID and receipt in the Decision Log and downstream invalidation intent in this artifact. Do not create another design approval merely to acknowledge an operator-authored correction. Only the orchestrator changes manifest/runtime status, re-invokes QA and development-plan owners, and marks affected production units invalidated.
-17. Avoid changing scope, adding screens, or rewriting wireframes.
-18. Before writing the artifact, verify the planned content:
-   - Every load-bearing claim traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
-   - No content belongs to another artifact's ownership per the Artifact Boundary.
-   - No placeholder text and no generic filler written to satisfy the template.
-19. Create or update only `docs/design-brief.md`.
+Required before starting: PRD, guardrails, journey, screen map and wireframes under `docs/`; in pipeline mode also the validated context/terms bundle.
 
-## Validation Pass
-Run both passes on the planned artifact content. Record results in the artifact's `Validation Report` as findings ranked by downstream impact: Critical, High, Medium, Low. If a pass has no findings, state `0 findings` for that pass.
+Optional grounding: README, explicit audience/brand/content/platform constraints, existing tokens/components/design systems, screenshots/reference products and Phase 2 executor/handoff metadata.
 
-Pass 1 - Mechanical coverage:
-- Every key flow referenced names its journey source and has success and failure coverage in the Experience Spine.
-- Every token referenced anywhere in the brief resolves to a defined value in the Design Spine.
-- Every component named in either spine has both an appearance principle and a behavior principle.
-- Every screen and state in `docs/screen-map.md` is covered by a state pattern or explicitly deferred with a reason.
-- Every visual reference, link, or source named in the brief has exactly one inventory entry with a required/optional decision, location, access status, and content hash or capture ID when applicable.
-- Every required inventory entry resolves in the executor environment or has an authorized self-contained capture/bundle; unavailable required sources are blocking and are listed in `Open Questions`, never silently dropped.
-- Every link or material named elsewhere in the brief appears in the inventory, and every inventory entry is referenced by the brief or handoff contract.
-- Every `JOB-*` and `UC-*` reference resolves to an upstream artifact, and every critical flow has a representative-user task validation plan with an explicit `run`, `deferred`, or `not applicable` status and reason.
-- Every relevant H1-H10 heuristic has an explicit `covered`, `deferred`, or `not applicable` status with rationale; the review covers the primary journey, representative screens/states/routes/viewports, desktop/mobile where supported, error/recovery, and accessibility-critical actions.
-- The Validation Report records explicit H1-H10 status for H1 system status, H2 terminology/mental model, H3 exit/undo/cancel, H4 consistency/standards, H5 prevention, H6 recognition/context, H7 efficiency/accelerators, H8 relevance/visual noise, H9 error diagnosis/recovery, and H10 contextual help/documentation; each row retains the shared reference instead of redefining it.
+QA check IDs and executed evidence are **later references**, not prerequisites for creating the brief. Until real IDs exist, leave bindings pending. Read the [verification contract](../to-sdd-pipeline/references/verification-contract.md) when planning reviews/user validation.
 
-Pass 2 - Judgment:
-- Bloat: no pixel specs where tokens suffice, no decorative prose, no sections filled to satisfy the template.
-- Inheritance: named UI systems, versions, and source terminology are used faithfully; no parallel system is invented.
-- Shape: sections follow the required structure; spines stay contracts, not restated wireframes.
+## Output and ownership
 
-## Required Output Structure
-Use this structure:
+Write only `docs/design-brief.md`. Own design intent/direction, design decisions, semantic tokens, density/tone, typography/color/spacing/component appearance, shared interaction/state behavior, responsive/accessibility rules, handoff, source inventory, H1-H10 coverage, user-validation plan and canonical approved-baseline metadata.
 
-Required contract sections are `Source References`, `Design Source Material Inventory`, `Design Brief`, `Decision Log`, `Product Experience Goal`, `Design Spine`, `Experience Spine`, `Heuristic Review`, `Usability Validation Plan`, `Approved Visual Baseline`, `Validation Report`, and `Open Questions`. Before prototype approval, `Approved Visual Baseline` uses `Status: proposed`; after approval it must identify the approved whole. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. List omitted optional sections in the Final Report.
+The screen map owns which states exist; wireframes own their structure. PRD/journey own product behavior. Do not create features, screens/routes, duplicate layouts, concrete QA items or implementation tasks.
 
-Each inventory entry must record `material_id`, `kind`, `location` (repository-relative path or URL), `required_for_candidate_generation`, `purpose`, `source_basis`, `access_status` (`resolved`, `unavailable`, or `not_required`), and `content_hash_or_capture_id` when applicable. For external material also record the authorized access mode (`browser_open`, `captured_bundle`, or `handoff_export`). A required item with `access_status: unavailable` is a source-access blocker; it is not an approval decision and must not be converted into a guessed substitute.
+## Design process
 
-```markdown
-# Design Brief
+1. Find grounding material before inventing. Catalog every named file, screenshot, asset, design-system reference and external link in the Design Source Material Inventory.
+2. Trace intent through JOB → UC → journey → screen/state. Identify product type, audience, primary action, stakes, device/form factor and density.
+3. Run a concern scan: accessibility, platform conventions, brand/regulated language, motion, localization, dark mode, offline, content, input modes, notifications and AI control/reversibility. Expand only relevant concerns.
+4. Preserve existing UI systems and source vocabulary. Verify current named standards, platform guidance and external references when needed; do not invent a competing system.
+5. Define two complementary sections:
+   - **Design Spine:** brand/style, color, typography, spacing/layout, radius/shapes, elevation, component appearance, visual do/don't rules and semantic tokens.
+   - **Experience Spine:** form factor, IA implications, voice/tone, component behavior, state patterns, interactions, accessibility and key flows.
+6. Store token values once; other rules reference token names. Cover appearance and behavior for every named component and all applicable screen-map states.
+7. Critique generic defaults. Name a domain-grounded signature element or deliberate restraint, and where the design uses or withholds boldness. Avoid decorative filler, meaningless gradients/blobs, hidden scrollbars, one-note palettes and nested-card defaults that weaken usability.
+8. Missing aesthetic direction is not a blocker: propose up to three source-grounded directions with shared constraints/differences/rationale. Do not ask the user to choose before interactive candidate comparison.
+9. Define explicit H1-H10 coverage for the primary journey and representative screens/states/routes/viewports, desktop/mobile when supported, recovery and accessible critical actions. `covered` means planned coverage, not passed testing.
+10. Make H7 efficiency and H10 contextual/task-oriented help decisions explicit. Every applicable failure uses cause → what was preserved → next action → retry/undo → observable completion.
+11. Plan representative-user tasks for critical/consequential flows: JOB/UC, user group, task, device/viewport, success criterion, timing and evidence status. For regulated, safety- or accessibility-critical/high-risk flows prefer pre-approval validation when feasible. A deferral needs assumption/risk, owner and timing; do not call it user-validated.
+12. Define responsive and accessibility rules. Default to WCAG 2.2 AA design targets and 390/430/768/1280/1440px unless sources specify otherwise; screenshots do not prove conformance.
+13. Preserve source-approved motion and communicate required state/information without animation alone. Do not invent motion removal, simplification or an unrequested reduced-motion variant. Verify font licensing/provenance when project policy requires it; prefer system stacks or verified independent foundries if uncertain.
+14. Record selected/rejected directions, scope cuts, tool choices and user overrides in the Decision Log. Handoff guidance names frozen inputs, the complete inventory and equivalent scope; no permission to edit domain docs or production code.
+15. Run both validation passes below, then write only the brief.
 
-## Source References
+## Source inventory
 
-## Design Source Material Inventory
+Each material resolves: `material_id`, kind, repository-relative path/URL, required-for-generation flag, purpose, source basis, access status (`resolved | unavailable | not_required`), hash/capture ID where applicable, and authorized access mode for external material.
 
-## Design Brief
+Every named material has one entry; every entry has a use. An unavailable **required** source blocks candidate generation and stays visible in Open Questions; do not silently substitute it. An optional aesthetic reference may use a disclosed fallback. Claude Design additionally requires its source-access/read receipts.
 
-## Decision Log
+## Approval and reconciliation
 
-## Audience And Context
+Before approval, the baseline section is `Status: proposed`. Only the engineer's whole-design approval in Codex makes one exact candidate/version authoritative. A Claude selection only chooses what to export.
 
-## Product Experience Goal
+On approval, atomically record: Baseline ID; selected candidate/version; origin and handoff ID; immutable target reference/hash; frozen normalized prototype source root/tree hash with `sdd-tree-sha256-v1`; durable prototype paths; visual-DoD scope; screen/state/viewport coverage; operator approval receipt/time; permitted variance; overrides and supersession.
 
-## Concern Scan
+Keep the prior approved baseline active and immutable while a revision is proposed. A new approved whole supersedes it; preserve the earlier ID/receipt/history. A source-backed accepted scoped correction is an operator override, not a redundant approval request.
 
-## Design Spine
+The canonical section is the only baseline authority. Spines still govern reusable/unshown states and accessibility; reconcile them with the approved whole. No temporary URL/export/result ID may be its sole durable reference. Return invalidation intent: the orchestrator rechecks affected architecture → DoD → QA → development plan and invalidates prior implementation authorization. This owner cannot change runtime state.
 
-Token values live only in `### Design Tokens`; other spine sections reference tokens by name instead of repeating values.
+## Validation passes
 
-### Brand And Style
+**Mechanical:** every key flow traces to journey/JOB/UC with success/failure coverage; every token resolves; every component has appearance and behavior; every required state has a pattern or explicit deferral; every source has a usable inventory entry or named blocker; every critical flow has a task-validation plan; H1–H10 each have applicability/status/rationale, coverage and planned evidence. QA references remain pending until created.
 
-### Colors
+**Judgment:** no duplicated wireframes or token values, generic filler or unsupported scope; inheritance is faithful; direction is product-specific; spines remain contracts. Review H1 feedback, H2 user language/model, H3 exit/undo/cancel, H4 standards, H5 prevention, H6 recognition/context, H7 efficiency, H8 relevance/noise, H9 diagnosis/recovery and H10 help.
 
-### Typography
+Record findings in Validation Report by downstream impact (Critical/High/Medium/Low), or `0 findings` per pass. This artifact-review ranking is not a competing P0–P3 release scale.
 
-### Layout And Spacing
+## Artifact coverage and return
 
-### Elevation And Depth
+Required semantic sections: Source References; Design Source Material Inventory; Design Brief; Decision Log; Product Experience Goal; Design Spine; Experience Spine; Heuristic Review; Usability Validation Plan; Approved Visual Baseline; Validation Report; Open Questions. Add other sections only for decisions.
 
-### Shapes
+Heuristic rows resolve ID, JOB/UC/journey, scope, expected behavior, applicability, planned evidence, `covered | deferred | not applicable`, rationale and later QA binding. Keep actual execution evidence/findings with QA; DoD defines gates.
 
-### Component Appearance
-
-### Visual Do's And Don'ts
-
-### Design Tokens
-
-## Experience Spine
-
-### Foundation
-
-### Information Architecture Implications
-
-### Voice And Tone
-
-### Component Behavior
-
-### State Patterns
-
-### Interaction Primitives
-
-### Accessibility Floor
-
-### Key Flow Implications
-
-## Heuristic Review
-
-Use `skills/to-sdd-pipeline/references/heuristic-usability-review.md` for the canonical H1-H10 definitions. Record one row per relevant heuristic and review scope with `Heuristic`, `Primary Journey`, `JOB-*`, `UC-*`, `Representative Screens`, `States`, `Routes`, `Viewports`, `Expected Behavior`, `Applicability`, `Planned Evidence`, `Status: covered | deferred | not applicable`, `Rationale`, and downstream QA check ID. H7 and H10 decisions must be explicit. Applicable error/recovery rows must use the shared `cause -> what was preserved -> next action -> retry/undo option -> condition for successful completion` sequence.
-
-## Usability Validation Plan
-
-For each critical flow record `JOB-*`, `UC-*`, user group, task, device/viewport, success criterion, `Validation Timing: pre-approval | post-implementation | both`, evidence status, and explicit reason for `deferred` or `not applicable`. High-risk flows default to `pre-approval` when feasible; execution evidence remains owned by QA/DoD.
-
-## Responsive And Platform Behavior
-
-## Design Handoff Prompt
-
-## Approved Visual Baseline
-
-- Status: proposed | approved | superseded
-- Baseline ID:
-- Selected Candidate And Version:
-- Candidate Origin And Handoff ID:
-- Immutable Visual Target Reference And Hash:
-- Frozen Prototype Source Root Tree Hash And Algorithm:
-- Prototype Artifact References:
-- Visual Definition Of Done Scope:
-- Covered Screens States And Viewports:
-- Approval Receipt:
-- Approved At:
-- Permitted Variance:
-- Operator Overrides:
-- Supersedes:
-- Superseded By:
-- Downstream Invalidation:
-
-## Validation Report
-
-## Confirmed Design Decisions
-
-## Rejected Directions
-
-## Out Of Scope
-
-## Open Questions
-```
-
-## Final Report
-Return:
-- `Result`
-- `Created/Updated File`
-- `Confirmed Design Decisions`
-- `Confirmed Heuristic Coverage And Open Risks`
-- `Omitted Optional Sections`, if any
-- `Open Questions`
-- `Next Recommended Action`
-- `Next Recommended Skill`
+Return file, changed decisions, coverage/open risks, validation and baseline/provenance fields. No section approval or automatic candidate selection.

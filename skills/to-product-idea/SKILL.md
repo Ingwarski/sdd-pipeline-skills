@@ -1,212 +1,92 @@
 ---
 name: to-product-idea
-description: Create or update docs/product-idea.md through a visible, resumable, one-question-at-a-time product-intent intake. Use when a DAS Forge project begins from a short idea, the product idea is absent or materially incomplete, an existing or imported product-idea.md needs validation or handoff, or an explicit operator decision changes upstream product intent before the SDD pipeline runs or resumes.
+description: Create or validate docs/product-idea.md through visible, resumable, one-question-at-a-time discovery of product intent, jobs and design-critical user needs.
 ---
 # to-product-idea
 
-## Mission
+Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve the link from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
 
-Turn operator-confirmed intent into the authoritative `docs/product-idea.md` input without inventing the product mandate. Make the interview foreground and inspectable. Reduce operator work by discovering repository facts first, asking only material non-inferable questions, recommending an answer for every question, and asking one question at a time. Make the product intent design-ready by capturing the primary job-to-be-done, the situation and trigger that create it, the desired progress and outcome, the current alternative, and the user conditions that materially shape the later journey and interface.
+## Mission and inputs
 
-This is the Phase 0 artifact owner immediately upstream of `to-sdd-pipeline`. Product Idea Intake is a Product Creation Run, not a Feature Unit and not a design approval.
+Turn operator-confirmed intent into `docs/product-idea.md`, the Phase 0 input to SDD. Intake is a Product Creation Run, not a Feature Unit or a design approval.
 
-Working-language contract: use the orchestrator-supplied `working_language`; in standalone use, prefer an explicit language request, otherwise use the language of the latest substantive user message. Use that language for every question, recommendation, rationale, playback, status, final report, and all natural-language headings and prose in `docs/product-idea.md`. English headings shown in this skill are semantic templates, not literal output strings.
+Accept a rough description, an existing/imported idea, explicit answers/corrections, relevant README/CODEX or project evidence, and saved intake state. A product-idea file is **optional at entry**.
 
-For Ukrainian (`uk`), write natural, idiomatic Ukrainian. Keep English only in immutable filenames/paths, code and commands, machine-readable schema or enum values, API/identifier names, proper names or verbatim quotations, and established IT terms such as `SDD Pipeline`; do not leave ordinary headings, prose, or displayed status labels in English and do not produce literal calques. A few English IT terms do not change `working_language`. Keep product content locales separate: an explicitly required product locale may control UI/content examples while intake, specification prose, and reports remain in `working_language`.
+- No file: discover only unresolved material intent; write the authoritative file on the start command.
+- Existing/imported file: validate it first. Skip a redundant interview if coherent; ask only about actual material gaps, contradictions or corrections. Preserve unchanged content byte-for-byte.
+- Inspect discoverable facts. Repository evidence cannot authorize new scope, and a recommendation is not confirmed intent.
 
-## Inputs
+## Ownership
 
-Accept any combination of:
+Write only `docs/product-idea.md`; never put an incomplete draft there. The DAS Forge `ProductIdeaIntake` adapter owns draft/session persistence, browser routing, input events and receipts under `forge/intake/`, including `product-idea.json` and `product-idea-handoff.json`.
 
-- a short product description supplied by the operator;
-- an imported or existing `docs/product-idea.md`;
-- explicit answers and corrections from the current intake session;
-- relevant README, CODEX, repository, product, business, or domain evidence;
-- DAS Forge intake state supplied by the `ProductIdeaIntake` runtime adapter.
+The runtime shows the live draft and decision coverage in Mission Control. This owner creates no PRD, UX, architecture, QA, plan, Feature Unit or production code.
 
-A pre-existing `docs/product-idea.md` is optional. Support both entry scenarios explicitly:
+## Visible questioning
 
-1. **No existing file:** begin from the operator's short or rough description, ask only unresolved material questions, and create the authoritative file only on the start command.
-2. **Existing or imported file:** treat the selected file as the candidate source, validate it before asking anything, skip the interview when its material intent is coherent, and ask only focused questions for actual material gaps, contradictions, or explicit corrections.
+Ask one material question per turn with a recommendation, rationale, source basis (or its absence), affected downstream decisions and a brief playback after the answer. Follow the relevant branch, not a fixed questionnaire. Silence, timeout and recommendations never supply consent.
 
-Never require the operator to create a file before invoking this skill. Never discard or replace an existing file during intake; preserve it unchanged unless the final operator-confirmed submission requires a new version.
-
-Inspect discoverable sources instead of asking the operator. Repository evidence may establish current facts but cannot authorize new product scope. Never treat a recommendation, inferred preference, or unconfirmed assumption as operator-confirmed intent.
-
-## Output And Ownership
-
-Create or update exactly one human-readable artifact:
-
-- `docs/product-idea.md`
-
-Do not write an incomplete interview draft to the authoritative path. During DAS Forge execution, the `ProductIdeaIntake` runtime adapter owns draft/session persistence under `forge/intake/`; render its current draft in Mission Control. After intent is complete and the operator invokes `Create product idea and start SDD`, atomically create or version `docs/product-idea.md` only when it is absent or confirmed intent changed; otherwise preserve the validated existing file byte-for-byte.
-
-The runtime adapter, not this artifact owner, owns:
-
-- `forge/intake/product-idea.json`;
-- `forge/intake/product-idea-handoff.json`;
-- operator-input events, browser routing, durable wait/resume, timestamps, and session transport.
-
-Do not create PRD, design, architecture, QA, development-plan, Feature Unit, or production-code artifacts.
-
-## Foreground Intake Contract
-
-When running inside DAS Forge, never bury a question in agent logs or continue silently. Return one typed `ProductIntentQuestion` and yield control to the runtime:
+In DAS Forge, return one request and yield:
 
 ```yaml
 status: awaiting_operator_input
 question_id: stable-id
 working_language: BCP-47 language tag
 question: one material question
-why_material: why the answer changes product intent
-recommendation: preferred answer with concise rationale
+why_material: affected product intent
+recommendation: preferred answer and rationale
 answer_type: choice|multi_choice|free_text|confirmation
 options: []
-target_decision: product-intent field or boundary
+target_decision: intent field or boundary
 affected_artifact: docs/product-idea.md
 ```
 
-The runtime must persist the request, project it as `Input needed`, display it in the dedicated Product Idea Intake page, keep the live draft and decision coverage visible, and durably pause only the affected Product Creation Run. If the intake page is not active, route the operator's external default browser to the exact pending request. A submitted answer resumes the same session automatically without a separate resume confirmation.
+The runtime persists it as `Input needed`, displays it in the foreground intake, routes the external default browser to the request when needed, and resumes the same session automatically after the answer. Standalone, ask in the conversation and wait.
 
-In a direct interactive Codex session without the DAS Forge adapter, ask the same question in the conversation and wait for the answer.
+## Design-ready discovery
 
-## Question Rules
+Establish the primary user/problem, outcome/value, core workflow, V1/MVP scope and exclusions, target surfaces/locales, business rules, data/authority boundaries, external commitments, autonomy and observable success.
 
-- Ask exactly one question per turn.
-- Include a recommended answer and short rationale.
-- Follow only decision branches made relevant by prior answers.
-- Walk the relevant decision branch instead of asking a flat questionnaire.
-- For each material question, cite the source basis or say no source confirms it.
-- State what downstream artifacts or boundaries change if the answer differs.
-- After the answer, play back the confirmed decision and consequences before continuing or handing off.
-- Ask only when the answer is genuinely non-inferable and materially changes user, problem, outcome, primary journey, MVP boundary, business rule, data/authority boundary, target surface, or another upstream product commitment.
-- When design quality depends on an unresolved user or usage condition, ask about the job, situation, trigger, desired progress, current alternative, outcome, constraints, or trust concern before asking about solution shape. Do not use these questions to prescribe screens, visual style, components, or technology.
-- Inspect source files and the codebase instead of asking for discoverable facts.
-- Resolve non-material detail with the smallest reversible source-grounded assumption and show it in the draft coverage view.
-- Do not ask for architecture, framework, database, API shape, implementation sequencing, visual styling, or other decisions owned downstream unless the operator explicitly made them part of product intent.
-- Do not use a timeout, silence, or model recommendation as consent for a material answer.
-- Do not turn answers, draft playback, section completion, or intake resume into approval receipts.
+Where sources leave a design-critical gap, explore only relevant branches:
 
-## Intake Coverage
+1. **Job and progress:** what is the person trying to accomplish?
+2. **Situation and trigger:** what starts the need, and why now?
+3. **Outcome and alternatives:** what is success, and how is this done today?
+4. **Conditions:** device/environment, time, attention, accessibility, language, connectivity, interruption and recovery.
+5. **Trust and risk:** hesitation, highest-cost mistake, reversibility and confirmation boundaries.
+6. **Content and evidence:** information, proof or explanation needed to decide or act.
+7. **Success signal:** observable completion/progress, not merely viewing a screen.
 
-Continue the adaptive interview until the available sources and explicit answers establish, when applicable:
+Capture functional, emotional or social needs when they affect motivation, trust, wording, interaction or priority. Do not prescribe screens, style, components, frameworks, databases or build order unless explicitly part of product intent; those decisions belong downstream.
 
-- primary operator/user and their problem;
-- desired product outcome and value proposition;
-- primary journey or core use case;
-- V1/MVP scope and explicit exclusions;
-- target surfaces, platforms, locales, or environments that materially constrain the product;
-- business rules, data sensitivity, authority limits, and external commitments;
-- autonomy, intervention, and high-risk authorization expectations;
-- observable success outcomes;
-- the primary job-to-be-done, including the situation, trigger, desired progress, expected outcome, and current alternative when those facts are material and not discoverable;
-- the functional, emotional, or social dimension of the job when it changes trust, motivation, language, interaction, or prioritization;
-- the real operating conditions that affect design: device, environment, time pressure, attention, accessibility needs, language, connectivity, and interruption or recovery needs;
-- the highest-cost user mistake, failure consequence, and required recovery or control boundary;
-- the evidence or observable signal that would show the user made progress and completed the job;
-- unresolved risks or decisions that are safe to defer.
+Show coverage as `confirmed | source-inferred | assumed | missing-material`. Record safe non-material assumptions and deferred risks. A missing material primary job remains a question, not an invented feature.
 
-There is no fixed question count. Show coverage as `confirmed`, `source-inferred`, `assumed`, or `missing-material` so the operator knows what remains without receiving a large static form.
-
-## Design-Readiness Discovery Branch
-
-When the product idea or available evidence does not establish design-critical intent, walk only the relevant branch and ask one question at a time. Inspect sources first. Use the following sequence as a decision tree, not as a mandatory questionnaire:
-
-1. **Job and progress:** What is the user trying to accomplish in their own situation, and what progress do they want?
-2. **Situation and trigger:** What event, need, or frustration starts the session, and what makes the user act now?
-3. **Outcome and alternatives:** What outcome counts as success, and what do users do today instead?
-4. **Conditions:** Which device, environment, time pressure, attention, accessibility, language, connectivity, or interruption conditions materially affect the experience?
-5. **Trust and risk:** What could make the user hesitate, what is the highest-cost mistake, and what must be reversible or explicitly confirmed?
-6. **Content and evidence:** What information, proof, data, or explanation is needed to decide or complete the job?
-7. **Success signal:** What observable user or business outcome indicates that the job was completed rather than merely that a screen was viewed?
-
-For each question, include the source basis or state that no source confirms it, a recommended answer with rationale, the affected product-intent fields and downstream artifacts, and a short playback after the answer. Record unresolved non-material details as assumptions. Do not ask a visual-styling question merely to make the product idea look complete; visual direction belongs to `to-design-brief`.
-
-## Completion And Handoff
-
-Before writing the artifact, validate that:
-
-- every load-bearing statement traces to an explicit answer or named source;
-- all submitted operator answers appear without semantic distortion;
-- no unresolved contradiction or materially ambiguous product boundary remains;
-- primary user/problem/outcome and V1 boundary are explicit;
-- every material primary job has a stable `JOB-*` ID, a source-backed or user-confirmed statement, and a clearly labeled confidence status;
-- each primary `JOB-*` is traceable to at least one core workflow or use-case candidate, or the missing relationship is recorded in `Open Questions`;
-- assumptions remain labeled and reversible;
-- downstream architecture, design, DoD, QA, and implementation ownership is preserved.
-
-Present the complete draft in Mission Control. The operator action `Create product idea and start SDD` submits the intent and starts automation; it is not an approval gate. On that command:
-
-1. atomically create or version `docs/product-idea.md` when it is absent or confirmed intent changed; otherwise preserve the validated existing file byte-for-byte;
-2. validate that final file and compute its content hash;
-3. return the hash, source mode, `working_language`, its selection source, any distinct product content locales, intake/session ID, answered decision IDs, assumptions, unresolved non-blocking questions, and submission timestamp to the runtime;
-4. let the runtime write `forge/intake/product-idea-handoff.json` and dispatch `to-sdd-pipeline` automatically.
-
-Use `source_mode: existing-file` for a repository-existing file, `source_mode: imported` for an externally supplied file, and `seed` or `interview` for a no-file path as applicable.
-
-An existing or imported product idea may use the same handoff after validation and any required focused questions. Do not force a full interview when the artifact already contains coherent material intent.
-
-## Change And Resume Rules
-
-- Restore the exact current question, answers, decision branches, draft version, and assumptions after restart.
-- Detect operator edits to an existing product idea by content hash and preserve them as authoritative input.
-- When an accepted answer changes, create a new idea version; never discard prior answer provenance.
-- When downstream SDD work discovers a missing material product decision, route one scoped question back through the same Product Idea Intake UI. After the answer, re-run this owner, version `docs/product-idea.md`, and let `to-sdd-pipeline` invalidate and regenerate only transitive dependents.
-- Never require a separate `Resume`, file approval, or section approval after the operator answers.
-
-## Recommended Artifact Structure
-
-Use the smallest structure that captures confirmed intent. Preserve an existing coherent structure when updating. Typical coverage is:
-
-```markdown
-# Product Idea
-
-## Positioning
-## Target User And Problem
-## Product Outcome
 ## Jobs To Be Done
-## Core Workflow
-## V1 Scope
-## Explicit Exclusions
-## Product Principles And Authority Boundaries
-## Success Outcomes
-## Assumptions And Open Questions
-## Source Notes
-```
 
-When `## Jobs To Be Done` is applicable, keep it concise and use one entry per materially distinct job:
+Own the canonical `JOB-*` IDs. Each materially distinct job resolves:
 
-```markdown
-### JOB-01: <canonical job name>
-- Job statement: When <situation>, I want <desired progress>, so I can <outcome>.
-- Primary user:
-- Trigger and urgency:
-- Current alternative:
-- Functional, emotional, or social dimension:
-- Design-relevant conditions:
-- Success signal:
-- Evidence and confidence: confirmed | source-inferred | assumed
-- Downstream references: core workflow / use-case candidate / open question
-```
+- Statement: When <situation>, I want <progress>, so I can <outcome>.
+- Primary user; trigger/urgency; current alternative.
+- Relevant functional/emotional/social dimension and design conditions.
+- Observable success signal; source/evidence; confidence.
+- Core-workflow/use-case candidate reference or explicit open relationship.
 
-Do not turn jobs into feature requests, duplicate user stories, or restate the entire journey. A job may be omitted when the sources do not establish it and the unresolved gap is non-material; a missing material primary job remains an intake question.
+Jobs explain why users act. Do not duplicate user stories, system paths or the journey. The PRD later owns `UC-*` product use cases; no separate JTBD artifact is created.
 
-Do not add empty ceremonial sections.
+## Completion, change and handoff
 
-## Final Report
+1. Check that every load-bearing statement has a named source or explicit answer, all answers retain their meaning, and no material contradiction or scope ambiguity remains.
+2. Verify primary user/problem/outcome, V1 boundary and all material JOBs. Each primary job maps to a core workflow/use-case candidate or an explicit unresolved relationship.
+3. Present the complete draft. `Create product idea and start SDD` is an execution command, not approval.
+4. On that command, atomically create/version the final file only when absent or confirmed intent changed; otherwise keep its bytes. Validate and hash the final content.
+5. Return the hash, source mode, language/selection source, separate product locales, intake/session ID, answered decision IDs, assumptions, non-blocking questions and submission time. The runtime writes the handoff receipt and dispatches `to-sdd-pipeline`.
 
-Return:
+Use `source_mode: existing-file | imported | seed | interview` accurately. Restore the exact pending question, answers, branch, draft and assumptions after interruption. Detect user edits by content hash. Preserve earlier answer provenance when intent changes.
 
-- `Result`
-- `Created/Updated File`
-- `Working Language And Product Content Locales`
-- `Product Idea Hash`
-- `Source Mode`
-- `Confirmed Jobs To Be Done`
-- `Confirmed Decisions`
-- `Assumptions`
-- `Open Questions`
-- `Intake Handoff`
-- `Next Skill: to-sdd-pipeline`
+A downstream material gap returns through the same intake, updates this artifact through this owner, and invalidates only affected dependents. Do not require another Resume, file approval or section approval.
 
-When awaiting an answer, return only the typed `ProductIntentQuestion` plus the persisted run/request identifiers required by the runtime.
+## Artifact and return
+
+Use the smallest coherent structure covering positioning, target user/problem, outcome, Jobs To Be Done, core workflow, V1 scope, exclusions, principles/authority, success, assumptions/open questions and source notes. Preserve an existing equivalent structure; no empty ceremony.
+
+Return file/hash, source mode, working language/product locales, confirmed JOBs and changed decisions, assumptions/questions and handoff to `to-sdd-pipeline`. While waiting, return only the typed question and required persisted request/run IDs.

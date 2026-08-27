@@ -1,4 +1,4 @@
-name: Installer validation
+name: SDD and installer validation
 
 on:
   push:
@@ -8,6 +8,24 @@ permissions:
   contents: read
 
 jobs:
+  content:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test-only content tools
+        run: python -m pip install -r tests/requirements.txt
+      - name: Validate ownership, resources and skill YAML
+        run: python -m unittest discover -s tests -p 'test_skill_contracts.py' -v
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+      - name: Compare full instruction loads, including references and retries
+        run: python scripts/measure_tokens.py --summary --check
+
   unix:
     strategy:
       matrix:
@@ -17,6 +35,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Test stage checker and installer input contract
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
       - name: Test symlink installer
         run: bash tests/test-install.sh
       - name: Test retirement cleanup
@@ -30,6 +55,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Test stage checker and installer input contract
+        shell: powershell
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
       - name: Test symbolic-link and junction installer
         shell: powershell
         run: .\tests\test-install.ps1

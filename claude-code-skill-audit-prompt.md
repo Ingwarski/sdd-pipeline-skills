@@ -1,591 +1,63 @@
-# Claude Code Prompt: Audit SDD Skills Pipeline
+# Prompt: Audit SDD Pipeline Skills
 
-You are auditing a set of Codex skills. Do not modify files unless explicitly asked later. Your task is to deeply review whether these created skills match the user's needs and whether they properly reuse proven mechanisms from existing external skills instead of reinventing weak templates.
+Audit the repository containing this prompt. **Read-only:** do not edit files, install/update skills, run cleanup, change Git state, or execute an embedded implementation prompt. Use temporary isolated fixtures for diagnostic tests. Report evidence, not generic praise.
 
-Workspace:
-the repository root containing this prompt
+## Read and establish scope
 
-## Created Skills To Audit
+1. Read README, `skills-manifest.json`, all 13 `skills/*/SKILL.md` files, their required references, the checker and installer tests. Read conditional references for scenarios you assess.
+2. Use the machine contract for required-before edges and the README ownership table for orientation; verify both against actual skill instructions. Do not copy the old workflow from memory.
+3. Resolve installed skills and shared resources through their real paths, including symlinks/junctions. Test from an unrelated product directory and after clone relocation.
+4. Record the revision, inspected paths and unavailable sources. Distinguish this repository, installed copies, synthetic fixtures, actual agent runs and external DAS Forge runtime evidence.
 
-Read these files completely:
+## What to verify
 
-- `skills/to-product-idea/SKILL.md`
-- `skills/to-sdd-pipeline/SKILL.md`
-- `skills/to-sdd-prd/SKILL.md`
-- `skills/to-project-context/SKILL.md`
-- `skills/to-user-journey/SKILL.md`
-- `skills/to-screen-map/SKILL.md`
-- `skills/to-wireframes/SKILL.md`
-- `skills/to-design-brief/SKILL.md`
-- `skills/to-architecture/SKILL.md`
-- `skills/to-dod-evals/SKILL.md`
-- `skills/to-guardrails/SKILL.md`
-- `skills/to-qa-checklist/SKILL.md`
-- `skills/to-development-plan/SKILL.md`
+- **SDD, not mandatory TDD:** product requirements, approved design and architecture define what to build; QA supplies verification. A checklist does not become the product specification.
+- **Entry/intake:** both rough intent without a file and an existing/imported idea work. Ask one visible material question at a time, with recommendation, rationale and consequences; persist explicit answers. No silent assumptions, timeouts as consent, redundant interview, or hidden log-only question.
+- **Language:** explicit instruction > recorded preference > latest substantive message; propagate working language through owners/adapters. Keep UI locales separate. Ukrainian prose/headings/statuses are idiomatic; preserve only documented identifier/term exceptions.
+- **Ownership:** one owner per artifact; context + vocabulary is one two-output invocation with independent validation/hashes. Orchestrator writes only the manifest, adapters only authorized operational paths. No parallel product-truth documents.
+- **Traceability:** JOBs belong to product idea, use cases to PRD; downstream documents cite them. Cover distinct observable requirement clauses, not merely parent IDs. Context clarifies but never overrides behavior/design/architecture.
+- **Design quality:** realistic user sessions, friction and value moments; navigation/surface closure; structural wireframes; design/experience spines; explicit conflict rules; distinctive product-specific visuals; existing systems; accessibility, responsive behavior, motion, error prevention/recovery and H1–H10, including H7/H10.
+- **Evidence:** definitions, execution and release readiness are separate. Prepared/not-run is not passed. Visual fidelity, heuristic review, representative-user research, accessibility and functionality remain distinct. Deferred required checks cannot pass release; advisory failures remain visible.
+- **Order:** pre-design architecture/DoD/QA → prototypes → one whole-design approval → canonical baseline → affected architecture → DoD → QA → development plan. DoD's later QA bindings and QA's later plan lookup are not authoring prerequisites.
+- **Candidates:** three equivalent-scope interactive options, immutable versions/hashes, scoped visual QA and actual external-browser receipts. Codex opens three; Claude compares three tool-native candidates and imports only the selected version. Selection/export is not approval.
+- **Claude/source access:** inventory covers every required design source, not only convenient SDD files. Verify both access/read receipts against actual source IDs/hashes before generation. Fail closed on missing required access; use authorized transfer fallbacks without silently switching executors.
+- **Approved baseline:** sole authority is the design brief. Recompute target/tree hashes; retain prior versions and scoped overrides. No implementation-agent self-approval or silent in-place edit.
+- **Continuation:** validate affected sources/fragments/scoped repository observations. Unrelated changes must not invalidate everything. Preserve old projects/history through metadata migration.
+- **Implementation boundary:** after a validated plan, stop at `awaiting-implementation-prompt`. A later explicit user message must match the current plan/baseline; design approval, generic continuation and automatic resume are insufficient.
+- **Promotion:** prototype code is only a design simulation until separately authorized implementation. Declared copy/adapt/reimplement paths need actual runner-produced Git-diff receipts once reuse starts, not during initial planning.
+- **Checker:** test executable stage checks, missing/wrong owners, real prerequisite cycles versus later references, stale hashes/evidence, context-bundle integrity, candidate/source receipts, approval/prompt binding, open blockers and no file mutation. Do not equate documentation with external-runner enforcement.
+- **Install/update:** shared strict JSON parsing, dependency preflight before mutation, names/paths/legacy mapping, idempotence, move/repair, platform parity, safe Git updates, exact retirement scope, unrelated-skill preservation. Never run destructive defaults on the auditor's real skill roots.
+- **Concision:** clear words, each decision defined once, shared/conditional references, brief term explanations, no lost obligations/evidence. Measure complete applicable instruction loads, including references, repeats and retries—not entrypoint size alone.
 
-## User's Core Requirements
+## External mechanisms
 
-1. This is an SDD pipeline, not TDD.
-2. The intended chain is:
-   `rough description or existing idea -> visible to-product-idea intake -> product-idea handoff -> to-sdd-prd -> to-project-context (project-context.md + canonical-terms.md) -> to-guardrails -> to-user-journey -> to-screen-map -> to-wireframes -> to-design-brief -> to-architecture -> to-dod-evals -> to-qa-checklist -> three prototypes -> one design approval -> to-development-plan`
-   A pre-existing `docs/product-idea.md` is optional, never a pipeline-entry prerequisite. Audit both required entry scenarios: no file plus a rough description, and an existing/imported file selected for validation.
-3. Every artifact must have exactly one owner, and each owner invocation must stay inside its declared output boundary. `to-project-context` is the explicit cohesive two-file output bundle; its two members must be validated and hashed separately under one invocation.
-4. Output files must be strictly separated by responsibility and must not duplicate or contradict one another.
-5. AI is not the source of truth. Source files and explicit user answers are the source of truth. `to-product-idea` may interview and recommend but must never invent or silently default the product mandate.
-6. If required product intent is missing, Product Idea Intake must surface one visible material question at a time with a recommendation and rationale, persist it as `Input needed`, and wait for an explicit answer. Questions may not exist only in logs or resolve by timeout.
-7. No draft output files. The skill should either create the final artifact or ask questions first.
-8. No hidden assumptions. `project-context.md` may retain clearly labeled contextual assumptions in its dedicated `Assumptions` section; unresolved decisions go to `Open Questions`, and no assumption may become silent product truth.
-9. The goal is not document proliferation. The goal is to reliably move from PRD to high-quality UX/UI design and then implementation planning.
-10. If proven mechanisms already exist in other skills, use them. Do not reward shallow original templates.
-11. The final audit must be direct, evidence-based, and specific. Do not give vague praise.
-12. The pipeline must resolve and persist one working language before intake, pass it to every owner and design adapter, and keep product content locales separate. For Ukrainian, questions, reports, displayed statuses, headings, and artifact prose must be idiomatic Ukrainian; English may remain only for immutable paths/filenames, code/commands, machine values, API/identifiers, names/quotations, and approved IT terms such as `SDD Pipeline`, recorded with Ukrainian meanings in `canonical-terms.md`.
+Discover available local skills by name from the current catalog; do not assume a username, plugin-cache version or installed capability. Read full entrypoints and their required references. Mark unavailable sources honestly.
 
-## Expected Output Artifacts In The Pipeline
+Inspect relevant mechanisms from `grill-me`, `skill-creator` / authoring equivalents, `writing-skills`, `modern-ux-ui-2026`, current Product Design and Figma skills, `verification-before-completion`, `writing-plans`, `executing-plans`, and QA/design-QA equivalents. Read TDD guidance only to identify mechanisms that should not become mandatory in SDD.
 
-- `docs/product-idea.md`
-- `docs/prd.md`
-- `docs/project-context.md`
-- `docs/canonical-terms.md`
-- `docs/user-journey.md`
-- `docs/screen-map.md`
-- `docs/wireframes.md`
-- `docs/design-brief.md`
-- `docs/architecture.md`
-- `docs/dod-evals.md`
-- `docs/guardrails.md`
-- `docs/qa-checklist.md`
-- `docs/development-plan.md`
+The architecture/DoD [authoring provenance](skills/to-sdd-pipeline/references/authoring-sources.md) lists previously considered public sources. Reopen any source used for a current finding; historical provenance is not current verification.
 
-## Artifact Responsibility Boundaries
+For BMAD UX, inspect the available [skill](https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/web-bundles/ux-coach/SKILL.md), [instructions](https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/web-bundles/ux-coach/INSTRUCTIONS.md) and [validation rubric](https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/web-bundles/ux-coach/ux-validation.md). Compare spines, decisions, named-protagonist journeys, concern scans, surface closure, conflict resolution, handoff prompts, visual capture, accessibility and anti-patterns.
 
-Use these boundaries as the user's intended contract.
+Search exact previously suggested names where relevant: `site-architecture`, `frontend-design`, `design-an-interface`, `ui-ux-pro-max`, `qa`, `webapp-testing`, `domain-modeling`, `ubiquitous-language`, `implement`, `request-refactor-plan`. These are unverified candidates, not assumed capabilities; report unavailable after search and continue.
 
-### `docs/product-idea.md`
+For each inspected mechanism decide **reuse, adapt, reject, or negative example**, with evidence and security/dependency/scope tradeoffs. Do not recommend wholesale import merely because a skill sounds useful.
 
-Owns the current operator-confirmed product mandate, including positioning, target user/problem, desired outcome, core workflow, V1 scope/exclusions, product principles/authority boundaries, success outcomes, assumptions, and open questions. `to-product-idea` is its sole owner.
+## Validation scenarios
 
-The skill must support two explicit entry scenarios. When no file exists, it must start from a rough description and use a foreground, resumable Product Idea Intake: one adaptive material question at a time, recommended answer and rationale, live draft/coverage, explicit answer persistence, and atomic final write/hash/handoff after `Create product idea and start SDD`. When an existing/imported file is selected, it must validate that file first, skip redundant questions if it is coherent, and ask only focused questions for material gaps or corrections. The file is optional at entry. The start action is an execution command, not an approval. Runtime dialogue/draft state and `ProductIdeaHandoffReceipt` are operational provenance under `forge/intake/`, not additional product-truth artifacts.
+Use the repository tests and [maintenance guide](docs/maintenance.md). Include first setup, missing intent, coherent existing intent, approved-design revision, interrupted resume, missing evidence, changed fragments, explicit implementation authorization and installation from another directory.
 
-Must not own architecture, visual design, detailed journeys/screens/wireframes, DoD/eval gates, QA checks, implementation units, or unattended AI-selected product intent.
+Report automated/synthetic checks separately from real agent executions. For token comparisons keep seeds and scenarios identical, include all applicable references and retry loads, and state whether generated documents, tool output, caching and live-model behavior were measured. Never fabricate an end-to-end benchmark.
 
-### `docs/project-context.md`
+## Deliverable
 
-Owns confirmed product context, working language, separate product content locales, users, platforms, boundaries, constraints, assumptions, risks, and open questions derived after PRD work. It must not redefine PRD behavior or downstream architecture/design/DoD decisions.
+Lead with a short, nontechnical verdict and the highest-impact recommendations. Then include:
 
-### `docs/canonical-terms.md`
+1. Sources inspected and unavailable, with revision/path/URL.
+2. A compact 13-skill table: output, strengths, concrete gaps, boundary/duplication risks and proposed fix.
+3. Ownership/dependency conflicts and external-mechanism fit only where they add evidence; avoid repeating the table.
+4. Findings ordered by severity: `file:line`, observed behavior, impact, reproduction/evidence, exact proposed fix and verification.
+5. What is correct, what is wrong or overstated, and what remains unverified.
+6. Prioritized actions and a final decision: usable as-is, patch first, or redesign.
 
-Owns downstream product vocabulary, aliases, terms to avoid, and deliberately preserved English IT terms with their Ukrainian meanings and usage boundaries. It must not redefine PRD behavior or silently rename established technical identifiers.
-
-### `docs/user-journey.md`
-
-Owns:
-
-- primary user
-- user context
-- user goal
-- motivation
-- real-session framing
-- named protagonist if source-backed or user-confirmed
-- journey stages
-- actions
-- decision points
-- friction
-- fears
-- blockers
-- exit points
-- success state
-- failure path
-- MVP journey risks
-
-Must not own:
-
-- screen list
-- routes
-- wireframe layout
-- colors
-- typography
-- design tokens
-- QA checklist
-- implementation tasks
-
-### `docs/screen-map.md`
-
-Owns:
-
-- screens
-- surfaces
-- routes
-- navigation
-- entry points
-- exit points
-- screen states
-- transitions
-- journey-to-screen trace
-- surface closure
-
-Must not own:
-
-- detailed wireframe layout
-- component hierarchy inside screens
-- final visual design
-- QA checklist
-- implementation tasks
-
-### `docs/wireframes.md`
-
-Owns:
-
-- low-fidelity screen structure
-- hierarchy
-- content zones
-- CTAs
-- fields
-- forms
-- state variants
-- structural responsive notes
-
-Must not own:
-
-- final colors
-- typography system
-- brand mood
-- visual polish
-- design tokens
-- implementation tasks
-
-### `docs/design-brief.md`
-
-Owns:
-
-- UX/UI design direction
-- visual system
-- design spine
-- experience spine
-- information density
-- interface tone
-- semantic tokens
-- typography direction
-- color direction
-- spacing rhythm
-- component appearance principles
-- component behavior principles
-- interaction feel
-- responsive behavior
-- accessibility floor
-- design handoff prompt or guidance
-
-Must not own:
-
-- new product features
-- new screens
-- new routes
-- detailed wireframe duplication
-- QA checklist
-- implementation tasks
-
-### `docs/architecture.md`
-
-Owns:
-
-- system architecture overview
-- architecture principles and constraints
-- module and boundary map
-- runtime and automation model
-- data and state model
-- integration map
-- technology stack constraints when source-backed or codebase-confirmed
-- security, privacy, reliability, performance, and observability architecture concerns
-- architecture diagram
-- architecture decision log
-- architecture risks and mitigations
-
-Must not own:
-
-- new product requirements
-- user journeys
-- screen inventory
-- wireframe layouts
-- visual design direction
-- Definition of Done
-- eval gates
-- QA checklist
-- implementation tasks
-
-### `docs/dod-evals.md`
-
-Owns:
-
-- Definition of Done model
-- acceptance criteria vs DoD distinction
-- reusable verification profile
-- hard gates
-- unit checks
-- system checks
-- UX/UI checks
-- release checks
-- lane/state promotion gates
-- eval result format
-- evidence requirements
-- failure and blocker classification
-- rerun and recovery rules
-- PR/merge/completion rules
-
-Must not own:
-
-- new product requirements
-- architecture decisions
-- user journeys
-- screen inventory
-- wireframe layouts
-- visual design direction
-- per-screen QA checklist details
-- implementation units
-
-### `docs/guardrails.md`
-
-Owns:
-
-- source-of-truth order
-- AI autonomy boundaries
-- allowed changes
-- forbidden changes
-- scope boundaries
-- conflict resolution
-- when to ask
-- when to stop
-- design authority rules
-- evidence requirements
-- artifact separation rules
-- verification rules
-
-Must not own:
-
-- product journey content
-- screen inventory
-- wireframes
-- visual design direction
-- QA checklist details
-- implementation plan
-
-### `docs/qa-checklist.md`
-
-Owns:
-
-- source-backed QA checklist
-- product acceptance checks
-- journey checks
-- screen/state checks
-- wireframe consistency checks
-- UX/UI checks
-- visual regression checks
-- responsive checks
-- accessibility checks
-- browser/device checks
-- evidence requirements
-- evidence limits
-- release readiness
-
-Must not own:
-
-- new product requirements
-- new journeys
-- new screens
-- wireframe changes
-- visual design direction
-- architecture decisions
-- Definition of Done or reusable eval gates
-- implementation tasks
-
-### `docs/development-plan.md`
-
-Owns:
-
-- implementation units
-- dependency order
-- codebase map if a codebase exists
-- work items
-- source references per unit
-- acceptance checks per unit
-- verification plan
-- visual/UX verification
-- risks and sequencing
-- out of scope
-
-Must not own:
-
-- new product requirements
-- new journeys
-- new screens
-- visual design decisions
-- architecture decisions
-- Definition of Done or reusable eval gates
-- QA checklist duplication beyond references
-
-## External And Proven Skills To Inspect
-
-Do not limit the audit to BMAD UX. BMAD UX is central for UX/UI planning, but the final skills must also learn from verified non-BMAD local skills: grill-me, to-sdd-prd, modern-ux-ui-2026, Product Design plugin skills, Figma plugin skills, verification-before-completion, writing-plans, executing-plans, and QA/design-QA equivalents.
-
-If any file or URL is unavailable, say that explicitly. Do not pretend it was inspected.
-
-### A. Non-BMAD Local Skills To Discover On The Current Machine
-
-Do not assume a username, home-directory layout, plugin-cache version, or operating system. Resolve available skills by name from the current agent's advertised skill catalog and its documented personal, project, system, and plugin skill roots. Read the installed `SKILL.md` and only the references it routes you to. Record the resolved path and version when available; list a source as unavailable when it cannot be found.
-
-Core behavior, source-of-truth, and gap-check:
-
-- `grill-me`
-- this repository's `to-product-idea` and `to-sdd-prd`
-- `skill-creator` or the current platform's equivalent skill-authoring guide
-- `writing-skills`, if installed
-
-UX/UI and design quality:
-
-- `modern-ux-ui-2026`
-- current Product Design skills for context gathering, audit, ideation, image-to-code, prototyping, URL-to-code, design QA, and research
-- the Product Design audit framework and critical overrides referenced by those skills
-
-Figma and design handoff, if relevant:
-
-- current Figma skills for using Figma, generating designs or libraries, diagramming, and motion handoff
-
-Architecture, DoD, QA, verification, and planning:
-
-- `verification-before-completion`
-- `writing-plans`
-- `executing-plans`
-- `test-driven-development`, if installed, only to identify what not to import because this workflow is SDD, not TDD
-- `https://github.com/luongnv89/skills/blob/main/skills/tad-generator/SKILL.md`
-- `https://github.com/addyosmani/agent-skills/blob/main/skills/documentation-and-adrs/SKILL.md`
-- `https://raw.githubusercontent.com/addyosmani/agent-skills/main/references/definition-of-done.md`
-- `https://github.com/dawiddutoit/custom-claude/blob/main/skills/quality-run-quality-gates/SKILL.md`
-- `https://github.com/github/awesome-copilot/blob/main/skills/breakdown-epic-arch/SKILL.md`
-- `https://github.com/github/awesome-copilot/blob/main/skills/breakdown-plan/SKILL.md`
-- `https://github.com/xwings/eatmycode`
-- `https://github.com/NousResearch/hermes-agent/issues/44000`
-
-### B. BMAD UX Coach References
-
-Inspect these deeply:
-
-- `https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/web-bundles/ux-coach/SKILL.md`
-- `https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/web-bundles/ux-coach/INSTRUCTIONS.md`
-- `https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/web-bundles/ux-coach/ux-validation.md`
-
-Extract especially:
-
-- DESIGN.md spine
-- EXPERIENCE.md spine
-- Decisions log
-- named-protagonist journeys
-- concern scan
-- surface closure
-- spines-win-on-conflict rule
-- validation rubric
-- Stitch handoff prompt shape
-- visual-first capture patterns
-- accessibility and responsive expectations
-- anti-patterns
-
-### C. Previously Discussed Candidate Skills Without Verified URLs
-
-These skill names were previously discussed as potentially relevant, but no verified public `SKILL.md` URLs are provided here. Search for these exact skill names online and in any local skill cache. If found, inspect them deeply and cite the exact path or URL. If not found, explicitly report `unavailable after search`. Do not infer their contents from the name alone, and do not pretend they were inspected.
-
-Product structure and navigation:
-
-- `site-architecture`
-
-Interface, frontend, visual design:
-
-- `frontend-design`
-- `design-an-interface`
-- `ui-ux-pro-max`
-
-QA and testing:
-
-- `qa`
-- `webapp-testing`
-
-Domain and source discipline:
-
-- `domain-modeling`
-- `ubiquitous-language`
-
-Planning and implementation:
-
-- `implement`
-- `request-refactor-plan`
-
-For each found external skill:
-
-1. Read the full `SKILL.md`.
-2. Extract concrete mechanisms that already work.
-3. Decide whether each mechanism should be:
-   - imported directly;
-   - adapted;
-   - rejected;
-   - used only as a negative example.
-4. Compare against the created SDD skills and identify missing useful mechanisms.
-5. If a skill has security, dependency, or overreach risks, do not recommend wholesale use. Extract only safe useful mechanisms.
-
-If none of these candidate skills can be found as actual readable `SKILL.md` files, the audit must still proceed using the verified non-BMAD local skills and BMAD UX references above. Do not block the audit on unavailable candidate names.
-
-## Audit Process
-
-1. Read all 13 created skills completely.
-2. Read the listed local external/proven skills completely.
-3. Fetch and read the BMAD UX Coach references if network access is available.
-4. Search for the other named public/external skills.
-5. Extract the working mechanisms from every available external skill.
-6. Compare each created skill against:
-   - the user's requirements;
-   - artifact separation;
-   - SDD pipeline position;
-   - grill-me/gap-check behavior;
-   - source-of-truth discipline;
-   - UX/UI quality usefulness;
-   - reuse of proven mechanisms;
-   - avoidance of TDD-first thinking;
-   - avoidance of hidden assumptions;
-   - final artifact only, no draft output.
-   - visible foreground intake, durable resume, typed `Input needed`, no material timeout/default, exact product-idea hash/handoff, and no extra approval receipt.
-7. Identify weak, shallow, duplicated, contradictory, overbuilt, or missing parts.
-8. Do not praise vaguely. Give concrete findings with file and line references.
-9. For every finding, explain:
-   - what is wrong;
-   - why it matters;
-   - which external skill or mechanism should influence the fix;
-   - what exact change should be made.
-10. Pay special attention to `to-design-brief`: it must be strong enough to guide high-quality UX/UI design, not just produce a generic design brief.
-11. Pay special attention to `to-guardrails`: it must prevent AI from inventing scope, silently ignoring missing sources, or claiming completion without evidence.
-12. Pay special attention to `to-product-idea`: it must make missing intent visible to the operator, ask one material question at a time, persist/recover the session, never treat a recommendation as consent, write only the final authoritative artifact, preserve an unchanged coherent existing file byte-for-byte, and hand off automatically without creating an approval gate.
-13. Pay special attention to whether `to-sdd-pipeline` treats a pre-existing `docs/product-idea.md` as optional at entry and required only as validated input before `to-sdd-prd`; routes no-file, missing/stale-handoff, incomplete, or later-invalidated intent through `to-product-idea`; validates both the no-file and coherent-existing-file paths; and invalidates only transitive dependents.
-14. Pay special attention to duplicated ownership between artifacts.
-15. Pay special attention to whether the current skills say "source-backed" but still allow vague output.
-
-## Required Report
-
-Return the audit in this exact structure:
-
-```markdown
-# SDD Skills Audit
-
-## Executive Verdict
-
-Verdict: ready / partially ready / not ready
-
-Explain the verdict in 3-6 concrete sentences.
-
-## Sources Inspected
-
-### Created Skills
-
-List each created skill and confirm it was read.
-
-### Local External Skills
-
-List each local external skill and confirm whether it was read or unavailable.
-
-### BMAD UX References
-
-List each BMAD URL and confirm whether it was read or unavailable.
-
-### Other Public/External Skills
-
-For each searched skill name, report found/read or unavailable.
-
-## Mechanisms Extracted From Proven Skills
-
-Create a table:
-
-| Source Skill / Reference | Working Mechanism | Should Be Used Where | Current Status In Created Skills | Gap |
-|---|---|---|---|---|
-
-## Skill-By-Skill Audit
-
-For each created skill:
-
-### `skill-name`
-
-- Intended output:
-- Pipeline position:
-- Verdict:
-- What works:
-- Missing or weak mechanisms:
-- Duplication or boundary risks:
-- Source-of-truth / grill-me risks:
-- UX/UI quality risks, if relevant:
-- Recommended fixes:
-
-## Artifact Separation Matrix
-
-Create a table:
-
-| Artifact | Owns | Must Not Own | Current Boundary Quality | Risks | Fix |
-|---|---|---|---|---|---|
-
-## External Mechanism Fit Matrix
-
-Create a table:
-
-| Created Skill | Output Artifact | Main Responsibility | Relevant External Mechanisms | What Is Good | What Is Missing | Recommended Fix |
-|---|---|---|---|---|---|---|
-
-## UX/UI Quality Risks
-
-Focus especially on whether `to-wireframes` and `to-design-brief` can actually lead to a high-quality product UI.
-
-## Grill-Me And Source-Of-Truth Risks
-
-Explain whether the skills truly prevent invention, hidden assumptions, and premature file creation.
-
-## SDD vs TDD Risks
-
-Explain whether any imported planning/testing mechanism accidentally pushes the process toward TDD rather than SDD.
-
-## Critical Findings
-
-Use this format:
-
-- `[Critical] file:line` Finding title.
-  - Problem:
-  - Why it matters:
-  - External mechanism to use:
-  - Exact fix:
-
-## High Findings
-
-Same format.
-
-## Medium Findings
-
-Same format.
-
-## Low Findings
-
-Same format.
-
-## Prioritized Fix List
-
-### Critical
-
-### High
-
-### Medium
-
-### Low
-
-## Final Recommendation
-
-Say whether these skills should be used as-is, patched first, or redesigned.
-```
-
-## Hard Rules For This Audit
-
-- Do not modify files in this run.
-- Do not claim a source was inspected unless it was actually opened and read.
-- Do not infer external skill content from the name alone.
-- Do not give generic quality praise.
-- Do not propose adding more documents unless absolutely necessary.
-- Prefer patching the existing 7 skills over expanding the pipeline.
-- Preserve the user's SDD goal: PRD to high-quality UX/UI to implementation planning.
-- The user values directness over politeness. Be precise and useful.
+Prefer improving the existing 13 skills over adding documents/skills. No vague praise, name-based source claims, guessed runtime enforcement or hidden assumptions. Keep the report concise without dropping distinct findings.

@@ -126,8 +126,8 @@ if "$export_root/install.sh" --codex --codex-dir "$export_dest" > "$test_root/po
 grep -q 'Invalid retirement policy' "$test_root/policy.log"
 [[ -d "$export_dest/communications-audit" && -f "$export_dest/to-wireframes/SKILL.md" ]]
 
-while IFS='|' read -r name relative; do
+while IFS='|' read -r name relative legacy; do
   cmp -s "$repo_root/$relative/SKILL.md" "$codex_dir/$name/SKILL.md"
   cmp -s "$repo_root/$relative/SKILL.md" "$claude_dir/$name/SKILL.md"
-done < <(sed -nE 's/^[[:space:]]*\{"name": "([^"]+)", "path": "([^"]+)".*$/\1|\2/p' "$repo_root/skills-manifest.json")
+done < <(python3 "$repo_root/scripts/install_manifest.py" --root "$repo_root" --metadata-only)
 printf '%s\n' 'Permanent retirement tests passed: copies, edits, broken links, receipts, former backups, failure, source/project roots, no link traversal, idempotence.'

@@ -19,7 +19,7 @@ if ($Help) {
     exit 0
 }
 
-# Reuse the origin allowlist; no cleanup runs until the new installer is loaded.
+# Reuse the origin allowlist; cleanup runs through the current installer below.
 . (Join-Path $RepoRoot 'scripts/retired-skills.ps1')
 function Invoke-UpdateGit([string[]]$Arguments) {
     $Output = & git -C $RepoRoot @Arguments

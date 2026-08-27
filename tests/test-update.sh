@@ -97,8 +97,9 @@ student_claude="$test_root/student-claude"
 git clone --quiet "$remote" "$student"
 git -C "$student" remote set-url origin https://github.com/Ingwarski/sdd-pipeline-skills.git
 cp "$repo_root/install.sh" "$repo_root/skills-manifest.json" "$publisher/"
+cp -R "$repo_root/scripts/." "$publisher/scripts/"
 cp -R "$repo_root/skills" "$publisher/skills"
-git -C "$publisher" add -- install.sh skills-manifest.json skills
+git -C "$publisher" add -- install.sh skills-manifest.json scripts skills
 git -C "$publisher" -c user.name='SDD tests' -c user.email='sdd-tests@example.invalid' commit --quiet -m real-installer
 git -C "$publisher" push --quiet "$remote" main
 for install_root in "$student_codex" "$student_claude"; do

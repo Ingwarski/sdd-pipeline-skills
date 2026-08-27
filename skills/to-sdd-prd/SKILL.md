@@ -1,186 +1,52 @@
 ---
 name: to-sdd-prd
-description: Create or update docs/prd.md from docs/product-idea.md and current project evidence. Use when the user wants a file-based product requirements document, the first domain artifact in an autonomous SDD pipeline, or a PRD reconciled with an updated product idea.
+description: Create or reconcile docs/prd.md from validated product intent, defining product requirements, use cases and observable acceptance outcomes.
 ---
 # to-sdd-prd
 
-## Universal SDD Rule
+Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve the link from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
 
-AI is not the source of truth. `docs/product-idea.md`, accessible project evidence, and explicit user answers are the source of truth. Preserve source terminology and intent. Do not silently invent scope, architecture, policy, or external commitments.
+## Inputs
 
-Working-language contract: use the orchestrator-supplied `working_language`; in standalone use, prefer an explicit request, otherwise use the language of the latest substantive user message. Use it for all questions, playbacks, reports, and natural-language headings and prose in the owned artifact. English template headings are semantic labels, not literal output. For Ukrainian (`uk`), write idiomatic Ukrainian and keep English only in immutable filenames/paths, code/commands, machine values, API/identifier names, names/quotations, and established IT terms such as `SDD Pipeline`; do not leave ordinary English prose or calques. Keep explicit product content locales separate from the specification language.
+Required before starting: current operator-confirmed `docs/product-idea.md`. DAS Forge also supplies its matching intake handoff/hash. If absent or materially incomplete, return to `to-product-idea`; do not invent the mandate.
 
-If information is discoverable in the repository or named sources, inspect it instead of asking. Resolve non-material gaps and pre-approval design ambiguity with the smallest reversible source-grounded choice and record them. Use a focused grill-me question only when a genuinely non-inferable answer materially changes product scope or a high-risk boundary. Playback is not an approval gate.
+Optional grounding: README, domain glossary, ADRs/product documentation, explicit decisions and relevant code/routes/schemas/tests/CI/design-system/runtime evidence. Existing code confirms facts, not new scope.
 
-Grill-me gap-check style: when a material question is necessary, walk the relevant decision branch instead of asking a flat questionnaire. Ask exactly one question, state the recommended answer and rationale, cite the source basis or say no source confirms it, state what downstream artifacts or boundaries change if the answer differs, and after the answer play back the confirmed decision and consequences before continuing or returning to the orchestrator.
+Downstream context, UX, architecture, DoD, QA and planning artifacts are not prerequisites or authorities for new product intent.
 
-When invoked by `to-sdd-pipeline`, never surface that question only in background logs or a hidden agent session. Return one typed `ProductIntentQuestion` to the orchestrator so DAS Forge can persist it as `Input needed` and display it through the foreground Product Idea Intake UI. After the explicit answer, let `to-product-idea` version the upstream artifact when the answer changes product intent, then resume automatically. In standalone interactive use, ask the same one question directly.
+## Output and ownership
 
-## Input
+Write only `docs/prd.md`. Own problem/outcome, product boundary/value, actors/stories, product-level use cases, FR/NFR requirements, product-level implementation/testing constraints, acceptance scenarios, exclusions and source/open questions.
 
-Require:
-- `docs/product-idea.md`
-
-The file must contain current operator-confirmed product intent. In DAS Forge, require the matching Product Idea Intake handoff/hash supplied by the orchestrator. If the file is absent or materially incomplete, return control to `to-product-idea`; do not synthesize the mandate inside the PRD owner.
-
-Read when present and relevant:
-- `README.md`
-- domain glossary or terminology sources
-- ADRs and existing product documentation
-- codebase structure, routes, schemas, tests, CI, design-system evidence, and runtime configuration
-- explicit decisions in the current conversation
-
-Repository evidence can confirm current implementation facts. It cannot authorize new product scope.
-
-## Output
-
-Create or update exactly one file:
-- `docs/prd.md`
-
-Do not publish to an issue tracker, create issues, apply labels, send messages, or perform another external side effect. Those are separate opt-in actions outside this artifact owner.
-
-## Artifact Boundary
-
-`docs/prd.md` owns:
-- problem and product outcome
-- product boundary and value proposition
-- actors and user stories
-- product-level use cases and their main, alternate, and failure scenarios
-- functional and non-functional product requirements
-- design-first workflow and approval semantics when source-backed
-- product-level implementation constraints and decisions
-- product-level testing decisions and acceptance scenarios
-- explicit out of scope
-- open questions and source notes
-
-It must not own:
-- detailed user-journey stages
-- screen/state inventory
-- wireframe structure
-- visual design system or Approved Visual Baseline
-- technical architecture details better owned by `docs/architecture.md`
-- reusable DoD/eval gates
-- per-check QA details
-- implementation units or build order
-
-Reference downstream owners instead of prematurely writing their artifacts inside the PRD.
-
-## Proven Mechanics
-
-- Describe the problem and solution from the user's perspective.
-- Translate each material `JOB-*` from `docs/product-idea.md` into one or more product-level use-case candidates without turning the job into a feature list.
-- Make user stories extensive enough to close the product boundary, but do not duplicate the same requirement as filler.
-- Use stable sequential story IDs and the form `As a <role>, I want <capability>, so that <outcome>`.
-- Keep each FR/NFR traceable at clause level. When one numbered requirement contains multiple independently testable obligations, enumerate those obligations explicitly under that stable ID; downstream appearance of the parent ID alone must not be mistaken for complete coverage.
-- Give each material use case a stable `UC-*` ID and capture actor, trigger, goal, preconditions, main success path, alternate/error paths, postconditions, authority or data boundaries, and linked requirements.
-- Keep use cases at product behavior level: `to-user-journey` owns the human context and journey stages, `to-screen-map` owns screens and states, `to-wireframes` owns layout structure, and `to-design-brief` owns visual and interaction direction.
-- Separate product behavior from implementation constraints and testing decisions.
-- Prefer externally observable test seams and the highest practical seam. Tests verify the agreed product; they do not become the source of product truth.
-- Preserve the product's autonomy model. Do not add approval gates unless the source requires them or the action crosses a high-risk authorization boundary.
-- For a design-first product, distinguish the pre-design SDD baseline, prototype comparison, whole-design approval, and post-approval production implementation.
-- When the source uses P0-P3 findings, carry one formal severity glossary into the PRD and keep severity separate from blocking/advisory release effect.
-- When the source makes an approved prototype authoritative, state explicitly whether it is the visual Definition of Done for user-visible frontend work and preserve any source-backed prototype-to-production trace contract.
-- Do not import a generic reduced-motion mode, animation cap, or automatic motion removal/simplification when the product idea instead makes approved motion part of its visual baseline.
-- Do not include brittle file paths or code snippets unless a small source-backed state machine, schema, or type shape expresses a decision more precisely than prose.
-- Do not claim that static documentation, a screenshot, or a prototype proves runtime functionality.
-
-## Gap Check
-
-Before writing, resolve:
-- target user and problem
-- product outcome and value proposition
-- mandatory workflow and boundaries
-- in-scope and out-of-scope capabilities
-- autonomy, approval, and high-risk authorization semantics
-- provider, platform, integration, or deployment constraints explicitly required by sources
-- observable acceptance outcomes and test seams
-
-Ask only when a missing answer materially changes product scope or a high-risk boundary. Otherwise use the smallest reversible source-grounded choice, record it, and continue.
-
-## Use-Case Contract
-
-When use cases are applicable, define one entry per materially distinct product behavior. Use cases are the canonical owner of system-facing behavior; downstream artifacts reference their IDs instead of copying their paths.
-
-```markdown
-### UC-01: <canonical use-case name>
-- Job references: JOB-01
-- Primary actor:
-- Supporting actors or systems:
-- Trigger:
-- Goal:
-- Preconditions:
-- Main success scenario:
-  1. Actor ...
-  2. System ...
-- Alternate paths:
-- Error and recovery paths:
-- Postconditions:
-- Authority, privacy, and data boundaries:
-- Requirements covered: FR-...
-- Acceptance scenarios: AC-...
-- Downstream references: user journey / screen map / QA
-```
-
-Do not use a use case to define visual styling, detailed layout, or implementation tasks. Do not create a use case merely to duplicate a user story: one `UC-*` may cover several related stories, and one `JOB-*` may lead to several use cases when the system behavior differs. Every material `JOB-*` must map to at least one `UC-*`, or the unresolved relationship must be recorded in `Open Questions`.
+Do not create detailed journeys, screens/states, layouts, visual systems/baselines, technical architecture, reusable gates, concrete QA items or implementation units. No issue-tracker publication, labels, messages or other external effects.
 
 ## Workflow
 
-1. Read `docs/product-idea.md` completely.
-2. Inspect relevant current project evidence and preserve established terminology.
-3. Build a source-to-requirement map before drafting.
-4. Define the product boundary, actors, workflow, and success outcomes.
-5. Reconcile each material `JOB-*` with the product boundary and define the corresponding `UC-*` use cases.
-6. Write sequential user stories that cover the source without adding unsupported scope.
-7. Capture only source-backed product-level implementation decisions; defer architecture details to their owner.
-8. Define observable testing decisions, evidence limits, and minimum end-to-end acceptance scenarios.
-9. Reconcile contradictions against the product idea. Stop only if the unresolved choice materially changes scope or a high-risk boundary.
-10. Validate that every load-bearing requirement, use case path, and distinct obligation inside each requirement traces to the product idea, project evidence, or an explicit answer. Split compound prose into explicit sub-obligations without inventing new behavior.
-11. Create or update only `docs/prd.md`.
+1. Read the complete product idea and relevant current evidence. Map sources to requirements before drafting.
+2. Define the user problem, solution/workflow, actors, product boundary and observable success.
+3. Map every material `JOB-*` to one or more `UC-*` product use cases; record unresolved relationships explicitly.
+4. Write stable sequential user stories: As a <role>, I want <capability>, so that <outcome>. Cover the boundary without duplicate filler.
+5. Keep FR/NFR IDs stable. Split each compound requirement into independently observable sub-obligations; a parent ID alone is not complete coverage.
+6. Record only source-backed product-level implementation decisions. Architecture and build order remain downstream.
+7. Define observable test seams and minimum end-to-end acceptance scenarios. Prefer the highest practical external seam; tests verify the specification, not redefine it.
+8. Preserve source-backed design-first, autonomy, single whole-design approval, high-risk authorization and prototype-to-production trace rules. Static docs/prototypes do not prove runtime functionality.
+9. Resolve contradictions through the product-idea owner. In pipeline mode return one visible `ProductIntentQuestion` for material gaps; after an answer, upstream intent is versioned before this owner resumes.
+10. Validate every requirement, clause and use-case path against sources; write only the PRD and return control without asking whether to continue.
 
-When invoked by `to-sdd-pipeline`, return control immediately after validation so the orchestrator can hash the artifact and dispatch downstream owners. Do not ask the user whether to continue.
+When relevant, carry the source P0–P3 glossary and separate severity from release effect. Preserve source-approved motion; do not import generic animation removal or an unrequested reduced-motion variant. Use precise schema/state examples only when more useful than prose; avoid brittle paths and snippets.
 
-## Required Output Structure
+## Use-case contract
 
-Use the smallest structure that fully represents the source. Preserve equivalent established headings in an existing PRD; the following is a semantic coverage model, not a demand to rename sections or duplicate content:
+Each materially distinct `UC-*` resolves: canonical name; JOB references; primary/supporting actors; trigger; goal; preconditions; numbered actor/system success path; alternate and error/recovery paths; postconditions; authority/privacy/data boundaries; linked FR/NFR obligations and acceptance scenarios.
 
-```markdown
-# Product Requirements Document
+Use cases own system-facing behavior, not visual layout or implementation. One case may cover several stories; one job may require several distinct cases. Journey, screen map and QA reference IDs rather than copy these paths. No separate use-case document.
 
-## Problem Statement
+## Artifact coverage
 
-## Solution
+Preserve equivalent existing/localized headings. Core coverage: Problem Statement; Solution/Core Workflow; Product Boundary; Use Cases; User Stories; product-level Implementation Decisions; Testing Decisions and Minimum End-To-End Acceptance Scenarios; Out Of Scope; Open Questions; Source Notes.
 
-## Product Boundary And Operating Model
+No unsupported scope or empty template sections. State a source-backed reason when a required concern does not apply.
 
-## Core Workflow
+## Return
 
-## Use Cases
-
-## User Stories
-
-## Implementation Decisions
-
-## Testing Decisions
-
-## Minimum End-To-End Acceptance Scenarios
-
-## Out Of Scope
-
-## Open Questions
-
-## Source Notes
-```
-
-Core semantic coverage is problem, solution/workflow, user stories, product-level implementation decisions, testing/acceptance decisions, out of scope, open or deferred decisions, and source/provenance notes. These may be nested under equivalent headings such as `Further Notes`. Optional subsections may be added only when the product idea supports them. A section may state `Not applicable: <source-backed reason>`; do not add filler.
-
-## Final Report
-
-Return:
-- `Result`
-- `Created/Updated File`
-- `Source Coverage`
-- `Confirmed Product Decisions`
-- `Open Questions`
-- `Next Recommended Skill`
-
-When orchestrated, `Next Recommended Skill` is advisory metadata for the manifest, not a request for user confirmation.
+Report file, source/clause coverage, changed product decisions and open questions. Follow the shared provenance contract. Next-owner metadata is advisory, not a continuation approval.

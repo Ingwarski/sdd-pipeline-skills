@@ -36,13 +36,29 @@ if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
     throw "Missing manifest: $ManifestPath"
 }
 
-$Manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
-if ($Manifest.schema_version -ne 1) {
-    throw "Unsupported manifest schema: $($Manifest.schema_version)"
+# Use the same strict parser and source/reference preflight as the Unix installer.
+# Detect Python before cleanup or any link/receipt write; never install it silently.
+$PythonCommand = $null
+$PythonPrefix = @()
+foreach ($Candidate in @('python3', 'python', 'py')) {
+    $Executable = Get-Command $Candidate -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $Executable) { continue }
+    $Prefix = if ($Candidate -eq 'py') { @('-3') } else { @() }
+    try {
+        & $Executable.Source @Prefix -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>$null
+        if ($LASTEXITCODE -eq 0) { $PythonCommand = $Executable.Source; $PythonPrefix = $Prefix; break }
+    } catch { }
 }
-if (@($Manifest.skills).Count -ne $Manifest.skill_count) {
-    throw "Manifest count mismatch: expected=$($Manifest.skill_count) parsed=$(@($Manifest.skills).Count)"
-}
+if ($null -eq $PythonCommand) { throw 'Python 3.9+ is required. Install Python 3, then rerun; no installation changes made.' }
+$ParserArgs = @((Join-Path $RepoRoot 'scripts/install_manifest.py'), '--root', $RepoRoot)
+if ($RetireOnly) { $ParserArgs += '--metadata-only' }
+$Rows = @(& $PythonCommand @PythonPrefix @ParserArgs)
+if ($LASTEXITCODE -ne 0) { throw 'Installation preflight failed; no installation changes made.' }
+$Skills = @($Rows | ForEach-Object {
+    $Fields = $_ -split '\|', 3
+    [pscustomobject]@{ name=$Fields[0]; path=$Fields[1]; legacy_name=if ($Fields[2]) { $Fields[2] } else { $null } }
+})
+$Manifest = [pscustomobject]@{ schema_version=1; skill_set='sdd-pipeline'; skill_count=13; skills=$Skills }
 
 if ([string]::IsNullOrWhiteSpace($CodexDir)) {
     if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SKILLS_DIR)) {
@@ -115,21 +131,6 @@ function Test-RepairAuthorized([string]$Path, [string]$RelativePath, [string]$Pr
     return $null -ne $ActualTarget -and $ActualTarget -eq $ExpectedPriorTarget
 }
 
-function Get-FrontmatterValue([string[]]$Lines, [string]$Key) {
-    if ($Lines.Count -eq 0 -or $Lines[0] -ne '---') {
-        return ''
-    }
-    for ($Index = 1; $Index -lt $Lines.Count; $Index++) {
-        if ($Lines[$Index] -eq '---') {
-            break
-        }
-        if ($Lines[$Index] -match "^$([regex]::Escape($Key)):\s*(.+)$") {
-            return $Matches[1].Trim().Trim('"').Trim("'")
-        }
-    }
-    return ''
-}
-
 if ($RetireOnly) {
     . (Join-Path $RepoRoot 'scripts/retired-skills.ps1')
     Initialize-RetiredCleanup
@@ -137,35 +138,7 @@ if ($RetireOnly) {
     exit 0
 }
 
-$SourceFailures = 0
-foreach ($Skill in $Manifest.skills) {
-    $RelativePath = [string]$Skill.path
-    if (-not $RelativePath.StartsWith('skills/') -or $RelativePath.Contains('..')) {
-        Write-Error "$($Skill.name): invalid source path $RelativePath" -ErrorAction Continue
-        $SourceFailures++
-        continue
-    }
-    $SourceDir = Join-Path $RepoRoot $RelativePath
-    $SkillFile = Join-Path $SourceDir 'SKILL.md'
-    if (-not (Test-Path -LiteralPath $SourceDir -PathType Container) -or -not (Test-Path -LiteralPath $SkillFile -PathType Leaf)) {
-        Write-Error "$($Skill.name): missing readable SKILL.md" -ErrorAction Continue
-        $SourceFailures++
-        continue
-    }
-    $Lines = @(Get-Content -LiteralPath $SkillFile)
-    $DeclaredName = Get-FrontmatterValue $Lines 'name'
-    $Description = Get-FrontmatterValue $Lines 'description'
-    if ($DeclaredName -ne $Skill.name -or [string]::IsNullOrWhiteSpace($Description)) {
-        Write-Error "$($Skill.name): invalid frontmatter name/description" -ErrorAction Continue
-        $SourceFailures++
-    } else {
-        Write-Host ('{0,-24} source valid' -f $Skill.name)
-    }
-}
-
-if ($SourceFailures -ne 0) {
-    throw "Source validation failed: $SourceFailures skill(s)"
-}
+Write-Host 'Validated 13 source skills and their shared references.'
 
 function Test-DestinationRoot([string]$InstallRoot) {
     $Conflicts = 0

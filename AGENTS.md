@@ -6,8 +6,8 @@ This repository owns the 13 SDD skills in `skills-manifest.json`.
 
 For an explicit install, update, repair, or uninstall request:
 
-1. Read the README Installation and Updating and cleanup sections, the manifest,
-   and the retirement list.
+1. Read the README, `docs/installation.md`, the manifest and retirement list.
+   Verify Python 3.9+ before mutation; never install dependencies without permission.
 2. Use `install.sh` / `install.ps1` for installation or repair and
    `update.sh` / `update.ps1` for updates. Bootstrap old clones with a clean
    fast-forward. Do not reset Git history or recreate installer logic.
@@ -32,3 +32,7 @@ For an explicit install, update, repair, or uninstall request:
 
 Do not install merely because the repository was opened. Scheduled updates
 require each user's explicit opt-in.
+
+For skill-authoring work, use `docs/maintenance.md`. Keep all 13 invocation names,
+artifact owners and approval boundaries stable. Tests must use isolated temporary
+installation roots; do not run the default personal-skill cleanup for authoring.

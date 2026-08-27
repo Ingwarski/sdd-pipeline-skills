@@ -1,151 +1,41 @@
 ---
 name: to-user-journey
-description: Use when docs/prd.md exists and the user wants to map the user journey, user flow, personas, or journey stages before screens, wireframes, visual design, QA, or implementation planning.
+description: Map a source-backed user journey, real-session context, decisions, friction and outcomes from the PRD before screen design.
 ---
 # to-user-journey
 
-## Universal SDD Rule
-AI is not the source of truth. Source files and explicit user answers are the source of truth. Mirror source terminology exactly; when sources use conflicting terms for one concept, do not pick silently - ask or flag it in `Open Questions`, then record the canonical term and aliases to avoid.
+Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve the link from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
 
-Working-language contract: use the orchestrator-supplied `working_language`; in standalone use, prefer an explicit request, otherwise use the language of the latest substantive user message. Use it for all questions, playbacks, reports, and natural-language headings and prose in the owned artifact. English template headings are semantic labels, not literal output. For Ukrainian (`uk`), write idiomatic Ukrainian and keep English only in immutable filenames/paths, code/commands, machine values, API/identifier names, names/quotations, and established IT terms such as `SDD Pipeline`; do not leave ordinary English prose or calques. Keep explicit product content locales separate from the specification language.
+## Inputs
 
-If information is missing from the source files, inspect available sources and the codebase first. Use a focused grill-me gap-check before writing only when the answer is genuinely non-inferable and materially changes product scope or a high-risk boundary. Resolve the decision tree one branch at a time, ask one question at a time, and include a recommended answer. For all other gaps, including pre-approval design ambiguity, use the smallest reversible source-grounded choice, record it, and continue. Do not turn guesses into facts.
+Required before starting: `docs/prd.md` and `docs/guardrails.md`; in pipeline mode also the validated `docs/project-context.md` and `docs/canonical-terms.md` bundle.
 
-Grill-me gap-check style: when a material question is necessary, walk the relevant decision branch instead of asking a flat questionnaire. Ask exactly one question, state the recommended answer and rationale, cite the source basis or say no source confirms it, state what downstream artifacts or boundaries change if the answer differs, and after the answer play back the confirmed decision and consequences before continuing or returning to the orchestrator.
+Optional grounding: README, explicit decisions and relevant confirmed context/terms. Use the PRD's `UC-*` and referenced upstream `JOB-*` definitions; do not redefine them.
 
-Create only the final output file. Do not write unverified assumptions into the artifact. Before creating or updating `docs/user-journey.md`, every load-bearing claim must be source-backed, user-confirmed, or left in `Open Questions`.
+## Output and ownership
 
-If a gap-check ran, or if the skill synthesized decisions not fully determined by source files, play back the resolved decisions in a pithy summary and continue with the smallest reversible, source-grounded choice unless the missing answer materially changes product scope or a high-risk boundary. Playback is not an approval gate; intermediate journey artifacts and pre-approval design choices do not require approval.
+Write only `docs/user-journey.md`. Own the user's context, goal, motivation, stages, actions, decisions, friction/fears, exits, success/failure, value moment and MVP journey risks.
 
-## Input
-Read:
-- `README.md`, if present
-- `docs/prd.md`
-- `docs/project-context.md`, when present or supplied by `to-sdd-pipeline`
-- `docs/canonical-terms.md`, when present or supplied by `to-sdd-pipeline`
-- `docs/guardrails.md`
-
-Use confirmed relevant users, platforms, scenarios, constraints, and canonical vocabulary from the context bundle. Do not copy descriptive context, promote assumptions to facts, add product scope, or let either file override PRD behavior. Record only the exact sections or terms consumed when pipeline provenance is requested.
-
-## Output
-Create or update exactly one artifact:
-- `docs/user-journey.md`
-
-Do not modify unrelated files.
-
-## Artifact Boundary
-`docs/user-journey.md` owns:
-- primary user and context
-- user goal and motivation
-- named protagonist for the main journey, only when source-backed or user-confirmed
-- real-session framing
-- journey stages
-- user actions
-- decision points
-- friction, fears, and blockers
-- exit points
-- success and failure states
-- climax beat: the moment the user gets value or hits the central friction
-- MVP journey risks
-
-The journey may reference `JOB-*` and `UC-*` IDs from the upstream artifacts, but it does not redefine their statements or system paths.
-
-It must not define:
-- screen inventory or routes
-- wireframe layouts
-- visual style, colors, typography, or design tokens
-- QA checklist items
-- implementation tasks
-
-Later artifacts may reference this file, but they must not duplicate its content.
-
-## Proven Mechanics To Use
-- Start from a real person doing a real thing, not from a feature list.
-- Start each primary journey from a source-backed `JOB-*` and, when available, a product-level `UC-*`; keep the job as the user's desired progress and the use case as the system behavior being traversed.
-- Use a named protagonist only when sources support it or the user confirms one. Never invent a persona name. If unnamed, use the role label and log the gap in Open Questions.
-- Capture the journey as numbered steps with a climax beat and, where relevant, a failure path.
-- Probe for stakes early: hobby, internal tool, consumer product, regulated product, paid workflow, sensitive data, or accessibility-critical usage.
-- Prefer a Mermaid `journey` diagram when it clarifies the flow, but keep the markdown artifact readable without the diagram.
-
-## Gap-Check
-Before writing, verify that sources identify:
-- the primary user
-- the user's main goal
-- the starting context
-- the expected end state
-- important constraints or risks
-- the form factor or usage context, if it affects the journey
-- the user's main fear, friction, or trust concern, if the PRD depends on behavior change
-- the material `JOB-*` and `UC-*` references that the journey must cover, when those upstream artifacts define them
-
-If any of these are missing or contradictory, ask only when the unresolved answer materially changes product scope or a high-risk boundary. Otherwise derive the smallest reversible journey interpretation from the PRD and guardrails, record the gap, and continue.
+Do not define routes or a screen inventory, internal layouts, visual style/tokens, QA items or implementation tasks. System-facing use-case paths remain in the PRD.
 
 ## Workflow
-1. Inspect the input files.
-2. Identify the primary user from sources.
-3. Identify the real session: where the user is, what triggers the session, what device or context matters, and what pressure exists.
-4. Extract the main user goal, success state, and failure path.
-5. Link the primary journey to the applicable `JOB-*` and `UC-*` IDs without copying their definitions.
-6. Map the journey stages from entry to completion as numbered steps.
-7. Name the climax beat.
-8. Capture actions, decisions, friction, trust concerns, exit points, and risks.
-9. Trace every claim to source files or explicit user answers.
-10. Avoid adding features, personas, flows, or goals outside the PRD and upstream use-case contract.
-11. Before writing the artifact, verify the planned content:
-   - Every load-bearing claim traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
-   - No content belongs to another artifact's ownership per the Artifact Boundary.
-   - No placeholder text and no generic filler written to satisfy the template.
-12. Create or update only `docs/user-journey.md`.
 
-## Required Output Structure
-Use this structure:
+1. Read sources; identify the primary user and material JOB/UC coverage.
+2. Describe the real session: situation, trigger, device/environment, time/attention pressure and stakes. Use a named protagonist only if confirmed; otherwise use the role and record any material gap.
+3. Map entry-to-completion stages as numbered steps. Each stage records user action, decision, relevant friction/trust concern and outcome.
+4. Name the value moment or central friction (`climax beat`), failure/recovery path and safe exits.
+5. Trace the journey to source requirements and JOB/UC IDs without copying their definitions. Add no unsupported persona, feature or goal.
+6. Check that the user can reach the stated success outcome and that every material source obligation is covered or an explicit open question.
+7. Write only the journey. Use a Mermaid journey diagram only when it clarifies the flow; keep the text understandable alone.
 
-Required contract sections are `Source References`, `Primary User`, `User Goal`, `Starting Context`, `Journey Stages`, `Success State`, and `Open Questions`. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. List omitted optional sections in the Final Report.
+A missing detail blocks only when it materially changes scope or a high-risk boundary; otherwise record the smallest reversible source-grounded interpretation.
 
-```markdown
-# User Journey
+## Artifact coverage
 
-## Source References
+Required semantic sections: Source References; Primary User; User Goal; Starting Context; Journey Stages; Success State; Open Questions.
 
-## Primary User
+Include stakes, a journey overview, value moment, decisions, friction/risks, failure/recovery and exits where applicable. Put JOB/UC references beside the overview or stages, not in a duplicate use-case narrative.
 
-## Named Protagonist (only if source-backed or user-confirmed; otherwise use the role label)
+## Return
 
-## User Goal
-
-## Starting Context
-
-## Stakes And Constraints
-
-## Journey Overview
-
-## Journey Stages
-
-## Climax Beat
-
-## Decision Points
-
-## Friction And Risks
-
-## Failure Path
-
-## Exit Points
-
-## Success State
-
-## Confirmed Facts And Constraints
-
-## Open Questions
-```
-
-## Final Report
-Return:
-- `Result`
-- `Created/Updated File`
-- `Confirmed Facts And Constraints`
-- `Omitted Optional Sections`, if any
-- `Open Questions`
-- `Next Recommended Action`
-- `Next Recommended Skill`
-
-For the primary journey, record the applicable `JOB-*` and `UC-*` references beside the journey overview or stage list. Keep only the user-facing context, motivation, actions, decisions, friction, and outcomes here; system steps remain referenced from the PRD use case.
+Report the file, changed journey decisions, coverage/evidence, open questions and next owner. Follow the shared provenance contract; no intermediate approval.
