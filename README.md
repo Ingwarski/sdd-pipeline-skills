@@ -1,6 +1,6 @@
 # Codex SDD Skills
 
-This repository contains reusable Codex and Claude Code skills. Its core is a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, explicit Jobs To Be Done and product use cases, a coherent pre-design specification, exactly three runnable prototype candidates, one whole-design approval, representative-user validation of applicable critical flows, and implementation planning for a production frontend and backend. It also contains bounded standalone workflows such as communications audits and certificate issuance.
+This repository contains reusable Codex and Claude Code skills. Its core is a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, explicit Jobs To Be Done and product use cases, a coherent pre-design specification, formal H1-H10 heuristic review, exactly three runnable prototype candidates, one whole-design approval, representative-user validation of applicable critical flows, and implementation planning for a production frontend and backend. It also contains bounded standalone workflows such as communications audits and certificate issuance.
 
 The skills are designed for **SDD - Specification Driven Development**. They are not a TDD workflow and they are not generic prompt templates. Every domain artifact has exactly one owner, and every owner invocation is confined to its declared output boundary. Most owners create one artifact; `to-project-context` is the explicit cohesive two-file bundle owner. `to-sdd-pipeline` owns only the machine-readable orchestration manifest and invokes or re-invokes artifact owners autonomously.
 
@@ -28,7 +28,7 @@ rough-description-or-existing-or-imported-idea -> to-product-idea -> product-ide
 -> awaiting-implementation-prompt
 ```
 
-The product-intent to behavior trace is explicit and remains inside the existing graph: `JOB-*` is canonical in `to-product-idea` / `docs/product-idea.md`, while `UC-*` is canonical in `to-sdd-prd` / `docs/prd.md`. `to-user-journey`, `to-screen-map`, `to-wireframes`, `to-design-brief`, `to-architecture`, `to-qa-checklist`, `to-dod-evals`, and `to-development-plan` reference those IDs without copying or redefining their content. No separate JTBD or use-case artifact is created.
+The product-intent to behavior trace is explicit and remains inside the existing graph: `JOB-*` is canonical in `to-product-idea` / `docs/product-idea.md`, while `UC-*` is canonical in `to-sdd-prd` / `docs/prd.md`. `to-user-journey`, `to-screen-map`, `to-wireframes`, `to-design-brief`, `to-architecture`, `to-qa-checklist`, `to-dod-evals`, and `to-development-plan` reference those IDs without copying or redefining their content. No separate JTBD or use-case artifact is created. The formal heuristic vocabulary is shared from [heuristic-usability-review.md](skills/to-sdd-pipeline/references/heuristic-usability-review.md).
 
 When `claude_design` is selected, the pipeline inserts `design-source-access-preflight` between the coherent SDD baseline and prototype generation. It inventories every design material and link named by the validated design brief, records a Codex access receipt, and requires Claude Design to return a source-read receipt for every required item. Missing access pauses the handoff at `awaiting-design-source-access`; Claude Design must not generate candidates from an incomplete or guessed source set.
 
@@ -45,11 +45,11 @@ When `claude_design` is selected, the pipeline inserts `design-source-access-pre
 | `to-user-journey` | `docs/user-journey.md` | Maps the real user, goal, context, journey stages, friction, decisions, failure path, and success state. |
 | `to-screen-map` | `docs/screen-map.md` | Defines screens, surfaces, routes, navigation, transitions, entry/exit points, and the canonical state list per screen. |
 | `to-wireframes` | `docs/wireframes.md` | Converts the screen map into low-fidelity screen structures, hierarchy, CTAs, forms, content zones, and state variants. |
-| `to-design-brief` | `docs/design-brief.md` | Defines the UX/UI direction, traces jobs/use cases through the experience, and owns the single canonical Approved Visual Baseline manifest plus the representative-user validation plan for critical flows. |
+| `to-design-brief` | `docs/design-brief.md` | Defines the UX/UI direction, traces jobs/use cases through the experience, owns design-time H1-H10 heuristic coverage, and owns the single canonical Approved Visual Baseline plus representative-user validation plan for critical flows. |
 | `to-architecture` | `docs/architecture.md` | Defines system architecture, modules, boundaries, data/state model, integrations, runtime model, architecture decisions, and risks. |
-| `to-dod-evals` | `docs/dod-evals.md` | Defines Definition of Done, reusable eval gates including `representative_user_task_validation`, verification profile, evidence requirements, state/lane gates, and PR/merge completion rules. |
+| `to-dod-evals` | `docs/dod-evals.md` | Defines Definition of Done, reusable gates including `heuristic_usability_review` and `representative_user_task_validation`, verification profile, evidence requirements, state/lane gates, and PR/merge completion rules. |
 | `to-guardrails` | `docs/guardrails.md` | Defines source-of-truth order, AI autonomy boundaries, scope limits, conflict handling, stop conditions, and verification policy. |
-| `to-qa-checklist` | `docs/qa-checklist.md` | Creates a source-backed QA checklist with acceptance, usability-validation, UX/UI, responsive, accessibility, visual regression, evidence, and release-readiness checks. |
+| `to-qa-checklist` | `docs/qa-checklist.md` | Creates a source-backed QA checklist with H1-H10 heuristic, usability-validation, UX/UI, responsive, accessibility, visual regression, evidence, and release-readiness checks. |
 | `to-development-plan` | `docs/development-plan.md` | Converts the current validated SDD plus Approved Visual Baseline into frontend/backend units, interface seams, dependency order, acceptance checks, and verification steps. |
 | `communications-audit` | Professional `.docx` audit report | Audits websites and sales or marketing materials through seven communication dimensions, then produces an evidence-led scorecard, prioritized findings, and implementation roadmap. |
 
@@ -79,6 +79,11 @@ All skills follow the same operating contract:
 - `to-product-idea` uses a grill-me-style design-readiness branch to resolve job/progress, situation/trigger, outcome/alternative, operating conditions, trust/risk, content/evidence, and observable success before the product idea is handed downstream. It asks one material question at a time and records assumptions or open questions explicitly.
 - Representative-user validation, heuristic/usability review (including Nielsen Norman-style heuristic checks), visual-QA/browser evidence, and functional/runtime evidence are separate evidence classes. None may be silently substituted for another; no user session, participant, result, or success may be fabricated.
 - Applicable critical or consequential user-visible flows require a `representative_user_task_validation` plan/check/evidence path. Validation is a quality gate and evidence of usability, not a second design approval; the only normal design approval remains the complete integrated prototype baseline.
+- For regulated, accessibility-critical, safety-sensitive, or otherwise high-risk flows, representative-user validation defaults to pre-approval when feasible; if deferred, the design brief must show the assumption/open risk and must not claim user validation.
+- The formal H1-H10 heuristic layer is defined once in `skills/to-sdd-pipeline/references/heuristic-usability-review.md`; `to-design-brief` plans it, `to-qa-checklist` checks it, `to-dod-evals` gates it with `heuristic_usability_review`, and `to-development-plan` maps it to implementation units.
+- H1-H10 checks must cover the applicable primary journey, representative screens/states/routes/viewports, desktop/mobile when supported, error/recovery, and accessibility-critical actions. H7 explicitly considers expert efficiency without harming novice defaults; H10 explicitly considers contextual, searchable, actionable, and task-oriented help.
+- Error/recovery states use the shared format: `cause -> what was preserved -> next action -> retry/undo option -> condition for successful completion`.
+- `heuristic_usability_review`, `representative_user_task_validation`, `approved_visual_baseline_fidelity`, and functional/runtime verification are separate evidence/gate classes. None substitutes for another, and heuristic findings do not automatically create approval gates.
 - The only normal design approval is approval of the complete integrated prototype. Risk-specific authorization is separate and just in time.
 - After `docs/development-plan.md` validates, the pipeline enters `awaiting-implementation-prompt`. Production implementation requires a later, separate prompt that explicitly asks to start Phase 3; a generic continuation or automatic resume cannot release the gate.
 
@@ -94,12 +99,13 @@ The documents are intentionally separated:
 - `screen-map.md` owns which screens and states exist.
 - `wireframes.md` owns screen structure and state structure.
 - `design-brief.md` owns visual and experience direction, the trace through applicable `JOB-*`/`UC-*` references, the representative-user validation plan for critical flows, and the single canonical Approved Visual Baseline section. The approved prototype owns concrete visual composition, interaction detail, and frontend presentation; PRD/journey artifacts own product behavior.
+- `design-brief.md` also owns design-time H1-H10 coverage/status and heuristic expectations, using the shared reference without copying its definitions. It does not own executed QA findings or the reusable DoD gate.
 - `architecture.md` owns system architecture, module boundaries, data/state model, integrations, runtime model, and architecture decisions.
 - `architecture.md` may map applicable `UC-*` product behaviors to technical modules, interfaces, data, and runtime boundaries, but it does not redefine the product use cases.
 - `dod-evals.md` owns Definition of Done, reusable gates including `representative_user_task_validation`, eval result format, completion evidence requirements, and completion rules. It does not own the per-flow task plan or per-check evidence.
 - `guardrails.md` owns AI behavior, source-of-truth policy, and behavioral evidence policy.
-- `qa-checklist.md` owns concrete verification checks and per-check evidence artifacts, including representative-user task checks for applicable critical flows. It does not redefine the design-brief plan or the DoD gate.
-- `development-plan.md` owns implementation units and build order.
+- `qa-checklist.md` owns concrete H1-H10 heuristic checks and per-check evidence artifacts, plus representative-user task checks for applicable critical flows. It does not redefine the shared heuristic definitions, design-brief plan, or DoD gates.
+- `development-plan.md` owns implementation units and build order, including references to visual fidelity, heuristic usability, and representative-user validation evidence when applicable.
 - `forge/sdd-manifest.json` owns orchestration state, the working-language record, owner invocation/output-set mapping, source versions and hashes, consumed source fragments, explicit dependencies and dependency states, content hashes, validation, invalidation, and resume state; it does not own domain truth. Machine enum values remain stable while operator-facing labels are localized. Internal `validated` projects to Mission Control `Done`, while `ready` means machine-ready rather than approved.
 
 If one artifact needs information from another, it should cite or reference that artifact rather than restating it.
@@ -217,7 +223,9 @@ The design-first chain now establishes three complementary layers before impleme
 2. `UC-*` answers how the product behaves for that job: actors, trigger, preconditions, main path, alternate/error recovery, postconditions, data/authority boundaries, and requirements covered.
 3. Journey, screens, wireframes, design brief, QA, DoD, and development plan translate and verify those upstream decisions without becoming competing sources of truth.
 
-The design brief plans representative-user task validation for critical flows. QA turns that plan into concrete checks and records evidence; DoD evaluates the reusable gate; the development plan maps the gate to implementation units. A heuristic review can identify likely usability issues, including issues described by Nielsen Norman heuristics, but it is not evidence that representative users completed the task. Likewise, a visual baseline or browser receipt proves visual/runtime evidence only within its stated scope.
+The formal heuristic layer uses H1-H10: visibility of system status; match with the real world; user control and freedom; consistency and standards; error prevention; recognition rather than recall; flexibility and efficiency; aesthetic and minimalist design; error diagnosis/recovery; and help/documentation. The complete contract, required evidence, applicability, severity, release effect, screens/states/routes/viewports, and H7/H10 rules live in [heuristic-usability-review.md](skills/to-sdd-pipeline/references/heuristic-usability-review.md).
+
+The design brief plans heuristic coverage and representative-user task validation for critical flows. QA turns both plans into concrete checks and records evidence; DoD evaluates `heuristic_usability_review` and `representative_user_task_validation`; the development plan maps both gates to implementation units. For high-risk flows, the plan records whether user validation is pre-approval, post-implementation, or both. A heuristic review can identify likely usability issues, including issues described by Nielsen Norman heuristics, but it is not evidence that representative users completed the task. Likewise, a visual baseline or browser receipt proves visual/runtime evidence only within its stated scope.
 
 ## Design Quality
 
@@ -263,6 +271,8 @@ Severity and release effect are separate:
 
 For usability quality, `to-qa-checklist` records the concrete task, representative user group, device/viewport, success criterion, evidence, result, severity, and release effect. `to-dod-evals` evaluates those checks through `representative_user_task_validation`: an applicable critical flow cannot pass merely because a heuristic review, screenshot, browser receipt, or prototype interaction looks correct. If validation is not available, the evidence limit and risk must remain explicit; it cannot be silently marked as passed.
 
+For heuristic quality, `to-qa-checklist` adds H1-H10 to every UX/UI/heuristic check together with task, user group, route, state, viewport, expected behavior, evidence, finding, severity, release effect, and recommendation. `to-dod-evals` evaluates those checks through the separate `heuristic_usability_review` gate; it does not create a human approval gate.
+
 ## Authoring References
 
 The skills are custom SDD skills, but they intentionally reuse proven mechanisms from existing skills and references.
@@ -292,6 +302,9 @@ skills/
     SKILL.md
   to-sdd-pipeline/
     SKILL.md
+    references/
+      claude-design-handoff.md
+      heuristic-usability-review.md
   to-sdd-prd/
     SKILL.md
   to-project-context/

@@ -31,6 +31,7 @@ Read:
 - `docs/design-brief.md`
 - `docs/architecture.md`
 - `docs/guardrails.md`
+- `skills/to-sdd-pipeline/references/heuristic-usability-review.md`, for the canonical H1-H10 definitions and heuristic gate contract
 - `docs/product-idea.md`, only if `docs/prd.md` explicitly names it as an authoritative source or the user asks to use it
 
 Use confirmed relevant platform, localization, operational, privacy/compliance, risk, and vocabulary facts from the context bundle only when they change an applicable completion or evidence condition. Do not copy descriptive context, promote assumptions to gates, add product scope, or let either file override the PRD, architecture, guardrails, or Approved Visual Baseline. Record only the exact sections or terms consumed when pipeline provenance is requested.
@@ -50,6 +51,7 @@ Do not modify unrelated files.
 - reusable verification profile
 - hard gates, unit checks, system checks, UX/UI checks, and release gates
 - reusable representative-user task validation gate for applicable critical or consequential user-visible flows
+- reusable H1-H10 `heuristic_usability_review` gate for applicable user-visible flows
 - engineering lane/state promotion gates only when sources define a delivery or execution-state promotion contract
 - eval result format
 - completion evidence requirements
@@ -78,6 +80,7 @@ Adapt the useful parts of proven DoD, quality-gate, planning, and eval reference
 - Split intended truth by concern: current validated SDD owns product scope and behavior; the engineer-approved integrated prototype owns visual composition, interaction detail, and frontend presentation and is the visual Definition of Done for every user-visible frontend unit; architecture and guardrails own technical and risk boundaries. Treat even the Approved Visual Baseline as design/visual evidence, not proof of completed functionality, until implementation is connected to real state/data/actions, runner evidence, and required DoD gates.
 - Define one reusable parameterized gate named `approved_visual_baseline_fidelity` for frontend, full-stack, and integration units with user-visible output. Parameterize it with the active Baseline ID, immutable target hash, affected routes/states/viewports, permitted variance, concrete QA check IDs, `VisualQAEvidence`, and the `PrototypePromotionReceipt` when prototype code was reused. Pass only when the baseline is current, required coverage exists, every deviation is permitted or source-backed, and no blocking fidelity finding remains. When the development plan declares traced prototype reuse, the receipt must exist at its declared path and its recorded promotion strategy must match the plan's `copy | adapt | reimplement` value. A missing receipt for a unit whose declared production destination exists is blocking, not `not applicable`. A stale or superseded baseline, missing target/coverage, unexplained material drift, P0, P1, or blocking P2 blocks the gate; advisory P2/P3 remains follow-up.
 - Define one reusable parameterized gate named `representative_user_task_validation` for applicable critical, consequential, new, or behavior-changing user-visible flows. Parameterize it with the traced `JOB-*` and `UC-*` references, representative user group, task, device/viewport, success criterion, validation evidence, findings, and applicability decision. Pass only when the task was observed with representative user(s), the defined outcome and evidence are recorded, and any blocking findings are closed or explicitly handled by the applicable release rules. `not applicable` is valid only with a source-backed rationale; `deferred` is not a pass for an applicable critical flow. A plan, heuristic review, screenshot, browser receipt, or agent self-assessment does not substitute for representative-user evidence. This gate is evidence of usability validation, not a second design approval gate.
+- Define one reusable parameterized gate named `heuristic_usability_review` for applicable user-visible flows. Parameterize it with the relevant H1-H10 IDs, primary journey, traced `JOB-*`/`UC-*`, representative screens/states/routes/viewports, desktop/mobile coverage when supported, error/recovery coverage, accessibility-critical actions, concrete QA check IDs, evidence references, findings, and applicability decisions. Pass only when every applicable heuristic is reviewed, every required surface/viewport/state is covered, required evidence is recorded, and no blocking heuristic finding remains. A heuristic may be `not applicable` only with a source-backed rationale; an unexplained omission or deferred critical review blocks the gate. This gate is separate from `approved_visual_baseline_fidelity` and `representative_user_task_validation`; visual fidelity and user testing cannot substitute for it. Use the shared heuristic reference rather than copying H1-H10 definitions into the DoD artifact.
 
 Do not copy these source skills wholesale:
 - Do not turn this into a command runner. This skill writes the DoD/evals source-of-truth document; it does not execute gates.
@@ -118,6 +121,7 @@ Before writing, verify that sources or code identify:
 - required hard gates such as build, lint, typecheck, tests, security scan, or manual approval
 - UX/UI verification expectations
 - representative-user task validation expectations for critical flows
+- H1-H10 heuristic coverage, evidence, and finding disposition expectations
 - PR, merge, branch, commit, or release rules, if relevant
 - what evidence counts for completion claims
 - whether UI/design evidence is connected to real behavior, state, data, and actions when functionality is claimed
@@ -142,11 +146,11 @@ Ask DoD/eval questions with recommended answers based on sources. Prefer:
 4. Extract architecture-driven verification needs from `docs/architecture.md`.
 5. Separate acceptance criteria, DoD, QA checklist items, and implementation tasks.
 6. Define the standing DoD model.
-7. Define verification profile tiers: hard gates, unit checks, system checks, UX/UI checks, evidence, static-surface limits, and release/merge checks. For any user-visible frontend scope, include the parameterized `approved_visual_baseline_fidelity` gate and bind it to the current baseline plus concrete QA checks rather than restating the design. For any applicable critical or consequential user-visible flow, include `representative_user_task_validation` and bind it to concrete QA usability checks rather than restating the task plan.
+7. Define verification profile tiers: hard gates, unit checks, system checks, UX/UI checks, evidence, static-surface limits, and release/merge checks. For any user-visible frontend scope, include the parameterized `approved_visual_baseline_fidelity` gate and bind it to the current baseline plus concrete QA checks rather than restating the design. Include `heuristic_usability_review` for the applicable H1-H10 scope and bind it to concrete QA heuristic checks. For any applicable critical or consequential user-visible flow, include `representative_user_task_validation` and bind it to concrete QA usability checks rather than restating the task plan.
    When a gate is superseded or declared non-active, remove it from the Gate Matrix and requirement traceability tables or repoint those requirements to the active gate. A gate cannot be simultaneously inactive and load-bearing.
 8. Define lane/state promotion gates only when sources define engineering delivery lanes, execution states, or completion transitions. Ordinary product UI states do not create engineering gates.
 9. Define eval result format with pass/fail/blocked status, evidence, owner, timestamp/source, and rerun rule.
-10. Define failure and blocker classification without duplicating `docs/qa-checklist.md`.
+10. Define failure and blocker classification without duplicating `docs/qa-checklist.md`; heuristic findings are classified through the existing severity/release-effect glossary and do not automatically create approval gates.
 11. Before writing the artifact, verify the planned content:
    - Every DoD rule, gate, eval, and evidence requirement traces to a named source file, codebase evidence, or explicit user answer, or it is moved to `Open Questions`.
    - No content belongs to another artifact's ownership per the Artifact Boundary.
@@ -235,6 +239,18 @@ For `representative_user_task_validation` additionally include:
 - `Findings And Disposition`
 - `Applicability Decision`
 - `Validation Result: passed | blocked | deferred | not applicable`
+
+For `heuristic_usability_review` additionally include:
+- `Heuristic Coverage: H1-H10 with each item covered | deferred | not applicable`
+- `Primary Journey And JOB/UC References`
+- `Representative Screens States Routes And Viewports`
+- `Desktop And Mobile Coverage`
+- `Error And Recovery Coverage`
+- `Accessibility-Critical Actions`
+- `QA Check IDs And Evidence References`
+- `Findings And Recommendations`
+- `Applicability Decisions`
+- `Review Result: passed | blocked | deferred | not applicable`
 
 For every finding classification include:
 - `Severity: P0 | P1 | P2 | P3`

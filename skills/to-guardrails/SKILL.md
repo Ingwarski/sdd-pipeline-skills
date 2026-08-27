@@ -24,6 +24,7 @@ Read:
 - `docs/project-context.md`, when present or supplied by `to-sdd-pipeline`
 - `docs/canonical-terms.md`, when present or supplied by `to-sdd-pipeline`
 - `docs/product-idea.md`, only when `docs/prd.md` names it as authoritative or the user asks to use it
+- `skills/to-sdd-pipeline/references/heuristic-usability-review.md`, when defining or validating the formal H1-H10 heuristic evidence policy
 
 This skill runs after `docs/prd.md` and the validated context bundle in pipeline mode, and before downstream UX, architecture, DoD/eval, and QA artifacts. Use only confirmed relevant context constraints and canonical vocabulary; do not turn assumptions into guardrails or let either context file override PRD behavior. Record exact consumed sections or terms when the orchestrator requests provenance. Re-run only when the PRD, an explicitly authoritative product-idea source, a consumed context/term fragment, or a user decision invalidates a named rule or introduces a new authority/risk boundary. Never read downstream artifacts back into guardrails; this keeps the dependency graph acyclic.
 
@@ -64,6 +65,7 @@ Other artifacts may follow these rules, but they must not duplicate this documen
 - Split authority by concern: PRD and journey artifacts own product scope and behavior; after the engineer's one whole-prototype approval, the Approved Visual Baseline owns visual composition, interaction detail, and frontend presentation; architecture, guardrails, and applicable standards own technical, safety, accessibility, privacy, and legal boundaries. Before approval, wireframes and design-brief spines guide candidate generation. Generic defaults, unapproved mockups, implementation guesses, and assistant preference never override these sources.
 - A mockup, screenshot, prototype, or visually convincing static surface is design/visual evidence only; it is not completed functionality unless connected to source-backed behavior, real state/data/actions, runner evidence, and required DoD gates.
 - Representative-user task validation is a separate evidence class for applicable critical or consequential flows. A heuristic review, Nielsen Norman heuristic check, screenshot, browser receipt, visual-QA result, or agent self-assessment cannot be reported as user validation. Do not fabricate participants, sessions, findings, or success. If required validation is unavailable, record the evidence limit and risk and stop the applicable completion/release claim at the DoD gate rather than silently treating it as passed.
+- The formal heuristic layer must use the shared H1-H10 reference and preserve applicability, expected behavior, required evidence, route/state/viewport coverage, findings, severity, and release effect. An incomplete heuristic matrix cannot be reported as a complete usability review; an H1-H10 review is still not representative-user research.
 - Extract, do not ingest: when sources are long, pull only the relevant decisions and cite them. Do not paraphrase entire source files into this artifact.
 - Right-size rigor to stakes: hobby, internal, consumer, paid, regulated, accessibility-critical, or safety-sensitive products need different guardrails.
 - Default to autonomous reversible decisions within approved product intent. Define exactly one normal design approval for the complete integrated prototype and reserve separate just-in-time authorization for irreversible, destructive, financial, legal, public, security-sensitive, privacy-sensitive, privileged, or external side effects.
@@ -83,6 +85,7 @@ Before writing, verify that sources identify:
 - which visual/design sources are authoritative, if any
 - whether AI may propose aesthetic options or must wait for user-provided direction
 - whether critical flows require representative-user task validation and what evidence is available
+- whether the H1-H10 heuristic layer is applicable and what review/evidence coverage is available
 
 If authority, autonomy, forbidden actions, or conflict rules are missing or contradictory and the unresolved answer materially changes product scope, compliance, or a high-risk boundary, stop and ask grill-me questions before producing the output. Otherwise use the recommended stakes baseline, record the reversible choice, and continue.
 
@@ -102,7 +105,7 @@ Sources rarely state guardrails explicitly. Do not run an open-ended interview. 
 6. Define visual/design authority rules.
 7. Define conflict resolution and stop conditions.
 8. Define verification rules for SDD artifacts and future implementation.
-9. Define the evidence classes separately: representative-user task validation, heuristic/usability review, visual-QA/browser evidence, and functional/runtime evidence. State which claims each class can and cannot support.
+9. Define the evidence classes separately: representative-user task validation, formal H1-H10 heuristic review, visual-QA/browser evidence, accessibility verification, and functional/runtime evidence. State which claims each class can and cannot support, using the shared heuristic reference for the formal review contract.
 10. Define mockup, prototype, screenshot, and static-surface limits for completion claims.
 11. Preserve strict artifact separation.
 12. Before writing the artifact, verify the planned content:

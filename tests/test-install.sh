@@ -33,6 +33,8 @@ done < <(sed -nE 's/^[[:space:]]*\{"name": "([^"]+)", "path": "([^"]+)", "legacy
 
 grep -q 'working_language' "$repo_root/skills/to-sdd-pipeline/references/claude-design-handoff.md"
 grep -q 'preserved_english_terms' "$repo_root/skills/to-sdd-pipeline/references/claude-design-handoff.md"
+grep -q 'H1-H10 Heuristic Contract' "$repo_root/skills/to-sdd-pipeline/references/heuristic-usability-review.md"
+grep -q 'heuristic_usability_review' "$repo_root/skills/to-sdd-pipeline/references/heuristic-usability-review.md"
 
 [[ ! -e "$codex_dir/to-prd" && ! -L "$codex_dir/to-prd" ]]
 [[ -f "$claude_dir/to-prd/marker.txt" ]]

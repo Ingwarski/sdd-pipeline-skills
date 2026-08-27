@@ -29,6 +29,7 @@ Read:
 - `docs/screen-map.md`
 - `docs/wireframes.md`
 - `docs/design-brief.md`
+- `skills/to-sdd-pipeline/references/heuristic-usability-review.md`, for the canonical H1-H10 definitions, applicability, evidence, and severity guidance
 - the canonical `Approved Visual Baseline` section inside `docs/design-brief.md` and its referenced prototype artifacts, when its status is `approved`
 - `docs/architecture.md`
 - `docs/dod-evals.md`
@@ -50,6 +51,7 @@ Do not modify unrelated files.
 - journey completion checks
 - screen and state coverage checks
 - UX/UI consistency checks
+- formal H1-H10 heuristic usability checks and their per-check evidence
 - representative-user task validation checks for applicable critical flows, including per-check evidence and findings
 - responsive checks
 - accessibility checks
@@ -58,6 +60,8 @@ Do not modify unrelated files.
 - release readiness checks
 
 Evidence policy (when evidence is required, what counts) belongs to `docs/guardrails.md`; this file owns per-check evidence artifacts and cites that policy instead of restating it.
+
+The shared H1-H10 reference owns heuristic definitions and the common review contract; this file owns concrete heuristic checks, routes/states/viewports, findings, evidence, severity, and release effect.
 
 Definition of Done, reusable gates, eval result format, and completion rules belong to `docs/dod-evals.md`; this file owns concrete QA checklist items and cites that contract instead of restating it.
 
@@ -81,6 +85,10 @@ Reference source artifacts instead of repeating their full content.
 - Evidence before claims: the checklist must define what evidence proves each important claim.
 - Separate UX risks from accessibility risks and visual polish issues.
 - Tie every recommendation back to the user goal, workflow, screen state, or accessibility outcome.
+- For every relevant heuristic in H1-H10, create concrete QA checks for the applicable primary journey, representative screens/states/routes/viewports, desktop/mobile coverage when supported, error/recovery, and accessibility-critical actions. Use the shared reference for definitions and required evidence; do not silently treat visual fidelity as usability quality.
+- Every UX/UI and heuristic check carries `Heuristic: H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10`, `Task`, `User Group`, `Route`, `State`, `Viewport`, `Expected Behavior`, `Evidence`, `Finding`, `Severity`, `Release Effect`, and `Recommendation`. One check may map to multiple heuristic IDs.
+- Verify H7 against a novice default flow plus applicable expert shortcuts, bulk actions, repeated-task efficiency, keyboard/touch alternatives, and effort-reducing customization. Verify H10 against applicable contextual help, searchable documentation, actionable empty states, concise inline instructions, recovery links, and task-oriented help.
+- For every applicable error/recovery state, verify `cause -> what was preserved -> next action -> retry/undo option -> condition for successful completion`.
 - For every applicable critical or consequential flow, include a concrete representative-user task validation check traced to its `JOB-*` and `UC-*` references. The check verifies an observed task against a defined success criterion; heuristic review, visual comparison, and browser evidence do not substitute for real-user validation. If validation is unavailable, record the evidence limit, risk, owner, and explicit `deferred` or `not applicable` result rather than implying that it ran.
 - Do not imply WCAG compliance from screenshots or static docs alone. State verification limits.
 - Include complete state checks: default, hover, focus, active, disabled, loading, empty, error, success, long-content, offline, permission-denied, and repeat-click where relevant.
@@ -106,6 +114,7 @@ Before writing, verify that sources identify:
 - accessibility target
 - source of visual truth for UI comparison, if any
 - representative users, task scenarios, success criteria, device/viewport, and available validation evidence for critical flows, when applicable
+- H1-H10 applicability, representative screens/states/routes/viewports, required evidence, and existing heuristic findings
 - verification limits, if some checks require implementation rather than docs
 
 If acceptance criteria, required states, or target platforms are missing and cannot be derived from current sources, ask only when the unresolved answer materially changes product scope or a high-risk boundary. Otherwise use the smallest applicable source-backed or documented fallback check, record applicability and evidence limits, and continue.
@@ -114,25 +123,26 @@ If acceptance criteria, required states, or target platforms are missing and can
 1. Inspect the input files.
    Re-run the exact repository-observation commands for any codebase-derived status; confirmed code may narrow or close a blocker but cannot add product scope.
 2. Derive checks only from current validated SDD artifacts. Before prototype approval, define visual verification against the proposed design contract without pretending that an Approved Visual Baseline exists. After whole-prototype approval, instantiate the visual-DoD checks against the active Baseline ID, immutable visual-target reference/hash, covered route/state/viewport combinations, permitted variance, and referenced prototype without requesting another approval. A changed or superseded Baseline ID, target hash, or recorded operator override invalidates the affected visual checks and requires this artifact to be regenerated before development planning or release evaluation continues.
-3. Group checklist items by product behavior, journey, screens, states, UX/UI, responsive, accessibility, and release readiness.
+3. Group checklist items by product behavior, journey, screens, states, heuristic usability, UX/UI, responsive, accessibility, and release readiness.
 4. Include source references for important checklist groups. `Product Acceptance` items must cite the PRD requirement or user story they verify instead of restating it.
 5. Include checks that verify architecture and DoD/eval contracts when `docs/architecture.md` or `docs/dod-evals.md` exist, without redefining those contracts.
 6. Include expected evidence for checks that will later require implementation or screenshots.
 7. State evidence limits where docs cannot prove runtime behavior.
-8. For each applicable critical `JOB-*`/`UC-*` flow, add a usability validation check with a representative user group, task, device/viewport, success criterion, evidence status, severity, and release effect. A deferred check is not a pass for an applicable critical flow; a `not applicable` result requires a source-backed rationale.
-9. Avoid adding requirements, architecture decisions, DoD rules, or implementation details.
+8. For each relevant H1-H10 heuristic, add concrete checks with `Heuristic`, task, user group, `JOB-*`/`UC-*`, primary journey, route, state, viewport, expected behavior, evidence, finding, severity, release effect, and recommendation. A heuristic may be `not applicable` only with a source-backed rationale; a deferred applicable critical check is not a pass.
+9. For each applicable critical `JOB-*`/`UC-*` flow, add a separate usability validation check with a representative user group, task, device/viewport, success criterion, evidence status, severity, and release effect. A deferred check is not a pass for an applicable critical flow; a `not applicable` result requires a source-backed rationale.
+10. Avoid adding requirements, architecture decisions, DoD rules, or implementation details.
    When a current development plan declares traced prototype reuse and a declared destination exists, verify that the Phase 3 receipt exists at the declared path and that its recorded `copy | adapt | reimplement` strategy matches. Record absence or mismatch as a blocking fidelity finding; never synthesize the receipt and never make the plan a dependency of the pre-design QA node.
-10. Before writing the artifact, verify the planned content:
+11. Before writing the artifact, verify the planned content:
    - Every checklist group traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
    - Clause-level coverage: every distinct observable obligation inside each applicable FR/NFR maps to at least one concrete check or an explicit blocker. Repeating the parent requirement ID is not clause coverage.
-11. Create or update only `docs/qa-checklist.md`.
+12. Create or update only `docs/qa-checklist.md`.
 
 ## Required Output Structure
 Use this structure:
 
-Required contract sections are `Source References`, `Product Acceptance`, `Screen And State Checks`, `UX/UI Checks`, `Evidence Requirements`, `Evidence Limits`, `Release Readiness`, and `Open Questions`. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. When the baseline is approved, `Source References` records its Baseline ID and immutable target hash. Every checklist item carries `Check ID`, `Severity: P0 | P1 | P2 | P3`, `Release Effect: blocking | advisory`, applicability, source, evidence, and rationale. Every usability validation item additionally carries `JOB-*`, `UC-*`, representative user group, task, device/viewport, success criterion, evidence status, result `passed | blocked | deferred | not applicable`, and rationale. Every visual-DoD item additionally carries `Baseline ID`, `Target Hash`, `Route`, `State`, `Viewport`, `Permitted Variance`, and `Result: passed | blocked | advisory`. `Release Readiness` must conclude with exactly `passed` or `blocked`, with blockers named when blocked. List omitted optional sections in the Final Report.
+Required contract sections are `Source References`, `Product Acceptance`, `Screen And State Checks`, `Heuristic Usability Checks`, `UX/UI Checks`, `Evidence Requirements`, `Evidence Limits`, `Release Readiness`, and `Open Questions`. Optional sections may be omitted when sources give them no content. Required sections may use a single line `Not applicable: <reason>` only when the reason is source-backed. Never fill a section to satisfy the template. When the baseline is approved, `Source References` records its Baseline ID and immutable target hash. Every checklist item carries `Check ID`, `Severity: P0 | P1 | P2 | P3`, `Release Effect: blocking | advisory`, applicability, source, evidence, and rationale. Every heuristic and UX/UI item additionally carries `Heuristic: H1-H10`, `Task`, `User Group`, `JOB-*`/`UC-*` when applicable, `Route`, `State`, `Viewport`, `Expected Behavior`, `Evidence`, `Finding`, `Severity`, `Release Effect`, and `Recommendation`; applicable error/recovery items also carry the canonical `cause -> what was preserved -> next action -> retry/undo option -> condition for successful completion` contract. Every usability validation item additionally carries `JOB-*`, `UC-*`, representative user group, task, device/viewport, success criterion, `Validation Timing: pre-approval | post-implementation | both`, evidence status, result `passed | blocked | deferred | not applicable`, and rationale. Every visual-DoD item additionally carries `Baseline ID`, `Target Hash`, `Route`, `State`, `Viewport`, `Permitted Variance`, and `Result: passed | blocked | advisory`. `Release Readiness` must conclude with exactly `passed` or `blocked`, with blockers named when blocked. List omitted optional sections in the Final Report.
 
 ```markdown
 # QA Checklist
@@ -142,6 +152,8 @@ Required contract sections are `Source References`, `Product Acceptance`, `Scree
 ## Product Acceptance
 
 ## User Journey Checks
+
+## Heuristic Usability Checks
 
 ## Usability Validation Checks
 
@@ -177,6 +189,7 @@ Return:
 - `Result`
 - `Created/Updated File`
 - `Confirmed Facts And Constraints`
+- `Confirmed Heuristic Findings And Evidence`
 - `Omitted Optional Sections`, if any
 - `Open Questions`
 - `Next Recommended Action`

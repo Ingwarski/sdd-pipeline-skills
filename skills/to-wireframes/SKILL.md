@@ -26,6 +26,7 @@ Read:
 - `docs/user-journey.md`
 - `docs/screen-map.md`
 - `docs/guardrails.md`
+- `skills/to-sdd-pipeline/references/heuristic-usability-review.md`, for the shared error/recovery contract when error states are applicable
 
 Use confirmed relevant platform, viewport, localization, content, and vocabulary constraints from the context bundle. Do not copy descriptive context, promote assumptions to facts, invent screen structure from context alone, or override the screen map. Record only the exact sections or terms consumed when pipeline provenance is requested.
 
@@ -44,6 +45,7 @@ Do not modify unrelated files.
 - content zones and repeated blocks
 - state variants per screen
 - interaction notes needed to understand layout behavior
+- structural error and recovery contract for applicable failure states
 
 Wireframes may reference `JOB-*` and `UC-*` IDs from upstream artifacts, but they do not redefine the job, use-case paths, or product requirements.
 
@@ -70,6 +72,7 @@ The final product goal is high-quality UX/UI design. This artifact supports that
 - Use this separation priority inside wireframes: spacing, grouping, alignment, and hierarchy first; simple dividers second; subtle surface tint third; borders fourth; shadows last.
 - Do not default to a whole-app card, nested cards, or card-heavy layouts unless sources require it.
 - Include complete structural states: default, loading, empty, error, success, disabled, permission-denied, offline, and long-content where relevant.
+- For every applicable error or recovery state, specify the canonical sequence `cause -> what was preserved -> next action -> retry/undo option -> condition for successful completion`. If one element is not applicable, record the source-backed reason.
 - Keep realistic content slots. Avoid lorem ipsum as a decision substitute.
 
 ## Gap-Check
@@ -82,6 +85,7 @@ Before writing, verify that sources identify:
 - priority of blocks when space is constrained
 - whether an existing design system or component set must be respected
 - expected interactivity depth for the later implementation
+- error cause, preserved user work, next action, retry/undo behavior, and observable success condition for each applicable failure state
 
 If block priority, CTAs, forms, or state behavior are missing or contradictory, ask only when the unresolved answer materially changes product scope or a high-risk boundary. Otherwise choose the smallest reversible structure that satisfies the screen map and journey, record it, and continue.
 
@@ -90,15 +94,16 @@ If block priority, CTAs, forms, or state behavior are missing or contradictory, 
 2. Use `docs/screen-map.md` as the source for screens and states.
 3. Preserve the applicable `JOB-*`, `UC-*`, journey-stage, and screen-map references.
 4. For each screen, define purpose, user intent, content hierarchy, CTAs, inputs, and state variants.
-5. Keep wireframes low-fidelity and structural.
-6. Define responsive structural behavior only where it affects content priority or interaction.
-7. Preserve traceability to PRD requirements, user journey stages, and screen-map entries.
-8. Avoid adding features, screens, fields, or flows outside approved sources.
-9. Before writing the artifact, verify the planned content:
+5. For each applicable error/recovery state, define `cause -> what was preserved -> next action -> retry/undo option -> condition for successful completion`.
+6. Keep wireframes low-fidelity and structural.
+7. Define responsive structural behavior only where it affects content priority or interaction.
+8. Preserve traceability to PRD requirements, user journey stages, and screen-map entries.
+9. Avoid adding features, screens, fields, or flows outside approved sources.
+10. Before writing the artifact, verify the planned content:
    - Every load-bearing claim traces to a named source file or an explicit user answer, or it is moved to `Open Questions`.
    - No content belongs to another artifact's ownership per the Artifact Boundary.
    - No placeholder text and no generic filler written to satisfy the template.
-10. Create or update only `docs/wireframes.md`.
+11. Create or update only `docs/wireframes.md`.
 
 ## Required Output Structure
 Use this structure:
@@ -139,6 +144,7 @@ For each screen blueprint include:
 - `Secondary Actions`
 - `Inputs And Content`
 - `States`
+- `Error And Recovery Contract`, for applicable error/recovery states: `cause -> what was preserved -> next action -> retry/undo option -> condition for successful completion`
 - `Notes For Design Brief`
 
 ## Final Report
