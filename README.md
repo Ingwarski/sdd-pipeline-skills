@@ -14,6 +14,7 @@ The user-facing repository name is **SDD Pipeline Skills**.
 ## Version Notes
 
 - [Version 2.0 — Design Quality Update](VERSION-2.0.md)
+- [Student Prompt — Updating the Skills](STUDENT-SKILL-UPDATE-PROMPT.md)
 
 The rename changes the repository label and transport location only. Agents must continue calling the existing skill names; no compatibility alias or duplicate skill is needed.
 
