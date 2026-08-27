@@ -17,14 +17,14 @@ mkdir -p "$publisher/scripts" "$test_root/bin"
 cp "$repo_root/update.sh" "$publisher/update.sh"
 cp "$repo_root/scripts/retired-skills.sh" "$publisher/scripts/retired-skills.sh"
 cp "$repo_root/retired-skills.txt" "$publisher/retired-skills.txt"
-printf '%s\n' '#!/usr/bin/env bash' 'exit 99' > "$publisher/install.sh"
+printf '%s\n' '#!/usr/bin/env bash' '[[ "$1" == --retire-only ]] || exit 99' > "$publisher/install.sh"
 git -C "$publisher" init --quiet --initial-branch=main
 git -C "$publisher" add -- update.sh install.sh scripts/retired-skills.sh retired-skills.txt
 git -C "$publisher" -c user.name='SDD tests' -c user.email='sdd-tests@example.invalid' commit --quiet -m initial
 git clone --quiet --bare "$publisher" "$remote"
 git clone --quiet "$remote" "$checkout"
 git -C "$checkout" remote set-url origin https://github.com/Ingwarski/sdd-pipeline-skills.git
-printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" new "$@" > "$SDD_UPDATE_TEST_RESULT"' > "$publisher/install.sh"
+printf '%s\n' '#!/usr/bin/env bash' '[[ "$1" != --retire-only ]] || exit 0' 'printf "%s\n" new "$@" > "$SDD_UPDATE_TEST_RESULT"' > "$publisher/install.sh"
 git -C "$publisher" add -- install.sh
 git -C "$publisher" -c user.name='SDD tests' -c user.email='sdd-tests@example.invalid' commit --quiet -m updated
 git -C "$publisher" push --quiet "$remote" main
@@ -115,4 +115,13 @@ for install_root in "$student_codex" "$student_claude"; do
   [[ -f "$install_root/to-sdd-pipeline/SKILL.md" ]]
 done
 [[ ! -e "$SDD_SKILL_BACKUP_DIR" ]]
+
+# Untracked retired copies inside the clone must not block their own removal.
+mkdir -p "$student/skills/communications-audit" "$student/.agents/skills/issue-happypro-certificate"
+printf local-copy > "$student/skills/communications-audit/SKILL.md"
+printf local-copy > "$student/.agents/skills/issue-happypro-certificate/SKILL.md"
+PATH="$test_root/bin:$PATH" bash "$student/update.sh" --all --codex-dir "$student_codex" --claude-dir "$student_claude" > "$test_root/source-cleanup.log"
+[[ ! -e "$student/skills/communications-audit" && ! -e "$student/.agents/skills/issue-happypro-certificate" ]]
+[[ -z "$(git -C "$student" status --porcelain)" ]]
+grep -q 'permanently-deleted=2' "$test_root/source-cleanup.log"
 printf '%s\n' 'Updater tests passed: fresh installer, flags, dirty tree, branch, origin, old URL, ahead/diverged history.'

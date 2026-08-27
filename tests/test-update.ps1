@@ -38,7 +38,12 @@ try {
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'update.ps1') -Destination (Join-Path $Publisher 'update.ps1')
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/retired-skills.ps1') -Destination (Join-Path $Publisher 'scripts/retired-skills.ps1')
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'retired-skills.txt') -Destination (Join-Path $Publisher 'retired-skills.txt')
-    Set-Content -LiteralPath (Join-Path $Publisher 'install.ps1') -Value 'throw "Old installer must not run"'
+    $OldStub = @(
+        'param([switch]$RetireOnly, [switch]$Codex, [switch]$All, [string]$CodexDir, [string]$ClaudeDir)',
+        'if (-not $RetireOnly) { throw "Old installer must not install" }',
+        'exit 0'
+    )
+    Set-Content -LiteralPath (Join-Path $Publisher 'install.ps1') -Value $OldStub
     Test-Git $Publisher @('init','--quiet','--initial-branch=main')
     Test-Git $Publisher @('add','--','update.ps1','install.ps1','scripts/retired-skills.ps1','retired-skills.txt')
     Commit-Fixture $Publisher initial
@@ -48,7 +53,8 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) 'Fixture checkout failed.'
     Test-Git $Checkout @('remote','set-url','origin','https://github.com/Ingwarski/sdd-pipeline-skills.git')
     $Stub = @(
-        'param([switch]$Repair, [switch]$Codex)',
+        'param([switch]$Repair, [switch]$Codex, [switch]$RetireOnly, [switch]$All, [string]$CodexDir, [string]$ClaudeDir)',
+        'if ($RetireOnly) { exit 0 }',
         'if (-not $Repair -or -not $Codex) { throw "Installer flags were not forwarded" }',
         'Set-Content -LiteralPath $env:SDD_UPDATE_TEST_RESULT -Value new',
         'exit 0'
@@ -132,6 +138,16 @@ try {
         Assert-True (Test-Path -LiteralPath (Join-Path $Root 'to-sdd-pipeline/SKILL.md')) 'SDD was not installed.'
     }
     Assert-True (-not (Test-Path -LiteralPath $env:SDD_SKILL_BACKUP_DIR)) 'Student update created a backup.'
+    foreach ($Relative in @('skills/communications-audit', '.agents/skills/issue-happypro-certificate')) {
+        $Copy = Join-Path $Student $Relative
+        New-Item -ItemType Directory -Path $Copy -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $Copy 'SKILL.md') -Value local-copy
+    }
+    & (Join-Path $Student 'update.ps1') -All -CodexDir $StudentRoots[0] -ClaudeDir $StudentRoots[1]
+    Assert-True ($LASTEXITCODE -eq 0) 'Source copies blocked their own retirement.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $Student 'skills/communications-audit'))) 'Source copy remains.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $Student '.agents/skills/issue-happypro-certificate'))) 'Repo-local copy remains.'
+    Assert-True ([string]::IsNullOrWhiteSpace(((Test-Git $Student @('status','--porcelain')) -join "`n"))) 'Student checkout is not clean.'
     Write-Host 'Windows updater tests passed.'
 } finally {
     Remove-Item -Path Function:git -ErrorAction SilentlyContinue

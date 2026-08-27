@@ -222,10 +222,11 @@ For an older clone without these files, first fast-forward it with
 `git pull --ff-only`, then run the updater. The [student prompt](STUDENT-SKILL-UPDATE-PROMPT.md)
 guides an agent through that first update.
 
-The updater verifies the GitHub origin and `main` branch, refuses local edits or
-unpublished/diverging commits, fast-forwards, and executes the newly downloaded
-installer with repair enabled. It does not reset Git history or discard unrelated
-work; permanent deletion of the two retired skill folders is intentional. Use
+The updater verifies the GitHub origin and `main` branch, permanently removes the
+two retired names, then checks for unrelated local edits or unpublished/diverging
+commits. It fast-forwards and runs the newly downloaded installer with repair
+enabled. Retirement can finish even if a later Git check stops the update. It does
+not reset Git history or discard unrelated work. Use
 `--codex` / `--claude` or `-Codex` / `-Claude` to select one agent.
 
 ### Retired business skills
@@ -242,6 +243,10 @@ both names from the managed skill folders.
 
 The exact deletion list is [retired-skills.txt](retired-skills.txt). Other skill
 names are not retired, and all 13 SDD skill names and behavior remain unchanged.
+For cleanup without installing or changing SDD links, run `./install.sh --all
+--retire-only` or `.\install.ps1 -All -RetireOnly` with the same destination and
+cleanup-directory options. The updater uses this mode before its local-change
+check, so untracked retired copies inside the clone cannot block their removal.
 
 Cleanup covers this clone's `skills/`, its selected agents' repo-local skill
 folders, and the selected personal agent roots. Default Codex discovery includes

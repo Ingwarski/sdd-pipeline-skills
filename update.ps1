@@ -32,6 +32,12 @@ $Origin = Invoke-UpdateGit -Arguments @('remote', 'get-url', 'origin')
 if (-not (Test-RetiredSddOrigin $Origin)) { throw 'Origin is not the expected SDD GitHub repository; stopped.' }
 $Branch = Invoke-UpdateGit -Arguments @('symbolic-ref', '--quiet', '--short', 'HEAD')
 if ($Branch -cne 'main') { throw 'Update requires main; your current checkout is unchanged.' }
+$CleanupArgs = @{ RetireOnly=$true }
+foreach ($Key in $PSBoundParameters.Keys) {
+    if ($Key -ne 'Help') { $CleanupArgs[$Key] = $PSBoundParameters[$Key] }
+}
+& (Join-Path $RepoRoot 'install.ps1') @CleanupArgs
+if ($LASTEXITCODE -ne 0) { throw 'Retirement cleanup failed; update stopped.' }
 $Status = (Invoke-UpdateGit -Arguments @('status', '--porcelain', '--untracked-files=normal')) -join "`n"
 if (-not [string]::IsNullOrWhiteSpace($Status)) { throw 'Local changes exist; commit or preserve them before updating.' }
 

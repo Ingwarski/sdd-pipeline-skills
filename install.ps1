@@ -5,6 +5,7 @@ param(
     [switch]$Claude,
     [switch]$Repair,
     [switch]$Uninstall,
+    [switch]$RetireOnly,
     [string]$CodexDir,
     [string]$ClaudeDir,
     [string[]]$RetiredSource = @(),
@@ -18,7 +19,7 @@ $CodexDirExplicit = -not [string]::IsNullOrWhiteSpace($CodexDir) -or -not [strin
 if ($Repair -and $Uninstall) {
     throw '--Repair and --Uninstall cannot be used together.'
 }
-if ($Uninstall -and ($RetiredSource.Count -gt 0 -or $CleanupDir.Count -gt 0)) {
+if ($Uninstall -and ($RetireOnly -or $RetiredSource.Count -gt 0 -or $CleanupDir.Count -gt 0)) {
     throw 'Retirement options apply to install/update, not -Uninstall.'
 }
 
@@ -127,6 +128,13 @@ function Get-FrontmatterValue([string[]]$Lines, [string]$Key) {
         }
     }
     return ''
+}
+
+if ($RetireOnly) {
+    . (Join-Path $RepoRoot 'scripts/retired-skills.ps1')
+    Initialize-RetiredCleanup
+    Invoke-RetiredCleanup
+    exit 0
 }
 
 $SourceFailures = 0

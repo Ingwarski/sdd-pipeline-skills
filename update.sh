@@ -22,6 +22,8 @@ update_sdd() {
   retired_known_sdd_origin "$origin" || { printf 'Origin is not the expected SDD GitHub repository; stopped.\n' >&2; return 1; }
   branch=$(git -C "$repo_root" symbolic-ref --quiet --short HEAD || true)
   [[ "$branch" == main ]] || { printf 'Update requires main; your current checkout is unchanged.\n' >&2; return 1; }
+  # Delete only the retired names before checking unrelated local Git changes.
+  bash "$repo_root/install.sh" --retire-only "$@"
   status=$(git -C "$repo_root" status --porcelain --untracked-files=normal)
   [[ -z "$status" ]] || { printf 'Local changes exist; commit or preserve them before updating.\n' >&2; return 1; }
   git -C "$repo_root" fetch --quiet origin main

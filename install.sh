@@ -11,6 +11,7 @@ want_claude=1
 platform_selected=0
 repair=0
 uninstall=0
+retire_only=0
 codex_dir=""
 claude_dir=""
 codex_dir_explicit=0
@@ -23,7 +24,7 @@ usage() {
   printf '%s\n' \
     "Install the SDD pipeline skills as directory symlinks to this clone." \
     "" \
-    "Usage: ./install.sh [--all|--codex|--claude] [--repair|--uninstall]" \
+    "Usage: ./install.sh [--all|--codex|--claude] [--repair|--uninstall|--retire-only]" \
     "                    [--codex-dir PATH] [--claude-dir PATH]" \
     "                    [--retired-source OLD_CLONE] [--cleanup-dir SKILL_ROOT]" \
     "" \
@@ -66,6 +67,10 @@ while [[ $# -gt 0 ]]; do
       uninstall=1
       shift
       ;;
+    --retire-only)
+      retire_only=1
+      shift
+      ;;
     --codex-dir)
       [[ $# -ge 2 ]] || { printf 'Missing value for --codex-dir\n' >&2; exit 2; }
       codex_dir=$2
@@ -105,7 +110,7 @@ if [[ $repair -eq 1 && $uninstall -eq 1 ]]; then
   exit 2
 fi
 
-if [[ $uninstall -eq 1 && ( $retired_source_count -gt 0 || $retired_extra_count -gt 0 ) ]]; then
+if [[ $uninstall -eq 1 && ( $retire_only -eq 1 || $retired_source_count -gt 0 || $retired_extra_count -gt 0 ) ]]; then
   printf '%s\n' 'Retirement options apply to install/update, not --uninstall.' >&2
   exit 2
 fi
@@ -165,6 +170,13 @@ actual_count=$(manifest_entries | awk 'END { print NR + 0 }')
 if [[ -z "$expected_count" || "$actual_count" -ne "$expected_count" ]]; then
   printf 'Manifest count mismatch: expected=%s parsed=%s\n' "${expected_count:-missing}" "$actual_count" >&2
   exit 1
+fi
+
+if [[ $retire_only -eq 1 ]]; then
+  source "$repo_root/scripts/retired-skills.sh"
+  retired_prepare
+  retired_apply
+  exit 0
 fi
 
 preflight_failures=0

@@ -23,6 +23,8 @@ For an explicit install, update, repair, or uninstall request:
 6. Report deletion errors and remaining paths as failures, never completed cleanup.
    Retirement may finish even if a separate conflict blocks SDD link installation.
    The installer also deletes its former retirement backups for the selected roots.
+   `--retire-only` / `-RetireOnly` runs deletion without installing SDD links;
+   the updater uses it before checking for unrelated local Git changes.
 7. On Windows, allow the installer's symbolic-link to NTFS-junction fallback.
 8. Rerun installation to verify idempotence. Check all 13 installed `SKILL.md`
    files and the absence of both retired names. Report the revision, roots,
