@@ -1,6 +1,17 @@
-# Codex SDD Skills
+# SDD Pipeline Skills
 
 This repository contains reusable Codex and Claude Code skills. Its core is a design-first SDD pipeline for moving from a rough product description or trusted existing idea through a visible Product Idea Intake, explicit Jobs To Be Done and product use cases, a coherent pre-design specification, formal H1-H10 heuristic review, exactly three runnable prototype candidates, one whole-design approval, representative-user validation of applicable critical flows, and implementation planning for a production frontend and backend. It also contains bounded standalone workflows such as communications audits and certificate issuance.
+
+## Repository Identity
+
+The user-facing repository name is **SDD Pipeline Skills**.
+
+- GitHub repository: `Ingwarski/sdd-pipeline-skills`
+- Local clone directory: `SDD Pipeline Skills`
+- Stable skill invocation names: `to-product-idea`, `to-sdd-prd`, `to-sdd-pipeline`, and the other existing `to-*` names
+- Stable machine contract: `skills-manifest.json`, `skill_set: sdd-pipeline`, output paths, installer options, and the 13-skill manifest remain unchanged
+
+The rename changes the repository label and transport location only. Agents must continue calling the existing skill names; no compatibility alias or duplicate skill is needed.
 
 The skills are designed for **SDD - Specification Driven Development**. They are not a TDD workflow and they are not generic prompt templates. Every domain artifact has exactly one owner, and every owner invocation is confined to its declared output boundary. Most owners create one artifact; `to-project-context` is the explicit cohesive two-file bundle owner. `to-sdd-pipeline` owns only the machine-readable orchestration manifest and invokes or re-invokes artifact owners autonomously.
 
@@ -119,7 +130,7 @@ Clone this repository and run its installer. The installer creates directory lin
 An unskilled user should open Codex or Claude Code, paste the prompt below, and let the agent perform and verify the installation. The repository's `AGENTS.md` and `CLAUDE.md` give both agents the same safety contract.
 
 ```text
-Install the complete SDD skill set from https://github.com/Ingwarski/codex-skills for local Codex and local Claude Code.
+Install the complete SDD skill set from https://github.com/Ingwarski/sdd-pipeline-skills for local Codex and local Claude Code.
 
 If this workspace is not already a durable Git clone of that repository, clone it under my normal Projects directory; do not use a temporary, cache, or download directory. If a durable clone already exists, verify its origin and update it only by a clean fast-forward; preserve local changes and stop instead of overwriting them. Then read the repository's AGENTS.md or CLAUDE.md, the README Installation section, and skills-manifest.json.
 
@@ -144,7 +155,7 @@ Windows PowerShell:
 
 Nontechnical users can double-click `Install Skills.command` on macOS or `Install Skills.cmd` on Windows. Both launch the same platform installer and install the complete 13-skill SDD set for local Codex and local Claude Code.
 
-The source of every link is always this repository clone. For example, if Windows cloned the repository to `C:\Users\Alex\Projects\codex-skills`, the Claude Code link is `%USERPROFILE%\.claude\skills\to-sdd-pipeline -> C:\Users\Alex\Projects\codex-skills\skills\to-sdd-pipeline`. Codex uses `$HOME/.agents/skills` by default. Existing installations that already use `$CODEX_HOME/skills` or the legacy `$HOME/.codex/skills` continue there. Override detection with `CODEX_SKILLS_DIR`, `CLAUDE_SKILLS_DIR`, `--codex-dir`/`--claude-dir`, or `-CodexDir`/`-ClaudeDir`.
+The source of every link is always this repository clone. For example, if Windows cloned the repository to `C:\Users\Alex\Projects\sdd-pipeline-skills`, the Claude Code link is `%USERPROFILE%\.claude\skills\to-sdd-pipeline -> C:\Users\Alex\Projects\sdd-pipeline-skills\skills\to-sdd-pipeline`. Codex uses `$HOME/.agents/skills` by default. Existing installations that already use `$CODEX_HOME/skills` or the legacy `$HOME/.codex/skills` continue there. Override detection with `CODEX_SKILLS_DIR`, `CLAUDE_SKILLS_DIR`, `--codex-dir`/`--claude-dir`, or `-CodexDir`/`-ClaudeDir`.
 
 Windows first attempts a true directory symbolic link. When local policy blocks that operation, it creates an NTFS directory junction instead. Both remain links to the clone; neither copies skill contents.
 
