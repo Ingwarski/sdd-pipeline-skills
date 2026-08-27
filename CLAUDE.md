@@ -1,16 +1,32 @@
 # Repository Agent Instructions
 
-This repository owns only the 13 SDD skills in `skills-manifest.json`.
-Standalone skills belong to `Ingwarski/custom-agent-skills`; preserve that
-collection's links and `.custom-agent-skills-source` receipt.
+This repository owns the 13 SDD skills in `skills-manifest.json`. The two business
+skills in `retired-skills.tsv` are retired from SDD, not from independently owned
+Custom Agent Skills installations.
 
-When the user asks to install, update, repair, or uninstall this repository's SDD skills:
+For an explicit install, update, repair, or uninstall request:
 
-1. Read `README.md` Installation and `skills-manifest.json`.
-2. Detect the operating system and use the repository installer: `install.sh` on macOS/Linux or `install.ps1` on Windows. Do not recreate link logic manually and never copy skill directories.
-3. Default to both local Codex and local Claude Code unless the user scopes the request to one.
-4. Preserve every real file/directory and every link not owned by this repository. Stop and explain an exact conflict instead of overwriting it.
-5. On Windows, allow `install.ps1` to fall back from a directory symbolic link to an NTFS directory junction.
-6. Run the installer a second time to verify idempotence, validate all 13 installed `SKILL.md` files through their destination paths, and report source root, destination roots, link types, conflicts, and any restart needed.
+1. Read the README Installation and Updating and cleanup sections, the manifest,
+   and the retirement policy.
+2. Use repository scripts: `install.sh` / `install.ps1` for installation or
+   repair; `update.sh` / `update.ps1` for updates. For old clones without an
+   updater, bootstrap with a clean fast-forward, then run it. Never reset, discard
+   local work, or recreate link/cleanup logic manually.
+3. Default to both local Codex and Claude Code unless scoped. Never install the
+   private business collection as part of an SDD update.
+4. Preserve active-name conflicts, unrelated skills (including `to-prd`),
+   independently owned business links, and `.custom-agent-skills-source`.
+   Only the retirement helper may automatically remove proven old SDD links or
+   move whole-copy fingerprint matches into recovery storage.
+5. Inspect and report uncertain/modified retirement candidates. Do not guess
+   ownership from a folder name or call cleanup complete with unresolved paths.
+   Use `--retired-source` / `-RetiredSource` only for a confirmed old SDD clone;
+   use `--cleanup-dir` / `-CleanupDir` for additional known installation roots.
+6. On Windows, permit the installer's symbolic-link to NTFS-junction fallback.
+7. Run the installer again for idempotence. Verify all 13 installed `SKILL.md`
+   files, retirement results, preserved independent installs, and backup paths.
+   Report source/destination roots, revision, link types, unresolved cases, and
+   any reload needed.
 
-Do not install merely because the repository was opened. Installation requires an explicit user request.
+Do not install merely because the repository was opened. Each user must
+explicitly opt in to any scheduled updater.

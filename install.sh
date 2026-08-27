@@ -13,6 +13,11 @@ repair=0
 uninstall=0
 codex_dir=""
 claude_dir=""
+codex_dir_explicit=0
+retired_sources=()
+retired_source_count=0
+retired_extra_roots=()
+retired_extra_count=0
 
 usage() {
   printf '%s\n' \
@@ -20,6 +25,7 @@ usage() {
     "" \
     "Usage: ./install.sh [--all|--codex|--claude] [--repair|--uninstall]" \
     "                    [--codex-dir PATH] [--claude-dir PATH]" \
+    "                    [--retired-source OLD_CLONE] [--cleanup-dir SKILL_ROOT]" \
     "" \
     "With no platform flag, both Codex and Claude Code are installed."
 }
@@ -61,11 +67,23 @@ while [[ $# -gt 0 ]]; do
     --codex-dir)
       [[ $# -ge 2 ]] || { printf 'Missing value for --codex-dir\n' >&2; exit 2; }
       codex_dir=$2
+      codex_dir_explicit=1
       shift 2
       ;;
     --claude-dir)
       [[ $# -ge 2 ]] || { printf 'Missing value for --claude-dir\n' >&2; exit 2; }
       claude_dir=$2
+      shift 2
+      ;;
+    --retired-source|--cleanup-dir)
+      [[ $# -ge 2 && "$2" == /* ]] || { printf 'An absolute path is required for %s\n' "$1" >&2; exit 2; }
+      if [[ "$1" == --retired-source ]]; then
+        retired_sources[retired_source_count]=$2
+        retired_source_count=$((retired_source_count + 1))
+      else
+        retired_extra_roots[retired_extra_count]=$2
+        retired_extra_count=$((retired_extra_count + 1))
+      fi
       shift 2
       ;;
     --help|-h)
@@ -85,6 +103,11 @@ if [[ $repair -eq 1 && $uninstall -eq 1 ]]; then
   exit 2
 fi
 
+if [[ $uninstall -eq 1 && ( $retired_source_count -gt 0 || $retired_extra_count -gt 0 ) ]]; then
+  printf '%s\n' 'Retirement options apply to install/update, not --uninstall.' >&2
+  exit 2
+fi
+
 if [[ ! -f "$manifest_path" ]]; then
   printf 'Missing manifest: %s\n' "$manifest_path" >&2
   exit 1
@@ -93,6 +116,7 @@ fi
 if [[ -z "$codex_dir" ]]; then
   if [[ -n "${CODEX_SKILLS_DIR:-}" ]]; then
     codex_dir=$CODEX_SKILLS_DIR
+    codex_dir_explicit=1
   elif [[ -n "${CODEX_HOME:-}" ]]; then
     codex_dir="$CODEX_HOME/skills"
   elif [[ -d "${HOME:?HOME is required}/.codex/skills" && ! -d "$HOME/.agents/skills" ]]; then
@@ -343,6 +367,12 @@ install_root() {
   fi
 }
 
+if [[ $uninstall -eq 0 ]]; then
+  source "$repo_root/scripts/retired-skills.sh"
+  retired_prepare
+  retired_apply
+fi
+
 if [[ $want_codex -eq 1 ]]; then
   install_root "$codex_dir" 'Codex      '
 fi
@@ -358,7 +388,7 @@ if [[ $post_failures -ne 0 ]]; then
 fi
 
 if [[ $uninstall -eq 0 ]]; then
-  printf '%s\n' 'Skills are linked to this clone; future git pulls update them in place.'
+  printf '%s\n' 'Skills are linked to this clone. Use ./update.sh for updates and retirement cleanup.'
   printf '%s\n' 'Codex normally discovers new skills automatically. Restart only if they do not appear.'
   printf '%s\n' 'Claude Code reloads SKILL.md changes live; restart if its top-level skills directory was created during this session.'
 fi

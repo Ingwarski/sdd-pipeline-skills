@@ -6,14 +6,20 @@ param(
     [switch]$Repair,
     [switch]$Uninstall,
     [string]$CodexDir,
-    [string]$ClaudeDir
+    [string]$ClaudeDir,
+    [string[]]$RetiredSource = @(),
+    [string[]]$CleanupDir = @()
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$CodexDirExplicit = -not [string]::IsNullOrWhiteSpace($CodexDir) -or -not [string]::IsNullOrWhiteSpace($env:CODEX_SKILLS_DIR)
 
 if ($Repair -and $Uninstall) {
     throw '--Repair and --Uninstall cannot be used together.'
+}
+if ($Uninstall -and ($RetiredSource.Count -gt 0 -or $CleanupDir.Count -gt 0)) {
+    throw 'Retirement options apply to install/update, not -Uninstall.'
 }
 
 if ($All -or (-not $Codex -and -not $Claude)) {
@@ -309,6 +315,12 @@ function Install-Root([string]$InstallRoot, [string]$ToolLabel) {
     }
 }
 
+if (-not $Uninstall) {
+    . (Join-Path $RepoRoot 'scripts/retired-skills.ps1')
+    Initialize-RetiredCleanup
+    Invoke-RetiredCleanup
+}
+
 if ($Codex) { Install-Root $CodexDir 'Codex' }
 if ($Claude) { Install-Root $ClaudeDir 'Claude Code' }
 
@@ -318,7 +330,8 @@ if ($PostFailures -ne 0) {
 }
 
 if (-not $Uninstall) {
-    Write-Host 'Skills are linked to this clone; future git pulls update them in place.'
+    Write-Host 'Skills are linked to this clone. Use .\update.ps1 for updates and retirement cleanup.'
     Write-Host 'Codex normally discovers new skills automatically. Restart only if they do not appear.'
     Write-Host 'Claude Code reloads SKILL.md changes live; restart if its top-level skills directory was created during this session.'
 }
+exit 0

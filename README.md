@@ -25,15 +25,15 @@ Each collection has its own `skills-manifest.json` and installation receipt:
 - Custom Agent Skills: 2 skills; `.custom-agent-skills-source`.
 
 A receipt records the source clone so the installer can repair only its own
-links. Update each clone separately with `git pull --ff-only`. Neither installer
-manages the other collection or changes third-party/plugin-managed skills.
+links. Update each collection separately. Neither installer manages the other
+collection or changes third-party/plugin-managed skills.
 There is no submodule or runtime dependency between the repositories.
 
 Existing student SDD installations keep the same GitHub address, installer
-commands, and skill names. If standalone links still point to the former combined
-clone, use the Custom Agent Skills installer's documented `--migrate-from` /
-`-MigrateFrom` option with that exact old clone path. The SDD installer does not
-migrate standalone skills. Agents can still use other installed skills when needed.
+commands, and skill names. The SDD updater removes accidental business-skill
+installations from the former combined repository; it does not install the private
+business collection for students. Deliberate, independently owned installations
+remain available. See [Updating and cleanup](#updating-and-cleanup).
 
 ## Version Notes
 
@@ -151,7 +151,7 @@ If one artifact needs information from another, it should cite or reference that
 
 ## Installation
 
-Clone this repository and run its installer. The installer creates directory links from each Codex or Claude Code personal skill location to the corresponding directory under this clone; it never copies a skill directory. A later `git pull` therefore updates the installed skills in place.
+Clone this repository and run its installer. It creates directory links from each agent's skill location to this clone; it never copies a skill directory. Use `update.sh` or `update.ps1` for later updates so retired installations are cleaned up too. A plain `git pull` updates linked content but does not clean old installed links or copies.
 
 ### Recommended agent-assisted installation
 
@@ -162,7 +162,7 @@ Install the complete SDD skill set from https://github.com/Ingwarski/sdd-pipelin
 
 If this workspace is not already a durable Git clone of that repository, clone it under my normal Projects directory; do not use a temporary, cache, or download directory. If a durable clone already exists, verify its origin and update it only by a clean fast-forward; preserve local changes and stop instead of overwriting them. Then read the repository's AGENTS.md or CLAUDE.md, the README Installation section, and skills-manifest.json.
 
-Detect my operating system and run the repository-provided installer: install.sh on macOS/Linux or install.ps1 on Windows. Do not recreate the link logic manually and never copy skill directories. Preserve existing real directories and links owned by another source. In particular, keep any unrelated skill named to-prd; this repository's PRD owner is to-sdd-prd. On Windows, let the installer use a directory junction if a true symbolic link is unavailable.
+Detect my operating system and run the repository-provided installer: install.sh on macOS/Linux or install.ps1 on Windows. For an existing clean main checkout, prefer update.sh or update.ps1. Do not recreate link logic manually or copy skill directories. Let the installer remove proven old SDD-owned business-skill links and archive fingerprint-matched copies outside active skill folders. Preserve modified or uncertain copies and independent installations; report unresolved cleanup instead of claiming success. In particular, keep any unrelated skill named to-prd; this repository's PRD owner is to-sdd-prd. On Windows, allow the directory-junction fallback.
 
 Install all 13 SDD skills for both tools, run the installer a second time to prove it is idempotent, and verify every installed SKILL.md through its destination path. Report the durable clone path, Codex and Claude Code destination roots, link type used, 13/13 validation result, preserved conflicts, and whether either tool needs a restart. Ask me only if a real conflict or permission boundary remains after the installer has exhausted its safe fallback.
 ```
@@ -187,7 +187,7 @@ The source of every link is always this repository clone. For example, if Window
 
 Windows first attempts a true directory symbolic link. When local policy blocks that operation, it creates an NTFS directory junction instead. Both remain links to the clone; neither copies skill contents.
 
-The installers are idempotent and preflight all sources and destinations before changing anything. A matching link is left unchanged; a real directory, file, or link to another source is reported as a conflict and is never overwritten. `--repair`/`-Repair` may replace only links recorded by a prior run of this installer. `--uninstall`/`-Uninstall` removes only links owned by this clone.
+The installers are idempotent and preflight all sources and destinations before changing skills. A matching active link is unchanged; a real directory, file, or foreign link occupying an active SDD name is a conflict and is never overwritten. The separate retirement rules below handle the two accidental business skills. `--repair`/`-Repair` replaces only links recorded by a prior installer run. `--uninstall`/`-Uninstall` removes only active SDD links owned by this clone; retirement options apply to installation and updates.
 
 The SDD PRD owner is named `to-sdd-prd` so it can coexist with third-party skills named `to-prd`, including older Matt Pocock installations. During migration, the installer removes `to-prd` only when it is an old symlink to this repository. Any unrelated `to-prd` is preserved.
 
@@ -204,6 +204,79 @@ Install only one local agent when needed:
 ```
 
 Moving or deleting the clone breaks its links. Re-run the installer from the new clone with `--repair` or `-Repair`; the installer uses its prior source receipt to replace only links it owns. These personal filesystem links apply to local Codex and Claude Code sessions, not remote/cloud sessions that cannot read the user's local disk.
+
+## Updating and cleanup
+
+From a clean `main` checkout, run:
+
+```bash
+./update.sh --all
+```
+
+```powershell
+.\update.ps1 -All
+```
+
+Or double-click `Update Skills.command` on macOS / `Update Skills.cmd` on Windows.
+For an older clone without these files, first fast-forward it with
+`git pull --ff-only`, then run the updater. The [student prompt](STUDENT-SKILL-UPDATE-PROMPT.md)
+guides an agent through that first update.
+
+The updater verifies the GitHub origin and `main` branch, refuses local edits or
+unpublished/diverging commits, fast-forwards, and executes the newly downloaded
+installer with repair enabled. It never resets or discards local work. Use
+`--codex` / `--claude` or `-Codex` / `-Claude` to select one agent.
+
+### Retired business skills
+
+`communications-audit` and `issue-happypro-certificate` were accidentally included
+in the old SDD repository. Every install/repair/update now checks for them:
+
+- Remove links proven to belong to the current or recorded former SDD clone,
+  including broken links. A verified old Git origin or SDD manifest also identifies
+  an existing former source.
+- Remove unchanged copied installations from active folders by moving them to
+  `$HOME/.sdd-pipeline/retired-skills/`. The printed backup path and
+  `original-path.txt` allow recovery; nothing in the copy is discarded.
+- Identify copies using the complete file inventory and hashes in
+  `retired-skills.tsv`. A hash is a content fingerprint. Both original and Windows
+  line endings are recognized; matching only `SKILL.md` is not enough.
+- Preserve independent Custom Agent Skills installations and their receipt.
+  Never install that private collection as part of an SDD update.
+- Stop with `REVIEW REQUIRED` for modified copies or unproven ownership. No skill
+  changes are made during that run; resolve the reported paths before claiming
+  cleanup is complete.
+
+Cleanup covers this clone's `skills/` folder and the selected agent roots. Default
+Codex discovery also checks existing `.agents/skills`, legacy `.codex/skills`, and
+`$CODEX_HOME/skills`. Explicit destination overrides limit cleanup to those roots.
+Other project copies are not searched across the whole computer: add each known
+skill root with `--cleanup-dir PATH` (repeatable) or `-CleanupDir PATH1,PATH2`.
+
+If a broken link's former clone is missing and no receipt proves its origin,
+confirm that exact absolute clone path with `--retired-source PATH` (repeatable)
+or `-RetiredSource PATH1,PATH2`. Folder names alone do not prove ownership.
+These options are also accepted by the updater. `SDD_SKILL_BACKUP_DIR` can select
+another recovery location outside all skill folders.
+
+This removes active accidental installations, not historical Git objects, other
+branches, forks, backups, or undisclosed copies. A GitHub push cannot erase files
+on a machine that has not run the update.
+
+### Automatic updates
+
+This repository installs no scheduler, Git hook, background agent, or automatic
+network check. Pushing to GitHub does not update other machines by itself.
+
+Automatic updates are possible after each user opts in once to a local scheduled
+task that runs the updater. A daily or between-session check is preferable to
+changing skills during a running task. For a classroom rollout, use tested
+versions and preserve an opt-out; a tested-release channel is a future addition,
+not part of the current updater, which follows `main`.
+
+After files arrive locally, Codex detects local skill changes and follows skill
+links; restart it if the update is not visible. That local reloading is different
+from downloading GitHub changes. See [official skill documentation](https://developers.openai.com/codex/skills/).
 
 ## How To Use
 
