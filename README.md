@@ -2,16 +2,17 @@
 
 13 skills for Codex and Claude Code that turn product intent into specifications, reviewed design and a development plan. SDD means **Specification-Driven Development**: agree what to build first; tests verify it rather than define it.
 
-Start from a rough description or a trusted existing idea. The pipeline asks only material unanswered questions, compares three interactive designs, obtains one whole-design approval, and stops before production implementation.
-
 ## Quick start
 
-1. Install the complete skill set below.
+1. [Install the complete skill set](#installation).
 2. Open your product project and ask: `Use to-sdd-pipeline for this project.`
-3. Answer focused product questions and approve one complete design.
-4. After the development plan is ready, send a **separate explicit prompt** to start production implementation.
+3. Answer focused product questions and share existing design references when asked.
+4. The pipeline prepares the initial SDD documents. When prompted, choose **Codex or Claude Design** for prototyping.
+5. Compare the **three interactive whole-product prototypes**, request revisions if needed, then approve one complete version. See [design review and handoff](#design-and-usability) for the tool-specific steps.
+6. After approval, the pipeline records the baseline, reconciles architecture, completion rules and QA, then creates `docs/development-plan.md` and pauses.
+7. To start production implementation, send a **new, separate explicit prompt after that pause**.
 
-An existing `docs/product-idea.md` is optional. Coherent existing intent is validated without a redundant interview. `to-product-idea` can also be called directly for discovery.
+Start with a rough description or an existing `docs/product-idea.md`; coherent intent is validated without a redundant interview.
 
 During product-idea intake, share design references once: website/app links, screenshots, colors, fonts, brand guides or HTML mockups with their assets. Attach files to your prompt or put them in `docs/design-inputs/` **inside your product repository**, not this skills repository; an existing folder is also fine. “None yet” or “later” is valid. The idea records source notes; the design brief owns the full inventory and design decisions. References are not design approval.
 
@@ -44,15 +45,15 @@ See [installation instructions](docs/installation.md) for the agent-assisted pro
 
 For a first update from `Codex Skills` / `Codex SDD Skills` or the old GitHub address, use the current Ukrainian [student update prompt](STUDENT-SKILL-UPDATE-PROMPT.md). Later, use the updater above. **A plain Git pull does not perform cleanup.**
 
-The updater removes the two accidentally distributed business-skill names from scoped skill folders, checks for unrelated local Git changes, fast-forwards clean `main`, then runs the freshly downloaded installer. Cleanup can finish even when an unrelated Git/link conflict later stops the update.
+The updater removes the two accidentally distributed names in [retired-skills.txt](retired-skills.txt) from scoped skill folders, checks for unrelated local Git changes, fast-forwards clean `main`, then runs the freshly downloaded installer. Cleanup can finish even when an unrelated Git/link conflict later stops the update.
 
-The exact list is [retired-skills.txt](retired-skills.txt). Removal is permanent, includes edited copies/links and matching former updater backups, and creates no backup, archive, relocation or Trash copy. Other skills are not retirement targets. Extra project/old-clone roots require explicit `--cleanup-dir` / `-CleanupDir`; no whole-disk scan or link-target traversal. See [full scope and failure rules](docs/installation.md#retired-business-skills).
+Removal is permanent, includes edited copies/links and matching former updater backups, and creates no backup, archive, relocation or Trash copy. Other skills are not retirement targets. Extra project/old-clone roots require explicit `--cleanup-dir` / `-CleanupDir`; no whole-disk scan or link-target traversal. See [full scope and failure rules](docs/installation.md#retired-business-skills).
 
 No scheduler, Git hook or background updater is installed. GitHub pushes cannot update another machine without that user's local update or explicit scheduling opt-in.
 
 ## Repository identity
 
-The repository is **SDD Pipeline Skills**, at `Ingwarski/sdd-pipeline-skills`. The earlier address was `Ingwarski/codex-skills`. Agent invocation names, output paths, the 13-skill manifest, `skill_set: sdd-pipeline` and installation receipt `.codex-sdd-skills-source` remain stable. Use `to-sdd-prd`; unrelated third-party `to-prd` skills may coexist.
+The earlier GitHub address was `Ingwarski/codex-skills`. Agent invocation names, output paths, the 13-skill manifest, `skill_set: sdd-pipeline` and installation receipt `.codex-sdd-skills-source` remain stable. Use `to-sdd-prd`; unrelated third-party `to-prd` skills may coexist.
 
 Non-SDD custom skills live separately in the private [Custom Agent Skills](https://github.com/Ingwarski/custom-agent-skills) repository, with independent installation records. SDD does not depend on or install that collection; scoped retirement affects the two installed names, not the private source repository.
 
@@ -91,16 +92,14 @@ Owners remain callable individually. The caller checks required inputs, validate
 
 - `JOB-*` captures **why** users act: situation, progress, outcome, alternatives and conditions.
 - `UC-*` captures **how the product responds**: actor, trigger, paths, failures/recovery and completion.
-- Later documents reference these IDs instead of copying their definitions.
 - Wireframes define structure; design and experience “spines” define reusable appearance and behavior rules. Existing systems, accessibility, responsiveness, realistic states and product-specific choices remain required.
 - The shared [Nielsen Norman H1-H10 contract](skills/to-sdd-pipeline/references/heuristic-usability-review.md) covers usability systematically, including novice/expert efficiency (H7), contextual help (H10) and recoverable errors.
 - Error guidance follows: **cause → what was preserved → next action → retry/undo → observable success**.
-- Visual fidelity, heuristic review, representative-user validation, accessibility and functional testing are distinct evidence classes. A good-looking prototype does not prove task success or completed functionality.
 - High-risk flows plan user validation before approval where feasible; any deferral remains an explicit risk, never fabricated research.
 
-Codex shows three local candidates in the external browser. With explicitly selected Claude Design, the pipeline first verifies access to every required source, compares three tool-native candidates, then imports and opens only the selected version. A Claude selection is not the final design approval. [Handoff details](skills/to-sdd-pipeline/references/claude-design-handoff.md).
+Codex shows three local candidates in the external browser. With explicitly selected Claude Design, the pipeline first verifies access to every required source, compares three tool-native candidates, then imports and opens only the selected version. Selecting in Claude chooses the export; approve the complete design only after reviewing the imported version in Codex. [Handoff details](skills/to-sdd-pipeline/references/claude-design-handoff.md).
 
-The design brief remains the sole approved-baseline authority. Frozen candidates, earlier approvals and accepted overrides are preserved; a revision rechecks affected architecture, gates, QA and planning without adding another type of approval.
+Frozen candidates, earlier approvals and accepted overrides are preserved; a revision rechecks affected architecture, gates, QA and planning without adding another type of approval.
 
 ## Product security requirements
 
@@ -108,15 +107,17 @@ Security authoring is part of `to-sdd-prd`, not a fourteenth skill or a separate
 
 The complete ASVS 5.0.0 catalog is bundled with an offline, standard-library Python reader and [source pins/licensing](skills/to-sdd-prd/references/owasp/NOTICE.md). No paid security subscription, API key or network request is required. Windows, macOS and Linux use the existing Python prerequisite. Only the PRD owner reads relevant catalog sections; other owners reference the resulting requirement IDs.
 
-Architecture maps those requirements to controls; DoD defines the required security gate; QA prepares concrete checks; the development plan maps implementation and verification work. [Security traceability records](skills/to-sdd-pipeline/references/security-contract.md) prevent declared requirements from disappearing downstream. The checker verifies records and IDs, not the adequacy of a threat model or protection against every future attack.
+Architecture maps those requirements to controls; DoD defines the required security gate; QA prepares concrete checks; the development plan maps implementation and verification work. [Security traceability records](skills/to-sdd-pipeline/references/security-contract.md) prevent declared requirements from disappearing downstream.
 
-When behavior, permissions, data exposure or integrations change, reassess affected PRD obligations before synchronizing design and downstream documents. Purely visual changes reuse unaffected security requirements. Existing projects receive the missing assessment through their document owners; preserve their valid content, IDs and design history.
+When behavior, permissions, data exposure or integrations change, reassess affected PRD obligations before synchronizing design and downstream documents. Purely visual changes reuse unaffected security requirements.
 
 No security scans run during documentation authoring. Product implementation, actual security verification and ongoing maintenance remain separately authorized work.
 
 ## Checks, evidence and safe continuation
 
 A prepared checklist means **checks prepared; tests not run**. Definition status and execution status are separate. Release is not evaluated during ordinary planning; an actual release evaluation passes only with required evidence and no open blocking findings.
+
+Visual fidelity, heuristic review, representative-user validation, accessibility and functional testing need distinct evidence. A good-looking prototype does not prove task success or completed functionality.
 
 `to-dod-evals` defines the gates; an authorized reviewer/test harness/runner executes them; QA records results; the orchestrator tracks them. Severity and release effect are separate, using the canonical P0–P3 rules. [Verification contract](skills/to-sdd-pipeline/references/verification-contract.md).
 
@@ -126,9 +127,9 @@ The included read-only checker verifies stage prerequisites, owners, document/so
 python3 skills/to-sdd-pipeline/scripts/sdd_check.py --project /path/to/product --before development-plan
 ```
 
-Agents resolve the checker from the installed skill directory, not the product folder. Older projects retain their documents and history while verified metadata is added. Missing evidence remains a blocker. [Checker schema and migration](skills/to-sdd-pipeline/references/manifest-contract.md).
+Agents resolve the checker from the installed skill directory, not the product folder. Older projects retain valid documents, IDs and history; their owners supply missing assessments, including security, before verified metadata is recorded. Missing required evidence remains a blocker. [Checker schema and migration](skills/to-sdd-pipeline/references/manifest-contract.md).
 
-The checker validates records; it cannot prove research authenticity or replace semantic review. Skills require it before advancement, but **hard enforcement in a separate DAS Forge runner requires that runner to call it and enforce its exit code**. This repository does not contain or modify that runner.
+The checker validates records and IDs, not research authenticity or the adequacy of security controls. It cannot replace semantic review or guarantee protection against future attacks. Skills require it before advancement, but **hard enforcement in a separate DAS Forge runner requires that runner to call it and enforce its exit code**. This repository does not contain or modify that runner.
 
 After the plan validates, `awaiting-implementation-prompt` remains mandatory. Approval, automatic resume and a generic “continue” do not authorize production work.
 
@@ -143,8 +144,5 @@ Detailed conditional guidance lives in shared references. The reproducible [main
 ## Further reading
 
 - [Version 2.0 design-quality note](VERSION-2.0.md) — historical summary.
-- [Student update prompt, Ukrainian](STUDENT-SKILL-UPDATE-PROMPT.md).
-- [Installation and cleanup](docs/installation.md).
-- [Maintaining and testing this repository](docs/maintenance.md).
 - [Audit prompt](claude-code-skill-audit-prompt.md).
 - [Authoring provenance](skills/to-sdd-pipeline/references/authoring-sources.md) — historical influences, not product truth.
