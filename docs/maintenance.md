@@ -76,7 +76,7 @@ Current measurements include design-materials intake and the OWASP procedure, se
 
 | Scenario | Before | After | Reduction |
 |---|---:|---:|---:|
-| First setup, including one retry; 18 invocations | 96,945 | 92,263 | 4.83% |
+| First setup, including one retry; 18 invocations | 96,945 | 92,338 | 4.75% |
 | Approved-design revision, including one retry; 7 invocations | 49,810 | 47,725 | 4.19% |
 | Interrupted Claude resume, including one retry; 7 invocations | 57,903 | 57,247 | 1.13% |
 
