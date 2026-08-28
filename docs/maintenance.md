@@ -72,15 +72,15 @@ On Windows use `.venv-token-check\Scripts\python.exe`. The encoder may download 
 
 Baseline: `e5d6ab9df4502cf6babc76e273602ecbd66881f0`; tokenizer: `tiktoken 0.14.0`, `o200k_base`. [Fixed fixtures](../tests/fixtures/token-scenarios.json) use identical seeds and invocation sequences for old/new instructions. Every invocation includes its complete applicable shared/conditional references, the machine contract where consulted, and listed retries. No caching discount is assumed.
 
-The measurements below precede the OWASP integration and include the design-materials intake request and its handoff guidance; refresh them from the instruction-budget check before publishing a completed update.
+Current measurements include design-materials intake and the OWASP procedure, security records and downstream instructions.
 
 | Scenario | Before | After | Reduction |
 |---|---:|---:|---:|
-| First setup, including one retry; 18 invocations | 96,945 | 80,283 | 17.19% |
-| Approved-design revision, including one retry; 7 invocations | 49,810 | 41,576 | 16.53% |
-| Interrupted Claude resume, including one retry; 7 invocations | 57,903 | 51,023 | 11.88% |
+| First setup, including one retry; 18 invocations | 96,945 | 92,263 | 4.83% |
+| Approved-design revision, including one retry; 7 invocations | 49,810 | 47,725 | 4.19% |
+| Interrupted Claude resume, including one retry; 7 invocations | 57,903 | 57,247 | 1.13% |
 
-The 13 entrypoint files alone shrink from 44,084 to 14,106 tokens (68.00%), but **the smaller whole-scenario percentages are the meaningful comparison** because shared text still costs tokens when loaded. Run without `--summary` to inspect every counted file. `--check` fails if any measured budget ceases to improve on the recorded baseline.
+The 13 entrypoint files alone shrink from 44,084 to 14,894 tokens (66.21%), but **the smaller whole-scenario percentages are the meaningful comparison** because shared text still costs tokens when loaded. Run without `--summary` to inspect every counted file. `--check` fails if any measured budget ceases to improve on the recorded baseline.
 
 These are deterministic **instruction-load budgets**, not live-agent benchmarks. They do not measure generated-document savings, actual retry frequency, tool output, model quality, cached-token billing or total end-to-end cost. Concise document rules are enforced as authoring guidance; real project runs are still needed to measure their practical effect.
 
