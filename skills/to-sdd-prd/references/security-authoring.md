@@ -37,6 +37,8 @@ For each applicable control, determine whether the PRD already addresses it, nee
 
 Add or strengthen existing FR/NFR obligations with the affected UC/surface, security outcome, exact ASVS reference and observable acceptance criterion. Keep a shared control in one requirement and link all affected use cases. A security tag or section does not replace stable requirement IDs. Split independently testable obligations rather than hiding them behind one vague parent requirement.
 
+If a control needs an unconfirmed user-facing capability, check whether an already-scoped provider supplies it; otherwise record the gap and return the scope decision to `to-product-idea`. Do not silently add the feature, waive the control, or mark the assessment complete while that material decision is unresolved. Unverified technical configuration alone remains an architecture decision, not proof of compliance.
+
 Review relevant exposure, including:
 
 - Injection, untrusted rendering/deserialization, file handling and server-side fetches; do not equate input validation alone with injection prevention.
