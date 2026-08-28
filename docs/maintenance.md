@@ -16,7 +16,7 @@ SDD still determines what to build; QA verifies it. A validated plan still ends 
 
 ## OWASP security integration
 
-The existing PRD owner now applies a [reviewed OWASP procedure](../skills/to-sdd-prd/references/security-authoring.md), using the bundled, version-pinned ASVS 5.0.0 catalog. Architecture, DoD, QA and the development plan preserve the same security requirement IDs through their existing documents. UX/design owners route security-relevant changes upstream; visual-only changes can retain unaffected requirements. No new skill, document, approval stage, paid service or automatic security scan is added. Cisco Skill Scanner remains separate.
+The existing PRD owner now applies a [reviewed OWASP procedure](../skills/to-sdd-prd/references/security-authoring.md), using the bundled, version-pinned ASVS 5.0.0 catalog. Architecture, DoD, QA and the development plan preserve the same security requirement IDs through their existing documents. UX/design owners route security-relevant changes upstream; visual-only changes can retain unaffected requirements. No new skill, document, approval stage, paid service or automatic security scan is added.
 
 The [security contract](../skills/to-sdd-pipeline/references/security-contract.md) defines owner-return metadata and the required `product_security_requirements` gate. The read-only checker verifies catalog integrity, real control IDs, owned references, downstream coverage and implementation-level evidence. Missing legacy assessments need owner review, not invented history. Documentation completeness is not product security verification or ASVS certification.
 

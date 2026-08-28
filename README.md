@@ -112,7 +112,7 @@ Architecture maps those requirements to controls; DoD defines the required secur
 
 When behavior, permissions, data exposure or integrations change, reassess affected PRD obligations before synchronizing design and downstream documents. Purely visual changes reuse unaffected security requirements. Existing projects receive the missing assessment through their document owners; preserve their valid content, IDs and design history.
 
-No security scans run during documentation authoring. **Cisco Skill Scanner remains a separate, optional maintenance tool and is not integrated or installed.** Product implementation, actual security verification and ongoing maintenance remain separately authorized work.
+No security scans run during documentation authoring. Product implementation, actual security verification and ongoing maintenance remain separately authorized work.
 
 ## Checks, evidence and safe continuation
 

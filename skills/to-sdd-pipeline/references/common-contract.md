@@ -28,7 +28,7 @@ For every SDD document and report:
 
 ## Product security
 
-The PRD's adopted OWASP baseline supplies protective requirements within confirmed product scope, not new features or permission to change business intent. Each later owner preserves applicable security IDs and adds only its local consequences. Changes to actors, data, privileges, inputs, integrations or consequential actions return to the PRD owner when obligations change; visual styling alone does not trigger a full security rewrite. Never weaken a control to match a mockup or claim that document validation proves security. No Cisco dependency, automatic scan or paid security service is added.
+The PRD's adopted OWASP baseline supplies protective requirements within confirmed product scope, not new features or permission to change business intent. Each later owner preserves applicable security IDs and adds only its local consequences. Changes to actors, data, privileges, inputs, integrations or consequential actions return to the PRD owner when obligations change; visual styling alone does not trigger a full security rewrite. Never weaken a control to match a mockup or claim that document validation proves security. No automatic scan or paid security service is added.
 
 ## Questions and autonomy
 
