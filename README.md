@@ -102,6 +102,18 @@ Codex shows three local candidates in the external browser. With explicitly sele
 
 The design brief remains the sole approved-baseline authority. Frozen candidates, earlier approvals and accepted overrides are preserved; a revision rechecks affected architecture, gates, QA and planning without adding another type of approval.
 
+## Product security requirements
+
+Security authoring is part of `to-sdd-prd`, not a fourteenth skill or a separate approval stage. The [reviewed OWASP procedure](skills/to-sdd-prd/references/security-authoring.md) assesses the intended product's exposure, applies relevant ASVS controls and writes testable security requirements into the existing PRD. ASVS means **Application Security Verification Standard**; it supplies secure-development requirements, not a scanner or certification.
+
+The complete ASVS 5.0.0 catalog is bundled with an offline, standard-library Python reader and [source pins/licensing](skills/to-sdd-prd/references/owasp/NOTICE.md). No paid security subscription, API key or network request is required. Windows, macOS and Linux use the existing Python prerequisite. Only the PRD owner reads relevant catalog sections; other owners reference the resulting requirement IDs.
+
+Architecture maps those requirements to controls; DoD defines the required security gate; QA prepares concrete checks; the development plan maps implementation and verification work. [Security traceability records](skills/to-sdd-pipeline/references/security-contract.md) prevent declared requirements from disappearing downstream. The checker verifies records and IDs, not the adequacy of a threat model or protection against every future attack.
+
+When behavior, permissions, data exposure or integrations change, reassess affected PRD obligations before synchronizing design and downstream documents. Purely visual changes reuse unaffected security requirements. Existing projects receive the missing assessment through their document owners; preserve their valid content, IDs and design history.
+
+No security scans run during documentation authoring. **Cisco Skill Scanner remains a separate, optional maintenance tool and is not integrated or installed.** Product implementation, actual security verification and ongoing maintenance remain separately authorized work.
+
 ## Checks, evidence and safe continuation
 
 A prepared checklist means **checks prepared; tests not run**. Definition status and execution status are separate. Release is not evaluated during ordinary planning; an actual release evaluation passes only with required evidence and no open blocking findings.

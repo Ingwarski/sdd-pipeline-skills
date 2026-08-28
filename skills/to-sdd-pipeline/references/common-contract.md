@@ -26,6 +26,10 @@ For every SDD document and report:
 - Reuse check IDs and shared scope records rather than repeating route/state/viewport metadata. Every linked field must remain resolvable; concision is not ambiguity.
 - For revisions, report changes, evidence, open risks, and next action; do not restate the whole artifact. Return omitted optional sections only when that matters to coverage.
 
+## Product security
+
+The PRD's adopted OWASP baseline supplies protective requirements within confirmed product scope, not new features or permission to change business intent. Each later owner preserves applicable security IDs and adds only its local consequences. Changes to actors, data, privileges, inputs, integrations or consequential actions return to the PRD owner when obligations change; visual styling alone does not trigger a full security rewrite. Never weaken a control to match a mockup or claim that document validation proves security. No Cisco dependency, automatic scan or paid security service is added.
+
 ## Questions and autonomy
 
 Ask only about a genuinely non-inferable decision that materially changes product scope or a high-risk boundary. Walk one relevant decision branch at a time. Ask one question with a recommended answer, rationale, source basis (or explicit absence), and downstream consequences. After the answer, briefly confirm the decision and consequences.

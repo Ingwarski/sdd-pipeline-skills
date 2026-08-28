@@ -48,6 +48,8 @@ Every named material has one entry; every entry has a use. An unavailable **requ
 
 ## Approval and reconciliation
 
+Classify proposed changes by security impact before accepting them into the baseline. Changed roles, sharing, data visibility, inputs, integrations or sensitive actions require affected PRD obligations to be reassessed and upstream owners reconciled first. Styling-only changes preserve security requirements and need no full PRD rerun. A design approval cannot waive a security control; simulated authentication/authorization is never product-security evidence.
+
 Before approval, the baseline section is `Status: proposed`. Only the engineer's whole-design approval in Codex makes one exact candidate/version authoritative. A Claude selection only chooses what to export.
 
 On approval, atomically record: Baseline ID; selected candidate/version; origin and handoff ID; immutable target reference/hash; frozen normalized prototype source root/tree hash with `sdd-tree-sha256-v1`; durable prototype paths; visual-DoD scope; screen/state/viewport coverage; operator approval receipt/time; permitted variance; overrides and supersession.

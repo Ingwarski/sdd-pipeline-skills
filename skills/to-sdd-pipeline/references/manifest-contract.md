@@ -84,6 +84,8 @@ Before generation, the checker validates these individual records, not just tota
 
 ## Verification index
 
+The [security traceability contract](security-contract.md) defines `artifacts.prd.security_review`, downstream `security_coverage`, and the required `product_security_requirements` gate/check mappings. Record only actual owner returns bound to current document hashes. Missing records require assessment/reconciliation through those owners, not a fabricated historical review or a new approval step.
+
 `verification` is a compact projection from QA/DoD owner returns, bound by `source_hashes` to both current documents. Definitions and results stay canonical in those documents.
 
 | Record | Checker fields |

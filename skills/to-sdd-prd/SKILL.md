@@ -26,7 +26,7 @@ Do not create detailed journeys, screens/states, layouts, visual systems/baselin
 2. Define the user problem, solution/workflow, actors, product boundary and observable success.
 3. Map every material `JOB-*` to one or more `UC-*` product use cases; record unresolved relationships explicitly.
 4. Write stable sequential user stories: As a <role>, I want <capability>, so that <outcome>. Cover the boundary without duplicate filler.
-5. Keep FR/NFR IDs stable. Split each compound requirement into independently observable sub-obligations; a parent ID alone is not complete coverage.
+5. Keep FR/NFR IDs stable. Split each compound requirement into independently observable sub-obligations; a parent ID alone is not complete coverage. Apply the [OWASP security-authoring procedure](references/security-authoring.md) to the confirmed scope before completing requirements and acceptance criteria. Its pinned offline ASVS reference supplies security controls; it does not run scans or add another stage.
 6. Record only source-backed product-level implementation decisions. Architecture and build order remain downstream.
 7. Define observable test seams and minimum end-to-end acceptance scenarios. Prefer the highest practical external seam; tests verify the specification, not redefine it.
 8. Preserve source-backed design-first, autonomy, single whole-design approval, high-risk authorization and prototype-to-production trace rules. Static docs/prototypes do not prove runtime functionality.
@@ -49,4 +49,4 @@ No unsupported scope or empty template sections. State a source-backed reason wh
 
 ## Return
 
-Report file, source/clause coverage, changed product decisions and open questions. Follow the shared provenance contract. Next-owner metadata is advisory, not a continuation approval.
+Report file, source/clause coverage, changed product decisions, open questions and the procedure's `security_review` record. Reassess affected security obligations on behavior/data/authority changes; retain unaffected IDs on visual-only revisions. Follow the shared provenance contract. Next-owner metadata is advisory, not a continuation approval.

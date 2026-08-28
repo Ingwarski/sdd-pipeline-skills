@@ -26,6 +26,7 @@ Wireframes own each state's structure; the design brief owns shared appearance/b
 4. Define applicable states, including empty, loading, error, success, permission-denied, offline and long-content.
 5. Check **surface closure**: every journey stage has a supporting surface or an explicit non-screen explanation.
 6. Check **scope closure**: every surface/state traces to a PRD requirement or journey stage and applicable UC. Flag new scope; do not invent it.
+   Trace security-sensitive surfaces and denied/expired/recovery states to PRD obligations. New sharing, export, upload or privileged surfaces require upstream security reassessment, not a screen-only scope addition.
 7. Write a journey-to-screen trace; use a matrix for more than three screens and Mermaid `flowchart LR` only when useful.
 8. Validate coverage and write only the screen map.
 

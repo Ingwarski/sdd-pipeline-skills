@@ -24,6 +24,8 @@ Guardrails owns evidence policy; QA owns concrete checks and per-check results; 
 
 ## Workflow
 
+Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Define the required `product_security_requirements` gate for all PRD security obligations, with implementation evidence, failure and rerun rules. Source-confirmed exceptions must be resolved in the PRD, not silently downgraded by a gate. Reassess affected controls after security-relevant changes; return `security_coverage` and the gate's `security_requirement_ids`.
+
 1. Extract source acceptance outcomes and architecture-driven verification concerns; inspect existing executable verification surfaces without running gates.
 2. Separate acceptance criteria (specific expected behavior), standing DoD (finished-quality bar), concrete QA checks and implementation tasks.
 3. Define only source-supported profile tiers: hard gates, unit/system checks, UX/UI, evidence limits and release checks. Do not invent CI, tests, commands, comparison thresholds or merge policies.

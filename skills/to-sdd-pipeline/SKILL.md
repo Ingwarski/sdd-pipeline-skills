@@ -60,6 +60,8 @@ Post-approval labels are reconciliation passes of existing owners, not new skill
 
 ## Checker and provenance
 
+Read the [security traceability contract](references/security-contract.md) when recording PRD or downstream owner results. Persist the PRD's `security_review`, each affected owner's `security_coverage`, and security requirement/check/gate bindings without authoring their content. Missing legacy assessment returns to the PRD owner; new roles, data exposure or trust-boundary changes return upstream before design reconciliation. Styling-only revisions preserve unaffected security obligations. Cisco remains an independent tool, never a pipeline stage or dependency.
+
 Read [manifest/checker contract](references/manifest-contract.md) when initializing, migrating or updating metadata. Use the installed `scripts/sdd_check.py` (Python 3.9+, no external packages):
 
 ```text

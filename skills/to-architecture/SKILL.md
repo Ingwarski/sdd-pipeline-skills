@@ -14,6 +14,8 @@ Optional grounding: README, explicit decisions, authoritative product idea when 
 
 The design brief may be proposed during initial authoring. After whole-design approval or a baseline revision, recheck architecture against the exact approved baseline before DoD, QA and planning continue. This is technical reconciliation, not design approval.
 
+Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Map every PRD security obligation to concrete enforcement, data/trust boundaries, configuration or operational ownership; frontend visibility alone is not enforcement. Name unresolved technical control decisions without claiming a scan or certification.
+
 ## Output and ownership
 
 Write only `docs/architecture.md`. Own system context, module/service boundaries, data/state ownership, integrations, runtime/automation, source-backed stack constraints, configuration/bindings/build outputs, security/privacy/access, performance/reliability/observability, decisions and risks.
@@ -43,4 +45,4 @@ Add runtime/automation, security/access, performance/observability, stack constr
 
 ## Return
 
-Report file, changed or revalidated decisions, clause/configuration coverage, observations, baseline binding when applicable, and unresolved risks. No commits, README edits or repository synchronization inside this owner. [Authoring provenance](../to-sdd-pipeline/references/authoring-sources.md) is optional historical background, not a runtime input.
+Report file, changed or revalidated decisions, clause/configuration coverage, observations, baseline binding when applicable, unresolved risks and `security_coverage`. No commits, README edits or repository synchronization inside this owner. [Authoring provenance](../to-sdd-pipeline/references/authoring-sources.md) is optional historical background, not a runtime input.

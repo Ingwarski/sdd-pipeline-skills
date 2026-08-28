@@ -33,6 +33,8 @@ Reference the screen map's state inventory and upstream JOB/UC behavior. Do not 
 7. Use realistic content slots. Preserve CTA/intent traceability to JOB/UC, journey stage and screen-state IDs. Define responsive structure only where content priority or interaction changes.
 8. Check scope, structural coverage and recoverability; write only the wireframes.
 
+Preserve PRD security obligations in sensitive forms, confirmations, disclosure and denied/recovery states. A disabled or hidden control is presentation, not authorization. Route any structural change that alters permissions, exposed data or consequential actions upstream before synchronizing it.
+
 Prototype scope means whole-product **design coverage**, not production implementation. Typography, visual mood, tokens and final styling remain downstream.
 
 ## Artifact coverage

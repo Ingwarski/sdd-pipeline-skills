@@ -13,6 +13,10 @@ from datetime import datetime
 
 
 CONTRACT = Path(__file__).resolve().parent.parent / "references/pipeline-contract.json"
+ASVS_CATALOG = Path(__file__).resolve().parents[2] / "to-sdd-prd/references/owasp/ASVS-5.0.0.json"
+ASVS_CATALOG_SHA256 = "bcdbec214d70abcfad9284a31d4f9e5134305831d628aad3aa85d7e26626cb35"
+SECURITY_GATE = "product_security_requirements"
+SECURITY_OWNERS = {"architecture", "dod-evals", "qa-checklist", "development-plan"}
 HASH_RE = re.compile(r"^(?:sha256:)?([0-9a-fA-F]{64})$")
 EXECUTION_STATES = {"not_run", "passed", "failed", "blocked", "deferred", "not_applicable"}
 GATE_KINDS = {
@@ -119,6 +123,11 @@ def timestamp(value):
     return parsed
 
 
+def contains_id(text, value):
+    return isinstance(value, str) and bool(value) and bool(
+        re.search(r"(?<![\w.-])" + re.escape(value) + r"(?![\w-]|\.[\w])", text))
+
+
 def read_contract():
     contract = read_json(CONTRACT)
     nodes = {key: {"required_before": list(spec["required_before"]), "outputs": [key]}
@@ -171,6 +180,7 @@ class Checker:
             raise ValueError("artifacts must be an object")
         self.issues, self.warnings = [], []
         self.checked, self.affected = set(), set()
+        self.security_requirements = {}
 
     def issue(self, code, target, detail):
         item = {"code": code, "target": target, "detail": detail}
@@ -308,6 +318,118 @@ class Checker:
                             self.issue("stale_observation", key, str(error))
                     else:
                         self.snapshot(path, value, key, "stale_observation")
+
+        if key == "prd":
+            self.security_review(entry)
+        elif key in SECURITY_OWNERS:
+            self.security_coverage(entry, key)
+
+    def security_reference(self, reference, owner, identifier=None):
+        text = self.reference(reference, owner)
+        if self.reference_path(reference) != self.specs[owner]["path"] or (identifier and not contains_id(text, identifier)):
+            self.issue("security_reference", owner, "security reference must resolve its ID in the owner's document")
+        return text
+
+    def security_review(self, entry):
+        review = entry.get("security_review")
+        if not isinstance(review, dict):
+            self.issue("security_review_missing", "prd", "PRD owner must assess OWASP requirements; do not invent a historical review")
+            return
+        if type(review.get("version")) is not int or review["version"] != 1 or review.get("asvs_version") != "5.0.0":
+            self.issue("security_profile", "prd", "expected security record version 1 and ASVS 5.0.0")
+        scope, level = review.get("scope"), review.get("level")
+        if (scope == "web-api" and (type(level) is not int or level not in (1, 2, 3))) or (scope == "adapted" and level is not None) or scope not in ("web-api", "adapted"):
+            self.issue("security_profile", "prd", "web-api needs level 1-3; adapted scope must not claim an ASVS level")
+        text = self.security_reference(review.get("definition_ref"), "prd")
+        rationale = review.get("rationale")
+        if not isinstance(rationale, str) or not rationale.strip() or rationale not in text or "5.0.0" not in text:
+            self.issue("security_profile", "prd", "canonical security section needs the recorded rationale and standard version")
+        if review.get("status") != "complete":
+            self.issue("security_review_incomplete", "prd", "resolve material security specification gaps before advancement")
+        try:
+            if digest(ASVS_CATALOG.read_bytes()) != ASVS_CATALOG_SHA256:
+                raise ValueError("ASVS catalog does not match the reviewed pin; repair the skill resources")
+            catalog = read_json(ASVS_CATALOG)
+            if catalog.get("Version") != "5.0.0":
+                raise ValueError("expected bundled ASVS 5.0.0")
+            known = {"v5.0.0-" + item["Shortcode"][1:]
+                     for chapter in catalog["Requirements"] for section in chapter["Items"] for item in section["Items"]}
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            self.issue("security_catalog", "prd", str(error))
+            return
+        requirements = review.get("requirements")
+        if not isinstance(requirements, list) or not requirements:
+            self.issue("security_requirements", "prd", "explicit protective requirements are required")
+            return
+        for requirement in requirements:
+            if not isinstance(requirement, dict):
+                self.issue("security_requirements", "prd", "security requirement record must be an object")
+                continue
+            key = requirement.get("requirement_id")
+            if not isinstance(key, str) or not re.fullmatch(r"(?:FR|NFR)-[A-Za-z0-9][A-Za-z0-9_.-]*", key) or key in self.security_requirements:
+                self.issue("security_requirements", "prd", "unique existing FR/NFR obligation IDs required")
+                continue
+            self.security_requirements[key] = requirement
+            text = self.security_reference(requirement.get("definition_ref"), "prd", key)
+            ids = requirement.get("asvs_ids")
+            if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
+                self.issue("security_asvs_id", "prd", key + ": ASVS IDs must be a list of strings")
+                continue
+            if len(set(ids)) != len(ids) or any(item not in known or not contains_id(text, item) for item in ids):
+                self.issue("security_asvs_id", "prd", key + ": cite unique, real versioned controls in the canonical requirement")
+            if not ids:
+                rationale = requirement.get("rationale")
+                if not isinstance(rationale, str) or not rationale.strip() or rationale not in text:
+                    self.issue("security_supplement", "prd", key + ": supplemental controls need a canonical rationale")
+
+    def security_coverage(self, entry, owner):
+        if not self.security_requirements:
+            return
+        coverage = entry.get("security_coverage")
+        if not isinstance(coverage, dict) or set(coverage) != set(self.security_requirements):
+            self.issue("security_coverage", owner, "map every current PRD security obligation to this owner's local consequence")
+            return
+        for key, reference in coverage.items():
+            self.security_reference(reference, owner, key)
+
+    def security_verification(self, checks, gates):
+        if not self.security_requirements:
+            return
+        expected = set(self.security_requirements)
+        matches = [gate for gate in gates if gate.get("gate_id") == SECURITY_GATE]
+        if len(matches) != 1:
+            self.issue("security_gate", "dod-evals", "one required product_security_requirements gate must cover the PRD security obligations")
+            return
+        gate = matches[0]
+        ids = gate.get("security_requirement_ids")
+        if gate.get("active") is not True or gate.get("required") is not True or gate.get("applicability") != "applicable":
+            self.issue("security_gate", "dod-evals", "applicable security obligations cannot be inactive, advisory or excluded")
+        if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids) or len(set(ids)) != len(ids) or set(ids) != expected:
+            self.issue("security_gate_coverage", "dod-evals", "security gate must cover every current PRD security obligation")
+        text = self.reference(gate.get("definition_ref"), "dod-evals")
+        if any(not contains_id(text, key) for key in expected):
+            self.issue("security_gate_coverage", "dod-evals", "canonical security gate must cite its requirement IDs")
+        covered = set()
+        for check in checks:
+            if check.get("gate_id") != SECURITY_GATE:
+                continue
+            ids = check.get("security_requirement_ids")
+            if not isinstance(ids, list) or not ids or not all(isinstance(item, str) for item in ids):
+                self.issue("security_check_coverage", "qa-checklist", "each security check needs PRD security obligation IDs")
+                continue
+            if len(set(ids)) != len(ids) or set(ids) - expected:
+                self.issue("security_check_coverage", "qa-checklist", "unknown or duplicate security obligation IDs")
+            if check.get("check_id") not in gate.get("check_ids", []):
+                self.issue("security_check_coverage", "qa-checklist", "security check must be bound to the required gate")
+                continue
+            text = self.reference(check.get("definition_ref"), "qa-checklist")
+            if any(not contains_id(text, key) for key in ids):
+                self.issue("security_check_coverage", "qa-checklist", "canonical checks must cite their security obligation IDs")
+            if check.get("phase") not in ("implementation", "both") or check.get("execution_status") == "not_applicable":
+                self.issue("security_check_scope", "qa-checklist", "applicable product security needs implementation-level checks")
+            covered.update(ids)
+        if covered != expected:
+            self.issue("security_check_coverage", "qa-checklist", "concrete checks must cover every PRD security obligation")
 
     def bundle(self):
         keys = self.contract["context_bundle"]
@@ -502,7 +624,7 @@ class Checker:
                 for item in evidence:
                     self.snapshot(item.get("path"), item.get("content_hash"), "qa-checklist", "invalid_evidence")
                     kinds.add(item.get("kind"))
-                expected_kind = GATE_KINDS.get(check.get("gate_id"))
+                expected_kind = "security" if check.get("gate_id") == SECURITY_GATE else GATE_KINDS.get(check.get("gate_id"))
                 if expected_kind and expected_kind not in kinds:
                     self.issue("wrong_evidence_class", "qa-checklist", key + ": expected " + expected_kind)
                 evaluated = check.get("evaluated_source_hashes", {})
@@ -564,6 +686,8 @@ class Checker:
         for key in GATE_KINDS:
             if key not in gate_ids:
                 self.issue("missing_ui_gate", "dod-evals", key + ": declare applicable or source-backed not_applicable")
+        self.security_verification(checks, gates)
+
     def promotions(self, release=False):
         for record in self.manifest.get("prototype_promotions", []):
             if not release and not record.get("started_at"):

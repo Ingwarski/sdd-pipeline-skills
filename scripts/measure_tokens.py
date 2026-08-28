@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE = "e5d6ab9df4502cf6babc76e273602ecbd66881f0"
 SHARED = "skills/to-sdd-pipeline/references/"
 HEURISTIC_CONSUMERS = {"to-guardrails", "to-wireframes", "to-design-brief", "to-dod-evals", "to-qa-checklist", "to-development-plan", "to-sdd-pipeline"}
+SECURITY_CONSUMERS = {"to-sdd-prd", "to-architecture", "to-dod-evals", "to-qa-checklist", "to-development-plan", "to-sdd-pipeline"}
 
 
 def read_version(relative, revision):
@@ -27,6 +28,10 @@ def read_version(relative, revision):
 
 def resource_loads(skill, scenario, revision):
     paths = ["skills/" + skill + "/SKILL.md", SHARED + "common-contract.md"]
+    if skill in SECURITY_CONSUMERS:
+        paths.append(SHARED + "security-contract.md")
+    if skill == "to-sdd-prd":
+        paths.append("skills/to-sdd-prd/references/security-authoring.md")
     if skill in HEURISTIC_CONSUMERS:
         paths += [SHARED + "heuristic-usability-review.md", SHARED + "verification-contract.md"]
     if skill == "to-sdd-pipeline":

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -94,6 +95,15 @@ class InstallerInputTests(unittest.TestCase):
         (self.clone / "skills/to-wireframes/SKILL.md").write_text("# Not a valid skill\n", encoding="utf-8")
         self.assert_failed_without_mutation(self.install())
 
+    def test_missing_security_resources_stop_before_mutation(self):
+        for name in ("ASVS-5.0.0.json", "NOTICE.md", "LICENSE-ASVS.txt"):
+            path = self.clone / "skills/to-sdd-prd/references/owasp" / name
+            original = path.read_bytes()
+            with self.subTest(resource=name):
+                path.unlink()
+                self.assert_failed_without_mutation(self.install())
+                path.write_bytes(original)
+
     def test_missing_python_stops_before_mutation(self):
         fake_bin = self.root / "no-python"
         fake_bin.mkdir()
@@ -118,6 +128,11 @@ class InstallerInputTests(unittest.TestCase):
         before = {entry["name"]: (self.dest / entry["name"]).resolve() for entry in self.manifest["skills"]}
         self.assertEqual(0, self.install().returncode)
         self.assertEqual(before, {entry["name"]: (self.dest / entry["name"]).resolve() for entry in self.manifest["skills"]})
+        reader = self.dest / "to-sdd-prd/scripts/asvs.py"
+        result = subprocess.run([sys.executable, str(reader), "--ids", "v5.0.0-8.2.2"],
+                                cwd=self.unrelated_project, capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("v5.0.0-8.2.2", result.stdout)
 
 
 if __name__ == "__main__":

@@ -75,7 +75,13 @@ def validate_manifest(root, metadata_only=False):
     if not metadata_only:
         for relative in ("scripts/retired-skills.sh", "scripts/retired-skills.ps1",
                          "retired-skills.txt", "skills/to-sdd-pipeline/scripts/sdd_check.py",
-                         "skills/to-sdd-pipeline/references/pipeline-contract.json"):
+                         "skills/to-sdd-pipeline/references/pipeline-contract.json",
+                         "skills/to-sdd-pipeline/references/security-contract.md",
+                         "skills/to-sdd-prd/references/security-authoring.md",
+                         "skills/to-sdd-prd/scripts/asvs.py",
+                         "skills/to-sdd-prd/references/owasp/ASVS-5.0.0.json",
+                         "skills/to-sdd-prd/references/owasp/NOTICE.md",
+                         "skills/to-sdd-prd/references/owasp/LICENSE-ASVS.txt"):
             with (root / relative).open("rb") as stream:
                 stream.read(1)
     return rows

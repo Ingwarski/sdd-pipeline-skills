@@ -16,6 +16,8 @@ DoD authoring never executes gates. QA authoring never implies execution: it may
 
 ## Two independent statuses
 
+The required `product_security_requirements` gate maps every PRD security obligation to implementation-level QA evidence under the [security traceability contract](security-contract.md). It is distinct from visual, heuristic and representative-user gates. A mockup cannot satisfy it; unrun, failed, deferred or silently excluded applicable checks cannot support a security release claim.
+
 - `Definition Status: prepared | blocked`: can this check be executed as specified?
 - `Execution Status: not_run | passed | failed | blocked | deferred | not_applicable`: what actually happened?
 

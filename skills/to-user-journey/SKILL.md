@@ -26,6 +26,7 @@ Do not define routes or a screen inventory, internal layouts, visual style/token
 4. Name the value moment or central friction (`climax beat`), failure/recovery path and safe exits.
 5. Trace the journey to source requirements and JOB/UC IDs without copying their definitions. Add no unsupported persona, feature or goal.
 6. Check that the user can reach the stated success outcome and that every material source obligation is covered or an explicit open question.
+   Preserve applicable PRD security IDs in sensitive actions, permission failures and recovery; a changed flow cannot silently remove a required authorization or confirmation boundary.
 7. Write only the journey. Use a Mermaid journey diagram only when it clarifies the flow; keep the text understandable alone.
 
 A missing detail blocks only when it materially changes scope or a high-risk boundary; otherwise record the smallest reversible source-grounded interpretation.

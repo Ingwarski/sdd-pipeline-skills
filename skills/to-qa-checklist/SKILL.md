@@ -30,6 +30,8 @@ Planning output uses `Release Readiness: not_evaluated`. An explicitly requested
 
 ## Workflow
 
+Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Define positive and denied/adversarial checks for every PRD security obligation at the real enforcement seam, using architecture decisions. Bind them to `product_security_requirements` and return `security_coverage` plus per-check `security_requirement_ids`. Simulation alone cannot verify production controls. Preserve unchanged definitions; changed obligations invalidate affected results. Authoring still does not run tests or scanners.
+
 1. Inspect current sources and recheck any repository observations; source truth defines behavior, not discovered implementation drift.
 2. Before approval, prepare visual expectations against the proposed design with `Binding Status: pending_baseline`. After approval, use the reconciled architecture/DoD and bind visual checks to the active Baseline ID, immutable target hash and permitted variance.
 3. Create stable check IDs. Map each distinct requirement obligation, journey and screen-state to checks or explicit blockers; do not mistake a parent requirement ID for clause coverage.

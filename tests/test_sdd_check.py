@@ -29,13 +29,15 @@ class Project:
                          "design_execution": {"mode": "codex"},
                          "implementation_gate": {"state": "awaiting_implementation_prompt"}}
         for key in CONTRACT["artifacts"]:
-            self.write("docs/" + key + ".md", "# Synthetic fixture: " + key + "\n\n## Definition\nSource-backed fixture obligation.\n")
+            self.write("docs/" + key + ".md", "# Synthetic fixture: " + key + "\n\n## Definition\nSource-backed fixture obligation. NFR-02 implementation consequence.\n")
         self.write("docs/product-idea.md", "# Test product\n\n## Jobs\nJOB-01: compare options with confidence.\n")
-        self.write("docs/prd.md", "# Test requirements\n\n## Use cases\nUC-01 / FR-01: compare and safely retry.\n")
+        self.write("docs/prd.md", "# Test requirements\n\n## Use cases\nUC-01 / FR-01: compare and safely retry.\n\n"
+                   "## Security Requirements\nASVS 5.0.0. Synthetic production service.\n\n"
+                   "### NFR-02\nNFR-02: deny cross-user data access. v5.0.0-8.2.2.\n")
         self.write("docs/project-context.md", "# Контекст\n\n## Платформи\nМобільна й настільна версії.\n\n## Примітки\nОпис для прикладу.\n")
         gates = list(sdd.GATE_KINDS)
-        self.write("docs/dod-evals.md", "# Synthetic definitions\n\n## Gates\n" + "\n".join(gates) + "\n")
-        self.write("docs/qa-checklist.md", "# Synthetic checks\n\n## Checks\nQA-01 visual\nQA-02 heuristic\nQA-03 representative user\n")
+        self.write("docs/dod-evals.md", "# Synthetic definitions\n\n## Gates\n" + "\n".join(gates) + "\n" + sdd.SECURITY_GATE + " NFR-02\n")
+        self.write("docs/qa-checklist.md", "# Synthetic checks\n\n## Checks\nQA-01 visual\nQA-02 heuristic\nQA-03 representative user\nQA-04 security NFR-02\n")
         self.write("forge/design/candidates/a/v1/index.html", "<h1>Synthetic approved prototype</h1>\n")
         self.write("forge/design/evidence/target.txt", "Synthetic visual target, not a real screenshot.\n")
         baseline = {"baseline_id": "B-1", "prototype_source_root": "forge/design/candidates/a/v1",
@@ -51,6 +53,16 @@ class Project:
                    "\n".join(str(baseline[key]) for key in ("baseline_id", "prototype_tree_hash", "visual_target_hash")) +
                    "\nforge/design/evidence/approval.json\n")
         self.refresh()
+        self.manifest["artifacts"]["prd"]["security_review"] = {
+            "version": 1, "asvs_version": "5.0.0", "scope": "web-api", "level": 2,
+            "status": "complete", "rationale": "Synthetic production service.",
+            "definition_ref": {"path": "docs/prd.md", "heading": "## Security Requirements"},
+            "requirements": [{"requirement_id": "NFR-02", "asvs_ids": ["v5.0.0-8.2.2"],
+                              "definition_ref": {"path": "docs/prd.md", "heading": "### NFR-02"}}]}
+        for key in sdd.SECURITY_OWNERS:
+            heading = "## Gates" if key == "dod-evals" else "## Checks" if key == "qa-checklist" else "## Definition"
+            self.manifest["artifacts"][key]["security_coverage"] = {
+                "NFR-02": {"path": "docs/" + key + ".md", "heading": heading}}
         self.manifest["verification"] = {"definition_status": "prepared", "release_readiness": "not_evaluated",
             "source_hashes": {"docs/qa-checklist.md": self.hash("docs/qa-checklist.md"), "docs/dod-evals.md": self.hash("docs/dod-evals.md")},
             "gates": [], "checks": []}
@@ -65,6 +77,14 @@ class Project:
                 "task": "compare options", "user_group": "synthetic group", "route": "/compare", "state": "default",
                 "viewport": "390x844", "job_ids": ["JOB-01"], "use_case_ids": ["UC-01"],
                 "heuristic_ids": ["H" + str(i) for i in range(1, 11)] if gate == "heuristic_usability_review" else []})
+        self.manifest["verification"]["gates"].append({
+            "gate_id": sdd.SECURITY_GATE, "required": True, "active": True, "applicability": "applicable",
+            "check_ids": ["QA-04"], "security_requirement_ids": ["NFR-02"],
+            "definition_ref": {"path": "docs/dod-evals.md", "heading": "## Gates"}})
+        self.manifest["verification"]["checks"].append({
+            "check_id": "QA-04", "gate_id": sdd.SECURITY_GATE, "security_requirement_ids": ["NFR-02"],
+            "definition_ref": {"path": "docs/qa-checklist.md", "heading": "## Checks"},
+            "definition_status": "prepared", "execution_status": "not_run", "phase": "implementation"})
         self.save()
 
     def write(self, path, content):
@@ -111,7 +131,7 @@ class Project:
         self.write("src/app.txt", "Synthetic implementation fixture.\n")
         for check in self.manifest["verification"]["checks"]:
             evidence = self.evidence("forge/evidence/" + check["check_id"] + ".json", {"synthetic_fixture": True, "not_real_user_research": True})
-            evidence["kind"] = sdd.GATE_KINDS[check["gate_id"]]
+            evidence["kind"] = sdd.GATE_KINDS.get(check["gate_id"], "security")
             check.update(execution_status="passed", executor="synthetic-test-runner", executed_at="2026-08-20T10:05:00Z",
                          evidence=[evidence], evaluated_source_hashes={"src/app.txt": self.hash("src/app.txt")})
 
@@ -375,7 +395,7 @@ class CheckTests(unittest.TestCase):
         self.assert_issue("heuristic_coverage")
 
     def test_ui_gate_cannot_be_omitted(self):
-        self.m["verification"]["gates"].pop()
+        self.m["verification"]["gates"].pop(2)
         self.assert_issue("missing_ui_gate")
 
     def test_inactive_gate_cannot_remain_load_bearing(self):

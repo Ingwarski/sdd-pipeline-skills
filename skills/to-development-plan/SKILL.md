@@ -24,6 +24,8 @@ Do not redefine product behavior, journeys/screens, layouts/style, architecture,
 
 ## Workflow
 
+Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Include control implementation, negative tests and applicable dependency/operational maintenance work in existing units, tracing every PRD security obligation to real QA IDs and the required security gate. Return `security_coverage`; unresolved security design goes to its owner first. Never silently remove security work to fit a revised design or imply that planning ran a scan.
+
 1. Read current sources; classify context/terms as applied, reference-only, irrelevant or conflicting. Cite only relevant fragments and local implementation consequences; no copied personas, summaries or glossaries.
 2. Verify the approved Baseline ID, candidate/version, target hash, frozen source hash/algorithm, approval receipt, scope and permitted variance. For UI scope, stop before production-unit planning if approval is missing. Do not reinterpret or re-approve the design.
 3. Verify architecture/DoD/QA are current for that baseline. Changed approval/target/override invalidates affected units and authorization; return to the appropriate owner.
