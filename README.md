@@ -13,6 +13,8 @@ Start from a rough description or a trusted existing idea. The pipeline asks onl
 
 An existing `docs/product-idea.md` is optional. Coherent existing intent is validated without a redundant interview. `to-product-idea` can also be called directly for discovery.
 
+During product-idea intake, share design references once: website/app links, screenshots, colors, fonts, brand guides or HTML mockups with their assets. Attach files to your prompt or put them in `docs/design-inputs/` **inside your product repository**, not this skills repository; an existing folder is also fine. “None yet” or “later” is valid. The idea records source notes; the design brief owns the full inventory and design decisions. References are not design approval.
+
 ## Installation
 
 Requires **Python 3.9+**; the runtime tools use only its standard library.

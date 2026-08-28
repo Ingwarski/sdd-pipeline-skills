@@ -12,6 +12,8 @@ Reduce coordination while preserving one owner per artifact. Accept a rough desc
 
 If intent is missing/materially incomplete, dispatch or resume `to-product-idea`, surface one foreground question, set `awaiting-product-idea-intake` and do not start PRD. Validate a coherent existing file without a redundant interview. In DAS Forge require its current matching `ProductIdeaHandoffReceipt`; direct use may record the validated file's source mode/hash without a runtime receipt.
 
+At first entry, use `to-product-idea` for any unrecorded design-materials intake even with coherent existing intent. Reuse supplied materials and recorded responses; do not reopen intake merely on resume.
+
 Resolve language before intake: explicit instruction > recorded preference > latest substantive message. Pass it to every owner/adapter; keep UI/content locales separate. Read [intake adapter](references/intake-adapter.md) only for DAS Forge Phase 0.
 
 ## Ownership

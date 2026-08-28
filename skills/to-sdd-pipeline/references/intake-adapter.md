@@ -14,7 +14,7 @@ Use `to-product-idea` as the sole owner of `docs/product-idea.md`. The DAS Forge
 - restore the current question, answers, draft version, assumptions, and decision branch after restart;
 - resume automatically after each answer without a separate continuation command;
 - never convert a timeout, silence, recommendation, or non-response into consent for material product intent;
-- after `Create product idea and start SDD`, atomically create or version `docs/product-idea.md` only when absent or confirmed intent changed, otherwise preserve the validated existing file byte-for-byte, then hash the final file;
+- after `Create product idea and start SDD`, atomically create or version `docs/product-idea.md` only when absent or confirmed intent/source notes changed, otherwise preserve the validated existing file byte-for-byte, then hash the final file;
 - write `forge/intake/product-idea-handoff.json` with at least intake/session ID, source mode, `working_language`, language-selection source, distinct product content locales, artifact path, content hash, answered decision IDs, assumptions, unresolved non-blocking questions, submission event, and timestamp.
 
 `Create product idea and start SDD` is the initial execution command, not an approval receipt. Draft playback, answering questions, editing prior answers, resuming intake, and submitting intent do not add approval gates. The only normal product-creation approval remains approval of the complete integrated design baseline.

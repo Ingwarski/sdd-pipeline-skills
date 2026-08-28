@@ -10,7 +10,7 @@ Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.
 
 Required before starting: PRD, guardrails, journey, screen map and wireframes under `docs/`; in pipeline mode also the validated context/terms bundle.
 
-Optional grounding: README, explicit audience/brand/content/platform constraints, existing tokens/components/design systems, screenshots/reference products and Phase 2 executor/handoff metadata.
+Optional grounding: design-material source notes in `docs/product-idea.md` and their referenced locations, README, explicit audience/brand/content/platform constraints, existing tokens/components/design systems, screenshots/reference products and Phase 2 executor/handoff metadata.
 
 QA check IDs and executed evidence are **later references**, not prerequisites for creating the brief. Until real IDs exist, leave bindings pending. Read the [verification contract](../to-sdd-pipeline/references/verification-contract.md) when planning reviews/user validation.
 
@@ -22,7 +22,7 @@ The screen map owns which states exist; wireframes own their structure. PRD/jour
 
 ## Design process
 
-1. Find grounding material before inventing. Catalog every named file, screenshot, asset, design-system reference and external link in the Design Source Material Inventory.
+1. Reuse intake materials/preferences without repeating the upload request. Find other grounding material before inventing. Catalog every named file, screenshot, asset, design-system reference and external link in the Design Source Material Inventory; retain confirmed constraints versus inspiration and observed access limits.
 2. Trace intent through JOB → UC → journey → screen/state. Identify product type, audience, primary action, stakes, device/form factor and density.
 3. Run a concern scan: accessibility, platform conventions, brand/regulated language, motion, localization, dark mode, offline, content, input modes, notifications and AI control/reversibility. Expand only relevant concerns.
 4. Preserve existing UI systems and source vocabulary. Verify current named standards, platform guidance and external references when needed; do not invent a competing system.

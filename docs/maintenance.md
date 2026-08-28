@@ -62,13 +62,15 @@ On Windows use `.venv-token-check\Scripts\python.exe`. The encoder may download 
 
 Baseline: `e5d6ab9df4502cf6babc76e273602ecbd66881f0`; tokenizer: `tiktoken 0.14.0`, `o200k_base`. [Fixed fixtures](../tests/fixtures/token-scenarios.json) use identical seeds and invocation sequences for old/new instructions. Every invocation includes its complete applicable shared/conditional references, the machine contract where consulted, and listed retries. No caching discount is assumed.
 
+Current measurements include the design-materials intake request and its handoff guidance.
+
 | Scenario | Before | After | Reduction |
 |---|---:|---:|---:|
-| First setup, including one retry; 18 invocations | 96,945 | 79,299 | 18.20% |
-| Approved-design revision, including one retry; 7 invocations | 49,810 | 41,320 | 17.04% |
-| Interrupted Claude resume, including one retry; 7 invocations | 57,903 | 50,725 | 12.40% |
+| First setup, including one retry; 18 invocations | 96,945 | 80,283 | 17.19% |
+| Approved-design revision, including one retry; 7 invocations | 49,810 | 41,576 | 16.53% |
+| Interrupted Claude resume, including one retry; 7 invocations | 57,903 | 51,023 | 11.88% |
 
-The 13 entrypoint files alone shrink from 44,084 to 13,652 tokens (69.03%), but **the smaller whole-scenario percentages are the meaningful comparison** because shared text still costs tokens when loaded. Run without `--summary` to inspect every counted file. `--check` fails if any measured budget ceases to improve on the recorded baseline.
+The 13 entrypoint files alone shrink from 44,084 to 14,106 tokens (68.00%), but **the smaller whole-scenario percentages are the meaningful comparison** because shared text still costs tokens when loaded. Run without `--summary` to inspect every counted file. `--check` fails if any measured budget ceases to improve on the recorded baseline.
 
 These are deterministic **instruction-load budgets**, not live-agent benchmarks. They do not measure generated-document savings, actual retry frequency, tool output, model quality, cached-token billing or total end-to-end cost. Concise document rules are enforced as authoring guidance; real project runs are still needed to measure their practical effect.
 

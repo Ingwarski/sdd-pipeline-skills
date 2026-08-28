@@ -30,6 +30,8 @@ For every SDD document and report:
 
 Ask only about a genuinely non-inferable decision that materially changes product scope or a high-risk boundary. Walk one relevant decision branch at a time. Ask one question with a recommended answer, rationale, source basis (or explicit absence), and downstream consequences. After the answer, briefly confirm the decision and consequences.
 
+The product-idea owner's one-time design-materials request is also allowed as source intake, not another design decision or approval.
+
 In pipeline mode return a typed `ProductIntentQuestion` to the foreground intake adapter; do not hide it in logs. Standalone, ask in the conversation. Silence, timeouts, and recommendations are not consent. For non-material gaps, record the smallest reversible source-grounded assumption and continue. Playback is not approval.
 
 There is one normal approval: the complete integrated design. Do not add document, screen, heuristic-finding, or transition approvals. Risk-specific authorization stays just in time. If work would change an approved baseline, return `baseline_change_required`; the owner cannot approve its own change. A source-backed scoped operator correction is an override, not a reason to ask the same question twice.
