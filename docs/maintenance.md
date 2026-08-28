@@ -76,11 +76,11 @@ Current measurements include design-materials intake and the OWASP procedure, se
 
 | Scenario | Before | After | Reduction |
 |---|---:|---:|---:|
-| First setup, including one retry; 18 invocations | 96,945 | 92,338 | 4.75% |
-| Approved-design revision, including one retry; 7 invocations | 49,810 | 47,725 | 4.19% |
-| Interrupted Claude resume, including one retry; 7 invocations | 57,903 | 57,247 | 1.13% |
+| First setup, including one retry; 18 invocations | 96,945 | 92,271 | 4.82% |
+| Approved-design revision, including one retry; 7 invocations | 49,810 | 47,691 | 4.25% |
+| Interrupted Claude resume, including one retry; 7 invocations | 57,903 | 57,200 | 1.21% |
 
-The 13 entrypoint files alone shrink from 44,084 to 14,894 tokens (66.21%), but **the smaller whole-scenario percentages are the meaningful comparison** because shared text still costs tokens when loaded. Run without `--summary` to inspect every counted file. `--check` fails if any measured budget ceases to improve on the recorded baseline.
+The 13 entrypoint files alone shrink from 44,084 to 14,881 tokens (66.24%), but **the smaller whole-scenario percentages are the meaningful comparison** because shared text still costs tokens when loaded. Run without `--summary` to inspect every counted file. `--check` fails if any measured budget ceases to improve on the recorded baseline.
 
 These are deterministic **instruction-load budgets**, not live-agent benchmarks. They do not measure generated-document savings, actual retry frequency, tool output, model quality, cached-token billing or total end-to-end cost. Concise document rules are enforced as authoring guidance; real project runs are still needed to measure their practical effect.
 
