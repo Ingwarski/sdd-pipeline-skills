@@ -17,6 +17,14 @@ An existing `docs/product-idea.md` is optional. Coherent existing intent is vali
 
 Requires **Python 3.9+**; the runtime tools use only its standard library.
 
+If Python is missing, [download it from the official Python website](https://www.python.org/downloads/). Choose the latest stable Python 3 release; 3.9 is the minimum, not a pinned version.
+
+- **Windows:** download the Python install manager from [Python.org's Windows page](https://www.python.org/downloads/windows/), open the downloaded file and choose **Install**. In a new PowerShell window, run `python --version`; the manager installs Python on first use if none is installed. If using the older `.exe` installer, enable **Add Python to PATH** when offered.
+- **macOS:** download the [macOS installer](https://www.python.org/downloads/macos/), open the `.pkg` file and follow the setup wizard, including its final **Install Certificates.command** step.
+- **Linux:** check `python3 --version` first. If Python is missing or too old, follow the [official Linux instructions](https://docs.python.org/3/using/unix.html#on-linux); Python.org does not provide a Windows-style Linux installer.
+
+Reopen your terminal and agent app after installation. Confirm **3.9 or newer** with `python3 --version` on macOS/Linux or `python --version` (alternatively `py -3 --version`) on Windows, then continue below. Skip installation if a suitable Python version is already available.
+
 Clone [Ingwarski/sdd-pipeline-skills](https://github.com/Ingwarski/sdd-pipeline-skills) into a durable folder, then run:
 
 | Platform | Install | Later updates |
