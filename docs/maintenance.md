@@ -9,7 +9,7 @@ The seven-point update keeps the same 13 skills and document owners. Jobs To Be 
 3. **Reliable shared rules.** Skills resolve references from their installed real directory, including links, not from the product folder. Moving the clone is covered by repair tests.
 4. **Executable consistency checks.** A read-only checker validates prerequisites, owners, source hashes, context-bundle integrity, baseline/candidate evidence and separate implementation authorization. Later references are not scheduling dependencies.
 5. **Consistent installation.** Both installers use one strict JSON/source validator and detect Python before mutation. Existing scoped cleanup, unrelated-skill protection and safe-update behavior remain intact.
-6. **Clearer documentation.** README is the entry point; installation and maintenance details are linked separately. Shared rules have one home. Standalone owners and orchestrator responsibilities are explicit; the audit and Ukrainian student prompts are current.
+6. **Clearer documentation.** README is the entry point; installation and maintenance details are linked separately. Shared rules have one home. Standalone owners and orchestrator responsibilities are explicit; the audit prompt and single install-or-update prompt are current.
 7. **Less repetition.** All skill instructions and generated-document rules use direct language, brief term explanations and references to decisions already defined elsewhere. Token checks include shared instructions and repeated loads, not just short entrypoints.
 
 SDD still determines what to build; QA verifies it. A validated plan still ends at `awaiting-implementation-prompt` until a later explicit user request authorizes production implementation.

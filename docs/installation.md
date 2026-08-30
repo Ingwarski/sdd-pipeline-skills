@@ -5,21 +5,9 @@ Run commands from the durable SDD clone. Install Python 3.9+ first; both platfor
 
 Clone this repository and run its installer. It creates directory links from each agent's skill location to this clone; it never copies a skill directory. Use `update.sh` or `update.ps1` for later updates so retired installations are cleaned up too. A plain `git pull` updates linked content but does not clean old installed links or copies.
 
-### Recommended agent-assisted installation
+### Agent-assisted installation or update
 
-An unskilled user should open Codex or Claude Code, paste the prompt below, and let the agent perform and verify the installation. The repository's `AGENTS.md` and `CLAUDE.md` give both agents the same safety contract.
-
-```text
-Install the complete SDD skill set from https://github.com/Ingwarski/sdd-pipeline-skills for local Codex and local Claude Code.
-
-If this workspace is not already a durable Git clone of that repository, clone it under my normal Projects directory; do not use a temporary, cache, or download directory. If a durable clone already exists, verify its origin and update it only by a clean fast-forward; preserve local changes and stop instead of overwriting them. Then read the repository's AGENTS.md or CLAUDE.md, the README Installation section, and skills-manifest.json.
-
-Detect my operating system and run the repository-provided installer: install.sh on macOS/Linux or install.ps1 on Windows. For an existing clean main checkout, prefer update.sh or update.ps1. Do not recreate link logic or copy skill directories. Permanently delete communications-audit and issue-happypro-certificate from the selected skill folders, including modified copies and links from any source. Do not back up, archive, relocate, or move them to Trash. Report any deletion failure. Keep other skills unchanged, including unrelated to-prd; SDD uses to-sdd-prd. On Windows, allow the directory-junction fallback.
-
-Install all 13 SDD skills for both tools, run the installer a second time to prove it is idempotent, and verify every installed SKILL.md through its destination path. Report the durable clone path, Codex and Claude Code destination roots, link type used, 13/13 validation result, preserved conflicts, and whether either tool needs a restart. Ask me only if a real conflict or permission boundary remains after the installer has exhausted its safe fallback.
-```
-
-The prompt moves platform detection, link creation, conflict handling, and verification to the agent. It does not authorize silent installation merely because the repository was opened.
+Paste the single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md) into any local agent with file and terminal access. It detects the existing state, chooses installation, migration cleanup or a regular update, and verifies the result. Opening the repository alone does not authorize installation.
 
 macOS or Linux:
 
@@ -70,9 +58,8 @@ From a clean `main` checkout, run:
 ```
 
 Or double-click `Update Skills.command` on macOS / `Update Skills.cmd` on Windows.
-For an older clone without these files, first fast-forward it with
-`git pull --ff-only`, then run the updater. The [student prompt](../STUDENT-SKILL-UPDATE-PROMPT.md)
-guides an agent through that first update.
+For setup, migration from an older clone or a regular agent-run update, use the
+single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md).
 
 The updater verifies the GitHub origin and `main` branch, permanently removes the
 two retired names, then checks for unrelated local edits or unpublished/diverging

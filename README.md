@@ -39,11 +39,11 @@ On macOS or Windows, the `Install Skills` and `Update Skills` launchers run the 
 
 Installers create links, not copied skill folders. Both use one strict JSON/source/reference validator before changes. Windows falls back from symbolic links to directory junctions. A repeated install is safe; active SDD conflicts are reported, not overwritten.
 
-See [installation instructions](docs/installation.md) for the agent-assisted prompt, destination overrides, moved-clone repair, uninstall and cleanup scope. New skills are available on the agent's next turn; restart only if changes are not visible.
+Nontechnical users can paste the single [install-or-update prompt](INSTALL-OR-UPDATE-PROMPT.md) into a local agent. See [installation instructions](docs/installation.md) for destination overrides, moved-clone repair, uninstall and cleanup scope. New skills are available on the agent's next turn; restart only if changes are not visible.
 
 ## Updating and cleanup
 
-For a first update from `Codex Skills` / `Codex SDD Skills` or the old GitHub address, use the current Ukrainian [student update prompt](STUDENT-SKILL-UPDATE-PROMPT.md). Later, use the updater above. **A plain Git pull does not perform cleanup.**
+The same [install-or-update prompt](INSTALL-OR-UPDATE-PROMPT.md) handles first installation, migration from `Codex Skills` / `Codex SDD Skills`, and regular updates. **A plain Git pull does not perform cleanup.**
 
 The updater removes the two accidentally distributed names in [retired-skills.txt](retired-skills.txt) from scoped skill folders, checks for unrelated local Git changes, fast-forwards clean `main`, then runs the freshly downloaded installer. Cleanup can finish even when an unrelated Git/link conflict later stops the update.
 
