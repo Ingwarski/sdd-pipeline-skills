@@ -28,6 +28,8 @@ If Python is missing, [download it from the official Python website](https://www
 
 Reopen your terminal and agent app after installation. Confirm **3.9 or newer** with `python3 --version` on macOS/Linux or `python --version` (alternatively `py -3 --version`) on Windows, then continue below. Skip installation if a suitable Python version is already available.
 
+The [install-or-update prompt](INSTALL-OR-UPDATE-PROMPT.md) checks Python against the current stable release on Python.org and updates it before managing skills when needed.
+
 Clone [Ingwarski/sdd-pipeline-skills](https://github.com/Ingwarski/sdd-pipeline-skills) into a durable folder, then run:
 
 | Platform | Install | Later updates |

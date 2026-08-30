@@ -7,7 +7,7 @@ Clone this repository and run its installer. It creates directory links from eac
 
 ### Agent-assisted installation or update
 
-Paste the single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md) into any local agent with file and terminal access. It detects the existing state, chooses installation, migration cleanup or a regular update, and verifies the result. Opening the repository alone does not authorize installation.
+Paste the single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md) into any local agent with file and terminal access. It updates Python from the official source when needed, then chooses installation, migration cleanup, a regular update or a no-op when everything is current. Opening the repository alone does not authorize installation.
 
 macOS or Linux:
 
