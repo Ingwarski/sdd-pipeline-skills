@@ -91,9 +91,18 @@ class RenderReferences(HTMLParser):
     def __init__(self):
         super().__init__()
         self.urls = []
+        self.styles = []
+        self.in_style = False
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if tag == "style":
+            self.in_style = True
+        # CSS occurs in style attributes/elements and SVG presentation attributes,
+        # not in JavaScript's unrelated URL(...) constructor.
+        self.styles.extend(value for name, value in attrs.items() if value and name in (
+            "style", "fill", "stroke", "filter", "clip-path", "mask", "cursor",
+            "marker", "marker-start", "marker-mid", "marker-end"))
         if tag == "base":
             raise ValueError("freeze without a base URL override")
         for name in ("src", "poster") + (("data",) if tag == "object" else ()):
@@ -114,20 +123,40 @@ class RenderReferences(HTMLParser):
                     remaining = remaining.partition(",")[2]
                 remaining = remaining.lstrip(" ,\t\r\n")
 
+    def handle_data(self, data):
+        if self.in_style:
+            self.styles.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "style":
+            self.in_style = False
+
 
 def validate_render_files(root, files):
     """Reject detectable unbound resources; runtime dependency discovery remains browser work."""
-    for path in files:
+    # Documents/styles are render roots. Follow their module references rather
+    # than interpreting unloaded Node tooling as browser code. Every file still
+    # contributes to the frozen hash, whether or not the browser references it.
+    pending = sorted((path for path in files if path.suffix.lower() in (".html", ".htm", ".css", ".svg")), reverse=True)
+    visited = set()
+    while pending:
+        path = pending.pop()
+        if path in visited:
+            continue
+        visited.add(path)
         if path.suffix.lower() not in (".html", ".htm", ".css", ".js", ".mjs", ".svg"):
             continue
         text = path.read_text(encoding="utf-8-sig")
         urls = []
+        styles = [text] if path.suffix.lower() == ".css" else []
         if path.suffix.lower() in (".html", ".htm", ".svg"):
             parser = RenderReferences()
             parser.feed(text)
             urls.extend(parser.urls)
-        urls.extend(re.findall(r"url\(\s*['\"]?([^'\"\s)]+)", text, re.I))
-        urls.extend(re.findall(r"@import\s+['\"]([^'\"]+)", text, re.I))
+            styles.extend(parser.styles)
+        for style in styles:
+            urls.extend(re.findall(r"url\(\s*['\"]?([^'\"\s)]+)", style, re.I))
+            urls.extend(re.findall(r"@import\s+['\"]([^'\"]+)", style, re.I))
         urls.extend(re.findall(r"(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|new\s+URL\(\s*)['\"]([^'\"]+)['\"]", text))
         for url in urls:
             parsed = urlsplit(url)
@@ -139,6 +168,8 @@ def validate_render_files(root, files):
             target = (root / local.lstrip("/") if local.startswith("/") else path.parent / local).resolve()
             if target not in files:
                 raise ValueError("unbound render dependency: " + str(path) + " -> " + url)
+            if target not in visited:
+                pending.append(target)
 
 
 def section_bytes(path, heading):

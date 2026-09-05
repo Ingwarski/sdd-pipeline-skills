@@ -97,6 +97,77 @@ class AuditRegressions(unittest.TestCase):
         observed = sdd.Checker(self.p.root, self.m).render_hash(record)
         self.assertEqual(sdd.tree_hash(self.p.root / record["prototype_source_root"]), observed)
 
+    def test_unloaded_node_helpers_are_hashed_not_browser_dependencies(self):
+        record = self.m["active_baseline"]
+        root = record["prototype_source_root"]
+        checker = sdd.Checker(self.p.root, self.m)
+        for extension in ("js", "mjs"):
+            with self.subTest(extension=extension):
+                path = root + "/validate." + extension
+                self.p.write(path, 'import { createHash } from "node:crypto";\n')
+                try:
+                    before = checker.render_hash(record)
+                except ValueError as error:
+                    self.fail("Unloaded Node helper was treated as browser code: " + str(error))
+                self.assertEqual(sdd.tree_hash(self.p.root / root), before)
+                self.p.write(path, 'import { readFileSync } from "node:fs";\n')
+                after = checker.render_hash(record)
+                self.assertNotEqual(before, after)
+                self.assertEqual(sdd.tree_hash(self.p.root / root), after)
+
+    def test_browser_loaded_node_helper_is_not_exempt_by_name(self):
+        record = self.m["active_baseline"]
+        root = record["prototype_source_root"]
+        self.p.write(root + "/index.html", '<script type="module" src="./validate.mjs"></script>')
+        self.p.write(root + "/validate.mjs", 'import { createHash } from "node:crypto";')
+        with self.assertRaisesRegex(ValueError, "mutable render dependency.*node:crypto"):
+            sdd.Checker(self.p.root, self.m).render_hash(record)
+
+    def test_browser_module_dependency_chain_still_rejects_unbound_resources(self):
+        record = self.m["active_baseline"]
+        root = record["prototype_source_root"]
+        self.p.write(root + "/index.html", '<script type="module" src="./app.js"></script>')
+        self.p.write(root + "/app.js", 'import "./nested.mjs";')
+        for dependency in ("https://example.invalid/remote.js", "./missing.js", "node:fs"):
+            with self.subTest(dependency=dependency):
+                self.p.write(root + "/nested.mjs", 'import "' + dependency + '";')
+                with self.assertRaises(ValueError):
+                    sdd.Checker(self.p.root, self.m).render_hash(record)
+
+    def test_browser_module_cycle_is_validated_once(self):
+        record = self.m["active_baseline"]
+        root = record["prototype_source_root"]
+        self.p.write(root + "/index.html", '<script src="./app.js"></script>')
+        self.p.write(root + "/app.js", 'import "./nested.mjs";')
+        self.p.write(root + "/nested.mjs", 'import "./app.js";')
+        self.assertEqual(sdd.tree_hash(self.p.root / root), sdd.Checker(self.p.root, self.m).render_hash(record))
+
+    def test_javascript_url_constructor_is_not_a_css_resource(self):
+        record = self.m["active_baseline"]
+        root = record["prototype_source_root"]
+        script = 'const url = new URL(window.location.href);'
+        for inline in (False, True):
+            with self.subTest(inline=inline):
+                self.p.write(root + "/app.js", script)
+                self.p.write(root + "/index.html", '<script>' + script + '</script>' if inline else '<script src="./app.js"></script>')
+                try:
+                    observed = sdd.Checker(self.p.root, self.m).render_hash(record)
+                except ValueError as error:
+                    self.fail("Dynamic JavaScript URL was parsed as CSS: " + str(error))
+                self.assertEqual(sdd.tree_hash(self.p.root / root), observed)
+
+    def test_inline_css_resources_still_require_frozen_inputs(self):
+        record = self.m["active_baseline"]
+        root = record["prototype_source_root"]
+        for markup in ('<style>@import "https://example.invalid/remote.css";</style>',
+                       '<div style="background: url(https://example.invalid/image.png)"></div>',
+                       '<style>h1 { background: url(./missing.png); }</style>',
+                       '<svg><rect fill="url(./missing.svg#gradient)" /></svg>'):
+            with self.subTest(markup=markup):
+                self.p.write(root + "/index.html", markup)
+                with self.assertRaises(ValueError):
+                    sdd.Checker(self.p.root, self.m).render_hash(record)
+
     def test_render_hash_cli_matches_shared_bundle(self):
         self.freeze_shared()
         record = self.m["active_baseline"]
