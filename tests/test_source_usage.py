@@ -1,5 +1,6 @@
 """Owner-reviewed consumption, not proof of an agent's unreported reading."""
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -73,7 +74,7 @@ class SourceUsageTests(unittest.TestCase):
 
     def test_partial_qa_snapshot_cannot_omit_declared_shared_scope(self):
         path = self.p.root / "docs/qa-checklist.md"
-        self.p.write("docs/qa-checklist.md", path.read_text() + "\n## Shared scope\nS-01 keyboard and recovery evidence.\n")
+        self.p.write("docs/qa-checklist.md", path.read_text(encoding="utf-8") + "\n## Shared scope\nS-01 keyboard and recovery evidence.\n")
         self.p.refresh(["qa-checklist"])
         self.p.manifest["verification"]["source_hashes"]["docs/qa-checklist.md"] = self.p.hash("docs/qa-checklist.md")
         entry = self.p.manifest["artifacts"]["development-plan"]
@@ -86,11 +87,11 @@ class SourceUsageTests(unittest.TestCase):
             {"heading": "## Shared scope", "content_hash": sdd.digest(sdd.section_bytes(path, "## Shared scope"))})
         report = self.p.run(after=True)
         self.assertEqual("passed", report["result"], report)
-        self.p.write("docs/qa-checklist.md", path.read_text() + "## Execution results\nNot run.\n")
+        self.p.write("docs/qa-checklist.md", path.read_text(encoding="utf-8") + "## Execution results\nNot run.\n")
         self.p.refresh(["qa-checklist"])
         self.p.manifest["verification"]["source_hashes"]["docs/qa-checklist.md"] = self.p.hash("docs/qa-checklist.md")
         self.assertEqual("passed", self.p.run(after=True)["result"])
-        self.p.write("docs/qa-checklist.md", path.read_text().replace("keyboard and recovery", "screen-reader and recovery"))
+        self.p.write("docs/qa-checklist.md", path.read_text(encoding="utf-8").replace("keyboard and recovery", "screen-reader and recovery"))
         self.p.refresh(["qa-checklist"])
         self.p.manifest["verification"]["source_hashes"]["docs/qa-checklist.md"] = self.p.hash("docs/qa-checklist.md")
         self.assert_issue("stale_fragment", after=True)
@@ -101,10 +102,10 @@ class SourceUsageTests(unittest.TestCase):
         entry["source_usage"]["docs/project-context.md"] = ["## Платформи"]
         entry["consumed_source_fragments"] = {"docs/project-context.md": [
             {"heading": "## Платформи", "content_hash": sdd.digest(sdd.section_bytes(path, "## Платформи"))}]}
-        self.p.write("docs/project-context.md", path.read_text().replace("Опис для прикладу.", "Інші примітки."))
+        self.p.write("docs/project-context.md", path.read_text(encoding="utf-8").replace("Опис для прикладу.", "Інші примітки."))
         self.p.refresh(CONTRACT["context_bundle"])
         self.assertEqual("passed", self.p.run()["result"])
-        self.p.write("docs/project-context.md", path.read_text().replace("Мобільна й настільна", "Лише настільна"))
+        self.p.write("docs/project-context.md", path.read_text(encoding="utf-8").replace("Мобільна й настільна", "Лише настільна"))
         self.p.refresh(CONTRACT["context_bundle"])
         self.assert_issue("stale_fragment")
 
@@ -121,13 +122,23 @@ class SourceUsageTests(unittest.TestCase):
     def test_snapshot_hashes_selected_sections_and_explicit_unused_context(self):
         self.p.save()
         result = subprocess.run([sys.executable, str(SCRIPT), "--project", str(self.p.root), "--snapshot", "architecture",
-            "--consume", "docs/project-context.md### Платформи", "--unused", "docs/canonical-terms.md=No terminology applied."], capture_output=True, text=True)
+            "--consume", "docs/project-context.md### Платформи", "--unused", "docs/canonical-terms.md=No terminology applied."],
+            capture_output=True, text=True, env={**os.environ, "PYTHONIOENCODING": "cp1252"})
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         record = json.loads(result.stdout)
         self.assertEqual(["## Платформи"], record["source_usage"]["docs/project-context.md"])
         self.assertEqual({"unused": "No terminology applied."}, record["source_usage"]["docs/canonical-terms.md"])
         self.assertEqual(sdd.digest(sdd.section_bytes(self.p.root / "docs/project-context.md", "## Платформи")), record["consumed_source_fragments"]["docs/project-context.md"][0]["content_hash"])
         self.assertNotIn("docs/project-context.md", record["source_hashes"])
+
+    def test_localized_diagnostics_survive_non_utf8_output_pipes(self):
+        self.p.manifest["artifacts"]["architecture"]["source_usage"]["notes/Примітки.md"] = "full"
+        self.p.save()
+        result = subprocess.run([sys.executable, str(SCRIPT), "--project", str(self.p.root), "--before", "development-plan"],
+            capture_output=True, text=True, env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+        self.assertEqual(1, result.returncode)
+        issues = json.loads(result.stdout)["issues"]
+        self.assertTrue(any(issue["code"] == "unbound_consumed_source" and "Примітки" in issue["detail"] for issue in issues), issues)
 
     def test_snapshot_rejects_conflicting_and_out_of_project_selections(self):
         checker = sdd.Checker(self.p.root, self.p.manifest)

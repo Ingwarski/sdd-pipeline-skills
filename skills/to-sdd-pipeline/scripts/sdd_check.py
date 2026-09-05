@@ -1250,10 +1250,11 @@ def main():
             checker.product_scope()
             if checker.issues:
                 raise ValueError("resolve product scope before snapshotting")
-            print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=False, indent=2))
+            # Escape JSON Unicode for locale-dependent Windows output pipes; decoding preserves text.
+            print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=True, indent=2))
             return 0
         report = Checker(args.project, manifest, contract).run(node, bool(args.after), args.audit)
-        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print(json.dumps(report, ensure_ascii=True, indent=2))
         return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:
         print(json.dumps({"result": "blocked", "issues": [{"code": "invalid_input", "detail": str(error)}]}))

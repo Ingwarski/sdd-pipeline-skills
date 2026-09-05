@@ -33,6 +33,8 @@ Artifact `source_usage` records owner-reviewed consumption, including shared sec
 
 For example, `--consume 'docs/qa-checklist.md### Check definitions'` selects the literal heading `## Check definitions`: the first `#` separates the path from the heading. Repeat for every consumed shared section, or use the path alone for the full file. Keep execution results outside planning sections to avoid invalidation when only later results change.
 
+Checker JSON escapes non-ASCII characters for Windows output pipes; JSON decoding restores exact localized paths/headings. Source documents remain UTF-8. Regression tests exercise non-UTF-8 pipe encoding explicitly.
+
 Direct Codex/Claude Code authoring needs no external runner. Production execution is a separate host integration; any external runner must enforce the checker itself. The checker validates records and integrity, not complete prose semantics, authentic human research or actions outside its control.
 
 ## Verification
