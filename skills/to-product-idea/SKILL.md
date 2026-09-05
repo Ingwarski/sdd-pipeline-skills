@@ -20,7 +20,7 @@ Accept a rough description, an existing/imported idea, explicit answers/correcti
 
 Write only `docs/product-idea.md`; never put an incomplete draft there. In direct use, return draft/answers/pending question to the caller for durable progress under the [portable contract](../to-sdd-pipeline/references/scope-and-execution.md). The optional DAS Forge adapter instead owns its `forge/intake/` session, events and receipts.
 
-Show draft and decision coverage in the active conversation, or Mission Control when that adapter is selected. This owner creates no downstream SDD or production code.
+At each intake pause, briefly show interpreted intent, assumptions and material unknowns before the one question; thereafter show only changes. Saving a draft is not displaying it. Create no downstream SDD or production code.
 
 ## Visible questioning
 
@@ -101,4 +101,4 @@ A downstream material gap returns through the same intake, updates this artifact
 
 Use the smallest coherent structure covering positioning, target user/problem, outcome, Jobs To Be Done, core workflow, V1 scope, exclusions, principles/authority, success, assumptions/open questions and source notes, including the design-materials disposition and locations. Preserve an existing equivalent structure; no empty ceremony.
 
-Return file/hash, source mode, working language/product locales, confirmed JOBs and changed decisions, assumptions/questions and handoff to `to-sdd-pipeline`. While waiting, return only the typed question and required persisted request/run IDs.
+Return file/hash, source mode, working language/product locales, confirmed JOBs and changed decisions, assumptions/questions and handoff to `to-sdd-pipeline`. While waiting, return the brief interpretation/coverage plus one typed question and required persisted request/run IDs; the caller displays both together. Do not add a confirmation question or approval step.

@@ -12,7 +12,7 @@ Apply the [scope and portable execution contract](references/scope-and-execution
 
 Reduce coordination while preserving one owner per artifact. Accept a rough description, existing/imported product idea, saved intake or explicit corrections. A product-idea file is optional **at entry**, required only before PRD generation.
 
-If intent is missing/materially incomplete, dispatch or resume `to-product-idea`, surface one foreground question, set `awaiting-product-idea-intake` and do not start PRD. Validate a coherent existing file without a redundant interview. In DAS Forge require its current matching `ProductIdeaHandoffReceipt`; direct use may record the validated file's source mode/hash without a runtime receipt.
+If intent is missing/materially incomplete, dispatch or resume `to-product-idea`, display its brief interpretation/coverage with the one foreground question, set `awaiting-product-idea-intake` and do not start PRD. Validate a coherent existing file without a redundant interview. In DAS Forge require its current matching `ProductIdeaHandoffReceipt`; direct use may record the validated file's source mode/hash without a runtime receipt.
 
 At first entry, use `to-product-idea` for any unrecorded design-materials intake even with coherent existing intent. Reuse supplied materials and recorded responses; do not reopen intake merely on resume.
 
@@ -77,7 +77,7 @@ Before **every** owner/node dispatch, run `--before`. After recording an owner's
 
 For older manifests, preserve all documents/history/IDs and add only metadata verified from current sources/receipts. Missing evidence is not reconstructed as success. Unavailable original evidence stays a named limitation; see migration instructions.
 
-Record exact consumed source hashes/fragments and repository observations. An unrelated context paragraph or repository file must not invalidate unrelated work. A PRD/intent change revalidates the context bundle together. Language changes revalidate affected human-readable artifacts, not immutable identifiers or distinct product locales.
+Record owner-reviewed `source_usage`, exact consumed hashes/fragments and repository observations; never turn missing bindings into an unused-source decision. An unrelated context paragraph or repository file must not invalidate unrelated work. A PRD/intent change revalidates the context bundle together. Language changes revalidate affected human-readable artifacts, not immutable identifiers or distinct product locales.
 
 The skill requires the check; a separate DAS Forge runner must invoke the same checker and enforce its exit code for hard runtime enforcement. Updating this repository does not modify that external runner.
 

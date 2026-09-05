@@ -11,7 +11,7 @@ Keep these existing fields; add verified checker metadata without replacing the 
 | Pipeline | `pipeline_version`, `state`, `approved_baseline_id`, `affected_feature_units`, `input_requests`, `pause_reason`, `last_resume_event`, `next_ready_nodes` |
 | Language | `working_language`, `selection_source: explicit \| recorded-preference \| latest-user-message`, `artifact_language`, `product_content_locales`, `preserved_english_terms` |
 | Product-idea intake | `status: not_started \| awaiting_answer \| ready_to_submit \| handed_off \| superseded`, `intake_id`, `source_mode: seed \| interview \| imported \| existing-file`, `handoff_receipt_path`, `product_idea_hash`, `current_request_id` |
-| Artifact | `path`, `owner_skill`, `owner_invocation_id`, `declared_output_set`, `status`, `mission_control_status`, `source_version`, `source_hashes`, `consumed_source_fragments`, `repository_observation_id`, `dependencies`, `dependency_status`, `content_hash`, `validation`, `open_questions`, `supersedes` |
+| Artifact | `path`, `owner_skill`, `owner_invocation_id`, `declared_output_set`, `status`, `mission_control_status`, `source_version`, `source_usage`, `source_hashes`, `consumed_source_fragments`, `repository_observation_id`, `dependencies`, `dependency_status`, `content_hash`, `validation`, `open_questions`, `supersedes` |
 | Scoped repository observation | `paths`, `commit`, `working_tree_state: clean \| dirty \| unavailable`, `commands`, `observed_at` |
 | Design execution | `mode: codex \| claude_design`, `handoff_id`, `state`, `inbox_path`, `transport`, source-manifest and two access/read receipt paths/hashes, three required-source counts, `unresolved_required_source_ids`, `claude_candidate_references`, `selected_candidate_version`, `selection_receipt` |
 | Design artifacts | `prototype_candidates`, `prototype_promotions`, `active_baseline` |
@@ -35,11 +35,12 @@ A validated artifact needs:
 - canonical path/owner, nonempty owner-invocation ID, `status: validated`, current SHA-256 `content_hash`;
 - `dependencies`: required-before artifact IDs; the context-bundle node can expand to both members;
 - `validation.result: passed` and `validation.working_language`: a **document** validation, not product test success;
+- owner-reviewed `source_usage`: path → `"full"`, nonempty list of exact consumed headings, or `{"unused":"reason"}`. Resolve every required input, including unused context/terms; non-context prerequisites cannot be waived. Include additional consumed files and shared scope/evidence/terminology sections, not only check IDs. The checker verifies declared coverage, not unreported reading;
 - `source_hashes`: repository-relative POSIX file paths → SHA-256 for consumed full sources;
 - optional `consumed_source_fragments`: path → list of `{heading, content_hash}`. Use the exact unique Markdown ATX heading and hash its section through the next equal/higher heading; do not also snapshot that whole file;
 - after approval, architecture/DoD/QA/plan also need `validated_baseline_id`. No-change revalidation updates metadata without rewriting valid document bytes.
 
-Both context artifacts use one invocation and the same two-path `declared_output_set`, with independent hashes/results. Non-context required inputs need snapshots. Context/terms need only consumed fragments; omission asserts no consumption, but both required artifacts must still be current.
+Both context artifacts use one invocation and the same two-path `declared_output_set`, with independent hashes/results. Used sources need full hashes or all declared fragments; bindings without a usage decision fail. Unused context needs an explicit reason and no binding; both required context artifacts must still be current. Consumption records do not add scheduling edges.
 
 Repository observations cover only inspected paths and commands. `paths` maps files to hashes, or `null` for observed absence; include commands and timezone-aware observation time. Recheck those paths on reuse. Unobserved claims are invalid; unrelated files never justify a whole-repository invalidation.
 
@@ -115,12 +116,12 @@ For declared reuse, `prototype_promotions` indexes unit ID, planned `path_mappin
 ## Migration and invocation
 
 1. Run `--audit` on an older manifest; retain original documents, IDs, state/history and receipts.
-2. Re-read current sources/evidence. The orchestrator adds only verified metadata; affected owners revalidate. Do not rewrite valid documents just for headings, schema adoption or concision.
+2. Re-read current sources/evidence. Missing `source_usage` returns to the owner for source review, not automatic conversion of old hashes or blanket unused reasons. Preserve valid document bytes, original receipts and history; only affected owners revalidate.
 3. Missing evidence stays a named blocker. Old `covered` means planned coverage, not passed execution. Never infer approval or implementation permission from old labels.
 4. Run `--before NODE`; dispatch only on exit 0. Record owner results, then run `--after NODE`. Exit 1 means blocked/invalid input; exit 2 means otherwise-valid legacy data still needs checker metadata. Inspect all issues when migration and defects coexist.
 5. Use `--before development-plan` after approved architecture/DoD/QA reconciliation; `--before implementation` after the separate prompt; `--before release` only for an actual release evaluation. Candidate evidence is checked after generation and before approval, not required before candidates exist.
 
-The CLI lists nodes on an invalid name. `--audit` checks recorded artifacts without dispatching, writing or approving. `--snapshot NODE` emits unvalidated owner/output/source metadata for later owner review, never a pass. `--hash-render RECORD` computes the declared render bundle hash from a project-relative candidate/baseline JSON file. Python 3.12+, standard library only; no network or product-test execution.
+The CLI lists nodes on an invalid name. `--audit` checks recorded artifacts without dispatching, writing or approving. `--snapshot NODE` proposes unvalidated metadata; context starts as `{"review_required":true}`, never presumed unused. Repeat `--consume 'PATH#EXACT HEADING'` for each consumed section (including shared definitions), or `--consume PATH` for a full file; `--unused 'PATH=reason'` records a reviewed exclusion. These flags compute the existing hashes/fragments without writing or validating. Resolve pending decisions from actual reading before accepting an owner return. `--hash-render RECORD` hashes declared rendering inputs. Python 3.12+, standard library only; no network or product-test execution.
 
 ## External runner boundary
 

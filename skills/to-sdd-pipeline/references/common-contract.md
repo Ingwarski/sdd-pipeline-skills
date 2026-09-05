@@ -1,13 +1,13 @@
 # Shared SDD Operating Rules
 
-Read before owner work. Resolve resources from the loaded SKILL.md's **real directory**, following installed links, never from the product directory. All 13 skills ship together. Missing reference: report its resolved path and repair; never invent replacement rules.
+Read before owner work. All 13 skills ship together. Resolve resources from SKILL.md's **real directory**, following installed links, not the product directory. Report/repair missing references; never invent rules.
 
 ## Sources and ownership
 
 - Product truth comes from sources and explicit user decisions, not AI recommendations. Inspect discoverable facts; preserve terms/IDs and label assumptions or unresolved questions.
 - Write only declared owner outputs. Only the orchestrator writes `forge/sdd-manifest.json`; tool operators/adapters own receipts. Return provenance to the caller.
 - Context clarifies; it cannot override PRD, design, architecture or quality rules. Read relevant confirmed sections without copying them.
-- Record consumed path/hash or exact heading/section hash, including context and QA definitions. Snapshot whole files only when fully relevant; later results are not planning inputs.
+- Return `source_usage`: path → `"full"`, consumed heading list, or `{"unused":"reason"}` for context/optional files. Include referenced scope, terms and evidence sections. Bind consumption with file/section hashes; omission never means unused. Exclude later results from planning inputs.
 - Repository claims need observation date, command, exact paths/hashes, including the command supporting absence. Recheck scoped inputs on reuse, not a whole-repository fingerprint.
 - Preserve useful content, decisions, progress, approvals and immutable candidates. Route changed facts to their owner; retain history.
 
@@ -17,7 +17,7 @@ Use `working_language`: explicit instruction > recorded preference > latest subs
 
 For Ukrainian (`uk`), use idiomatic language. Retain English only for paths, code, commands, machine values, API identifiers, proper names, quotes and accepted IT terms. `to-project-context` records those terms and Ukrainian meanings in `canonical-terms.md`.
 
-State decisions once at their owner; elsewhere cite the ID/section and local consequence. Use direct sentences, short labels, compact repeated records and brief term explanations. No filler, repeated summaries or empty optional sections. Preserve every distinct obligation, assumption, source, risk, evidence, owner and authorization boundary. Required semantic sections may use existing/localized headings; exclusions need source-backed reasons. Share resolvable scope records rather than repeat route/state/viewport fields. Revision reports cover changes, evidence, risks and next action, not the entire artifact.
+State decisions once at their owner; elsewhere cite the ID/section and local consequence. Use direct sentences, compact records and brief term explanations; no filler, repeated summaries or empty optional sections. Preserve every obligation, assumption, source, risk, evidence, owner and authorization boundary. Existing/localized headings may satisfy required sections; exclusions need source-backed reasons. Reference shared route/state/viewport records. Report revisions as changes, evidence, risks and next action.
 
 ## Product security
 
@@ -39,7 +39,7 @@ Production implementation is separate. After plan validation stop at `awaiting-i
 
 Apply [scope/execution](scope-and-execution.md) for profile selection, intake/resume or host changes. Omit UI-only prerequisites only for confirmed headless scope, including standalone work; missing UI files are not an exclusion.
 
-Product-idea, PRD, screen-map, QA and plan return [typed traceability](traceability-contract.md); other owners reuse IDs. Reuse unchanged rules already in context; reload after compaction/version changes. Read required instruction files fully, but only relevant product-source sections. Do not repeatedly summarize unchanged documents.
+Product-idea, PRD, screen-map, QA and plan return [typed traceability](traceability-contract.md); other owners reuse IDs. Reuse unchanged instructions in context; reload after compaction/version changes. Read required instructions fully, product sources selectively; do not resummarize unchanged documents.
 
 Only **required-before** inputs create dependencies, not optional grounding or later lookups. QA's later development-destination lookup never makes the plan a QA prerequisite.
 

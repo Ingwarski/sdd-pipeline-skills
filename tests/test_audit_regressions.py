@@ -262,6 +262,7 @@ class AuditRegressions(unittest.TestCase):
             artifact["dependencies"] = [key for key in artifact["dependencies"] if key not in ui_artifacts]
             for key in ui_artifacts:
                 artifact["source_hashes"].pop("docs/" + key + ".md", None)
+                artifact["source_usage"].pop("docs/" + key + ".md", None)
             if "traceability" in artifact:
                 artifact["traceability"]["links"] = [link for link in artifact["traceability"]["links"] if link["to"] != "STATE-01"]
         self.m.pop("active_baseline")

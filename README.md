@@ -12,7 +12,7 @@
 6. After approval, the pipeline records the baseline, reconciles architecture, completion rules and QA, then creates `docs/development-plan.md` and pauses.
 7. To start production implementation, send a **new, separate explicit prompt after that pause**.
 
-Start with a rough description or an existing `docs/product-idea.md`; coherent intent is validated without a redundant interview.
+Start with a rough description or existing `docs/product-idea.md`. Intake shows its understanding and gaps before one question; coherent intent needs no redundant interview.
 
 This is the default **new-product UI** path. An **existing change** reuses valid documents and approved design, updating affected work only. A **headless product** skips screens, wireframes, visual design and approval; it still needs requirements, security, QA and a plan, then the separate implementation prompt. [Scope and direct-host execution](skills/to-sdd-pipeline/references/scope-and-execution.md).
 
@@ -90,7 +90,7 @@ Product idea → PRD → context + vocabulary → guardrails
 | `to-development-plan` | `docs/development-plan.md` | Map requirements/design/architecture to implementation and verification. |
 | `to-sdd-pipeline` | `forge/sdd-manifest.json` | Dispatch owners and track current sources, evidence and progress. |
 
-One artifact has one owner. The context pair shares one invocation but separate hashes/results. The orchestrator never edits domain documents; owners return metadata for it to record.
+Each artifact has one owner. Context outputs share an invocation, not hashes/results. Owners declare consumed files/sections, including shared QA rules, or explain unused context. The orchestrator records this metadata without editing domain documents. Older records need owner review, not guessed source history.
 
 Owners remain callable individually. The caller checks required inputs, validates results and identifies affected downstream work. A manifest is not required merely to write one standalone artifact. See [shared operating rules](skills/to-sdd-pipeline/references/common-contract.md).
 

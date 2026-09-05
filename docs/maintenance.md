@@ -29,6 +29,10 @@ Install **Python 3.12+** for installer/checker execution; **3.14** is the curren
 
 For older projects, preserve documents, IDs, approved versions and history. Add only metadata verified from current sources and original receipts; revalidate affected owner outputs. Do not manufacture evidence, rewrite valid documents just for concision, or repeat approval to populate fields. Follow the [manifest migration contract](../skills/to-sdd-pipeline/references/manifest-contract.md).
 
+Artifact `source_usage` records owner-reviewed consumption, including shared sections referenced by QA definitions, or an explicit reason for unused context. Missing legacy declarations require owner review; do not infer them from existing hashes. `--snapshot NODE` leaves context as `review_required`; `--consume` and `--unused` resolve actual choices without writing or validating the manifest. This adds no scheduling dependency or approval. The checker verifies declared coverage and byte changes, not whether the agent disclosed every source it used. Intake must display interpretation and gaps alongside its one question, not merely save them.
+
+For example, `--consume 'docs/qa-checklist.md### Check definitions'` selects the literal heading `## Check definitions`: the first `#` separates the path from the heading. Repeat for every consumed shared section, or use the path alone for the full file. Keep execution results outside planning sections to avoid invalidation when only later results change.
+
 Direct Codex/Claude Code authoring needs no external runner. Production execution is a separate host integration; any external runner must enforce the checker itself. The checker validates records and integrity, not complete prose semantics, authentic human research or actions outside its control.
 
 ## Verification
@@ -79,11 +83,11 @@ The historical baseline remains available for comparison. Enforcement now uses t
 
 | Scenario | Audited revision | After remediation | Increase |
 |---|---:|---:|---:|
-| First setup, including one retry; 18 invocations | 92,271 | 103,326 | 11.98% |
-| Approved-design revision, including one retry; 7 invocations | 47,691 | 54,659 | 14.61% |
-| Interrupted Claude resume, including one retry; 7 invocations | 57,200 | 64,131 | 12.12% |
+| First setup, including one retry; 18 invocations | 92,271 | 103,522 | 12.19% |
+| Approved-design revision, including one retry; 7 invocations | 47,691 | 54,855 | 15.02% |
+| Interrupted Claude resume, including one retry; 7 invocations | 57,200 | 64,522 | 12.80% |
 
-Entrypoints are 15,515 tokens versus 14,881 at the audited revision; README is 3,665 versus 3,093. These remain below the much older baseline but are **not a new savings claim**. Run without `--summary` for counted files. `--check` fails above either an absolute ceiling or the reviewed recent-growth allowance. Further contract growth needs an explicit policy/table review, not silent budget inflation. Reuse of instructions still present in context is encouraged but receives no assumed discount here.
+Entrypoints are 15,592 tokens versus 14,881 at the audited revision; README is 3,694 versus 3,093. Source-tracking and intake-display fixes fit the existing ceilings without raising them. These remain below the much older baseline but are **not a new savings claim**. Run without `--summary` for counted files. `--check` fails above either an absolute ceiling or the reviewed recent-growth allowance. Further contract growth needs an explicit policy/table review, not silent budget inflation. Reuse of instructions still present in context is encouraged but receives no assumed discount here.
 
 These are deterministic **instruction-load budgets**, not live-agent benchmarks. They do not measure generated-document savings, actual retry frequency, tool output, model quality, cached-token billing or total end-to-end cost. Concise document rules are enforced as authoring guidance; real project runs are still needed to measure their practical effect.
 

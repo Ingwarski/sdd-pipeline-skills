@@ -430,6 +430,7 @@ class Checker:
             for item in set(spec["required_before"]) - expanded:
                 self.issue("missing_dependency", key, item)
         self.sources(entry, key, spec["required_before"])
+        self.source_usage(entry, key, spec["required_before"])
         observation = entry.get("repository_observation_id")
         if observation:
             record = self.manifest.get("repository_observations", {}).get(observation, {})
@@ -450,6 +451,91 @@ class Checker:
             self.security_review(entry)
         elif key in SECURITY_OWNERS:
             self.security_coverage(entry, key)
+
+    def source_usage(self, entry, target, required):
+        """Check owner-declared consumption against bindings, not inferred prose meaning."""
+        usage = entry.get("source_usage")
+        if not isinstance(usage, dict):
+            self.issue("source_usage_missing", target, "owner must review consumed sources and unused context; do not infer from old hashes")
+            return
+        hashes, fragments = entry.get("source_hashes", {}), entry.get("consumed_source_fragments", {})
+        if not isinstance(hashes, dict) or not isinstance(fragments, dict):
+            return  # sources() reports the malformed binding containers.
+        required_paths = {self.specs[key]["path"]: key for key in required}
+        for path in required_paths.keys() - usage.keys():
+            self.issue("source_decision_missing", target, path)
+        for path in (hashes.keys() | fragments.keys()) - usage.keys():
+            self.issue("unreviewed_source", target, path)
+        for path, decision in usage.items():
+            try:
+                self.path(path)
+            except (ValueError, TypeError) as error:
+                self.issue("invalid_source_usage", target, str(error))
+                continue
+            if isinstance(decision, dict) and set(decision) == {"unused"}:
+                reason = decision["unused"]
+                if not isinstance(reason, str) or not reason.strip():
+                    self.issue("invalid_source_usage", target, "unused needs a reason: " + path)
+                if path in hashes or path in fragments or (path in required_paths and required_paths[path] not in self.contract["context_bundle"]):
+                    self.issue("source_usage_conflict", target, "unused source is bound or mandatory: " + path)
+            elif decision == "full":
+                if path not in hashes:
+                    self.issue("unbound_consumed_source", target, "full file: " + path)
+            elif isinstance(decision, list) and decision and all(isinstance(heading, str) and heading.strip() for heading in decision) and len(set(decision)) == len(decision):
+                bound = fragments.get(path, [])
+                headings = {item.get("heading") for item in bound if isinstance(item, dict) and isinstance(item.get("heading"), str)} if isinstance(bound, list) else set()
+                for heading in decision:
+                    try:
+                        section_bytes(self.path(path), heading)
+                    except (ValueError, OSError) as error:
+                        self.issue("invalid_source_usage", target, str(error))
+                    if path not in hashes and heading not in headings:
+                        self.issue("unbound_consumed_source", target, path + "#" + heading)
+                if headings - set(decision):
+                    self.issue("unreviewed_source", target, "fragment not in source_usage: " + path)
+            else:
+                self.issue("invalid_source_usage", target, "choose full, exact headings or an unused reason: " + path)
+
+    def source_proposal(self, node, consumed=(), unused=()):
+        """Read-only hash assistance; unresolved context remains an explicit review task."""
+        spec = self.contract["nodes"][node]
+        usage = {self.specs[key]["path"]: {"review_required": True} if key in self.contract["context_bundle"] else "full"
+                 for key in spec["required_before"]}
+        selected = {}
+        for value in consumed:
+            path, separator, heading = value.partition("#")
+            self.path(path)
+            if separator:
+                if not heading or selected.get(path) == "full":
+                    raise ValueError("choose full file OR nonempty headings: " + path)
+                headings = selected.setdefault(path, [])
+                if heading in headings:
+                    raise ValueError("duplicate consumed heading: " + value)
+                headings.append(heading)
+            else:
+                if path in selected:
+                    raise ValueError("duplicate/mixed full-file consumption: " + path)
+                selected[path] = "full"
+        usage.update(selected)
+        exclusions = set()
+        for value in unused:
+            path, separator, reason = value.partition("=")
+            self.path(path)
+            if not separator or not reason.strip() or path in selected or path in exclusions:
+                raise ValueError("unused needs a unique PATH=reason, without consumption: " + path)
+            if path in usage and usage[path] == "full":
+                raise ValueError("cannot exclude a required non-context source: " + path)
+            usage[path] = {"unused": reason.strip()}
+            exclusions.add(path)
+        hashes, fragments = {}, {}
+        for path, decision in usage.items():
+            if decision == "full":
+                hashes[path] = digest(self.path(path).read_bytes())
+            elif isinstance(decision, list):
+                fragments[path] = [{"heading": heading, "content_hash": digest(section_bytes(self.path(path), heading))} for heading in decision]
+        return {"node": node, "status": "unvalidated", "outputs": spec["outputs"], "source_usage": usage,
+                "source_hashes": hashes, "consumed_source_fragments": fragments,
+                "limits": "Hash proposal only. Resolve review_required from actual reading, include shared scope/terms/evidence sections, and return owner validation; no inferred consumption or approval."}
 
     def security_reference(self, reference, owner, identifier=None):
         text = self.reference(reference, owner)
@@ -1133,7 +1219,11 @@ def main():
     group.add_argument("--hash-render", metavar="RECORD", help="hash a candidate/baseline JSON record and its declared render resources")
     group.add_argument("--snapshot", metavar="NODE", help="emit unvalidated owner/source metadata without writing files or claiming review")
     parser.add_argument("--heading", help="with --hash: exact Markdown heading for a fragment")
+    parser.add_argument("--consume", action="append", default=[], metavar="PATH[#HEADING]", help="with --snapshot: consumed full file or exact heading; repeat for every consumed section, including shared definitions")
+    parser.add_argument("--unused", action="append", default=[], metavar="PATH=REASON", help="with --snapshot: explicitly unused context/optional source; cannot waive other required inputs")
     args = parser.parse_args()
+    if (args.consume or args.unused) and not args.snapshot:
+        parser.error("--consume and --unused require --snapshot")
     if sys.version_info < (3, 12):
         parser.error("Python 3.12+ is required")
     try:
@@ -1160,11 +1250,7 @@ def main():
             checker.product_scope()
             if checker.issues:
                 raise ValueError("resolve product scope before snapshotting")
-            node_spec = checker.contract["nodes"][node]
-            print(json.dumps({"node": node, "status": "unvalidated", "outputs": node_spec["outputs"],
-                              "source_hashes": {checker.specs[key]["path"]: digest(checker.path(checker.specs[key]["path"]).read_bytes())
-                                                for key in node_spec["required_before"] if key not in checker.contract["context_bundle"]},
-                              "limits": "Hash proposal only. Owner must select consumed fragments, validate meaning and return its actual invocation/result."}, ensure_ascii=False, indent=2))
+            print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=False, indent=2))
             return 0
         report = Checker(args.project, manifest, contract).run(node, bool(args.after), args.audit)
         print(json.dumps(report, ensure_ascii=False, indent=2))

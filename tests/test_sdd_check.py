@@ -137,6 +137,7 @@ class Project:
                 "declared_output_set": ["docs/" + k + ".md" for k in CONTRACT["context_bundle"]] if key in CONTRACT["context_bundle"] else [definition["path"]],
                 "status": "validated", "content_hash": self.hash(definition["path"]),
                 "source_hashes": {CONTRACT["artifacts"][k]["path"]: self.hash(CONTRACT["artifacts"][k]["path"]) for k in definition["required_before"] if k not in CONTRACT["context_bundle"]},
+                "source_usage": {CONTRACT["artifacts"][k]["path"]: {"unused": "Synthetic fixture consumes no context facts or terms."} if k in CONTRACT["context_bundle"] else "full" for k in definition["required_before"]},
                 "dependencies": definition["required_before"].copy(),
                 "validation": {"result": "passed", "working_language": "uk"}, "validated_baseline_id": "B-1"}
 
@@ -274,6 +275,7 @@ class CheckTests(unittest.TestCase):
         path = self.project.root / "docs/project-context.md"
         before = path.read_text(encoding="utf-8")
         entry = self.m["artifacts"]["architecture"]
+        entry["source_usage"]["docs/project-context.md"] = ["## Платформи"]
         entry["consumed_source_fragments"] = {"docs/project-context.md": [{"heading": "## Платформи", "content_hash": sdd.digest(sdd.section_bytes(path, "## Платформи"))}]}
         path.write_text(before.replace("Опис для прикладу.", "Інший опис."), encoding="utf-8")
         self.project.refresh(CONTRACT["context_bundle"])
@@ -292,6 +294,7 @@ class CheckTests(unittest.TestCase):
         path = self.project.root / "docs/qa-checklist.md"
         entry = self.m["artifacts"]["development-plan"]
         del entry["source_hashes"]["docs/qa-checklist.md"]
+        entry["source_usage"]["docs/qa-checklist.md"] = ["## Checks"]
         entry["consumed_source_fragments"] = {"docs/qa-checklist.md": [
             {"heading": "## Checks", "content_hash": sdd.digest(sdd.section_bytes(path, "## Checks"))}]}
         original = path.read_text(encoding="utf-8")
