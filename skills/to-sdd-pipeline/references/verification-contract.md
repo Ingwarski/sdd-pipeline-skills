@@ -27,6 +27,8 @@ At planning time report **checks prepared; tests not run**. Keep release readine
 
 ## Bind only existing references
 
+Gate/check membership is bidirectional: every indexed check belongs to its named gate and every gate ID resolves to that check, without duplicates. An applicable gate needs at least one applicable check. Excluded checks never satisfy required clauses or H1–H10 coverage; exclusions need reasons. Trace and verification check IDs must agree; JOB/UC references resolve to canonical definitions.
+
 Before approval, visual gates are parameterized definitions: `Binding Status: pending_baseline`; QA check references remain pending until QA creates real IDs. No invented Baseline ID, target hash, check ID, or user-test result.
 
 After approval: `to-design-brief` records the baseline; `to-architecture` rechecks affected technical consequences; `to-dod-evals` revalidates affected gate definitions; `to-qa-checklist` creates/binds concrete checks; the orchestrator records the QA-ID bindings; `to-development-plan` maps them to units. DoD references QA **at evaluation**, not as an authoring prerequisite. Unchanged documents can be revalidated without rewriting their bytes. This order is not a second approval or a dependency loop.

@@ -16,6 +16,8 @@ DEFAULT_BASE = "e5d6ab9df4502cf6babc76e273602ecbd66881f0"
 SHARED = "skills/to-sdd-pipeline/references/"
 HEURISTIC_CONSUMERS = {"to-guardrails", "to-wireframes", "to-design-brief", "to-dod-evals", "to-qa-checklist", "to-development-plan", "to-sdd-pipeline"}
 SECURITY_CONSUMERS = {"to-sdd-prd", "to-architecture", "to-dod-evals", "to-qa-checklist", "to-development-plan", "to-sdd-pipeline"}
+TRACE_CONSUMERS = {"to-product-idea", "to-sdd-prd", "to-screen-map", "to-qa-checklist", "to-development-plan", "to-sdd-pipeline"}
+LIFECYCLE_CONSUMERS = {"to-sdd-prd", "to-architecture", "to-dod-evals", "to-qa-checklist", "to-development-plan"}
 
 
 def read_version(relative, revision):
@@ -28,6 +30,17 @@ def read_version(relative, revision):
 
 def resource_loads(skill, scenario, revision):
     paths = ["skills/" + skill + "/SKILL.md", SHARED + "common-contract.md"]
+    if skill in TRACE_CONSUMERS:
+        paths.append(SHARED + "traceability-contract.md")
+    if skill in LIFECYCLE_CONSUMERS:
+        paths.append(SHARED + "lifecycle-contract.md")
+    if skill in ("to-product-idea", "to-sdd-pipeline", "to-screen-map"):
+        paths.append(SHARED + "scope-and-execution.md")
+    if skill in ("to-sdd-prd", "to-design-brief", "to-qa-checklist"):
+        paths.append(SHARED + "accessibility-policy.md")
+    entry = read_version("skills/" + skill + "/SKILL.md", revision) or ""
+    if skill == "to-design-brief" and "references/freeze-contract.md" in entry:
+        paths.append(SHARED + "freeze-contract.md")
     if skill in SECURITY_CONSUMERS:
         paths.append(SHARED + "security-contract.md")
     if skill == "to-sdd-prd":
@@ -35,7 +48,7 @@ def resource_loads(skill, scenario, revision):
     if skill in HEURISTIC_CONSUMERS:
         paths += [SHARED + "heuristic-usability-review.md", SHARED + "verification-contract.md"]
     if skill == "to-sdd-pipeline":
-        paths += [SHARED + "manifest-contract.md", SHARED + "prototype-contract.md", SHARED + "pipeline-contract.json"]
+        paths += [SHARED + "manifest-contract.md", SHARED + "prototype-contract.md", SHARED + "freeze-contract.md", SHARED + "pipeline-contract.json"]
         if scenario["intake"]:
             paths.append(SHARED + "intake-adapter.md")
         if scenario["claude_design"]:
@@ -83,12 +96,28 @@ def build_report(base, encoding):
     return report
 
 
+def budget_errors(report, recent, policy):
+    measured = {"entrypoints": report["entrypoints"], "readme": report["readme"], **report["scenarios"]}
+    previous = {"entrypoints": recent["entrypoints"], "readme": recent["readme"], **recent["scenarios"]}
+    errors = []
+    for name, values in measured.items():
+        if name not in policy["absolute"] or name not in policy["approved_growth_tokens"]:
+            errors.append(name + ": missing reviewed budget")
+            continue
+        if values["after"] > policy["absolute"][name]:
+            errors.append(name + ": absolute budget exceeded")
+        if values["after"] - previous[name]["before"] > policy["approved_growth_tokens"][name]:
+            errors.append(name + ": recent growth exceeds reviewed allowance")
+    return errors
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default=DEFAULT_BASE)
     parser.add_argument("--encoding", default="o200k_base")
     parser.add_argument("--summary", action="store_true")
-    parser.add_argument("--check", action="store_true", help="fail if any measured instruction budget no longer improves on the baseline")
+    parser.add_argument("--check", action="store_true", help="enforce reviewed recent-version growth and absolute ceilings")
+    parser.add_argument("--policy", type=Path, default=ROOT / "tests/fixtures/instruction-budget.json")
     args = parser.parse_args()
     try:
         import tiktoken
@@ -97,13 +126,22 @@ def main():
     try:
         subprocess.run(["git", "rev-parse", "--verify", args.base + "^{commit}"], cwd=ROOT, check=True, capture_output=True)
         report = build_report(args.base, tiktoken.get_encoding(args.encoding))
+        errors = []
+        if args.check:
+            policy = json.loads(args.policy.read_text(encoding="utf-8"))
+            recent = build_report(policy["recent_base"], tiktoken.get_encoding(args.encoding))
+            errors = budget_errors(report, recent, policy)
+            report["budget_review"] = {"recent_base": policy["recent_base"], "reason": policy["reason"], "errors": errors,
+                                       "recent": {"entrypoints": recent["entrypoints"], "readme": recent["readme"],
+                                                  **{key: {k: v for k, v in value.items() if not k.startswith("loads_")}
+                                                     for key, value in recent["scenarios"].items()}}}
         if args.summary:
             for scenario in report["scenarios"].values():
                 scenario.pop("loads_before")
                 scenario.pop("loads_after")
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        if args.check and any(item["after"] >= item["before"] for item in [report["entrypoints"], report["readme"], *report["scenarios"].values()]):
-            print("Instruction budget regression against the recorded baseline.", file=sys.stderr)
+        if errors:
+            print("\n".join(errors), file=sys.stderr)
             return 1
         return 0
     except (ValueError, OSError, subprocess.CalledProcessError) as error:

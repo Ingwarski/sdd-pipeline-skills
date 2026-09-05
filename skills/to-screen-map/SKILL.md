@@ -8,6 +8,8 @@ Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.
 
 ## Inputs
 
+This is a UI-only artifact under the [scope contract](../to-sdd-pipeline/references/scope-and-execution.md). For confirmed headless scope, return not applicable to the caller; do not manufacture screens or a placeholder document.
+
 Required before starting: `docs/prd.md`, `docs/user-journey.md`, `docs/guardrails.md`; in pipeline mode also the validated `docs/project-context.md` and `docs/canonical-terms.md` bundle.
 
 Optional grounding: README and confirmed platform, localization, boundary and vocabulary facts. Context alone cannot introduce a screen or feature.

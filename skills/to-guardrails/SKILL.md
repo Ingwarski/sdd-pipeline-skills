@@ -27,6 +27,7 @@ DoD owns reusable completion gates; QA owns concrete checks/results. Do not writ
 1. Identify authoritative inputs and stakes: hobby/internal, consumer/paid, or regulated/accessibility-critical/sensitive-data.
 2. Assign authority by concern: PRD/journey for behavior; the approved integrated baseline for presentation/interaction detail; architecture, guardrails and applicable standards for technical and risk boundaries.
 3. Allow reversible, source-grounded work within intent. Keep one whole-design approval and just-in-time authorization for irreversible, destructive, financial, legal, public, privileged, security/privacy-sensitive or external effects.
+   Retain valid existing authorization within its scope; do not repeatedly ask for the same permission. A new material boundary requires new authority. The separate post-plan implementation prompt remains mandatory.
 4. Define conflict routing to the owner and when a material non-inferable answer is needed. Do not interview about discoverable facts or every user-facing edit.
 5. Distinguish representative-user validation, H1-H10 review, visual/browser observations, accessibility checks and functional/runtime evidence. None substitutes for another; no fabricated sessions, findings, results or compliance claims.
 6. Require fresh verification before completion claims: identify evidence, run the authorized check, read its output, then report the supported result. A mockup/static surface does not prove real data, actions, persistence or integrations.

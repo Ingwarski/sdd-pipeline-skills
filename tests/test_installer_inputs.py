@@ -126,13 +126,31 @@ class InstallerInputTests(unittest.TestCase):
             self.assertEqual((self.clone / "skills/to-sdd-pipeline/references/heuristic-usability-review.md").resolve(), reference)
             self.assertIn("H1-H10", reference.read_text(encoding="utf-8"))
         before = {entry["name"]: (self.dest / entry["name"]).resolve() for entry in self.manifest["skills"]}
-        self.assertEqual(0, self.install().returncode)
+        result = self.install()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual(before, {entry["name"]: (self.dest / entry["name"]).resolve() for entry in self.manifest["skills"]})
         reader = self.dest / "to-sdd-prd/scripts/asvs.py"
         result = subprocess.run([sys.executable, str(reader), "--ids", "v5.0.0-8.2.2"],
                                 cwd=self.unrelated_project, capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("v5.0.0-8.2.2", result.stdout)
+
+    def test_status_distinguishes_real_installation_from_thirteen_copies(self):
+        script = self.clone / "scripts/installation_status.py"
+        self.assertTrue(script.is_file(), "Need a read-only exact-target installation status check")
+        result = self.install()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        def status(root):
+            return subprocess.run([sys.executable, str(script), "--root", str(self.clone), "--skill-root", str(root)], capture_output=True, text=True)
+        result = status(self.dest)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("current", json.loads(result.stdout)["result"])
+        copied = self.root / "thirteen-copies"
+        for entry in self.manifest["skills"]:
+            shutil.copytree(self.clone / entry["path"], copied / entry["name"])
+        self.assertNotEqual(0, status(copied).returncode)
+        (self.dest / "communications-audit").mkdir()
+        self.assertEqual("cleanup_required", json.loads(status(self.dest).stdout)["result"])
 
 
 if __name__ == "__main__":

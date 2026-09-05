@@ -25,7 +25,7 @@ Do not create detailed journeys, screens/states, layouts, visual systems/baselin
 1. Read the complete product idea and relevant current evidence. Map sources to requirements before drafting.
 2. Define the user problem, solution/workflow, actors, product boundary and observable success.
 3. Map every material `JOB-*` to one or more `UC-*` product use cases; record unresolved relationships explicitly.
-4. Write stable sequential user stories: As a <role>, I want <capability>, so that <outcome>. Cover the boundary without duplicate filler.
+4. Add user stories only when they clarify an actor/value distinction not already expressed by use cases. Keep their IDs stable; omit duplicate narrative.
 5. Keep FR/NFR IDs stable. Split each compound requirement into independently observable sub-obligations; a parent ID alone is not complete coverage. Apply the [OWASP security-authoring procedure](references/security-authoring.md) to the confirmed scope before completing requirements and acceptance criteria. Its pinned offline ASVS reference supplies security controls; it does not run scans or add another stage.
 6. Record only source-backed product-level implementation decisions. Architecture and build order remain downstream.
 7. Define observable test seams and minimum end-to-end acceptance scenarios. Prefer the highest practical external seam; tests verify the specification, not redefine it.
@@ -33,7 +33,7 @@ Do not create detailed journeys, screens/states, layouts, visual systems/baselin
 9. Resolve contradictions through the product-idea owner. In pipeline mode return one visible `ProductIntentQuestion` for material gaps; after an answer, upstream intent is versioned before this owner resumes.
 10. Validate every requirement, clause and use-case path against sources; write only the PRD and return control without asking whether to continue.
 
-When relevant, carry the source P0–P3 glossary and separate severity from release effect. Preserve source-approved motion; do not import generic animation removal or an unrequested reduced-motion variant. Use precise schema/state examples only when more useful than prose; avoid brittle paths and snippets.
+When relevant, carry the source P0–P3 glossary and separate severity from release effect. Preserve visual intent while applying the [accessibility policy](../to-sdd-pipeline/references/accessibility-policy.md) to UI requirements. Use schema/state examples only when more useful than prose. Resolve applicable operational outcomes through the [lifecycle checklist](../to-sdd-pipeline/references/lifecycle-contract.md), not invented thresholds.
 
 ## Use-case contract
 
@@ -43,7 +43,7 @@ Use cases own system-facing behavior, not visual layout or implementation. One c
 
 ## Artifact coverage
 
-Preserve equivalent existing/localized headings. Core coverage: Problem Statement; Solution/Core Workflow; Product Boundary; Use Cases; User Stories; product-level Implementation Decisions; Testing Decisions and Minimum End-To-End Acceptance Scenarios; Out Of Scope; Open Questions; Source Notes.
+Preserve equivalent existing/localized headings. Core coverage: Problem Statement; Solution/Core Workflow; Product Boundary; Use Cases; product-level Implementation Decisions; Testing Decisions and Minimum End-To-End Acceptance Scenarios; Out Of Scope; Open Questions; Source Notes. User Stories are optional when they add information beyond jobs/use cases.
 
 No unsupported scope or empty template sections. State a source-backed reason when a required concern does not apply.
 

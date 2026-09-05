@@ -38,7 +38,7 @@ export SDD_UPDATE_TEST_FETCH="$test_root/fetched"
 printf '%s\n' '#!/usr/bin/env bash' \
   'if [[ "$1" == -C && "$3" == fetch ]]; then' \
   '  printf fetched > "$SDD_UPDATE_TEST_FETCH"' \
-  '  exec "$SDD_UPDATE_TEST_GIT" -C "$2" fetch --quiet "$SDD_UPDATE_TEST_REMOTE" main' \
+  '  exec "$SDD_UPDATE_TEST_GIT" -C "$2" fetch --quiet "$SDD_UPDATE_TEST_REMOTE" "${@: -1}"' \
   'fi' \
   'exec "$SDD_UPDATE_TEST_GIT" "$@"' > "$test_root/bin/git"
 chmod +x "$test_root/bin/git"
@@ -57,6 +57,11 @@ run_update > /dev/null
 [[ "$(sed -n '1p' "$SDD_UPDATE_TEST_RESULT")" == new ]]
 grep -qx -- '--repair' "$SDD_UPDATE_TEST_RESULT"
 grep -qx -- '--codex' "$SDD_UPDATE_TEST_RESULT"
+rm "$SDD_UPDATE_TEST_RESULT" "$SDD_UPDATE_TEST_FETCH"
+
+# Default launchers pass no installer flags; Bash 3.2 must accept an empty array.
+PATH="$test_root/bin:$PATH" bash "$checkout/update.sh" > /dev/null
+grep -qx -- '--repair' "$SDD_UPDATE_TEST_RESULT"
 rm "$SDD_UPDATE_TEST_RESULT" "$SDD_UPDATE_TEST_FETCH"
 
 printf user-work > "$checkout/local.txt"
@@ -125,4 +130,12 @@ PATH="$test_root/bin:$PATH" bash "$student/update.sh" --all --codex-dir "$studen
 [[ ! -e "$student/skills/communications-audit" && ! -e "$student/.agents/skills/issue-happypro-certificate" ]]
 [[ -z "$(git -C "$student" status --porcelain)" ]]
 grep -q 'permanently-deleted=2' "$test_root/source-cleanup.log"
+# A tested channel must not consume a newer, unverified main commit.
+git -C "$publisher" push --quiet "$remote" HEAD:refs/heads/stable
+printf unverified > "$publisher/unverified.txt"
+git -C "$publisher" add -- unverified.txt
+git -C "$publisher" -c user.name='SDD tests' -c user.email='sdd-tests@example.invalid' commit --quiet -m unverified
+git -C "$publisher" push --quiet "$remote" main
+PATH="$test_root/bin:$PATH" bash "$student/update.sh" --channel stable --all --codex-dir "$student_codex" --claude-dir "$student_claude" > "$test_root/channel.log"
+[[ ! -e "$student/unverified.txt" ]]
 printf '%s\n' 'Updater tests passed: fresh installer, flags, dirty tree, branch, origin, old URL, ahead/diverged history.'

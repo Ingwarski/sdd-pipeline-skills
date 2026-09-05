@@ -1,0 +1,10 @@
+# Accessibility and visual intent
+
+For web UI, default to WCAG 2.2 AA unless a confirmed requirement sets another target. Platform-specific products use applicable platform guidance. Separate standards from house preferences; neither screenshots nor this checklist establish conformance.
+
+- **Reflow:** test vertically scrolling content at 320 CSS px, or equivalent 400% zoom from 1280px. No loss of information/function or two-dimensional scrolling, except content genuinely requiring a two-dimensional layout. Test text resizing to 200% separately. [Reflow](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html).
+- **Input and perception:** verify keyboard operation, logical focus and visible/unobscured focus, names/roles/states, labels and errors, contrast, and relevant assistive-technology interactions in critical flows. Keep disabled/hidden presentation distinct from authorization.
+- **Targets:** WCAG 2.2 AA SC 2.5.8 specifies 24×24 CSS px or an applicable exception. The collection's 44×44px touch target and spacing preferences are design defaults, not the AA definition. Document applicable exceptions. [Target size](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html).
+- **Motion:** preserve approved artistic intent while meeting applicable pause/stop/hide, flashing and timing requirements; communicate state without motion alone. Consider the user's reduced-motion preference. Interaction-triggered animation disabling is SC 2.3.3 **AAA**, not universally AA. If needed accessibility behavior conflicts with an approved design, return the specific conflict to its owner; do not silently waive accessibility or remove all motion. [Pause/stop/hide](https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html), [interaction animation](https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html).
+
+The design brief defines the applicable behavior; QA defines concrete checks and actual results. Font sizes, cards, gradients and icon style are source-overridable house choices, not accessibility certification rules. Preserve the normal single integrated-design approval.

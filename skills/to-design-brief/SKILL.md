@@ -35,8 +35,8 @@ The screen map owns which states exist; wireframes own their structure. PRD/jour
 9. Define explicit H1-H10 coverage for the primary journey and representative screens/states/routes/viewports, desktop/mobile when supported, recovery and accessible critical actions. `covered` means planned coverage, not passed testing.
 10. Make H7 efficiency and H10 contextual/task-oriented help decisions explicit. Every applicable failure uses cause → what was preserved → next action → retry/undo → observable completion.
 11. Plan representative-user tasks for critical/consequential flows: JOB/UC, user group, task, device/viewport, success criterion, timing and evidence status. For regulated, safety- or accessibility-critical/high-risk flows prefer pre-approval validation when feasible. A deferral needs assumption/risk, owner and timing; do not call it user-validated.
-12. Define responsive and accessibility rules. Default to WCAG 2.2 AA design targets and 390/430/768/1280/1440px unless sources specify otherwise; screenshots do not prove conformance.
-13. Preserve source-approved motion and communicate required state/information without animation alone. Do not invent motion removal, simplification or an unrequested reduced-motion variant. Verify font licensing/provenance when project policy requires it; prefer system stacks or verified independent foundries if uncertain.
+12. Apply the [accessibility policy](../to-sdd-pipeline/references/accessibility-policy.md): WCAG 2.2 AA by default, 320 CSS-pixel reflow, zoom, keyboard and relevant assistive-technology behavior. Use 390/430/768/1280/1440px for additional design coverage unless sources specify otherwise.
+13. Preserve approved motion while resolving applicable accessibility needs and user preferences explicitly; state cannot rely on animation alone. Verify font licensing/provenance when required; prefer system stacks or verified sources if uncertain.
 14. Record selected/rejected directions, scope cuts, tool choices and user overrides in the Decision Log. Handoff guidance names frozen inputs, the complete inventory and equivalent scope; no permission to edit domain docs or production code.
 15. Run both validation passes below, then write only the brief.
 
@@ -50,9 +50,9 @@ Every named material has one entry; every entry has a use. An unavailable **requ
 
 Classify proposed changes by security impact before accepting them into the baseline. Changed roles, sharing, data visibility, inputs, integrations or sensitive actions require affected PRD obligations to be reassessed and upstream owners reconciled first. Styling-only changes preserve security requirements and need no full PRD rerun. A design approval cannot waive a security control; simulated authentication/authorization is never product-security evidence.
 
-Before approval, the baseline section is `Status: proposed`. Only the engineer's whole-design approval in Codex makes one exact candidate/version authoritative. A Claude selection only chooses what to export.
+Before approval, the baseline section is `Status: proposed`. Only an explicit whole-design decision in the active host makes one exact candidate/version authoritative. Claude Design selection alone only chooses what to export.
 
-On approval, atomically record: Baseline ID; selected candidate/version; origin and handoff ID; immutable target reference/hash; frozen normalized prototype source root/tree hash with `sdd-tree-sha256-v1`; durable prototype paths; visual-DoD scope; screen/state/viewport coverage; operator approval receipt/time; permitted variance; overrides and supersession.
+On approval, atomically record: Baseline ID; selected candidate/version; origin/handoff; immutable target/hash; frozen render source root/dependencies/hash/algorithm under the [freeze contract](../to-sdd-pipeline/references/freeze-contract.md); durable paths; visual scope; screen/state/viewport coverage; actual approval receipt/time; permitted variance; overrides/supersession.
 
 Keep the prior approved baseline active and immutable while a revision is proposed. A new approved whole supersedes it; preserve the earlier ID/receipt/history. A source-backed accepted scoped correction is an operator override, not a redundant approval request.
 

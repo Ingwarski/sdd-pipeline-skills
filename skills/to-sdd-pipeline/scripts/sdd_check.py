@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Read-only, stage-aware SDD consistency checks. Python 3.9+, standard library."""
+"""Read-only, stage-aware SDD consistency checks. Python 3.12+, standard library."""
 
 import argparse
+import copy
 import hashlib
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import subprocess
 import sys
 from datetime import datetime
+from urllib.parse import unquote, urlsplit
 
 
 CONTRACT = Path(__file__).resolve().parent.parent / "references/pipeline-contract.json"
@@ -80,6 +84,61 @@ def tree_hash(root):
         raise ValueError("empty prototype source tree")
     entries.sort(key=lambda item: item[0].encode("utf-8"))
     return digest("".join(path + "\n" + value + "\n" for path, value in entries).encode("utf-8"))
+
+
+class RenderReferences(HTMLParser):
+    """Static render resources, not navigation links. Never execute source content."""
+    def __init__(self):
+        super().__init__()
+        self.urls = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "base":
+            raise ValueError("freeze without a base URL override")
+        for name in ("src", "poster") + (("data",) if tag == "object" else ()):
+            if attrs.get(name):
+                self.urls.append(attrs[name])
+        if tag in ("link", "use", "image"):
+            self.urls.extend(attrs[name] for name in ("href", "xlink:href") if attrs.get(name))
+        if attrs.get("srcset"):
+            # URL tokens can contain commas (notably inline data). Descriptors
+            # follow whitespace; a trailing comma separates URL-only candidates.
+            remaining = attrs["srcset"].lstrip(" ,\t\r\n")
+            while remaining:
+                match = re.match(r"\S+", remaining)
+                url = match[0]
+                self.urls.append(url.rstrip(","))
+                remaining = remaining[len(url):]
+                if not url.endswith(","):
+                    remaining = remaining.partition(",")[2]
+                remaining = remaining.lstrip(" ,\t\r\n")
+
+
+def validate_render_files(root, files):
+    """Reject detectable unbound resources; runtime dependency discovery remains browser work."""
+    for path in files:
+        if path.suffix.lower() not in (".html", ".htm", ".css", ".js", ".mjs", ".svg"):
+            continue
+        text = path.read_text(encoding="utf-8-sig")
+        urls = []
+        if path.suffix.lower() in (".html", ".htm", ".svg"):
+            parser = RenderReferences()
+            parser.feed(text)
+            urls.extend(parser.urls)
+        urls.extend(re.findall(r"url\(\s*['\"]?([^'\"\s)]+)", text, re.I))
+        urls.extend(re.findall(r"@import\s+['\"]([^'\"]+)", text, re.I))
+        urls.extend(re.findall(r"(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|new\s+URL\(\s*)['\"]([^'\"]+)['\"]", text))
+        for url in urls:
+            parsed = urlsplit(url)
+            if url.startswith("#") or parsed.scheme == "data":
+                continue
+            if parsed.scheme or parsed.netloc:
+                raise ValueError("vendor mutable render dependency before freezing: " + url)
+            local = unquote(parsed.path)
+            target = (root / local.lstrip("/") if local.startswith("/") else path.parent / local).resolve()
+            if target not in files:
+                raise ValueError("unbound render dependency: " + str(path) + " -> " + url)
 
 
 def section_bytes(path, heading):
@@ -172,8 +231,17 @@ class Checker:
     def __init__(self, project, manifest, contract=None):
         self.project = Path(project).resolve()
         self.manifest = manifest
-        self.contract = contract or read_contract()
+        self.contract = copy.deepcopy(contract or read_contract())
         validate_contract(self.contract)
+        scope = manifest.get("product_scope", {})
+        self.ui = scope.get("capabilities", {}).get("ui") is not False
+        self.skipped = set() if self.ui else set(self.contract.get("ui_only_artifacts", []))
+        if self.skipped:
+            for spec in list(self.contract["artifacts"].values()) + list(self.contract["nodes"].values()):
+                spec["required_before"] = [key for key in spec["required_before"] if key not in self.skipped]
+                if "outputs" in spec:
+                    spec["outputs"] = [key for key in spec["outputs"] if key not in self.skipped]
+                spec["baseline_required"] = False
         self.specs = self.contract["artifacts"]
         self.artifacts = manifest.get("artifacts", {})
         if not isinstance(self.artifacts, dict):
@@ -189,11 +257,34 @@ class Checker:
         if target in self.specs:
             self.affected.add(target)
 
+    def product_scope(self):
+        scope = self.manifest.get("product_scope")
+        if scope is None:
+            return  # Legacy projects retain the full UI workflow; no silent opt-out.
+        try:
+            profile, capabilities = scope["profile"], scope["capabilities"]
+            if profile not in self.contract["profiles"] or not isinstance(capabilities, dict):
+                raise ValueError("unknown product profile/capabilities")
+            if "ui" not in capabilities or any(type(value) is not bool for value in capabilities.values()):
+                raise ValueError("capabilities need explicit booleans including ui")
+            if (profile == "headless") != (capabilities["ui"] is False):
+                raise ValueError("headless profile and ui capability disagree")
+            reference = scope["definition_ref"]
+            text = self.reference(reference, "product-idea")
+            if self.reference_path(reference) != "docs/product-idea.md":
+                raise ValueError("product scope belongs to product idea")
+            blocks = re.findall(r"```json\s*\n(.*?)\n```", text, re.S)
+            expected = {"profile": profile, "capabilities": capabilities}
+            if len(blocks) != 1 or json.loads(blocks[0], object_pairs_hook=unique_object) != expected:
+                raise ValueError("scope projection differs from the canonical scope JSON")
+        except (KeyError, TypeError, ValueError) as error:
+            self.issue("product_scope", "product-idea", str(error))
+
     def path(self, relative, no_links=False):
         if not isinstance(relative, str) or not relative or "\\" in relative:
             raise ValueError("use a nonempty repository-relative POSIX path")
         parsed = PurePosixPath(relative)
-        if parsed.is_absolute() or ".." in parsed.parts or ":" in parsed.parts[0]:
+        if not parsed.parts or parsed.is_absolute() or ".." in parsed.parts or ":" in parsed.parts[0]:
             raise ValueError("path escapes project: " + relative)
         resolved = (self.project / relative).resolve()
         if not resolved.is_relative_to(self.project):
@@ -282,6 +373,11 @@ class Checker:
             self.issue("missing_validation", key, "owner must record document-validation result")
         if not entry.get("owner_invocation_id"):
             self.issue("missing_invocation", key, "owner invocation is required")
+        dispatch = self.manifest.get("dispatches", {}).get(key)
+        if dispatch is not None:
+            if dispatch.get("invocation_id") != entry.get("owner_invocation_id") or set(dispatch.get("outputs", [])) != set(entry.get("declared_output_set", [])):
+                self.issue("stale_owner_return", key, "return does not match the current dispatch identity/output set")
+            self.sources(dispatch, key)
         language = self.manifest.get("language", {}).get("working_language")
         if language and validation.get("working_language") != language:
             self.issue("language_revalidation", key, "validate prose against current working_language")
@@ -444,11 +540,122 @@ class Checker:
             for key in keys:
                 self.issue("incomplete_context_bundle", key, "both outputs need one invocation and the same two-file output set")
 
+    def traceability(self):
+        owners = {"job": "product-idea", "use_case": "prd", "requirement": "prd", "surface": "screen-map",
+                  "state": "screen-map", "unit": "development-plan", "check": "qa-checklist"}
+        active = set(owners.values()) & self.checked
+        if not active:
+            return
+        if type(self.manifest.get("traceability_version")) is not int or self.manifest["traceability_version"] != 1:
+            self.issue("migration_required", "manifest", "owners must return verified traceability version 1; preserve IDs and history")
+            return
+        definitions, links = {}, []
+        for owner in sorted(active):
+            trace = self.artifacts.get(owner, {}).get("traceability")
+            if not isinstance(trace, dict) or not isinstance(trace.get("definitions"), list) or not isinstance(trace.get("links"), list):
+                self.issue("trace_definition", owner, "owner needs definitions and links")
+                continue
+            for item in trace["definitions"]:
+                key, kind = item.get("id"), item.get("kind")
+                if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", key) or key in definitions or owners.get(kind) != owner:
+                    self.issue("trace_definition", owner, "unique ID with its canonical kind/owner required")
+                    continue
+                definitions[key] = item
+                text = self.reference(item.get("definition_ref"), owner)
+                if self.reference_path(item.get("definition_ref")) != self.specs[owner]["path"] or not contains_id(text, key):
+                    self.issue("trace_definition", owner, key + ": missing canonical definition")
+                if type(item.get("required")) is not bool or (not item.get("required") and not item.get("rationale")):
+                    self.issue("trace_definition", owner, key + ": required flag or exclusion rationale missing")
+            links.extend((owner, link) for link in trace["links"])
+            # Declared primary IDs in canonical source cannot silently fall out of its index.
+            prefix = r"JOB" if owner == "product-idea" else r"UC|FR|NFR" if owner == "prd" else None
+            if prefix:
+                text = self.path(self.specs[owner]["path"]).read_text(encoding="utf-8")
+                mentioned = {value.rstrip(".") for value in re.findall(r"(?<![\w.-])(?:" + prefix + r")-[A-Za-z0-9][A-Za-z0-9_.-]*", text)}
+                for key in mentioned - set(definitions):
+                    self.issue("trace_definition", owner, key + ": canonical ID is not indexed")
+        kinds = {key: value["kind"] for key, value in definitions.items()}
+        allowed = {"realizes_job": ({"use_case"}, {"job"}), "specifies": ({"requirement"}, {"use_case"}),
+                   "supports": ({"surface"}, {"use_case"}), "state_of": ({"state"}, {"surface"}),
+                   "implements": ({"unit"}, {"requirement", "state"}), "verifies": ({"check"}, {"requirement", "state"})}
+        checks = {check.get("check_id"): check for check in self.manifest.get("verification", {}).get("checks", [])}
+        valid = set()
+        for owner, link in links:
+            source, target, relation = link.get("from"), link.get("to"), link.get("relation")
+            types = allowed.get(relation)
+            text = self.reference(link.get("definition_ref"), owner)
+            if not types or kinds.get(source) not in types[0] or kinds.get(target) not in types[1] or owners.get(kinds.get(source)) != owner:
+                self.issue("trace_link", owner, str(source) + " -> " + str(target) + ": unresolved or wrongly typed link")
+            elif self.reference_path(link.get("definition_ref")) != self.specs[owner]["path"] or not all(contains_id(text, key) for key in (source, target)):
+                self.issue("trace_link", owner, "relationship must be cited in its owner's document")
+            elif relation != "verifies" or (source in checks and checks[source].get("execution_status") != "not_applicable"):
+                valid.add((source, target, relation))
+        for key, item in definitions.items():
+            if not item.get("required"):
+                continue
+            kind = item["kind"]
+            incoming = {relation for _, target, relation in valid if target == key}
+            outgoing = {relation for source, _, relation in valid if source == key}
+            expected = set()
+            if kind == "job" and "prd" in active:
+                expected.add("realizes_job")
+            if kind == "use_case":
+                expected.add("specifies")
+                if "realizes_job" not in outgoing:
+                    self.issue("trace_coverage", "prd", key + ": use case must realize a job")
+            if kind == "requirement" and not item.get("cross_cutting") and "specifies" not in outgoing:
+                self.issue("trace_coverage", "prd", key + ": map a use case or explicitly declare cross-cutting scope")
+            if kind == "surface" and "supports" not in outgoing or kind == "state" and "state_of" not in outgoing:
+                self.issue("trace_coverage", "screen-map", key + ": missing structural relationship")
+            if kind in ("requirement", "state"):
+                if "qa-checklist" in active:
+                    expected.add("verifies")
+                if "development-plan" in active:
+                    expected.add("implements")
+            for relation in expected - incoming:
+                owner = "qa-checklist" if relation == "verifies" else "development-plan" if relation == "implements" else "prd"
+                self.issue("trace_coverage", owner, key + ": missing " + relation)
+        if "qa-checklist" in active:
+            declared = {key for key, kind in kinds.items() if kind == "check"}
+            for key in declared.symmetric_difference(checks):
+                self.issue("trace_link", "qa-checklist", str(key) + ": trace and verification indexes must agree")
+            for check in checks.values():
+                for field, kind in (("job_ids", "job"), ("use_case_ids", "use_case")):
+                    ids = check.get(field, [])
+                    if not isinstance(ids, list) or any(not isinstance(key, str) or kinds.get(key) != kind for key in ids):
+                        self.issue("trace_link", "qa-checklist", str(check.get("check_id")) + ": unresolved " + field)
+
+    def render_hash(self, record):
+        root_name = record.get("prototype_source_root")
+        root = self.path(root_name, no_links=True)
+        if not root.is_dir():
+            raise ValueError("prototype source root must be a directory")
+        algorithm = record.get("hash_algorithm")
+        dependencies = record.get("render_dependencies", [])
+        if not isinstance(dependencies, list) or not all(isinstance(p, str) for p in dependencies):
+            raise ValueError("render dependencies must be project-relative paths")
+        if algorithm not in ("sdd-tree-sha256-v1", "sdd-render-sha256-v2") or (algorithm == "sdd-tree-sha256-v1" and dependencies):
+            raise ValueError("shared assets require sdd-render-sha256-v2")
+        names = [root_name] + dependencies
+        paths = [self.path(name, no_links=True) for name in names]
+        if any(a == b or a in b.parents or b in a.parents for i, a in enumerate(paths) for b in paths[i + 1:]):
+            raise ValueError("duplicate or overlapping render roots")
+        entries, files = [], set()
+        for name, path in zip(names, paths):
+            if not path.is_dir() and not path.is_file():
+                raise ValueError("render input must be a regular file or directory")
+            value = tree_hash(path) if path.is_dir() else digest(path.read_bytes())
+            entries.append((name, value))
+            files.update(p.resolve() for p in path.rglob("*") if p.is_file()) if path.is_dir() else files.add(path)
+        validate_render_files(root, files)
+        if algorithm == "sdd-tree-sha256-v1":
+            return entries[0][1]
+        entries.sort(key=lambda item: item[0].encode("utf-8"))
+        return digest(json.dumps(entries, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
     def frozen(self, record, target):
         try:
-            if record.get("hash_algorithm") != "sdd-tree-sha256-v1":
-                raise ValueError("unknown prototype hash algorithm")
-            observed = tree_hash(self.path(record.get("prototype_source_root"), no_links=True))
+            observed = self.render_hash(record)
             if not hash_matches(record.get("prototype_tree_hash"), observed):
                 self.issue("baseline_integrity", target, "prototype source tree changed")
             self.snapshot(record.get("visual_target_path"), record.get("visual_target_hash"), target, "visual_target_integrity")
@@ -570,8 +777,9 @@ class Checker:
                     timestamp(actual.get("observed_at"))
                     if actual.get("result") != "passed":
                         raise ValueError("candidate observation has not passed")
-                    if field == "browser_receipt" and actual.get("browser_kind") != "external_default":
-                        raise ValueError("external default browser receipt required")
+                    surface = self.manifest.get("design_execution", {}).get("review_surface", "external_default")
+                    if field == "browser_receipt" and (surface not in ("external_default", "external_named", "in_app") or actual.get("browser_kind") != surface):
+                        raise ValueError("browser receipt must match the selected visible review surface")
                     if any(item.get("release_effect") == "blocking" and item.get("status") != "closed" for item in actual.get("findings", [])):
                         raise ValueError("candidate has an open blocking finding")
                 except (OSError, ValueError, KeyError, TypeError) as error:
@@ -650,9 +858,20 @@ class Checker:
                 self.issue("gate_id", "dod-evals", "missing or duplicate gate ID")
                 continue
             gate_ids.add(key)
+            if not self.ui and key in GATE_KINDS and gate.get("applicability") != "not_applicable":
+                self.issue("contradictory_applicability", "dod-evals", "UI gate in headless scope: " + key)
             text = self.reference(gate.get("definition_ref"), "dod-evals")
             if key not in text or self.reference_path(gate.get("definition_ref")) != "docs/dod-evals.md":
                 self.issue("unresolved_gate", "dod-evals", key)
+            ids = gate.get("check_ids", [])
+            if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
+                self.issue("unbound_gate", "dod-evals", key)
+                ids = []
+            if len(ids) != len(set(ids)) or any(item not in check_map or check_map[item].get("gate_id") != key for item in ids):
+                self.issue("unbound_gate", "dod-evals", key)
+            for check in checks:
+                if check.get("gate_id") == key and check.get("check_id") not in ids:
+                    self.issue("unbound_check", "qa-checklist", str(check.get("check_id")))
             if gate.get("applicability") == "not_applicable":
                 if not gate.get("rationale"):
                     self.issue("missing_rationale", "dod-evals", key)
@@ -663,11 +882,14 @@ class Checker:
                 self.issue("gate_applicability", "dod-evals", key)
             if gate.get("active") is False:
                 self.issue("inactive_load_bearing_gate", "dod-evals", key)
-            ids = gate.get("check_ids", [])
-            if not ids or any(item not in check_map or check_map[item].get("gate_id") != key for item in ids):
+            if not ids:
                 self.issue("unbound_gate", "dod-evals", key)
+            applicable_checks = [check_map[item] for item in ids if item in check_map
+                                 and check_map[item].get("execution_status") != "not_applicable"]
+            if not applicable_checks:
+                self.issue("empty_applicable_gate", "dod-evals", key + ": resolve applicability; excluded checks cannot satisfy it")
             if key == "heuristic_usability_review":
-                applicable = {h for item in ids for h in check_map.get(item, {}).get("heuristic_ids", [])}
+                applicable = {h for check in applicable_checks for h in check.get("heuristic_ids", [])}
                 excluded = gate.get("not_applicable_heuristics", {})
                 if not isinstance(excluded, dict) or any(not reason for reason in excluded.values()):
                     self.issue("heuristic_coverage", "qa-checklist", "excluded heuristics need reasons")
@@ -716,8 +938,80 @@ class Checker:
                     self.path(item["source"])
                     if item.get("strategy") not in ("copy", "adapt", "reimplement"):
                         raise ValueError("unknown promotion strategy")
+                self.promotion_provenance(record, actual, release)
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.issue("promotion_receipt", "implementation", str(error))
+
+    def promotion_provenance(self, record, actual, release):
+        units = self.artifacts.get("development-plan", {}).get("traceability", {}).get("definitions", [])
+        if not any(item.get("id") == record.get("unit_id") and item.get("kind") == "unit" for item in units):
+            raise ValueError("promotion unit is not defined in the current plan")
+        if type(actual.get("schema_version")) is not int or actual["schema_version"] != 1:
+            raise ValueError("promotion schema_version 1 required")
+        for key in ("promotion_id", "run_id", "candidate_id", "version"):
+            if not isinstance(actual.get(key), str) or not actual[key].strip():
+                raise ValueError("missing promotion field: " + key)
+        baseline = self.manifest.get("active_baseline", {})
+        for key in ("visual_target_hash", "candidate_id", "version", "prototype_source_root", "prototype_tree_hash"):
+            if not baseline.get(key) or actual.get(key) != baseline[key]:
+                raise ValueError("promotion baseline mismatch: " + key)
+        if actual.get("development_plan_ref") != self.specs["development-plan"]["path"]:
+            raise ValueError("promotion needs canonical plan reference")
+        if timestamp(actual.get("completed_at")) < timestamp(record.get("started_at")):
+            raise ValueError("promotion completion precedes execution")
+        for key in ("adaptations", "variances"):
+            if not isinstance(actual.get(key), list):
+                raise ValueError("promotion needs explicit " + key)
+        if actual.get("verification_status") not in ("passed", "failed", "blocked") or (release and actual["verification_status"] != "passed"):
+            raise ValueError("promotion verification is not complete")
+        qa = {item["check_id"]: item for item in self.manifest.get("verification", {}).get("checks", [])}
+        ids = actual.get("qa_ids")
+        if not isinstance(ids, list) or not ids or any(key not in qa for key in ids):
+            raise ValueError("promotion needs real QA IDs")
+        if release and any(qa[key].get("execution_status") != "passed" for key in ids):
+            raise ValueError("promotion QA has not passed")
+        evidence = actual.get("visual_evidence")
+        if not isinstance(evidence, list) or not evidence:
+            raise ValueError("promotion needs actual visual evidence")
+        for item in evidence:
+            if item.get("kind") != "visual" or not hash_matches(item.get("content_hash"), digest(self.path(item.get("path")).read_bytes())):
+                raise ValueError("invalid promotion visual evidence")
+        base, head = actual.get("base_commit"), actual.get("head_commit")
+        if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value) for value in (base, head)) or base != record.get("base_commit"):
+            raise ValueError("promotion needs planned base and actual full commit IDs")
+        def git(*args):
+            try:
+                return subprocess.run(["git", "--literal-pathspecs", *args], cwd=self.project,
+                                      capture_output=True, check=True, timeout=30).stdout
+            except (subprocess.SubprocessError, OSError) as error:
+                raise ValueError("promotion Git provenance unavailable: " + str(error)) from error
+        git("merge-base", "--is-ancestor", base, head)
+        git("merge-base", "--is-ancestor", head, "HEAD")
+        destinations = []
+        source_roots = [self.path(baseline["prototype_source_root"])] + [self.path(p) for p in baseline.get("render_dependencies", [])]
+        for item in actual["path_mappings"]:
+            source = self.path(item["source"], no_links=True)
+            destination = self.path(item["destination"], no_links=True)
+            if not any(source == root or root in source.parents for root in source_roots):
+                raise ValueError("promotion source is not in the frozen render bundle")
+            if not source.is_file() or not destination.is_file():
+                raise ValueError("promotion mappings must enumerate regular files")
+            if not hash_matches(item.get("source_hash"), digest(source.read_bytes())) or not hash_matches(item.get("destination_hash"), digest(destination.read_bytes())):
+                raise ValueError("promotion source/destination bytes changed")
+            if digest(git("show", head + ":" + item["destination"])) != digest(destination.read_bytes()):
+                raise ValueError("destination differs from promoted commit")
+            if item["strategy"] == "copy" and source.read_bytes() != destination.read_bytes():
+                raise ValueError("copy strategy changed source bytes")
+            destinations.append(item["destination"])
+        if len(destinations) != len(set(destinations)):
+            raise ValueError("duplicate promotion destination")
+        paths = sorted(destinations)
+        changed = git("diff", "--name-only", "-z", "--no-renames", base, head, "--", *paths).decode().strip("\0").split("\0")
+        if sorted(actual.get("changed_paths", [])) != sorted(p for p in changed if p):
+            raise ValueError("promotion changed paths mismatch")
+        patch = git("diff", "--binary", "--no-ext-diff", "--no-textconv", base, head, "--", *paths)
+        if not hash_matches(actual.get("patch_hash"), digest(patch)):
+            raise ValueError("promotion patch hash mismatch")
 
     def authorization(self):
         gate = self.manifest.get("implementation_gate", {})
@@ -732,8 +1026,14 @@ class Checker:
             prompt = read_json(self.path(receipt["path"]))
             if prompt.get("event") != "implementation_prompt" or prompt.get("intent") != "start_production_implementation" or prompt.get("role") != "user":
                 raise ValueError("explicit user implementation event required")
+            scope = self.manifest.get("product_scope")
+            if scope is not None:
+                scope_hash = digest(json.dumps({key: scope[key] for key in ("profile", "capabilities")}, sort_keys=True, separators=(",", ":")).encode())
+                if not hash_matches(gate.get("product_scope_hash"), scope_hash) or prompt.get("product_scope_hash") != gate.get("product_scope_hash"):
+                    raise ValueError("implementation prompt must bind the current product_scope_hash")
             for field in ("prompt_id", "development_plan_hash", "approved_baseline_id"):
-                if not gate.get(field) or prompt.get(field) != gate.get(field):
+                missing = field not in gate or (not gate.get(field) and (field != "approved_baseline_id" or self.ui))
+                if missing or field not in prompt or prompt.get(field) != gate.get(field):
                     raise ValueError("prompt receipt mismatch: " + field)
             if str(prompt.get("message", "")).strip().lower().rstrip(".! ") in ("", "continue", "продовжуй", "продовжити"):
                 raise ValueError("generic continuation does not authorize implementation")
@@ -745,22 +1045,26 @@ class Checker:
             self.issue("prompt_receipt", "implementation", str(error))
 
     def run(self, node, after=False, audit=False):
+        self.product_scope()
         if type(self.manifest.get("checker_contract_version")) is not int or self.manifest["checker_contract_version"] != 1:
             self.issue("migration_required", "manifest", "retain existing documents/history; add verified metadata using manifest-contract.md")
         language = self.manifest.get("language", {})
         if not language.get("working_language") or language.get("artifact_language") != language.get("working_language"):
             self.issue("language_record", "manifest", "working and artifact language must agree; UI locales are separate")
         spec = self.contract["nodes"][node] if not audit else {
-            "required_before": list(self.artifacts), "outputs": [],
-            "baseline_required": bool(self.manifest.get("approved_baseline_id")),
+            "required_before": [key for key in self.artifacts if key not in self.skipped], "outputs": [],
+            "baseline_required": self.ui and bool(self.manifest.get("approved_baseline_id")),
             "authorization_required": self.manifest.get("implementation_gate", {}).get("state") == "authorized_for_phase3",
         }
+        if not self.ui and (node in self.skipped or node in ("prototype-candidates", "design-approval", "architecture-approved", "dod-evals-approved", "qa-checklist-approved")):
+            self.issue("inapplicable_node", "manifest", "headless scope skips UI nodes and uses ordinary owner nodes")
         for key in spec["required_before"] + (spec["outputs"] if after else []):
             if key in self.specs:
                 self.artifact(key)
             else:
                 self.issue("unknown_artifact", "manifest", key)
         self.bundle()
+        self.traceability()
         if spec.get("baseline_required"):
             self.baseline()
             for key in ("architecture", "dod-evals", "qa-checklist", "development-plan"):
@@ -781,6 +1085,7 @@ class Checker:
         if self.issues and all(item["code"] == "migration_required" for item in self.issues):
             result = "migration_required"
         return {"result": result, "node": node, "mode": "audit" if audit else "after" if after else "before",
+                "skipped_artifacts": sorted(self.skipped),
                 "checked_artifacts": sorted(self.checked), "affected_artifacts": sorted(self.affected),
                 "issues": self.issues, "warnings": sorted(set(self.warnings)),
                 "limits": "Checks declared metadata, file integrity, stages and evidence references; not semantic quality, research authenticity or runner enforcement."}
@@ -794,23 +1099,42 @@ def main():
     group.add_argument("--after")
     group.add_argument("--audit", action="store_true")
     group.add_argument("--hash", dest="hash_path")
+    group.add_argument("--hash-render", metavar="RECORD", help="hash a candidate/baseline JSON record and its declared render resources")
+    group.add_argument("--snapshot", metavar="NODE", help="emit unvalidated owner/source metadata without writing files or claiming review")
     parser.add_argument("--heading", help="with --hash: exact Markdown heading for a fragment")
     args = parser.parse_args()
+    if sys.version_info < (3, 12):
+        parser.error("Python 3.12+ is required")
     try:
         contract = read_contract()
         validate_contract(contract)
+        if args.hash_render:
+            checker = Checker(args.project, {}, contract)
+            print(checker.render_hash(read_json(checker.path(args.hash_render))))
+            return 0
         if args.hash_path:
             checker = Checker(args.project, {}, contract)
             path = checker.path(args.hash_path)
             value = digest(section_bytes(path, args.heading)) if args.heading else tree_hash(checker.path(args.hash_path, no_links=True)) if path.is_dir() else digest(path.read_bytes())
             print(value)
             return 0
-        node = args.before or args.after or "audit"
+        node = args.before or args.after or args.snapshot or "audit"
         if not args.audit and node not in contract["nodes"]:
             raise ValueError("unknown node; choose: " + ", ".join(contract["nodes"]))
         manifest = read_json(args.project / "forge/sdd-manifest.json")
         if not isinstance(manifest, dict):
             raise ValueError("manifest must be an object")
+        if args.snapshot:
+            checker = Checker(args.project, manifest, contract)
+            checker.product_scope()
+            if checker.issues:
+                raise ValueError("resolve product scope before snapshotting")
+            node_spec = checker.contract["nodes"][node]
+            print(json.dumps({"node": node, "status": "unvalidated", "outputs": node_spec["outputs"],
+                              "source_hashes": {checker.specs[key]["path"]: digest(checker.path(checker.specs[key]["path"]).read_bytes())
+                                                for key in node_spec["required_before"] if key not in checker.contract["context_bundle"]},
+                              "limits": "Hash proposal only. Owner must select consumed fragments, validate meaning and return its actual invocation/result."}, ensure_ascii=False, indent=2))
+            return 0
         report = Checker(args.project, manifest, contract).run(node, bool(args.after), args.audit)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1

@@ -49,7 +49,9 @@ A changed baseline/target/override invalidates affected bindings and results. Re
 
 ## Source-overridable UI defaults
 
-Use source-specific requirements first. Otherwise: touch targets 44×44px with 8px separation where touch matters; contrast 4.5:1 for normal text and 3:1 for large text in supported themes; mobile input text 16px; body text usually 14–16px; visible focus; no emoji-as-icons or horizontal page overflow. Cover 390, 430, 768, 1280 and 1440px unless sources name other devices. These design floors are not a claim of WCAG conformance. Preserve approved motion with non-motion state communication; do not silently change it.
+Use the [accessibility policy](../to-sdd-pipeline/references/accessibility-policy.md) for standards-based reflow at 320 CSS px, text/viewport zoom, input/focus, motion and assistive-technology checks. Cover 390/430/768/1280/1440px for additional design comparison unless sources specify otherwise. House defaults: 44×44px touch targets with 8px separation, mobile input text 16px, body text usually 14–16px, and no emoji-as-icons. These preferences are source-overridable; they do not redefine WCAG's 24px AA target criterion or its exceptions. Verify applicable contrast and state communication in supported themes.
+
+Use the [lifecycle checklist](../to-sdd-pipeline/references/lifecycle-contract.md) to define applicable deployment, restore/rollback, migration, performance, maintenance and outcome checks from PRD/architecture—not invented operations or claims of execution.
 
 ## Artifact coverage
 

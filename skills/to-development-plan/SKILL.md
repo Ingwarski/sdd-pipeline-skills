@@ -31,6 +31,7 @@ Read the [security traceability contract](../to-sdd-pipeline/references/security
 3. Verify architecture/DoD/QA are current for that baseline. Changed approval/target/override invalidates affected units and authorization; return to the appropriate owner.
 4. Inspect existing modules/files/routes/components/services/tests and dated observations; follow established architecture.
 5. Split source-backed scope into useful units with clear ownership, dependencies, acceptance checks and evidence. Sequence by dependencies, risk and user value, not tiny commit choreography.
+   Allocate applicable [lifecycle work](../to-sdd-pipeline/references/lifecycle-contract.md), its responsible owner and existing QA IDs, including post-release evidence returned to requirements. This is an execution handoff, not permission to deploy.
 6. For each user-visible unit preserve JOB → UC → journey → screen/state trace and bind baseline/target/scope/variance, visual fidelity, applicable H1-H10/QA IDs and representative-user task validation.
 7. Reference gate definitions and concrete QA checks; snapshot the consumed QA definition sections, not later execution results. Never invent participants, findings or research outcomes. Pending execution stays not-run, not passed.
 8. For independently developed or cross-layer units define interfaces produced/consumed, API/data-contract references, owner, compatibility and integration verification.

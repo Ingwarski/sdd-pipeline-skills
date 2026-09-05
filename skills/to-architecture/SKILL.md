@@ -28,6 +28,7 @@ Map applicable `UC-*` behavior to technical boundaries without rewriting it. Do 
 2. Map each applicable UC and each distinct FR/NFR obligation to a realizing module, interface, data or runtime element.
 3. Define system context, module boundaries, data/state flow and ownership, integrations and runtime/automation.
 4. For each deployable unit, specify required environment variables, bindings, secret **names**, build outputs and hosting/runtime constraints supported by sources.
+   Resolve applicable [lifecycle concerns](../to-sdd-pipeline/references/lifecycle-contract.md), including supported runtimes, performance/cost, rollout/rollback, restore, telemetry/incident ownership and maintenance. Surface consequential feasibility gaps early; bounded non-production investigation can inform the specification before full design.
 5. Preserve established architecture; choose the simplest reversible design that satisfies the PRD. Name interfaces before inventing services. Do not force a stack, infrastructure, startup cost model or new feature.
 6. Record important decisions, alternatives/rejection reasons, consequences and follow-up. Preserve decision history.
 7. Add a readable Mermaid diagram only when it clarifies relationships.

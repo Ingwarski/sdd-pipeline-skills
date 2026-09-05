@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import sys
+from urllib.parse import unquote, urlsplit
 
 
 NAMES = {
@@ -14,6 +15,25 @@ NAMES = {
     "to-architecture", "to-dod-evals", "to-qa-checklist", "to-development-plan",
     "to-sdd-pipeline",
 }
+
+
+def validate_references(root, source, seen):
+    """Follow local Markdown reference chains, once per file, within the collection."""
+    source = source.resolve()
+    if source in seen:
+        return
+    seen.add(source)
+    text = source.read_text(encoding="utf-8-sig")
+    text = re.sub(r"(?ms)^```[^\n]*\n.*?^```\s*$", "", text)
+    for link in re.findall(r"\[[^\]\n]+\]\(([^)\n]+)\)", text):
+        link = link.strip("<>")
+        if urlsplit(link).scheme or link.startswith("#"):
+            continue
+        target = (source.parent / unquote(link.split("#", 1)[0])).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            raise ValueError("missing/out-of-clone resource: " + str(source) + " -> " + link)
+        if target.suffix == ".md":
+            validate_references(root, target, seen)
 
 
 def unique_object(pairs):
@@ -37,7 +57,7 @@ def validate_manifest(root, metadata_only=False):
     skills = manifest.get("skills")
     if not isinstance(skills, list) or len(skills) != 13:
         raise ValueError("manifest count mismatch: expected 13 skill records")
-    seen, rows = set(), []
+    seen, rows, resources = set(), [], set()
     for skill in skills:
         if not isinstance(skill, dict):
             raise ValueError("skill record must be an object")
@@ -63,15 +83,7 @@ def validate_manifest(root, metadata_only=False):
         values = dict(re.findall(r"^(name|description):\s*(.+)$", frontmatter[1], re.M))
         if values.get("name", "").strip("\"'") != name or not values.get("description", "").strip(" \"'"):
             raise ValueError("invalid frontmatter name/description: " + name)
-        # Skill-relative packaged resources must work in any open project.
-        for link in re.findall(r"\[[^\]\n]+\]\(([^)\n]+)\)", text):
-            if "://" in link or link.startswith("#"):
-                continue
-            target = (directory / link.split("#", 1)[0]).resolve()
-            if not target.is_relative_to(root) or not target.is_file():
-                raise ValueError("missing/out-of-clone skill reference: " + name + " -> " + link)
-            with target.open("rb") as stream:
-                stream.read(1)
+        validate_references(root, source, resources)
     if not metadata_only:
         for relative in ("scripts/retired-skills.sh", "scripts/retired-skills.ps1",
                          "retired-skills.txt", "skills/to-sdd-pipeline/scripts/sdd_check.py",
@@ -92,8 +104,8 @@ def main():
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--metadata-only", action="store_true")
     args = parser.parse_args()
-    if sys.version_info < (3, 9):
-        parser.error("Python 3.9+ is required; no installation changes made")
+    if sys.version_info < (3, 12):
+        parser.error("Python 3.12+ is required; no installation changes made")
     try:
         rows = validate_manifest(args.root, args.metadata_only)
         print("\n".join("|".join(row) for row in rows))

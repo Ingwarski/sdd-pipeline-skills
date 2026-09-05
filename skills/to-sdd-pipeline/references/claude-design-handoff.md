@@ -1,6 +1,6 @@
 # Claude Design Handoff Contract
 
-Use this contract only when `design_executor: claude_design` is explicitly selected. Candidate selection in Claude Design is not design approval. The later whole-design approval in Codex makes the validated imported version the source of truth.
+Use only when `design_executor: claude_design` is explicit. Claude Design selection is not approval. The later whole-design decision in the active host makes the validated imported version authoritative.
 
 Carry the pipeline language record unchanged through the handoff. Write the paste-ready prompt, operator instructions, source-access failures, selection/export guidance, and return report in `working_language`. Keep product UI/content locales separate. For Ukrainian, require idiomatic Ukrainian and permit English only for immutable paths/filenames, code/commands, machine values, API/identifier names, names/quotations, and the approved IT terms listed in `preserved_english_terms`, such as `SDD Pipeline`.
 
@@ -66,8 +66,8 @@ On resume, Codex must:
 1. validate the Claude source-read receipt against the exact manifest hash and language record, and require one successful read result for every required `material_id`; otherwise remain at `awaiting_design_source_access`;
 2. resolve the selected export beneath the handoff inbox and reject path escape, multiple selected versions, missing assets, external runtime dependencies, secrets, executable backend behavior, or production-source writes;
 3. normalize the selected export into a new immutable candidate/version under `forge/design/candidates/{candidate_id}/{version}/` and evidence under `forge/design/evidence/`;
-4. compute `sdd-tree-sha256-v1`, record source-input hashes, source-manifest/receipt hashes, import transport, origin `claude_design`, handoff ID, changed paths, and validation evidence;
-5. open the normalized candidate in the external default browser and verify the required routes, states, interactions, locale, assets, console, and viewports;
+4. apply the [freeze contract](freeze-contract.md); record input/receipt hashes, transport, origin `claude_design`, handoff ID, changed paths and validation evidence;
+5. open the normalized candidate on the selected visible review surface (external default unless explicitly changed); verify routes, states, interactions, locale, assets, console and viewports;
 6. enter `awaiting_design_approval` only after source-read, import, and visual validation succeed.
 
-The operator's Claude Design selection identifies what to import. Only `Approve design baseline` in Codex records the whole-design approval and permits `to-design-brief` to make that exact normalized candidate/version the Approved Visual Baseline.
+Claude Design selection identifies the import. Only an explicit whole-design approval of the exact normalized candidate/version in the active host permits `to-design-brief` to record the Approved Visual Baseline.

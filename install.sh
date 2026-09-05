@@ -141,8 +141,8 @@ manifest_entries() {
   printf '%s\n' "$validated_manifest_rows"
 }
 
-if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
-  printf '%s\n' 'Python 3.9+ is required. Install Python 3, then rerun; no installation changes made.' >&2
+if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
+  printf '%s\n' 'Python 3.12+ is required. Install Python 3, then rerun; no installation changes made.' >&2
   exit 1
 fi
 manifest_args=(--root "$repo_root")

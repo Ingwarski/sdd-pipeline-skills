@@ -1,6 +1,8 @@
 # Prototype Candidates and Design Adapters
 
-After the coherent pre-design SDD baseline validates, resolve the executor. Codex creates three local candidates, validates them and opens all three externally. For Claude Design, first follow [the handoff contract](claude-design-handoff.md): complete source inventory, Codex access preflight and Claude source-read receipt. Missing required access pauses generation at `awaiting_design_source_access`. Only then send the frozen-input prompt in `working_language`; Claude compares three candidates, exports the operator-selected version, and Codex imports/validates/opens it before approval. Use documented authorized transfer fallbacks when needed; never silently change executors.
+Use the [selected review surface](scope-and-execution.md): external default unless the user chooses `in_app` or `external_named`. All require visible interactive review and matching receipts. Headless scope skips this stage; early exploration is not a formal candidate.
+
+After pre-design SDD validates, resolve the executor. Codex creates, validates and shows three local candidates. For Claude Design, follow [the handoff contract](claude-design-handoff.md): complete source inventory, Codex access preflight and Claude read receipt. Missing required access pauses at `awaiting_design_source_access`. Then send the frozen-input prompt in `working_language`; Claude compares three candidates and exports the selected version; Codex imports, validates and shows it before approval. Use authorized transfer fallbacks; never silently change executors.
 
 Both modes must present exactly three meaningfully distinct, equivalent-scope, interaction-simulated Prototype Mockup Candidates at the comparison stage. `Whole-product` means coverage of the required product screens, flows, states, representative data, and viewports; it never means that Phase 2 implements the whole application. Candidate interactions are design simulations only and must not implement or claim production backend, auth, persistence, provider calls, repository mutations, Feature Unit execution, integrations, or other application runtime behavior. In Claude Design mode, preserve the three tool-native candidate references and the operator's selected reference in the handoff record; only the selected export becomes a normalized repository candidate. Do not fabricate local source hashes or browser receipts for the two candidates that were not exported.
 
@@ -15,15 +17,15 @@ For every Codex candidate and the selected normalized Claude Design import requi
 - covered journey, screens, states, representative data, locale, and viewports
 - working language used for review text and specification-facing explanations, distinct from product UI/content locales
 - internal visual-QA evidence
-- external-default-browser open result
+- selected visible-browser open result
 
 Candidate comparison must preserve the applicable H1-H10 heuristic coverage and the representative-user validation plan. Internal visual-QA evidence and browser receipts may prove visual or runtime observations within their scope, but they do not replace `heuristic_usability_review` evidence or representative-user task validation.
 
 For regulated, accessibility-critical, safety-sensitive, or otherwise high-risk flows, the candidate review must surface whether representative-user task validation was run before whole-design approval. If it was not feasible, preserve the explicit assumption/open risk and validation timing in the design brief; this does not create a second approval gate, but it prevents the pipeline from claiming that the design is user-validated.
 
-Compute every source-tree hash as `sdd-tree-sha256-v1`: SHA-256 over the concatenation of `"<relative-path>\n<sha256-hex-of-file-bytes>\n"` for every file under the root, sorted byte-wise by relative path, excluding nothing. Record the algorithm ID alongside every candidate and active-baseline hash so later runs can recompute it. A hash whose algorithm is absent or unknown is not evidence.
+Apply the [freeze contract](freeze-contract.md) to all candidate inputs, including shared rendering assets. Recompute its hashes on reuse.
 
-In Codex mode, open Candidate A, Candidate B, and Candidate C as three separate live pages in the operating system's external default browser. They may share one preview server, but each must have an independently addressable stable route; embedded previews, static images, and headless captures do not satisfy this mode. In Claude Design mode, comparison occurs across the three tool-native candidates there; after selected-export import, Codex opens and verifies the one normalized selected candidate in the external default browser before approval.
+Codex opens A, B and C as separate live pages on the selected review surface. They may share a server but need independent stable routes; static images/headless captures are insufficient. Claude Design compares three native candidates; after export, Codex opens and verifies only the normalized selected candidate before approval.
 
 The system may rank and recommend with rationale but must not auto-select. A selection made inside Claude Design selects the export only; it creates no approval receipt. `Request revision` creates no approval receipt. After Codex validates and opens the candidate, `Approve design baseline` selects the exact normalized candidate/version and records the only normal design approval.
 

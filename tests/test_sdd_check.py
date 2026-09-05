@@ -85,7 +85,36 @@ class Project:
             "check_id": "QA-04", "gate_id": sdd.SECURITY_GATE, "security_requirement_ids": ["NFR-02"],
             "definition_ref": {"path": "docs/qa-checklist.md", "heading": "## Checks"},
             "definition_status": "prepared", "execution_status": "not_run", "phase": "implementation"})
+        self.traceability()
         self.save()
+
+    def traceability(self):
+        self.manifest["traceability_version"] = 1
+        owners = {"product-idea": [("JOB-01", "job", "## Jobs")],
+                  "prd": [("UC-01", "use_case", "## Use cases"), ("FR-01", "requirement", "## Use cases"), ("NFR-02", "requirement", "### NFR-02")],
+                  "screen-map": [("SCREEN-01", "surface", "## Definition"), ("STATE-01", "state", "## Definition")],
+                  "development-plan": [("U-1", "unit", "## Definition")],
+                  "qa-checklist": [("QA-0" + str(i), "check", "## Checks") for i in range(1, 5)]}
+        relations = {"prd": [("UC-01", "JOB-01", "realizes_job"), ("FR-01", "UC-01", "specifies")],
+                     "screen-map": [("SCREEN-01", "UC-01", "supports"), ("STATE-01", "SCREEN-01", "state_of")],
+                     "development-plan": [("U-1", key, "implements") for key in ("FR-01", "NFR-02", "STATE-01")],
+                     "qa-checklist": [("QA-01", "FR-01", "verifies"), ("QA-01", "STATE-01", "verifies"), ("QA-04", "NFR-02", "verifies")]}
+        for owner, definitions in owners.items():
+            heading = definitions[0][2]
+            path = "docs/" + owner + ".md"
+            links = relations.get(owner, [])
+            # References are visible in canonical fixture sections, not metadata-only claims.
+            text = (self.root / path).read_text()
+            additions = " ".join([item[0] for item in definitions] + [value for link in links for value in link[:2]])
+            self.write(path, text.replace(heading + "\n", heading + "\n" + additions + "\n", 1))
+            self.manifest["artifacts"][owner]["traceability"] = {
+                "definitions": [{"id": key, "kind": kind, "required": True,
+                                 "cross_cutting": key == "NFR-02", "definition_ref": {"path": path, "heading": h}}
+                                for key, kind, h in definitions],
+                "links": [{"from": source, "to": target, "relation": relation,
+                           "definition_ref": {"path": path, "heading": heading}} for source, target, relation in links]}
+        self.refresh()
+        self.manifest["verification"]["source_hashes"] = {"docs/" + k + ".md": self.hash("docs/" + k + ".md") for k in ("qa-checklist", "dod-evals")}
 
     def write(self, path, content):
         target = self.root / path
@@ -494,7 +523,8 @@ class CheckTests(unittest.TestCase):
                   "path_mappings": copy.deepcopy(record["path_mappings"]), "synthetic_fixture": True}
         record["receipt"] = self.project.evidence("forge/runs/U-1/prototype-promotion.json", actual)
         self.m["prototype_promotions"] = [record]
-        self.assertEqual("passed", self.project.run("release")["result"])
+        # A matching path map alone no longer proves the actual promotion.
+        self.assert_issue("promotion_receipt", self.project.run("release"))
         actual["path_mappings"][0]["strategy"] = "copy"
         record["receipt"] = self.project.evidence(record["receipt"]["path"], actual)
         self.assert_issue("promotion_receipt", self.project.run("release"))

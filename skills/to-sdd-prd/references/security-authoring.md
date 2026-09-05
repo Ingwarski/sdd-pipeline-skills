@@ -19,7 +19,7 @@ Record the target, rationale, assumptions, covered surfaces and exclusions in th
 
 ## 2. Read applicable controls from the pinned catalog
 
-Use the bundled [offline reader](../scripts/asvs.py), resolved from the real installed skill directory. It only reads reference data; Python 3.9+ is already a pipeline prerequisite. Use the detected Python 3 command on Windows as elsewhere.
+Use the bundled [offline reader](../scripts/asvs.py), resolved from the real installed skill directory. It only reads reference data; Python 3.12+ is already a pipeline prerequisite. Use the detected Python 3 command on Windows as elsewhere.
 
 ```text
 python3 /resolved/to-sdd-prd/scripts/asvs.py --list-chapters

@@ -1,13 +1,12 @@
 # Installation, Updating and Cleanup
 
-Run commands from the durable SDD clone. Install Python 3.9+ first; both platform installers use the same standard-library parser, and the pipeline checker uses the same runtime. Missing Python or invalid manifest/source/reference files stop before cleanup or link changes. No Python package is needed for installation or the checker.
+Run commands from the durable SDD clone. Mutating installer/update work requires Python 3.12+; Python 3.14 is the recommended stable series under [runtime policy](../runtime-policy.json). Both installers and the checker use the standard library, with no student packages or Node dependency. Missing Python or invalid sources/references stop before cleanup or link changes.
 
-
-Clone this repository and run its installer. It creates directory links from each agent's skill location to this clone; it never copies a skill directory. Use `update.sh` or `update.ps1` for later updates so retired installations are cleaned up too. A plain `git pull` updates linked content but does not clean old installed links or copies.
+For new student clones, use `git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git`, then inside the clone `git switch -c main`. The local branch remains `main`; its selected remote channel is `stable`. Run the installer below. It creates links, never skill copies. Later use the updater: plain `git pull` does not perform retirement cleanup.
 
 ### Agent-assisted installation or update
 
-Paste the single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md) into any local agent with file and terminal access. It updates Python from the official source when needed, then chooses installation, migration cleanup, a regular update or a no-op when everything is current. Opening the repository alone does not authorize installation.
+Paste the single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md) into a local file/terminal agent. It first checks revision, exact installed targets, packaged resources and Python support. A clean, current installation with supported Python stops without reinstalling or upgrading Python. Necessary install/update work uses the latest official stable Python, without replacing the OS interpreter. Opening this repository alone does not authorize installation.
 
 macOS or Linux:
 
@@ -47,17 +46,17 @@ Moving or deleting the clone breaks its links. Re-run the installer from the new
 
 ## Updating and cleanup
 
-From a clean `main` checkout, run:
+From local `main`, select the tested student channel:
 
 ```bash
-./update.sh --all
+./update.sh --channel stable --all
 ```
 
 ```powershell
-.\update.ps1 -All
+.\update.ps1 -Channel stable -All
 ```
 
-Or double-click `Update Skills.command` on macOS / `Update Skills.cmd` on Windows.
+Omitting the channel, including the existing double-click launchers, retains the legacy `main` behavior. Maintainers can explicitly select `--channel main` / `-Channel main`; it may contain changes whose CI has not finished.
 For setup, migration from an older clone or a regular agent-run update, use the
 single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md).
 
@@ -67,6 +66,12 @@ commits. It fast-forwards and runs the newly downloaded installer with repair
 enabled. Retirement can finish even if a later Git check stops the update. It does
 not reset Git history or discard unrelated work. Use
 `--codex` / `--claude` or `-Codex` / `-Claude` to select one agent.
+
+`stable` advances only after all content, Linux, macOS and Windows CI checks pass for the current `main` commit. Publication never force-pushes. If the channel is absent, unavailable, or behind/divergent from the local checkout, stop: do not silently fall back or downgrade.
+
+Read-only local validation: run `python3 scripts/installation_status.py --root CLONE --skill-root CODEX_ROOT --skill-root CLAUDE_ROOT`, substituting discovered absolute paths and the detected Python executable. Add confirmed legacy/project roots via repeated `--cleanup-root`. It checks exact link/junction targets and recursively linked resources, not merely 13 existing SKILL.md files. Remote revision, clean Git state and Python support are separate checks; never interpret this helper alone as “up to date.”
+
+For old clones missing the helper/updater/channel option, a clean `git merge --ff-only FETCH_HEAD` after fetching `stable` bootstraps current tooling. If retired copies block that merge, use a full temporary checkout of the fetched revision only for its `--retire-only` / `-RetireOnly` installer, with explicit managed roots and the old clone's `skills/` as a cleanup root. Never install links from that temporary checkout or recreate deletion logic by hand. Unrelated changes still block updating; cleanup already performed is irreversible and must be reported.
 
 ### Retired business skills
 
@@ -114,9 +119,7 @@ network check. Pushing to GitHub does not update other machines by itself.
 
 Automatic updates are possible after each user opts in once to a local scheduled
 task that runs the updater. A daily or between-session check is preferable to
-changing skills during a running task. For a classroom rollout, use tested
-versions and preserve an opt-out; a tested-release channel is a future addition,
-not part of the current updater, which follows `main`.
+changing skills during a running task. Use the tested `stable` channel and preserve an opt-out. Repository CI publication is not an automatic download or a scheduler on student machines.
 
 After files arrive locally, Codex detects local skill changes and follows skill
 links; restart it if the update is not visible. That local reloading is different

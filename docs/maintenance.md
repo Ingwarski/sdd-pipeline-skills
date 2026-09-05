@@ -1,16 +1,17 @@
-# Reliability and Concision Update
+# Reliability, Audit Remediation and Maintenance
 
-The seven-point update keeps the same 13 skills and document owners. Jobs To Be Done, use cases, H1–H10, error recovery, representative-user validation and the approved-design model remain in place.
+The September 2026 audit remediation builds on the earlier seven-point update. The 13 names, document owners, Jobs To Be Done, use cases, H1–H10, error recovery and approved-design model remain intact. Private next-version planning is not part of this release.
 
 ## What changed
 
-1. **Correct continuation after approval.** Record the baseline, recheck affected architecture, completion rules and QA, then create the development plan. Reuse valid documents; no extra approval procedure.
-2. **Prepared is not tested.** Check definitions, actual execution and release readiness have separate statuses. A pass needs appropriate, current evidence; unresolved required checks cannot support release.
-3. **Reliable shared rules.** Skills resolve references from their installed real directory, including links, not from the product folder. Moving the clone is covered by repair tests.
-4. **Executable consistency checks.** A read-only checker validates prerequisites, owners, source hashes, context-bundle integrity, baseline/candidate evidence and separate implementation authorization. Later references are not scheduling dependencies.
-5. **Consistent installation.** Both installers use one strict JSON/source validator and detect Python before mutation. Existing scoped cleanup, unrelated-skill protection and safe-update behavior remain intact.
-6. **Clearer documentation.** README is the entry point; installation and maintenance details are linked separately. Shared rules have one home. Standalone owners and orchestrator responsibilities are explicit; the audit prompt and single install-or-update prompt are current.
-7. **Less repetition.** All skill instructions and generated-document rules use direct language, brief term explanations and references to decisions already defined elsewhere. Token checks include shared instructions and repeated loads, not just short entrypoints.
+1. **Trustworthy release records (F1, F4).** Gate/check membership works both ways. Excluded checks cannot cover required clauses or applicable heuristics. Promotion receipts verify actual Git ancestry, scoped patches, source/destination bytes and evidence—not just filenames.
+2. **Frozen design inputs (F2).** Shared CSS, fonts, scripts and other rendering inputs join the baseline hash. Static dependency checks supplement actual browser/network inspection; they do not prove dynamic completeness.
+3. **Proportional scope (F3, F9).** Confirmed headless projects skip UI documents/approval; existing changes reuse valid artifacts and reconcile affected owners. Full UI projects retain three candidates. Bounded early exploration remains non-production.
+4. **Typed traceability (F5).** Existing owner documents define job, use-case, requirement/clause, surface/state, QA and unit IDs. A compact index checks types, references and stage-appropriate coverage; later mappings are not earlier dependencies.
+5. **Clear design and portable execution (F7–F8).** Separate neutral behavioral research from operator decisions; apply measurable accessibility before house-style defaults. Direct hosts can run owners inline, persist intake, reject stale returns and honor an explicitly selected visible browser.
+6. **Lifecycle and behavior evaluation (F10–F11).** Existing owners cover applicable delivery, rollback/restore, operations, maintenance, performance/cost and outcome measurement. Ten raw agent-evaluation scenarios and an evidence rubric are provided; they are explicitly **not run**, separate from deterministic tests.
+7. **Supported installation (F6, F12).** Maintained Python boundaries, exact installed-target/resource checks, old-clone bootstrap, no-op ordering and a CI-tested `stable` channel. Scoped retirement and unrelated-work protections remain unchanged.
+8. **Measured instruction costs (F13).** Shared rules are shorter; unchanged rules/sources are reused when available. `--snapshot NODE` proposes hashes without claiming validation. Recent-version growth and absolute ceilings now prevent regressions hidden by an older benchmark.
 
 SDD still determines what to build; QA verifies it. A validated plan still ends at `awaiting-implementation-prompt` until a later explicit user request authorizes production implementation.
 
@@ -24,11 +25,11 @@ Keep the catalog, its license and attribution together. To update the standard, 
 
 ## Requirements and adoption
 
-Install **Python 3.9+** before updating. Installers and the checker use only the standard library; students do not need the test-only packages below. Keep runtime helper files with the complete skill collection.
+Install **Python 3.12+** for installer/checker execution; **3.14** is the current recommended stable series. Python has maintenance phases, not an LTS designation: [official support table](https://devguide.python.org/versions/), [official downloads](https://www.python.org/downloads/). The dated [runtime policy](../runtime-policy.json) requires another review before 2026-11-01. No student Node or third-party Python package is added. Keep helper files with the complete collection.
 
 For older projects, preserve documents, IDs, approved versions and history. Add only metadata verified from current sources and original receipts; revalidate affected owner outputs. Do not manufacture evidence, rewrite valid documents just for concision, or repeat approval to populate fields. Follow the [manifest migration contract](../skills/to-sdd-pipeline/references/manifest-contract.md).
 
-The external DAS Forge runner is **not part of this repository**. Skills require the checker, but hard runtime enforcement requires that runner to invoke it before/after dispatch and obey its exit code. The checker validates recorded evidence and integrity; it cannot prove research authenticity or all document semantics.
+Direct Codex/Claude Code authoring needs no external runner. Production execution is a separate host integration; any external runner must enforce the checker itself. The checker validates records and integrity, not complete prose semantics, authentic human research or actions outside its control.
 
 ## Verification
 
@@ -56,7 +57,9 @@ Coverage includes first entry, owner stages, approved-design reconciliation, res
 
 Security regressions also cover the offline catalog and exact IDs, adapted/non-web scopes, missing or stale assessments, supplemental requirements, coverage across all four downstream owners, mandatory gates, negative checks, and rejection of mockup-only or not-applicable substitutes. Run the complete suite after changing security instructions or records; it does not audit a product or run vulnerability scanners.
 
-CI runs the runtime/installer suites on Linux, macOS and Windows with Python 3.9. A separate content job uses Python 3.11 plus pinned test-only dependencies for YAML and instruction-budget validation. Without PyYAML, only that optional local YAML-parser test is skipped; CI runs it with the dependency installed.
+CI runs runtime/installer suites on Linux, macOS and Windows with Python **3.12 and 3.14**. The content job uses 3.14 and pinned test-only YAML/token tools. Without PyYAML, its optional local parser test is skipped. Pinned supported Actions supply their own runtime; no student Node installation is needed. CI advances `stable` only after all required jobs pass for current `main`; it never force-pushes or updates student machines.
+
+See [agent evaluations](agent-evaluations.md) for fresh-context runs and review. Do not present these fixtures, deterministic receipts or the authoring agent's own review as completed independent model/user validation.
 
 ## Reproducible instruction budget
 
@@ -72,15 +75,15 @@ On Windows use `.venv-token-check\Scripts\python.exe`. The encoder may download 
 
 Baseline: `e5d6ab9df4502cf6babc76e273602ecbd66881f0`; tokenizer: `tiktoken 0.14.0`, `o200k_base`. [Fixed fixtures](../tests/fixtures/token-scenarios.json) use identical seeds and invocation sequences for old/new instructions. Every invocation includes its complete applicable shared/conditional references, the machine contract where consulted, and listed retries. No caching discount is assumed.
 
-Current measurements include design-materials intake and the OWASP procedure, security records and downstream instructions.
+The historical baseline remains available for comparison. Enforcement now uses the immediately preceding audited revision `f0923e2` plus [reviewed absolute ceilings](../tests/fixtures/instruction-budget.json). Measurements include the new shared/conditional contracts; actual needed correctness instructions increased cold-load costs:
 
-| Scenario | Before | After | Reduction |
+| Scenario | Audited revision | After remediation | Increase |
 |---|---:|---:|---:|
-| First setup, including one retry; 18 invocations | 96,945 | 92,271 | 4.82% |
-| Approved-design revision, including one retry; 7 invocations | 49,810 | 47,691 | 4.25% |
-| Interrupted Claude resume, including one retry; 7 invocations | 57,903 | 57,200 | 1.21% |
+| First setup, including one retry; 18 invocations | 92,271 | 103,326 | 11.98% |
+| Approved-design revision, including one retry; 7 invocations | 47,691 | 54,659 | 14.61% |
+| Interrupted Claude resume, including one retry; 7 invocations | 57,200 | 64,131 | 12.12% |
 
-The 13 entrypoint files alone shrink from 44,084 to 14,881 tokens (66.24%), but **the smaller whole-scenario percentages are the meaningful comparison** because shared text still costs tokens when loaded. Run without `--summary` to inspect every counted file. `--check` fails if any measured budget ceases to improve on the recorded baseline.
+Entrypoints are 15,515 tokens versus 14,881 at the audited revision; README is 3,665 versus 3,093. These remain below the much older baseline but are **not a new savings claim**. Run without `--summary` for counted files. `--check` fails above either an absolute ceiling or the reviewed recent-growth allowance. Further contract growth needs an explicit policy/table review, not silent budget inflation. Reuse of instructions still present in context is encouraged but receives no assumed discount here.
 
 These are deterministic **instruction-load budgets**, not live-agent benchmarks. They do not measure generated-document savings, actual retry frequency, tool output, model quality, cached-token billing or total end-to-end cost. Concise document rules are enforced as authoring guidance; real project runs are still needed to measure their practical effect.
 

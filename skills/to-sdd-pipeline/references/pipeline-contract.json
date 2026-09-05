@@ -1,5 +1,7 @@
 {
   "schema_version": 1,
+  "ui_only_artifacts": ["screen-map", "wireframes", "design-brief"],
+  "profiles": ["new_product", "existing_change", "headless"],
   "context_bundle": [
     "project-context",
     "canonical-terms"

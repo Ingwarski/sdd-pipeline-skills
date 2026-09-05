@@ -1,0 +1,18 @@
+{
+  "recent_base": "f0923e29d6238c9b5da4038c6795c42854908f17",
+  "reason": "Audit remediation adds typed coverage, headless/portable execution, render integrity, accessibility and lifecycle rules. Shared wording was shortened; measured cold-load growth is explicit, not claimed as savings. Further growth requires a budget review.",
+  "absolute": {
+    "entrypoints": 15600,
+    "readme": 3700,
+    "first_setup_with_retry": 104000,
+    "approved_design_revision": 55000,
+    "interrupted_claude_resume": 65000
+  },
+  "approved_growth_tokens": {
+    "entrypoints": 750,
+    "readme": 650,
+    "first_setup_with_retry": 11800,
+    "approved_design_revision": 7500,
+    "interrupted_claude_resume": 7800
+  }
+}

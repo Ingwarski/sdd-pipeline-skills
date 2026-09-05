@@ -1,5 +1,6 @@
 [CmdletBinding()]
 param(
+    [ValidateSet('main', 'stable')][string]$Channel = 'main',
     [switch]$All,
     [switch]$Codex,
     [switch]$Claude,
@@ -15,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
 if ($Help) {
     Write-Host 'Update a clean SDD main checkout, then repair/install and clean retired skills.'
-    Write-Host 'Usage: .\update.ps1 [-All|-Codex|-Claude] [-CodexDir PATH] [-ClaudeDir PATH] [-RetiredSource OLD_CLONE] [-CleanupDir SKILL_ROOT]'
+    Write-Host 'Usage: .\update.ps1 [-Channel main|stable] [-All|-Codex|-Claude] [-CodexDir PATH] [-ClaudeDir PATH] [-CleanupDir SKILL_ROOT]'
     exit 0
 }
 
@@ -34,21 +35,21 @@ $Branch = Invoke-UpdateGit -Arguments @('symbolic-ref', '--quiet', '--short', 'H
 if ($Branch -cne 'main') { throw 'Update requires main; your current checkout is unchanged.' }
 $CleanupArgs = @{ RetireOnly=$true }
 foreach ($Key in $PSBoundParameters.Keys) {
-    if ($Key -ne 'Help') { $CleanupArgs[$Key] = $PSBoundParameters[$Key] }
+    if ($Key -notin @('Help', 'Channel')) { $CleanupArgs[$Key] = $PSBoundParameters[$Key] }
 }
 & (Join-Path $RepoRoot 'install.ps1') @CleanupArgs
 if ($LASTEXITCODE -ne 0) { throw 'Retirement cleanup failed; update stopped.' }
 $Status = (Invoke-UpdateGit -Arguments @('status', '--porcelain', '--untracked-files=normal')) -join "`n"
 if (-not [string]::IsNullOrWhiteSpace($Status)) { throw 'Local changes exist; commit or preserve them before updating.' }
 
-Invoke-UpdateGit -Arguments @('fetch', '--quiet', 'origin', 'main')
+Invoke-UpdateGit -Arguments @('fetch', '--quiet', 'origin', $Channel)
 & git -C $RepoRoot merge-base --is-ancestor HEAD FETCH_HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Local commits diverge from or are ahead of GitHub; stopped without replacing files.' }
 Invoke-UpdateGit -Arguments @('merge', '--ff-only', 'FETCH_HEAD')
 
 $InstallArgs = @{ Repair=$true }
 foreach ($Key in $PSBoundParameters.Keys) {
-    if ($Key -ne 'Help') { $InstallArgs[$Key] = $PSBoundParameters[$Key] }
+    if ($Key -notin @('Help', 'Channel')) { $InstallArgs[$Key] = $PSBoundParameters[$Key] }
 }
 & (Join-Path $RepoRoot 'install.ps1') @InstallArgs
 exit $LASTEXITCODE

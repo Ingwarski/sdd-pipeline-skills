@@ -28,6 +28,8 @@ Design states remain `not_started | awaiting_executor_choice | preflighting_sour
 
 Add `checker_contract_version: 1`. [pipeline-contract.json](pipeline-contract.json) defines artifact paths, owners and required-before edges once. Each artifact ID is also an owner node; named reconciliation nodes inherit through `owner_artifact`. Aggregate nodes specify their own inputs. `consulted_later` never creates a scheduling edge.
 
+Also use `traceability_version: 1` and the [typed owner indexes](traceability-contract.md). The [scope/execution contract](scope-and-execution.md) defines source-bound `product_scope`, headless exclusions and direct-host intake persistence. Optional `dispatches` maps owner artifact IDs to `{invocation_id, outputs, source_hashes, consumed_source_fragments}`; returned invocation/output identities and consumed bytes must still match. A stale return is rejected, not silently integrated.
+
 A validated artifact needs:
 
 - canonical path/owner, nonempty owner-invocation ID, `status: validated`, current SHA-256 `content_hash`;
@@ -64,13 +66,15 @@ The canonical section references the ID, hashes and receipt path. The receipt re
 
 Recompute frozen hashes; recorded `integrity.status` is not proof. Preserve older versions and supersede explicitly. A changed baseline invalidates affected bindings, production units and prior implementation authorization.
 
+Retain `candidate_id` and `version`. Shared resources use `render_dependencies` and `sdd-render-sha256-v2` under the [freeze algorithm](freeze-contract.md); its aggregate hash binds the declared render bundle to this same approval.
+
 ## Candidate and source-access evidence
 
 Follow [candidate requirements](prototype-contract.md) and, for Claude, [handoff requirements](claude-design-handoff.md). Their fuller scope/source/locale/adapter fields remain required.
 
 The active candidate index adds `candidate_id`, `version`, source root/tree hash/algorithm, target path/hash, `preview_url`, `route`, input `source_hashes`, and hash-bound `browser_receipt` / `visual_qa_evidence`. Superseded entries stay in history. If multiple sets exist, record `design_execution.active_candidate_set_id` and each entry's `candidate_set_id`.
 
-Normalized browser/visual receipts bind candidate ID/version, target/tree hashes and preview URL, with timezone-aware `observed_at`, actual `result` and findings. Browser evidence needs `browser_kind: external_default`; headless/embedded preview is insufficient. Failed observations or open blocking findings prevent approval readiness. Retain original evidence attachments and their scope; normalization never manufactures a run.
+Normalized browser/visual receipts bind candidate ID/version, target/tree hashes and preview URL, with timezone-aware `observed_at`, actual `result` and findings. Browser evidence needs `browser_kind` matching the selected `design_execution.review_surface` (`external_default` when unset). Headless capture alone is not a visible review. Failed observations or open blocking findings prevent approval readiness. Retain original evidence; normalization never manufactures a run.
 
 Codex requires three current candidates. Claude requires three unique tool-native reference strings, `selected_candidate_version` matching one, and one normalized candidate with that exact `origin_reference`. No local hashes/receipts are invented for unexported alternatives.
 
@@ -96,9 +100,11 @@ The [security traceability contract](security-contract.md) defines `artifacts.pr
 | UI scope | task, user group, route, state, viewport, applicable JOB/UC and heuristic IDs; actual `baseline_id` and `target_hash` after approval |
 | Executed check | executor, timezone-aware `executed_at`, `evidence: [{path, content_hash, kind}]`, `evaluated_source_hashes` for implementation scope |
 
-References contain the declared IDs. H1–H10 coverage is the union of mapped check `heuristic_ids` and `not_applicable_heuristics: {Hn: reason}`, without overlap. The three UI gate IDs from [verification rules](verification-contract.md) must be present or explicitly inapplicable. Appropriate evidence kinds are `visual`, `heuristic` and `representative_user`; none substitutes for another.
+References contain the declared IDs. H1–H10 coverage combines applicable checks' `heuristic_ids` and `not_applicable_heuristics: {Hn: reason}`, without overlap. The three UI gate IDs from [verification rules](verification-contract.md) must be present or explicitly inapplicable. Evidence kinds are `visual`, `heuristic` and `representative_user`; none substitutes for another.
 
 Keep full required finding/evidence fields from the verification rules, including severity, release effect and status. New checks are prepared/not-run. Deferred/unrun required checks may remain during planning, not release. Gate/check applicability must agree. Saved release-pass claims are rechecked, including open blocking findings. Advisory failures remain failed, not relabeled passed. Superseded definitions/runs stay in history, not the active index.
+
+Apply the verification contract's membership and applicable-coverage rules.
 
 ## Implementation and promotion
 
@@ -114,7 +120,7 @@ For declared reuse, `prototype_promotions` indexes unit ID, planned `path_mappin
 4. Run `--before NODE`; dispatch only on exit 0. Record owner results, then run `--after NODE`. Exit 1 means blocked/invalid input; exit 2 means otherwise-valid legacy data still needs checker metadata. Inspect all issues when migration and defects coexist.
 5. Use `--before development-plan` after approved architecture/DoD/QA reconciliation; `--before implementation` after the separate prompt; `--before release` only for an actual release evaluation. Candidate evidence is checked after generation and before approval, not required before candidates exist.
 
-The CLI lists available nodes on an invalid node. `--audit` checks recorded artifacts without dispatching, writing or approving anything. Python 3.9+, standard library only; no network or product-test execution.
+The CLI lists nodes on an invalid name. `--audit` checks recorded artifacts without dispatching, writing or approving. `--snapshot NODE` emits unvalidated owner/output/source metadata for later owner review, never a pass. `--hash-render RECORD` computes the declared render bundle hash from a project-relative candidate/baseline JSON file. Python 3.12+, standard library only; no network or product-test execution.
 
 ## External runner boundary
 

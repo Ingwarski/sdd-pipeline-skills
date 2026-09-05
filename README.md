@@ -14,30 +14,32 @@
 
 Start with a rough description or an existing `docs/product-idea.md`; coherent intent is validated without a redundant interview.
 
+This is the default **new-product UI** path. An **existing change** reuses valid documents and approved design, updating affected work only. A **headless product** skips screens, wireframes, visual design and approval; it still needs requirements, security, QA and a plan, then the separate implementation prompt. [Scope and direct-host execution](skills/to-sdd-pipeline/references/scope-and-execution.md).
+
 During product-idea intake, share design references once: website/app links, screenshots, colors, fonts, brand guides or HTML mockups with their assets. Attach files to your prompt or put them in `docs/design-inputs/` **inside your product repository**, not this skills repository; an existing folder is also fine. “None yet” or “later” is valid. The idea records source notes; the design brief owns the full inventory and design decisions. References are not design approval.
 
 ## Installation
 
-Requires **Python 3.9+**; the runtime tools use only its standard library.
+Requires **Python 3.12+**; the runtime tools use only its standard library.
 
-If Python is missing, [download it from the official Python website](https://www.python.org/downloads/). Choose the latest stable Python 3 release; 3.9 is the minimum, not a pinned version.
+If Python is missing, [download it from the official Python website](https://www.python.org/downloads/). Choose the latest stable Python 3 release; 3.12 is the minimum, not a pinned version.
 
 - **Windows:** download the Python install manager from [Python.org's Windows page](https://www.python.org/downloads/windows/), open the downloaded file and choose **Install**. In a new PowerShell window, run `python --version`; the manager installs Python on first use if none is installed. If using the older `.exe` installer, enable **Add Python to PATH** when offered.
 - **macOS:** download the [macOS installer](https://www.python.org/downloads/macos/), open the `.pkg` file and follow the setup wizard, including its final **Install Certificates.command** step.
 - **Linux:** check `python3 --version` first. If Python is missing or too old, follow the [official Linux instructions](https://docs.python.org/3/using/unix.html#on-linux); Python.org does not provide a Windows-style Linux installer.
 
-Reopen your terminal and agent app after installation. Confirm **3.9 or newer** with `python3 --version` on macOS/Linux or `python --version` (alternatively `py -3 --version`) on Windows, then continue below. Skip installation if a suitable Python version is already available.
+Reopen your terminal and agent app after installation. Confirm **3.12 or newer** with `python3 --version` on macOS/Linux or `python --version` (alternatively `py -3 --version`) on Windows, then continue below. Skip installation if a suitable Python version is already available.
 
-The [install-or-update prompt](INSTALL-OR-UPDATE-PROMPT.md) checks Python against the current stable release on Python.org and updates it before managing skills when needed.
+The [single setup prompt](INSTALL-OR-UPDATE-PROMPT.md) first checks repository/install state. If skills and the supported runtime are current, it stops without changing Python or running installers. Otherwise it handles official Python installation/update, old-clone bootstrap, cleanup or repair. The [runtime policy](runtime-policy.json) tests maintained Python 3.12 and current stable 3.14; no student Node dependency is added. Python has no official LTS label.
 
-Clone [Ingwarski/sdd-pipeline-skills](https://github.com/Ingwarski/sdd-pipeline-skills) into a durable folder, then run:
+For the tested classroom version, run `git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git`, then `git switch -c main` inside that durable clone. If `stable` is unavailable, wait for publication; do not substitute unverified `main`. Then run:
 
 | Platform | Install | Later updates |
 |---|---|---|
-| macOS / Linux | `./install.sh --all` | `./update.sh --all` |
-| Windows PowerShell | `.\install.ps1 -All` | `.\update.ps1 -All` |
+| macOS / Linux | `./install.sh --all` | `./update.sh --channel stable --all` |
+| Windows PowerShell | `.\install.ps1 -All` | `.\update.ps1 -Channel stable -All` |
 
-On macOS or Windows, the `Install Skills` and `Update Skills` launchers run the same scripts. Choose `--codex` / `--claude` or `-Codex` / `-Claude` to limit the agent.
+The launchers run the same scripts. The updater's default remains `main` for backward compatibility; select `stable` as above for tested classroom updates. Choose `--codex` / `--claude` or `-Codex` / `-Claude` to limit the agent.
 
 Installers create links, not copied skill folders. Both use one strict JSON/source/reference validator before changes. Windows falls back from symbolic links to directory junctions. A repeated install is safe; active SDD conflicts are reported, not overwritten.
 
@@ -52,6 +54,8 @@ The updater removes the two accidentally distributed names in [retired-skills.tx
 Removal is permanent, includes edited copies/links and matching former updater backups, and creates no backup, archive, relocation or Trash copy. Other skills are not retirement targets. Extra project/old-clone roots require explicit `--cleanup-dir` / `-CleanupDir`; no whole-disk scan or link-target traversal. See [full scope and failure rules](docs/installation.md#retired-business-skills).
 
 No scheduler, Git hook or background updater is installed. GitHub pushes cannot update another machine without that user's local update or explicit scheduling opt-in.
+
+CI advances `stable` only after content checks and the Linux/macOS/Windows matrix pass for current `main`. A newer untested `main` is not a stable update. Local commits ahead of that channel are never downgraded. The read-only `scripts/installation_status.py` checks exact link targets and nested resources in explicitly selected roots.
 
 ## Repository identity
 
@@ -99,9 +103,13 @@ Owners remain callable individually. The caller checks required inputs, validate
 - Error guidance follows: **cause → what was preserved → next action → retry/undo → observable success**.
 - High-risk flows plan user validation before approval where feasible; any deferral remains an explicit risk, never fabricated research.
 
-Codex shows three local candidates in the external browser. With explicitly selected Claude Design, the pipeline first verifies access to every required source, compares three tool-native candidates, then imports and opens only the selected version. Selecting in Claude chooses the export; approve the complete design only after reviewing the imported version in Codex. [Handoff details](skills/to-sdd-pipeline/references/claude-design-handoff.md).
+Three local candidates use the external default browser unless the user explicitly chooses another visible review surface, including the in-app browser. Claude Design compares three tool-native candidates after source preflight; only the selected export is imported. Export selection is not approval: review the exact imported version, then give a whole-design decision in the active host. [Handoff details](skills/to-sdd-pipeline/references/claude-design-handoff.md).
 
 Frozen candidates, earlier approvals and accepted overrides are preserved; a revision rechecks affected architecture, gates, QA and planning without adding another type of approval.
+
+The frozen design includes its shared CSS, fonts, images and scripts, not just its own folder. Mutable remote assets must be packaged; browser inspection still checks dynamic dependencies. [Freeze contract](skills/to-sdd-pipeline/references/freeze-contract.md).
+
+The [accessibility policy](skills/to-sdd-pipeline/references/accessibility-policy.md) separates WCAG requirements from house style: 320 CSS-pixel reflow, zoom, keyboard/focus and relevant assistive technology; applicable motion behavior; 24px AA target rules versus the preferred 44px touch target. User research asks neutral questions about actual behavior; operator decisions can still include recommendations.
 
 ## Product security requirements
 
@@ -123,7 +131,7 @@ Visual fidelity, heuristic review, representative-user validation, accessibility
 
 `to-dod-evals` defines the gates; an authorized reviewer/test harness/runner executes them; QA records results; the orchestrator tracks them. Severity and release effect are separate, using the canonical P0–P3 rules. [Verification contract](skills/to-sdd-pipeline/references/verification-contract.md).
 
-The included read-only checker verifies stage prerequisites, owners, document/source hashes, the coupled context bundle, baseline integrity, declared evidence and implementation authorization. It distinguishes **required before a step** from **consulted later**, so QA's later reference to a development plan creates no false dependency loop.
+The read-only checker verifies prerequisites, owners, hashes, context-pair integrity, frozen render resources, evidence and implementation authorization. It rejects omitted check/gate links and excluded-only applicable gates. [Typed traceability](skills/to-sdd-pipeline/references/traceability-contract.md) connects jobs, use cases, requirement clauses, states, checks and units; missing IDs/required mappings block the affected stage. Prototype reuse additionally verifies source/destination bytes and the scoped Git diff. **Consulted-later** information still creates no false prerequisite loop.
 
 ```bash
 python3 skills/to-sdd-pipeline/scripts/sdd_check.py --project /path/to/product --before development-plan
@@ -131,9 +139,15 @@ python3 skills/to-sdd-pipeline/scripts/sdd_check.py --project /path/to/product -
 
 Agents resolve the checker from the installed skill directory, not the product folder. Older projects retain valid documents, IDs and history; their owners supply missing assessments, including security, before verified metadata is recorded. Missing required evidence remains a blocker. [Checker schema and migration](skills/to-sdd-pipeline/references/manifest-contract.md).
 
-The checker validates records and IDs, not research authenticity or the adequacy of security controls. It cannot replace semantic review or guarantee protection against future attacks. Skills require it before advancement, but **hard enforcement in a separate DAS Forge runner requires that runner to call it and enforce its exit code**. This repository does not contain or modify that runner.
+The checker validates records, not research authenticity, complete dynamic behavior or control adequacy. Direct Codex/Claude Code can run the pipeline inline, persist intake and reject stale owner returns without DAS Forge. Any external production runner must enforce checker results itself; this repository does not contain or modify it.
 
 After the plan validates, `awaiting-implementation-prompt` remains mandatory. Approval, automatic resume and a generic “continue” do not authorize production work.
+
+## Delivery and evaluation
+
+The [risk-based lifecycle checklist](skills/to-sdd-pipeline/references/lifecycle-contract.md) covers applicable rollout/rollback, migrations, restore, operational ownership, performance/cost, content and post-release feedback within existing owners. It adds no document, deployment permission or approval procedure.
+
+[Behavioral scenarios](docs/agent-evaluations.md) assess actual agent decisions and outputs, separately from deterministic tests. They start **not run**; neither a synthetic fixture nor the author's self-review is independent agent evidence.
 
 ## Clear language and token use
 
@@ -141,7 +155,7 @@ Every skill and generated SDD document uses direct wording, explains unfamiliar 
 
 The working language follows explicit instruction, recorded preference, then the user's latest substantive message. Product locales stay separate. With Ukrainian, ordinary prose/headings are idiomatic Ukrainian; paths, code, machine values, proper names and approved IT terms remain unchanged.
 
-Detailed conditional guidance lives in shared references. The reproducible [maintenance checks and token benchmark](docs/maintenance.md) count referenced instructions and repeated/retry loads, not just short entrypoints. These are instruction-budget measurements, not promises about actual model billing or live end-to-end token usage.
+Detailed conditional guidance lives in shared references. Reuse unchanged loaded rules and valid artifacts; use `sdd_check.py --snapshot NODE` for an unvalidated hash proposal, not a fabricated review. [Maintenance checks](docs/maintenance.md) count full references/retries and enforce recent-version growth plus absolute budgets. New correctness rules can increase static loads; report that openly. Measurements are not model-billing or live-run savings claims.
 
 ## Further reading
 

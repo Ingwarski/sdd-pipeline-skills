@@ -45,11 +45,11 @@ foreach ($Candidate in @('python3', 'python', 'py')) {
     if ($null -eq $Executable) { continue }
     $Prefix = if ($Candidate -eq 'py') { @('-3') } else { @() }
     try {
-        & $Executable.Source @Prefix -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>$null
+        & $Executable.Source @Prefix -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>$null
         if ($LASTEXITCODE -eq 0) { $PythonCommand = $Executable.Source; $PythonPrefix = $Prefix; break }
     } catch { }
 }
-if ($null -eq $PythonCommand) { throw 'Python 3.9+ is required. Install Python 3, then rerun; no installation changes made.' }
+if ($null -eq $PythonCommand) { throw 'Python 3.12+ is required. Install Python 3, then rerun; no installation changes made.' }
 $ParserArgs = @((Join-Path $RepoRoot 'scripts/install_manifest.py'), '--root', $RepoRoot)
 if ($RetireOnly) { $ParserArgs += '--metadata-only' }
 $Rows = @(& $PythonCommand @PythonPrefix @ParserArgs)

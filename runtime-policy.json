@@ -1,0 +1,8 @@
+{
+  "minimum_python": "3.12",
+  "recommended_python": "3.14",
+  "reviewed_at": "2026-09-05",
+  "review_by": "2026-11-01",
+  "source": "https://devguide.python.org/versions/",
+  "node": "No student Node dependency. If added, use a supported explicit LTS line."
+}

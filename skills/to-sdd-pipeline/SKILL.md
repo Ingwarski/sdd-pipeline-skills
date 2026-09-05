@@ -8,6 +8,8 @@ Read [shared operating rules](references/common-contract.md) before work. Resolv
 
 ## Mission and entry
 
+Apply the [scope and portable execution contract](references/scope-and-execution.md): default full workflow, affected-only existing changes, or source-confirmed headless scope. Direct Codex/Claude Code can run owner roles inline and persist intake in the manifest; external runtime adapters are optional.
+
 Reduce coordination while preserving one owner per artifact. Accept a rough description, existing/imported product idea, saved intake or explicit corrections. A product-idea file is optional **at entry**, required only before PRD generation.
 
 If intent is missing/materially incomplete, dispatch or resume `to-product-idea`, surface one foreground question, set `awaiting-product-idea-intake` and do not start PRD. Validate a coherent existing file without a redundant interview. In DAS Forge require its current matching `ProductIdeaHandoffReceipt`; direct use may record the validated file's source mode/hash without a runtime receipt.
@@ -35,7 +37,7 @@ Directly create/update only `forge/sdd-manifest.json`. Domain owners write only 
 | `to-qa-checklist` | qa-checklist.md |
 | `to-development-plan` | development-plan.md |
 
-The context bundle is one invocation with two independent hashes/results. Both must validate before downstream dispatch. No domain owner writes the manifest; return metadata to this orchestrator.
+The context bundle is one invocation with two independent hashes/results. Both must validate before downstream dispatch. No domain owner writes the manifest; return metadata to this orchestrator. Mirror owner-returned typed definitions/links under [traceability](references/traceability-contract.md), never author their meaning here.
 
 Runtime adapters own operational receipts. Codex mockup writes are confined to versioned `forge/design/candidates/{candidate_id}/{version}/`, optional `forge/design/candidate-sets/{candidate_set_id}/{set_version}/shared/`, and `forge/design/evidence/`. Claude writes only the selected export under `forge/design/inbox/{handoff_id}/selected-export/` and its authorized receipt; Codex alone imports/normalizes it. Log adapter/origin/version/hash/changed paths. No adapter writes production source or domain SDD.
 
@@ -62,7 +64,7 @@ Post-approval labels are reconciliation passes of existing owners, not new skill
 
 Read the [security traceability contract](references/security-contract.md) when recording PRD or downstream owner results. Persist the PRD's `security_review`, each affected owner's `security_coverage`, and security requirement/check/gate bindings without authoring their content. Missing legacy assessment returns to the PRD owner; new roles, data exposure or trust-boundary changes return upstream before design reconciliation. Styling-only revisions preserve unaffected security obligations.
 
-Read [manifest/checker contract](references/manifest-contract.md) when initializing, migrating or updating metadata. Use the installed `scripts/sdd_check.py` (Python 3.9+, no external packages):
+Read [manifest/checker contract](references/manifest-contract.md) when initializing, migrating or updating metadata. Use the installed `scripts/sdd_check.py` (Python 3.12+, no external packages):
 
 ```text
 python3 /resolved/to-sdd-pipeline/scripts/sdd_check.py --project /project --before NODE
@@ -83,7 +85,7 @@ The skill requires the check; a separate DAS Forge runner must invoke the same c
 
 At prototype generation, read [candidate/adapter contract](references/prototype-contract.md). Choose `design_executor: codex | claude_design`; if unset, surface Input needed with Codex recommended. This is an executor choice, not approval.
 
-- Codex: exactly three distinct, equivalent-scope interactive mockups; open all three as stable pages in the external default browser.
+- Codex: exactly three distinct, equivalent-scope interactive mockups; show all three as stable pages on the selected visible review surface (external default browser unless the user chooses another).
 - Claude Design: first read [handoff contract](references/claude-design-handoff.md), validate the full source inventory and both access/read receipts. Missing required sources pause at `awaiting-design-source-access`. Compare three tool-native candidates; import/open only the selected exact version. Selection/export is not approval; never fabricate local hashes for unexported alternatives or silently switch executors.
 
 Whole-product coverage means design simulations of required flows, screens, states, fixtures/locales and viewports—not backend/auth/persistence/integrations or production implementation. Recommend with rationale; never auto-select. Every revision is a new immutable version.

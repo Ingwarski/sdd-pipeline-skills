@@ -18,13 +18,13 @@ Accept a rough description, an existing/imported idea, explicit answers/correcti
 
 ## Ownership
 
-Write only `docs/product-idea.md`; never put an incomplete draft there. The DAS Forge `ProductIdeaIntake` adapter owns draft/session persistence, browser routing, input events and receipts under `forge/intake/`, including `product-idea.json` and `product-idea-handoff.json`.
+Write only `docs/product-idea.md`; never put an incomplete draft there. In direct use, return draft/answers/pending question to the caller for durable progress under the [portable contract](../to-sdd-pipeline/references/scope-and-execution.md). The optional DAS Forge adapter instead owns its `forge/intake/` session, events and receipts.
 
-The runtime shows the live draft and decision coverage in Mission Control. This owner creates no PRD, UX, architecture, QA, plan, Feature Unit or production code.
+Show draft and decision coverage in the active conversation, or Mission Control when that adapter is selected. This owner creates no downstream SDD or production code.
 
 ## Visible questioning
 
-Ask one question per turn: a material intent question or the one-time design-materials request below. Include a recommendation, rationale, source basis (or its absence), affected downstream decisions and a brief playback after the answer. Follow the relevant branch, not a fixed questionnaire. Silence, timeout and recommendations never supply consent.
+Ask one material question at a time, following the relevant branch. Recommend answers for operator choices; use neutral questions about real experiences for user research. Keep operator assumptions distinct from observations. The one-time materials request remains allowed. Silence and recommendations never supply consent.
 
 In DAS Forge, return one request and yield:
 
@@ -57,7 +57,7 @@ Pass these notes to `to-design-brief`, which owns the existing Design Source Mat
 
 ## Design-ready discovery
 
-Establish the primary user/problem, outcome/value, core workflow, V1/MVP scope and exclusions, target surfaces/locales, business rules, data/authority boundaries, external commitments, autonomy and observable success.
+Establish the primary user/problem, outcome/value, core workflow, V1/MVP scope and exclusions, target surfaces/locales, business rules, data/authority boundaries, external commitments, autonomy and observable success. Record the source-confirmed profile/capabilities using the portable contract. Explore material performance/cost, content ownership, measurement and recovery constraints only where relevant; downstream owners resolve mechanisms.
 
 Where sources leave a design-critical gap, explore only relevant branches:
 
@@ -89,8 +89,8 @@ Jobs explain why users act. Do not duplicate user stories, system paths or the j
 
 1. Check that every load-bearing statement has a named source or explicit answer, all answers retain their meaning, and no material contradiction or scope ambiguity remains.
 2. Verify primary user/problem/outcome, V1 boundary and all material JOBs. Each primary job maps to a core workflow/use-case candidate or an explicit unresolved relationship. Record the design-materials disposition: supplied, none yet or deferred; availability itself is not required.
-3. Present the complete draft. `Create product idea and start SDD` is an execution command, not approval.
-4. On that command, atomically create/version the final file only when absent or confirmed intent/source notes changed; otherwise keep its bytes. Validate and hash the final content.
+3. Present the complete draft. An explicit creation/start request authorizes finalization once material gaps are resolved, including the original request to run the pipeline. No magic phrase or repeated start confirmation is required; this is not design approval.
+4. Within that authorization, atomically create/version the final file only when absent or confirmed intent/source notes changed; otherwise keep its bytes. Validate and hash the final content.
 5. Return the hash, source mode, language/selection source, separate product locales, intake/session ID, answered decision IDs, assumptions, non-blocking questions and submission time. The runtime writes the handoff receipt and dispatches `to-sdd-pipeline`.
 
 Use `source_mode: existing-file | imported | seed | interview` accurately. Restore the exact pending question, answers, branch, draft and assumptions after interruption. Detect user edits by content hash. Preserve earlier answer provenance when intent changes.

@@ -71,7 +71,7 @@ try {
         $GitArgs = @($args)
         if ($GitArgs.Count -ge 3 -and $GitArgs[0] -eq '-C' -and $GitArgs[2] -eq 'fetch') {
             Set-Content -LiteralPath $FetchMarker -Value fetched
-            $Output = & $NativeGit -C $GitArgs[1] fetch --quiet $Remote main
+            $Output = & $NativeGit -C $GitArgs[1] fetch --quiet $Remote $GitArgs[-1]
         } else { $Output = & $NativeGit @GitArgs }
         $global:LASTEXITCODE = $LASTEXITCODE
         return $Output
@@ -151,6 +151,14 @@ try {
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Student 'skills/communications-audit'))) 'Source copy remains.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Student '.agents/skills/issue-happypro-certificate'))) 'Repo-local copy remains.'
     Assert-True ([string]::IsNullOrWhiteSpace(((Test-Git $Student @('status','--porcelain')) -join "`n"))) 'Student checkout is not clean.'
+    Test-Git $Publisher @('push','--quiet',$Remote,'HEAD:refs/heads/stable')
+    Set-Content -LiteralPath (Join-Path $Publisher 'unverified.txt') -Value unverified
+    Test-Git $Publisher @('add','--','unverified.txt')
+    Commit-Fixture $Publisher unverified
+    Test-Git $Publisher @('push','--quiet',$Remote,'main')
+    & (Join-Path $Student 'update.ps1') -Channel stable -All -CodexDir $StudentRoots[0] -ClaudeDir $StudentRoots[1]
+    Assert-True ($LASTEXITCODE -eq 0) 'Tested-channel update failed.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $Student 'unverified.txt'))) 'Stable consumed an unverified main commit.'
     Write-Host 'Windows updater tests passed.'
 } finally {
     Remove-Item -Path Function:git -ErrorAction SilentlyContinue

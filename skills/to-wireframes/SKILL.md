@@ -26,9 +26,9 @@ Reference the screen map's state inventory and upstream JOB/UC behavior. Do not 
 
 1. Confirm each screen's user goal, content, primary action, structural constraints and required interaction depth from upstream sources.
 2. Ground structure in available product/design-system evidence. Missing non-material aesthetic direction does not block wireframes.
-3. For each screen, write an ordered zone list with hierarchy/priority. Add an ASCII sketch for non-single-column layouts.
+3. For each screen, write an ordered zone list with hierarchy/priority. Add a linked low-fidelity visual or a compact ASCII sketch only when it clarifies spatial relationships. Do not mandate ASCII when a real visual is clearer.
 4. Express state variants as deltas from the default blueprint; cover applicable default, loading, empty, error, success, disabled, permission, offline and long-content states.
-5. For every applicable failure, specify: **cause → what was preserved → next action → retry/undo option → condition for successful completion**. Give a source-backed reason for any inapplicable element.
+5. For every applicable failure, specify: **cause → what was preserved → next action → retry/undo option → condition for successful completion**. This is a design checklist, not five mandatory sentences in an error message. Give a source-backed reason for an inapplicable element.
 6. Prioritize spacing, grouping, alignment and hierarchy; then dividers, subtle tint, borders and finally shadows. Do not default to whole-app cards, nested cards or card-heavy layouts without a source-backed need.
 7. Use realistic content slots. Preserve CTA/intent traceability to JOB/UC, journey stage and screen-state IDs. Define responsive structure only where content priority or interaction changes.
 8. Check scope, structural coverage and recoverability; write only the wireframes.

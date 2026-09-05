@@ -35,6 +35,7 @@ Read the [security traceability contract](../to-sdd-pipeline/references/security
 7. Define engineering lane/state promotion gates only when sources establish such a workflow. Ordinary UI states do not create delivery gates.
 8. Specify result/evidence/executor/timestamp/revision, failure classification and rerun rules. An inactive gate cannot remain load-bearing in requirement mappings.
 9. Map every distinct FR/NFR obligation to an active gate or explicit blocker. Parent-ID coverage is insufficient; unavailable comparison values remain named blockers.
+   Apply the [lifecycle checklist](../to-sdd-pipeline/references/lifecycle-contract.md) to relevant operational readiness conditions. An applicable gate needs applicable checks; bind every check back to its gate. Excluded-only checks cannot satisfy an active applicable gate.
 10. Validate source grounding, ownership and evidence limits; write only the DoD artifact. Keep `Definition Status: prepared` separate from any execution result.
 
 Completion claims require fresh executed evidence. A mockup, static surface, plan or screenshot is not proof of real functionality, WCAG/security/compliance, heuristic coverage or user validation.

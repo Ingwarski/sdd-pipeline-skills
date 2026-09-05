@@ -22,6 +22,7 @@ Do not define routes or a screen inventory, internal layouts, visual style/token
 
 1. Read sources; identify the primary user and material JOB/UC coverage.
 2. Describe the real session: situation, trigger, device/environment, time/attention pressure and stakes. Use a named protagonist only if confirmed; otherwise use the role and record any material gap.
+   Carry source/confidence on important assumptions. Observed task failures return to the affected journey and upstream use case; an operator hypothesis is not user research. For headless scope, describe the operator/system task without inventing screens.
 3. Map entry-to-completion stages as numbered steps. Each stage records user action, decision, relevant friction/trust concern and outcome.
 4. Name the value moment or central friction (`climax beat`), failure/recovery path and safe exits.
 5. Trace the journey to source requirements and JOB/UC IDs without copying their definitions. Add no unsupported persona, feature or goal.

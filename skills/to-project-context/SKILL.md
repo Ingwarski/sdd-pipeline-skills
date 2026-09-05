@@ -39,6 +39,8 @@ Resolve dependencies in this order, using sources first:
 
 Preserve useful existing content and history. State each fact once; cite the PRD rather than repeating its requirements or use-case paths. Stop questioning when the bundle can be written with explicit non-material assumptions.
 
+Keep a compact index of facts that affect downstream choices. New evidence that changes intent returns upstream; consultation does not make this bundle a competing requirement source.
+
 Material conflicts return `upstream_reconciliation_required` in pipeline mode; the upstream owner fixes them first. Standalone, ask which authoritative source wins when needed. Normalize non-material wording to explicit upstream terminology, recording aliases.
 
 ## Artifact coverage
