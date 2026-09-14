@@ -28,7 +28,9 @@ Windows first attempts a true directory symbolic link. When local policy blocks 
 
 The installers validate the 13 sources, permanently remove the retired business skills, then preflight active SDD destinations before changing SDD links. A real directory, file, or foreign link occupying an active SDD name is a conflict and is not overwritten. Retirement can therefore complete even if a separate SDD conflict blocks installation. `--repair`/`-Repair` replaces only previously recorded SDD links. `--uninstall`/`-Uninstall` removes only active SDD links owned by this clone; retirement applies to install, repair, and update.
 
-The SDD PRD owner is named `to-sdd-prd` so it can coexist with third-party skills named `to-prd`, including older Matt Pocock installations. During migration, the installer removes `to-prd` only when it is an old symlink to this repository. Any unrelated `to-prd` is preserved.
+Use `skills-manifest.json` from the selected revision for current installation names and paths. Its `legacy_name: "to-prd"` maps the old SDD request name to `name: "to-sdd-prd"`: the same PRD owner, not a different skill or a fourteenth entry. Agents must normalize an old SDD list before checking availability and continue without rename confirmation, even if no old `to-prd` is installed. Clarify genuinely unknown names or explicit no-renaming constraints; do not invent aliases.
+
+The canonical name allows third-party `to-prd` skills to coexist. The installer removes an old `to-prd` link/junction only when its target matches this clone or its recorded prior source; unrelated skills and unproven copies remain untouched. Do not create a second `to-prd` alias or change its third-party invocation. Installing skills does not authorize creating product documents or running the pipeline.
 
 Install only one local agent when needed:
 

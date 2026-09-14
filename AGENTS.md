@@ -8,6 +8,11 @@ For an explicit install, update, repair, or uninstall request:
 
 1. Read the README, `docs/installation.md`, the manifest and retirement list.
    Verify Python 3.12+ before mutation; never install dependencies without permission.
+   Resolve old SDD request names through the selected revision's manifest
+   (`legacy_name` -> `name`): `to-prd` means `to-sdd-prd`. This declared rename
+   needs no extra confirmation or existing legacy installation. Install only the
+   canonical name; do not create a duplicate alias. Clarify unknown names or an
+   explicit no-renaming constraint; unrelated third-party `to-prd` stays untouched.
 2. Use `install.sh` / `install.ps1` for installation or repair and
    `update.sh` / `update.ps1` for updates. Bootstrap old clones with a clean
    fast-forward; follow `docs/installation.md` when old tooling is missing.

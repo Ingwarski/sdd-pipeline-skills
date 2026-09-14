@@ -67,6 +67,34 @@ class InstallerInputTests(unittest.TestCase):
                 for entry in value["skills"]:
                     self.assertEqual((self.clone / entry["path"] / "SKILL.md").read_bytes(), (self.dest / entry["name"] / "SKILL.md").read_bytes())
 
+    def test_fresh_install_uses_canonical_names_without_legacy_skill(self):
+        prd = next(entry for entry in self.manifest["skills"] if entry["legacy_name"] == "to-prd")
+        self.assertEqual("to-sdd-prd", prd["name"])
+        self.assertFalse((self.clone / "skills/to-prd").exists())
+        self.assertFalse((self.dest / "to-prd").exists())
+        for attempt in range(2):
+            with self.subTest(attempt=attempt):
+                result = self.install()
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                installed = {path.name for path in self.dest.iterdir() if not path.name.startswith(".")}
+                self.assertEqual({entry["name"] for entry in self.manifest["skills"]}, installed)
+                for entry in self.manifest["skills"]:
+                    self.assertEqual((self.clone / entry["path"]).resolve(), (self.dest / entry["name"]).resolve())
+                self.assertFalse((self.dest / "to-prd").exists())
+                self.assertEqual([], list(self.unrelated_project.iterdir()))
+
+    def test_canonical_prd_coexists_with_unrelated_old_name(self):
+        third_party = self.dest / "to-prd"
+        third_party.mkdir()
+        marker = third_party / "SKILL.md"
+        original = b"---\nname: to-prd\ndescription: Unrelated third-party skill.\n---\n"
+        marker.write_bytes(original)
+        result = self.install()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(original, marker.read_bytes())
+        self.assertFalse(third_party.is_symlink())
+        self.assertEqual((self.clone / "skills/to-sdd-prd").resolve(), (self.dest / "to-sdd-prd").resolve())
+
     def test_invalid_manifest_variants_fail_before_cleanup(self):
         variants = []
         for field, value in (("schema_version", 2), ("schema_version", True), ("skill_count", 12), ("skill_set", "custom-agent-skills")):

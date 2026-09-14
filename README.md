@@ -59,7 +59,7 @@ CI advances `stable` only after content checks and the Linux/macOS/Windows matri
 
 ## Repository identity
 
-The earlier GitHub address was `Ingwarski/codex-skills`. Agent invocation names, output paths, the 13-skill manifest, `skill_set: sdd-pipeline` and installation receipt `.codex-sdd-skills-source` remain stable. Use `to-sdd-prd`; unrelated third-party `to-prd` skills may coexist.
+Former repository: `Ingwarski/codex-skills`. Manifest rename: SDD `to-prd` → `to-sdd-prd`; no extra confirmation or prior installation needed. Preserve unrelated `to-prd`. Output paths, 13-skill count, `skill_set: sdd-pipeline` and receipt `.codex-sdd-skills-source` remain stable.
 
 Non-SDD custom skills live separately in the private [Custom Agent Skills](https://github.com/Ingwarski/custom-agent-skills) repository, with independent installation records. SDD does not depend on or install that collection; scoped retirement affects the two installed names, not the private source repository.
 
