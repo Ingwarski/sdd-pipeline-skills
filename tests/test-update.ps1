@@ -74,8 +74,11 @@ try {
             $Output = & $NativeGit -C $GitArgs[1] fetch --quiet $Remote $GitArgs[-1]
         } else { $Output = & $NativeGit @GitArgs }
         $global:LASTEXITCODE = $LASTEXITCODE
+        # Native commands expose their exit code in the caller's scope. Preserve
+        # that behavior even after the updater's installer set a script-local 0.
+        Set-Variable -Name LASTEXITCODE -Value $LASTEXITCODE -Scope 1
         return $Output
-    }.GetNewClosure()
+    }
     Set-Item -Path Function:git -Value $GitDelegate
 
     Run-Update

@@ -86,7 +86,35 @@ class Project:
             "definition_ref": {"path": "docs/qa-checklist.md", "heading": "## Checks"},
             "definition_status": "prepared", "execution_status": "not_run", "phase": "implementation"})
         self.traceability()
+        self.unit_contract()
         self.save()
+
+    def unit_contract(self):
+        self.manifest["unit_contract_version"] = 1
+        self.manifest["unit_plan"] = {"policy": "strict_sequential", "order": ["U-1"],
+            "definition_ref": {"path": "docs/development-plan.md", "heading": "## Unit Execution Contract"},
+            "units": {"U-1": {"scope": "Synthetic integrated product", "owner": "fixture executor", "kind": "integration",
+                "construction_dependencies": [], "implementation_paths": ["src/app.txt"],
+                "required_check_ids": ["QA-01", "QA-02", "QA-03", "QA-04"]}},
+            "acceptance": {"QA-0" + str(i): {"owner_unit": "U-1", "prerequisite_units": [], "prerequisite_checks": [],
+                "obligation_ids": ["FR-01", "STATE-01"] if i == 1 else ["NFR-02"] if i == 4 else []} for i in range(1, 5)}}
+        for check in self.manifest["verification"]["checks"]:
+            check["acceptance"] = {"required": True, "level": "integration", "evidence_mode": "real_consumers", "required_source_paths": ["src/app.txt"]}
+        self.manifest["verification"]["acceptance_ref"] = {"path": "docs/qa-checklist.md", "heading": "## Acceptance Contract"}
+        self.sync_unit_contract()
+
+    def sync_unit_contract(self):
+        for path, heading, value in (
+                ("docs/development-plan.md", self.manifest["unit_plan"]["definition_ref"]["heading"], self.manifest["unit_plan"]),
+                ("docs/qa-checklist.md", self.manifest["verification"]["acceptance_ref"]["heading"], {x["check_id"]: x["acceptance"] for x in self.manifest["verification"]["checks"]
+                    if x.get("phase") in ("implementation", "both") and x.get("execution_status") != "not_applicable"})):
+            text = (self.root / path).read_text(encoding="utf-8").split("\n" + heading)[0]
+            self.write(path, text + "\n" + heading + "\n\n```json\n" + json.dumps(value, indent=2) + "\n```\n")
+        for artifact in self.manifest["artifacts"].values():
+            artifact["content_hash"] = self.hash(artifact["path"])
+            for path in artifact["source_hashes"]:
+                artifact["source_hashes"][path] = self.hash(path)
+        self.manifest["verification"]["source_hashes"] = {"docs/" + k + ".md": self.hash("docs/" + k + ".md") for k in ("qa-checklist", "dod-evals")}
 
     def traceability(self):
         self.manifest["traceability_version"] = 1
@@ -163,7 +191,10 @@ class Project:
             evidence = self.evidence("forge/evidence/" + check["check_id"] + ".json", {"synthetic_fixture": True, "not_real_user_research": True})
             evidence["kind"] = sdd.GATE_KINDS.get(check["gate_id"], "security")
             check.update(execution_status="passed", executor="synthetic-test-runner", executed_at="2026-08-20T10:05:00Z",
-                         evidence=[evidence], evaluated_source_hashes={"src/app.txt": self.hash("src/app.txt")})
+                         evidence=[evidence, {**evidence, "kind": "integration"}], execution_mode="real_consumers",
+                         evaluated_plan_hash=self.hash("docs/development-plan.md"), evaluated_source_hashes={"src/app.txt": self.hash("src/app.txt")})
+        self.manifest["unit_runs"] = {"U-1": {"status": "completed", "started_at": "2026-08-20T10:03:00Z", "completed_at": "2026-08-20T10:06:00Z",
+            "development_plan_hash": self.hash("docs/development-plan.md"), "approved_baseline_id": "B-1", "findings": []}}
 
     def candidates(self, claude=False):
         self.manifest["prototype_candidates"] = []
@@ -474,6 +505,11 @@ class CheckTests(unittest.TestCase):
         self.project.execute_checks()
         self.m["verification"]["gates"][2]["required"] = False
         check = self.m["verification"]["checks"][2]
+        check["acceptance"]["required"] = False
+        self.m["unit_plan"]["units"]["U-1"]["required_check_ids"].remove("QA-03")
+        self.project.sync_unit_contract()
+        self.project.authorize()
+        self.project.execute_checks()
         check.update(execution_status="failed", findings=[{"severity": "P2", "release_effect": "advisory", "status": "open"}])
         self.assertEqual("passed", self.project.run("release")["result"])
         self.assertEqual("failed", check["execution_status"])

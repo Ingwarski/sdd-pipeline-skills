@@ -1,18 +1,18 @@
 {
-  "recent_base": "f0923e29d6238c9b5da4038c6795c42854908f17",
-  "reason": "Audit remediation adds typed coverage, headless/portable execution, render integrity, accessibility and lifecycle rules. Shared wording was shortened; measured cold-load growth is explicit, not claimed as savings. Further growth requires a budget review.",
+  "recent_base": "1272cddd801e993ea43510f581ea9961072a5812",
+  "reason": "2026-09-15 review: sequential unit acceptance adds canonical ownership, combined dependencies, fresh run evidence, migration and host boundaries. Count its shared contract for QA, planning and orchestration, including retries. Compare against pre-change revision 1272cdd; retain historical f0923e2 and incremental measurements in docs/maintenance.md. Scenario loads grow 8.67-14.84%; this is an explicit correctness cost, not a savings claim. Tight rounded ceilings and separate growth limits remain enforced; further growth requires another review.",
   "absolute": {
-    "entrypoints": 15600,
-    "readme": 3700,
-    "first_setup_with_retry": 104000,
-    "approved_design_revision": 55000,
-    "interrupted_claude_resume": 65000
+    "entrypoints": 15900,
+    "readme": 3850,
+    "first_setup_with_retry": 113000,
+    "approved_design_revision": 63500,
+    "interrupted_claude_resume": 73500
   },
   "approved_growth_tokens": {
-    "entrypoints": 750,
-    "readme": 650,
-    "first_setup_with_retry": 11800,
-    "approved_design_revision": 7500,
-    "interrupted_claude_resume": 7800
+    "entrypoints": 300,
+    "readme": 150,
+    "first_setup_with_retry": 9500,
+    "approved_design_revision": 8500,
+    "interrupted_claude_resume": 8800
   }
 }

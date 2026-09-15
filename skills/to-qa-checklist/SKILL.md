@@ -41,7 +41,7 @@ Read the [security traceability contract](../to-sdd-pipeline/references/security
 7. Verify each applicable failure sequence: cause → what was preserved → next action → retry/undo → observable success.
 8. Add separate representative-user checks for applicable critical/consequential flows: JOB/UC, representative group, observed task, success criterion, device/viewport and pre-approval/post-implementation/both timing. Heuristic or visual evidence cannot stand in for real users.
 9. Include applicable hover/focus/active/disabled, loading/empty/error/success, permission/offline, long-content and repeat-click checks. Verify keyboard/focus, labels/errors, semantics, targets, timing/motion/state communication, reflow and zoom.
-10. Cite architecture/DoD gate IDs and guardrail evidence policy. For each item distinguish required evidence from actual evidence, pass from not-run, and severity from release effect.
+10. Cite architecture/DoD gate IDs and guardrail evidence policy. Distinguish bounded component contribution from integration/release acceptance; preserve required real-consumer checks when adding bounded QA IDs. Return canonical acceptance definitions under the [unit execution contract](../to-sdd-pipeline/references/unit-execution-contract.md); defer unit allocation to the plan owner. Missing/failed/stale/deferred results never pass unit completion.
 11. After implementation begins, inspect declared prototype-promotion receipts when applicable; absent/mismatched receipts block fidelity. Never fabricate a receipt or make the plan an upstream dependency.
 12. Validate coverage and boundaries; write only the checklist and return its hash-bound check/gate index to the caller.
 

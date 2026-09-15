@@ -1156,12 +1156,239 @@ class Checker:
                 raise ValueError("generic continuation does not authorize implementation")
             if not (timestamp(gate.get("awaiting_at")) < timestamp(gate.get("prompt_received_at")) <= timestamp(gate.get("released_at"))):
                 raise ValueError("implementation prompt must be later than the completed-plan pause")
+            if timestamp(gate.get("released_at")) > datetime.now().astimezone():
+                raise ValueError("future implementation authorization cannot permit execution")
             if timestamp(prompt.get("received_at")) != timestamp(gate.get("prompt_received_at")):
                 raise ValueError("prompt timestamp mismatch")
         except (ValueError, OSError, KeyError) as error:
             self.issue("prompt_receipt", "implementation", str(error))
 
-    def run(self, node, after=False, audit=False):
+    def canonical_json(self, path, heading, expected):
+        text = self.reference({"path": path, "heading": heading}, "development-plan")
+        blocks = re.findall(r"```json\s*\n(.*?)\n```", text, re.S)
+        if len(blocks) != 1 or json.loads(blocks[0], object_pairs_hook=unique_object) != expected:
+            raise ValueError(path + ": canonical JSON and projection differ")
+
+    def units(self, action=None, unit_id=None, release=False):
+        """Validate planning separately from recorded runs and requested transitions."""
+        if type(self.manifest.get("unit_contract_version")) is not int or self.manifest["unit_contract_version"] != 1:
+            self.issue("migration_required", "development-plan", "owner-reviewed unit contract version 1 required; do not infer completed units")
+            return
+        try:
+            self.validate_units(action, unit_id, release)
+        except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:
+            self.issue("unit_contract", "development-plan", str(error))
+
+    def validate_units(self, action, unit_id, release):
+        def require(condition, message):
+            if not condition:
+                raise ValueError(message)
+
+        def ids(value, label, nonempty=False):
+            require(isinstance(value, list) and all(isinstance(x, str) and x for x in value), label + ": ID/path list required")
+            require(len(value) == len(set(value)) and (value or not nonempty), label + ": empty or duplicate entries")
+            return set(value)
+
+        plan = self.manifest["unit_plan"]
+        require(plan.get("policy") == "strict_sequential", "unsupported unit execution policy")
+        require(plan["definition_ref"]["path"] == "docs/development-plan.md", "unit contract belongs to development plan")
+        self.canonical_json("docs/development-plan.md", plan["definition_ref"]["heading"], plan)
+        order = plan["order"]
+        unit_ids = ids(order, "order", True)
+        units, acceptance = plan["units"], plan["acceptance"]
+        require(isinstance(units, dict) and set(units) == unit_ids, "order must contain every unit exactly once")
+        require(isinstance(acceptance, dict) and acceptance, "acceptance ownership required")
+        positions = {key: index for index, key in enumerate(order)}
+        trace = self.artifacts["development-plan"]["traceability"]
+        defined_units = {x["id"] for x in trace["definitions"] if x.get("kind") == "unit"}
+        require(defined_units == unit_ids, "unit IDs must match the plan traceability index")
+        obligations = {x["id"] for name in ("prd", "screen-map") for x in self.artifacts.get(name, {}).get("traceability", {}).get("definitions", [])
+                       if x.get("kind") in ("requirement", "state") and x.get("required")}
+        contributions = {(x["from"], x["to"]) for x in trace["links"] if x.get("relation") == "implements"}
+        verifies = {(x["from"], x["to"]) for x in self.artifacts["qa-checklist"]["traceability"]["links"] if x.get("relation") == "verifies"}
+        checks = {x["check_id"]: x for x in self.manifest["verification"]["checks"]}
+        # Every implementation check has an owner, including advisory and deferred work.
+        eligible = {key for key, value in checks.items() if value.get("phase") in ("implementation", "both") and value.get("execution_status") != "not_applicable"}
+        require(set(acceptance) == eligible, "every applicable implementation check needs exactly one acceptance owner; unknown/excluded check")
+        qa_contract = {key: checks[key]["acceptance"] for key in sorted(eligible)}
+        qa_ref = self.manifest["verification"]["acceptance_ref"]
+        require(qa_ref["path"] == "docs/qa-checklist.md", "acceptance definitions belong to QA")
+        self.canonical_json("docs/qa-checklist.md", qa_ref["heading"], qa_contract)
+        edges = {key: set() for key in unit_ids}
+        check_edges = {}
+        for key, unit in units.items():
+            require(isinstance(unit.get("scope"), str) and unit["scope"].strip(), key + ": scope required")
+            require(unit.get("kind") in ("implementation", "integration", "release"), key + ": invalid kind")
+            require(isinstance(unit.get("owner"), str) and unit["owner"].strip(), key + ": responsible owner required")
+            deps = ids(unit["construction_dependencies"], key + " construction")
+            require(deps <= unit_ids and key not in deps, key + ": unknown/self construction dependency")
+            edges[key].update(deps)
+            sources = ids(unit["implementation_paths"], key + " implementation paths", True)
+            for path in sources:
+                self.path(path)  # Files may be absent at planning time; execution hashes cannot be absent.
+            required = ids(unit["required_check_ids"], key + " required checks", True)
+            require(required <= eligible, key + ": unknown required acceptance check")
+            for check_id in required:
+                require(acceptance[check_id]["owner_unit"] == key, check_id + ": missing/invalid acceptance owner")
+        for key, record in acceptance.items():
+            owner = record["owner_unit"]
+            require(owner in units, key + ": unknown acceptance owner")
+            qa = qa_contract[key]
+            require(type(qa.get("required")) is bool, key + ": QA required flag missing")
+            require(qa.get("level") in ("unit", "integration", "release"), key + ": acceptance level required")
+            require(qa.get("evidence_mode") in ("component", "real_consumers"), key + ": evidence mode required")
+            if qa["level"] != "unit":
+                require(qa["evidence_mode"] == "real_consumers" and units[owner]["kind"] in ("integration", "release"), key + ": integration/release acceptance needs integration ownership and real consumers")
+            if qa["level"] == "release":
+                require(units[owner]["kind"] == "release", key + ": release owner required")
+            require((key in units[owner]["required_check_ids"]) == qa["required"], key + ": required membership differs from QA")
+            gates = {x["gate_id"]: x for x in self.manifest["verification"]["gates"]}
+            if gates.get(checks[key]["gate_id"], {}).get("required"):
+                require(qa["required"], key + ": required gate cannot become advisory unit acceptance")
+            deps = ids(record["prerequisite_units"], key + " prerequisites")
+            require(deps <= unit_ids and owner not in deps, key + ": unknown/self acceptance prerequisite")
+            prerequisites = ids(record["prerequisite_checks"], key + " prerequisite checks")
+            require(prerequisites <= eligible and key not in prerequisites, key + ": unknown/self prerequisite check")
+            check_edges[key] = prerequisites
+            bound = ids(record["obligation_ids"], key + " obligations")
+            require(bound <= obligations and all((key, obligation) in verifies and (owner, obligation) in contributions for obligation in bound), key + ": acceptance obligation lacks verification/contribution trace")
+            edges[owner].update(deps)
+            for prerequisite in prerequisites:
+                other = acceptance[prerequisite]["owner_unit"]
+                require(other in units, prerequisite + ": unknown acceptance owner")
+                if other != owner:
+                    edges[owner].add(other)
+            ids(qa["required_source_paths"], key + " evidence source paths", True)
+            for path in qa["required_source_paths"]:
+                self.path(path)
+        # No required product clause/state may disappear into mere contribution coverage.
+        covered = {obligation for key, record in acceptance.items() if qa_contract[key]["required"] and qa_contract[key]["level"] in ("integration", "release") for obligation in record["obligation_ids"]}
+        require(obligations <= covered, "required obligation lacks full integration/release acceptance ownership; component contribution is insufficient")
+
+        def acyclic(graph, label):
+            pending = {key: set(value) for key, value in graph.items()}
+            while pending:
+                ready = {key for key, value in pending.items() if not value}
+                require(ready, label + ": dependency cycle")
+                pending = {key: value - ready for key, value in pending.items() if key not in ready}
+        acyclic(check_edges, "acceptance checks")
+        for key, prerequisites in check_edges.items():
+            if qa_contract[key]["required"]:
+                require(all(qa_contract[prior]["required"] for prior in prerequisites), key + ": required check prerequisites must be required acceptance of their owners")
+        acyclic(edges, "combined construction/acceptance")
+        for key, deps in edges.items():
+            require(all(positions[dep] < positions[key] for dep in deps), key + ": forward acceptance/construction prerequisite under strict sequential execution")
+
+        runs = self.manifest.get("unit_runs", {})
+        require(isinstance(runs, dict) and set(runs) <= unit_ids, "unknown unit run")
+        exceptions = self.manifest.get("unit_sequence_exceptions", [])
+        require(isinstance(exceptions, list), "sequence exceptions must be receipts")
+        plan_hash = self.artifacts["development-plan"]["content_hash"]
+        baseline = self.manifest.get("approved_baseline_id")
+        now = datetime.now().astimezone()
+        waivers = []
+        for receipt in exceptions:
+            require(self.snapshot(receipt.get("path"), receipt.get("content_hash"), "implementation", "unit_exception"), "invalid sequencing receipt")
+            event = read_json(self.path(receipt["path"]))
+            require(event.get("event") == "unit_sequence_exception" and event.get("role") == "user" and event.get("message") and event.get("prompt_id"), "explicit original user sequencing event required")
+            require(str(event["message"]).strip().lower().rstrip(".! ") not in ("", "continue", "продовжуй", "продовжити"), "generic continuation is not a sequencing exception")
+            require(event.get("development_plan_hash") == plan_hash and "approved_baseline_id" in event and event["approved_baseline_id"] == baseline, "sequencing exception is stale")
+            target = event["unit_id"]
+            require(target in units, "exception targets unknown unit")
+            skipped = ids(event["prior_unit_ids"], "exception prior units", True)
+            require(skipped <= {x for x in order[:positions[target]]} and not skipped & edges[target], "exception cannot waive construction/acceptance prerequisites")
+            received = timestamp(event["received_at"])
+            require(timestamp(self.manifest["implementation_gate"]["prompt_received_at"]) <= received <= now, "exception event time invalid")
+            waivers.append((target, skipped, received))
+
+        def blocking(findings):
+            require(isinstance(findings, list) and all(isinstance(x, dict) for x in findings), "findings list required")
+            for finding in findings:
+                require(finding.get("severity") in ("P0", "P1", "P2", "P3") and finding.get("release_effect") in ("blocking", "advisory") and finding.get("status") in ("open", "closed"), "invalid unit finding")
+            return any((x["severity"] in ("P0", "P1") or x["release_effect"] == "blocking") and x["status"] != "closed" for x in findings)
+
+        def passed(check_id, started, finished, seen=None):
+            seen = set() if seen is None else seen
+            if check_id in seen:
+                return
+            seen.add(check_id)
+            check, record, qa = checks[check_id], acceptance[check_id], qa_contract[check_id]
+            require(check.get("execution_status") == "passed" and check.get("definition_status") == "prepared", check_id + ": required acceptance is not passed")
+            require(check.get("evaluated_plan_hash") == plan_hash, check_id + ": evidence belongs to another plan")
+            executed = timestamp(check.get("executed_at"))
+            require(started <= executed <= finished, check_id + ": evidence outside current unit run")
+            require(check.get("executor") and check.get("evidence"), check_id + ": missing executed evidence")
+            require(not blocking(check.get("findings", [])), check_id + ": unresolved blocking finding")
+            paths = set(qa["required_source_paths"])
+            for dep in {record["owner_unit"]} | edges[record["owner_unit"]]:
+                paths.update(units[dep]["implementation_paths"])
+            hashes = check.get("evaluated_source_hashes", {})
+            require(isinstance(hashes, dict) and paths <= set(hashes), check_id + ": evidence does not cover required implementation/consumer paths")
+            for path, value in hashes.items():
+                require(self.snapshot(path, value, "implementation", "unit_stale_evidence"), check_id + ": stale implementation evidence")
+            for evidence in check["evidence"]:
+                require(self.snapshot(evidence.get("path"), evidence.get("content_hash"), "implementation", "unit_stale_evidence"), check_id + ": unreadable/changed evidence")
+            if qa["evidence_mode"] == "real_consumers":
+                require(check.get("execution_mode") == "real_consumers" and any(x.get("kind") == "integration" for x in check["evidence"]), check_id + ": mocks/fixtures cannot replace real-consumer integration evidence")
+            for prerequisite in check_edges[check_id]:
+                prior_owner = acceptance[prerequisite]["owner_unit"]
+                prior_run = runs.get(prior_owner, {})
+                prior_started = timestamp(prior_run.get("started_at"))
+                prior_finished = min(executed, timestamp(prior_run.get("completed_at"))) if prior_owner != record["owner_unit"] else executed
+                passed(prerequisite, prior_started, prior_finished, seen)
+
+        completed = {}
+        def clear_unit_findings(key, run):
+            require(not blocking(run.get("findings", [])), key + ": unresolved blocking finding")
+            for check_id, allocation in acceptance.items():
+                if allocation["owner_unit"] == key:
+                    require(not blocking(checks[check_id].get("findings", [])), check_id + ": unresolved blocking finding")
+
+        for key, run in runs.items():
+            require(run.get("status") in ("pending", "running", "blocked", "completed"), key + ": invalid unit status")
+            if run["status"] == "pending":
+                require(not run.get("started_at") and not run.get("completed_at"), key + ": pending run cannot claim execution")
+                continue
+            require(run.get("development_plan_hash") == plan_hash and "approved_baseline_id" in run and run["approved_baseline_id"] == baseline, key + ": stale run binding")
+            started = timestamp(run.get("started_at"))
+            require(timestamp(self.manifest["implementation_gate"]["released_at"]) <= started <= now, key + ": invalid start time")
+            if run["status"] == "blocked":
+                require(run.get("reason"), key + ": blocked run needs a reason")
+            if run["status"] == "completed":
+                finished = timestamp(run.get("completed_at"))
+                require(started <= finished <= now, key + ": completion time blocks unit")
+                clear_unit_findings(key, run)
+                for check_id in units[key]["required_check_ids"]:
+                    passed(check_id, started, finished)
+                completed[key] = finished
+            else:
+                require(not run.get("completed_at"), key + ": unfinished run cannot claim completion time")
+
+        def can_start(key, at):
+            for prior in order[:positions[key]]:
+                if prior in completed and completed[prior] <= at:
+                    continue
+                require(prior not in edges[key] and any(target == key and prior in skipped and received <= at for target, skipped, received in waivers), key + ": prior unit " + prior + " incomplete at start without explicit exception")
+        for key, run in runs.items():
+            if run["status"] != "pending":
+                can_start(key, timestamp(run["started_at"]))
+        if action:
+            require(unit_id in units, "unknown boundary unit")
+            run = runs.get(unit_id, {"status": "pending"})
+            if action == "start":
+                require(run["status"] != "completed", unit_id + ": already complete")
+                can_start(unit_id, now)
+            elif action == "complete":
+                require(run["status"] in ("running", "completed"), unit_id + ": unit must be running before completion")
+                clear_unit_findings(unit_id, run)
+                for check_id in units[unit_id]["required_check_ids"]:
+                    passed(check_id, timestamp(run.get("started_at")), now)
+        if release:
+            require(set(completed) == unit_ids, "release requires every unit, including integration, completed")
+
+    def run(self, node, after=False, audit=False, unit_action=None, unit_id=None):
+        if unit_action is not None and (unit_action not in ("start", "complete") or node != "implementation" or audit or after or not unit_id):
+            self.issue("unit_boundary", "implementation", "unit transitions require implementation node, start/complete action and unit ID")
         self.product_scope()
         if type(self.manifest.get("checker_contract_version")) is not int or self.manifest["checker_contract_version"] != 1:
             self.issue("migration_required", "manifest", "retain existing documents/history; add verified metadata using manifest-contract.md")
@@ -1198,10 +1425,15 @@ class Checker:
         if spec.get("authorization_required"):
             self.authorization()
             self.promotions(release=spec.get("release_required", False))
+        if "development-plan" in self.checked:
+            if not spec.get("authorization_required") and any(x.get("status") not in (None, "pending") for x in self.manifest.get("unit_runs", {}).values()):
+                self.authorization()
+            self.units(unit_action, unit_id, release=spec.get("release_required", False) or self.manifest.get("verification", {}).get("release_readiness") == "passed")
         result = "blocked" if self.issues else "passed"
         if self.issues and all(item["code"] == "migration_required" for item in self.issues):
             result = "migration_required"
         return {"result": result, "node": node, "mode": "audit" if audit else "after" if after else "before",
+                "unit_action": unit_action, "unit_id": unit_id,
                 "skipped_artifacts": sorted(self.skipped),
                 "checked_artifacts": sorted(self.checked), "affected_artifacts": sorted(self.affected),
                 "issues": self.issues, "warnings": sorted(set(self.warnings)),
@@ -1214,6 +1446,8 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--before")
     group.add_argument("--after")
+    group.add_argument("--start-unit", metavar="UNIT_ID", help="validate authorization, plan and unit start/resume; read-only")
+    group.add_argument("--complete-unit", metavar="UNIT_ID", help="validate fresh evidence before recording unit completion; read-only")
     group.add_argument("--audit", action="store_true")
     group.add_argument("--hash", dest="hash_path")
     group.add_argument("--hash-render", metavar="RECORD", help="hash a candidate/baseline JSON record and its declared render resources")
@@ -1239,7 +1473,8 @@ def main():
             value = digest(section_bytes(path, args.heading)) if args.heading else tree_hash(checker.path(args.hash_path, no_links=True)) if path.is_dir() else digest(path.read_bytes())
             print(value)
             return 0
-        node = args.before or args.after or args.snapshot or "audit"
+        unit_action = "start" if args.start_unit else "complete" if args.complete_unit else None
+        node = "implementation" if unit_action else args.before or args.after or args.snapshot or "audit"
         if not args.audit and node not in contract["nodes"]:
             raise ValueError("unknown node; choose: " + ", ".join(contract["nodes"]))
         manifest = read_json(args.project / "forge/sdd-manifest.json")
@@ -1253,7 +1488,7 @@ def main():
             # Escape JSON Unicode for locale-dependent Windows output pipes; decoding preserves text.
             print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=True, indent=2))
             return 0
-        report = Checker(args.project, manifest, contract).run(node, bool(args.after), args.audit)
+        report = Checker(args.project, manifest, contract).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit)
         print(json.dumps(report, ensure_ascii=True, indent=2))
         return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:

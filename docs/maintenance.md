@@ -15,6 +15,18 @@ The September 2026 audit remediation builds on the earlier seven-point update. T
 
 SDD still determines what to build; QA verifies it. A validated plan still ends at `awaiting-implementation-prompt` until a later explicit user request authorizes production implementation.
 
+## Sequential unit acceptance
+
+The [unit execution contract](../skills/to-sdd-pipeline/references/unit-execution-contract.md) adds independently completable units without changing artifact owners, names, source authority or approval boundaries. Construction dependencies and acceptance prerequisites form one execution graph; check prerequisites also have their own acyclic graph. Forward prerequisites block a strict sequential plan. Source-backed splits/merges/reordering must retain every obligation and check, with required real-consumer integration acceptance owned by appropriately sequenced units.
+
+The checker validates canonical plan/QA projections, complete ownership and traceability, actual run bindings, fresh evidence and scoped user sequencing exceptions. `--start-unit ID` checks authorization and predecessor completion; `--complete-unit ID` checks all required acceptance and blocking findings. Recorded completion is revalidated on later checks. Release additionally requires all units and existing release gates. A component contribution is not a full requirement pass.
+
+Legacy plans require owner-reviewed `unit_contract_version: 1` records; missing records cannot pass plan completion, implementation or release validation. Preserve valid documents/IDs/history and reconcile affected architecture, DoD, QA and plan allocations. Changed plans invalidate old implementation authorization and require a fresh prompt after the plan pause. Neither record migration nor a sequencing exception waives acceptance.
+
+No production execution runner is present here. The host must enforce start/completion exit codes and continue/resume the active unit until validated completion or a genuine blocker/input boundary. Tests exercise declared records, not the authenticity of user events, completeness of source inventories or host turn continuation.
+
+`tests/test_unit_execution.py` uses isolated synthetic fixtures for the earlier-unit/later-acceptance conflicts, mixed dependency cycles, ownership, stale/failed/deferred evidence, blockers, exceptions, migration, localization and valid component-to-integration sequencing. The Windows updater test's Git delegate preserves native exit codes in the caller scope; a module closure previously masked nonzero ancestry results after the installer set a local exit code. Production updater code is unchanged.
+
 ## OWASP security integration
 
 The existing PRD owner now applies a [reviewed OWASP procedure](../skills/to-sdd-prd/references/security-authoring.md), using the bundled, version-pinned ASVS 5.0.0 catalog. Architecture, DoD, QA and the development plan preserve the same security requirement IDs through their existing documents. UX/design owners route security-relevant changes upstream; visual-only changes can retain unaffected requirements. No new skill, document, approval stage, paid service or automatic security scan is added.
@@ -81,7 +93,7 @@ On Windows use `.venv-token-check\Scripts\python.exe`. The encoder may download 
 
 Baseline: `e5d6ab9df4502cf6babc76e273602ecbd66881f0`; tokenizer: `tiktoken 0.14.0`, `o200k_base`. [Fixed fixtures](../tests/fixtures/token-scenarios.json) use identical seeds and invocation sequences for old/new instructions. Every invocation includes its complete applicable shared/conditional references, the machine contract where consulted, and listed retries. No caching discount is assumed.
 
-The historical baseline remains available for comparison. Enforcement now uses the immediately preceding audited revision `f0923e2` plus [reviewed absolute ceilings](../tests/fixtures/instruction-budget.json). Measurements include the new shared/conditional contracts; actual needed correctness instructions increased cold-load costs:
+The historical baseline remains available for comparison. The earlier audit used `f0923e2` and the following measured loads, including its shared/conditional contracts:
 
 | Scenario | Audited revision | After remediation | Increase |
 |---|---:|---:|---:|
@@ -89,9 +101,23 @@ The historical baseline remains available for comparison. Enforcement now uses t
 | Approved-design revision, including one retry; 7 invocations | 47,691 | 54,855 | 15.02% |
 | Interrupted Claude resume, including one retry; 7 invocations | 57,200 | 64,522 | 12.80% |
 
-Entrypoints are 15,592 tokens versus 14,881 at the audited revision; README is 3,698 versus 3,093. Source-tracking and intake-display fixes fit the existing ceilings without raising them. These remain below the much older baseline but are **not a new savings claim**. Run without `--summary` for counted files. `--check` fails above either an absolute ceiling or the reviewed recent-growth allowance. Further contract growth needs an explicit policy/table review, not silent budget inflation. Reuse of instructions still present in context is encouraged but receives no assumed discount here.
+That pre-unit-correction revision had 15,592 entrypoint tokens versus 14,881 at the audit, and README 3,698 versus 3,093. Source-tracking and intake-display fixes fit its then-current ceilings. These figures are historical, not a new savings claim.
+
+The 2026-09-15 unit-contract review advances the recent comparison to pre-change revision `1272cdd`, while retaining the earlier audit table above. The new contract is counted in full for QA, planning and orchestration, including repeated invocations. Runtime record fields are necessary for the execution handoff; putting them in a shared conditional reference avoids repeating the schema in skill entrypoints but does not imply free cached reads.
+
+| Measured scope | Before unit correction | After correction | Increase | Absolute ceiling | Allowed growth from 1272cdd |
+|---|---:|---:|---:|---:|---:|
+| Entrypoints | 15,592 | 15,855 | 1.69% | 15,900 | 300 |
+| README | 3,698 | 3,807 | 2.95% | 3,850 | 150 |
+| First setup, including one retry | 103,522 | 112,501 | 8.67% | 113,000 | 9,500 |
+| Approved-design revision, including one retry | 54,855 | 62,993 | 14.84% | 63,500 | 8,500 |
+| Interrupted Claude resume, including one retry | 64,522 | 72,894 | 12.98% | 73,500 | 8,800 |
+
+The previous ceilings failed. The [reviewed policy](../tests/fixtures/instruction-budget.json) explicitly accepts this measured correctness cost for dependency/ownership validation, evidence-backed completion, migration and host boundaries. Entrypoint/README loads remain below the much older baseline; full scenario loads exceed it. Both absolute ceilings and growth limits retain bounded headroom. Run without `--summary` for counted files. `--check` fails above either limit; further growth needs another explicit policy/table review. Instruction reuse is encouraged but receives no assumed discount.
 
 These are deterministic **instruction-load budgets**, not live-agent benchmarks. They do not measure generated-document savings, actual retry frequency, tool output, model quality, cached-token billing or total end-to-end cost. Concise document rules are enforced as authoring guidance; real project runs are still needed to measure their practical effect.
+
+The complete Python 3.14 suite with pinned test dependencies passes 167 tests with no skips. The Python 3.12 suite also passes, with its optional YAML parser checked separately when absent. Isolated Windows installer, retirement and updater suites pass. These validate code and records; they do not establish production-host continuation or constitute real product acceptance evidence.
 
 Security procedure and record instructions are counted for their consumers. Selected ASVS controls returned by the offline reader are tool output and therefore add tokens outside this static budget. Only the PRD owner reads applicable controls; downstream owners reuse requirement IDs and their local consequences. Offline does not mean token-free, but this integration starts no deep scans or paid security service.
 

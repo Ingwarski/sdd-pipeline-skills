@@ -143,6 +143,8 @@ The checker validates records, not research authenticity, complete dynamic behav
 
 After the plan validates, `awaiting-implementation-prompt` remains mandatory. Approval, automatic resume and a generic “continue” do not authorize production work.
 
+Sequential units must finish their required acceptance before later units start. The [unit execution contract](skills/to-sdd-pipeline/references/unit-execution-contract.md) validates construction and acceptance dependencies together, accountable integration work, fresh completion evidence and explicit sequencing exceptions. Use `--start-unit ID` and `--complete-unit ID` at production boundaries after fresh implementation authorization. Existing plans need owner-reviewed unit records; component checks do not pass full product requirements. A separate host must enforce continuation/resumption and checker exits; this repository contains no production runner.
+
 ## Delivery and evaluation
 
 The [risk-based lifecycle checklist](skills/to-sdd-pipeline/references/lifecycle-contract.md) covers applicable rollout/rollback, migrations, restore, operational ownership, performance/cost, content and post-release feedback within existing owners. It adds no document, deployment permission or approval procedure.

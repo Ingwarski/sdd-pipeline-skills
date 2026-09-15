@@ -53,6 +53,12 @@ class AuditRegressions(unittest.TestCase):
         self.ready()
         self.m["verification"]["gates"][2].update(applicability="not_applicable", rationale="Low-risk synthetic task")
         self.m["verification"]["checks"][2].update(execution_status="not_applicable", rationale="Low-risk synthetic task", evidence=[])
+        del self.m["unit_plan"]["acceptance"]["QA-03"]
+        self.m["unit_plan"]["units"]["U-1"]["required_check_ids"].remove("QA-03")
+        self.p.sync_unit_contract()
+        self.p.authorize()
+        self.p.execute_checks()
+        self.m["verification"]["checks"][2].update(execution_status="not_applicable", rationale="Low-risk synthetic task", evidence=[])
         self.assertEqual("passed", self.p.run("release")["result"])
 
     def freeze_shared(self):
@@ -205,7 +211,7 @@ class AuditRegressions(unittest.TestCase):
                   "patch_hash": sdd.digest(git("diff", "--binary", "--no-ext-diff", "--no-textconv", base, head, "--", "src/promoted.html")),
                   "path_mappings": [{**mapping, "source_hash": self.p.hash(mapping["source"]), "destination_hash": self.p.hash(mapping["destination"])}],
                   "adaptations": ["Synthetic adaptation"], "variances": [], "qa_ids": ["QA-01"],
-                  "visual_evidence": self.m["verification"]["checks"][0]["evidence"],
+                  "visual_evidence": [x for x in self.m["verification"]["checks"][0]["evidence"] if x["kind"] == "visual"],
                   "verification_status": "passed", "completed_at": "2026-08-20T10:06:00Z"}
         record["receipt"] = self.p.evidence("forge/runs/U-1/run-1/prototype-promotion.json", actual)
         self.m["prototype_promotions"] = [record]
@@ -273,6 +279,11 @@ class AuditRegressions(unittest.TestCase):
         for check in self.m["verification"]["checks"]:
             if check["gate_id"] in sdd.GATE_KINDS:
                 check.update(execution_status="not_applicable", rationale="Source-bound headless scope")
+        eligible = {x["check_id"] for x in self.m["verification"]["checks"] if x["execution_status"] != "not_applicable"}
+        self.m["unit_plan"]["acceptance"] = {key: {**value, "obligation_ids": [x for x in value["obligation_ids"] if x != "STATE-01"]}
+            for key, value in self.m["unit_plan"]["acceptance"].items() if key in eligible}
+        self.m["unit_plan"]["units"]["U-1"]["required_check_ids"] = sorted(eligible)
+        self.p.sync_unit_contract()
 
     def test_headless_plan_has_no_fabricated_ui_documents_or_approval(self):
         self.headless()

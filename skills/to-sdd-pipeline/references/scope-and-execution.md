@@ -40,3 +40,5 @@ Preserve an explicit browser preference. `design_execution.review_surface` is `e
 An explicit whole-design decision in the active host conversation can approve the exact candidate; Codex is not a mandatory approval transport. Claude Design selection/export alone is still not approval. DAS Forge intake, Mission Control and Claude Design transport belong to their conditional adapters, not the portable core. If a requested adapter is unavailable, name the missing capability and ask before changing executors.
 
 Production execution remains a separately authorized host/runner integration. This repository does not install or modify that runner and does not claim to enforce actions outside its checker.
+
+At production handoff apply [unit boundaries](unit-execution-contract.md): validate each start and completion, retain the active unfinished unit across turns, and require explicit scoped exceptions for later independent starts. The host owns continuation/resumption; a standalone checker cannot prevent a turn from ending.

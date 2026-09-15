@@ -25,6 +25,8 @@ New checks start `prepared` / `not_run`, with evidence requirements but no inven
 
 At planning time report **checks prepared; tests not run**. Keep release readiness `not_evaluated`, not `passed` or a fabricated product failure. When release is explicitly evaluated, readiness is binary: `passed` only when all applicable required gates and blocking findings are closed, otherwise `blocked`. An advisory finding may remain with evidence and a follow-up.
 
+Bounded unit acceptance proves only its declared contribution. Full requirement acceptance stays with required integration/release checks and accountable units; mocks or fixtures cannot substitute for required real-consumer evidence. Deferred checks remain required/pending. At unit planning/evaluation use the [unit execution contract](unit-execution-contract.md) for acceptance ownership, combined dependencies, current evidence and start/completion boundaries. DoD defines these rules before QA/plan exist; their later bindings add no artifact dependency cycle.
+
 ## Bind only existing references
 
 Gate/check membership is bidirectional: every indexed check belongs to its named gate and every gate ID resolves to that check, without duplicates. An applicable gate needs at least one applicable check. Excluded checks never satisfy required clauses or H1–H10 coverage; exclusions need reasons. Trace and verification check IDs must agree; JOB/UC references resolve to canonical definitions.

@@ -30,7 +30,7 @@ Read the [security traceability contract](../to-sdd-pipeline/references/security
 2. Verify the approved Baseline ID, candidate/version, target hash, frozen source hash/algorithm, approval receipt, scope and permitted variance. For UI scope, stop before production-unit planning if approval is missing. Do not reinterpret or re-approve the design.
 3. Verify architecture/DoD/QA are current for that baseline. Changed approval/target/override invalidates affected units and authorization; return to the appropriate owner.
 4. Inspect existing modules/files/routes/components/services/tests and dated observations; follow established architecture.
-5. Split source-backed scope into useful units with clear ownership, dependencies, acceptance checks and evidence. Sequence by dependencies, risk and user value, not tiny commit choreography.
+5. Apply the [unit execution contract](../to-sdd-pipeline/references/unit-execution-contract.md): each sequential unit must finish acceptance using itself and completed predecessors. Model construction and acceptance prerequisites together; resolve forward edges by source-backed splitting, merging or reordering, with required integration owners. Preserve all obligations/checks and follow existing-plan reconciliation/authorization rules; partial implementation is not completion.
    Allocate applicable [lifecycle work](../to-sdd-pipeline/references/lifecycle-contract.md), its responsible owner and existing QA IDs, including post-release evidence returned to requirements. This is an execution handoff, not permission to deploy.
 6. For each user-visible unit preserve JOB → UC → journey → screen/state trace and bind baseline/target/scope/variance, visual fidelity, applicable H1-H10/QA IDs and representative-user task validation.
 7. Reference gate definitions and concrete QA checks; bind all consumed QA sections, including shared scope/evidence conventions and terms they rely on, not later execution results. Return their `source_usage` and hashes/fragments. Never invent participants, findings or research outcomes. Pending execution stays not-run, not passed.
@@ -50,7 +50,7 @@ Add Codebase Map, Visual/UX Verification, Risks/Sequencing or Prototype Promotio
 
 Each unit resolves:
 
-- ID/purpose; source obligations; dependencies; work items; acceptance and verification.
+- ID/scope/owner; source obligations and bounded contributions; construction dependencies; required checks and acceptance prerequisites; implementation paths; integration ownership; work and evidence. Return the canonical `unit_plan` projection with typed traceability.
 - Delivery layer: frontend, backend, full-stack, integration or infrastructure.
 - For user-visible units: JOB/UC/journey/state, Baseline ID/target hash, scope, permitted variance/overrides, `approved_visual_baseline_fidelity`, applicable `heuristic_usability_review`/H1-H10/QA IDs and `representative_user_task_validation` task/success/evidence references.
 - For backend-only units: whether it enables user-visible states/data/actions.

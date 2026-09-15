@@ -114,6 +114,8 @@ Release requires a **new user message after that pause** explicitly starting pro
 
 On that later message, revalidate sources, baseline and plan. If changed, reconcile through owners and wait for a new prompt for the new plan. Otherwise record the exact prompt receipt/hash, intent, IDs/timestamps and current plan/baseline binding; run `--before implementation`. Only success permits handoff to the separately authorized Phase 3 runner. No new scope/authority is implied.
 
+At planning/handoff, read the [unit execution contract](references/unit-execution-contract.md). Index the plan and QA owners' canonical unit/acceptance records. Require `--start-unit ID` before each start/resume and `--complete-unit ID` before and after recording completion. Keep the active unit until completion or a genuine blocker/input need; later starts need prior completion or a bound explicit exception. The host must enforce transitions and continuation; instructions/checker cannot prevent an assistant turn from ending.
+
 ## Stops and return
 
 Pause only for material non-inferable intent, the one whole-design approval, required source access/capability/evidence, just-in-time high-risk authorization, or the separate implementation prompt. Advisory findings, playback and ordinary reversible work are not approval gates.

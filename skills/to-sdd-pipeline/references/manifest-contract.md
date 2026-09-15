@@ -89,6 +89,8 @@ Before generation, the checker validates these individual records, not just tota
 
 ## Verification index
 
+At plan validation and implementation handoff, add the separately versioned [unit execution records](unit-execution-contract.md): `unit_contract_version: 1`, canonical `unit_plan`, QA check `acceptance`, actual `unit_runs` and optional user `unit_sequence_exceptions`. Missing records require owner-reviewed migration, never inferred completion. The checker enforces them after plan authoring, for implementation/release and plan audits; `--start-unit ID` / `--complete-unit ID` additionally validate transitions under current implementation authorization.
+
 The [security traceability contract](security-contract.md) defines `artifacts.prd.security_review`, downstream `security_coverage`, and the required `product_security_requirements` gate/check mappings. Record only actual owner returns bound to current document hashes. Missing records require assessment/reconciliation through those owners, not a fabricated historical review or a new approval step.
 
 `verification` is a compact projection from QA/DoD owner returns, bound by `source_hashes` to both current documents. Definitions and results stay canonical in those documents.
@@ -125,6 +127,6 @@ The CLI lists nodes on an invalid name. `--audit` checks recorded artifacts with
 
 ## External runner boundary
 
-Skills require the checker before advancement. For hard DAS Forge enforcement, that separate runner must call the installed checker with the project/node, enforce its exit code, record owner provenance and check again after completion. Project failures as capability/evidence/validation issues, not extra approvals; follow ordered reconciliation and the terminal implementation pause.
+Skills require the checker before advancement. For hard DAS Forge enforcement, that separate runner must call the installed checker with the project/node and per-unit boundaries, enforce exit codes, record provenance and recheck persisted completion. Implement the active-unit continuation/resumption loop in that host as specified by the unit execution contract. Project failures as capability/evidence/validation issues, not extra approvals; preserve reconciliation and the implementation pause.
 
 This repository does not contain or modify that runner. The checker verifies declared records, bindings and integrity, not prose semantics, inventory completeness, research authenticity or whether an external runner obeyed its result.
