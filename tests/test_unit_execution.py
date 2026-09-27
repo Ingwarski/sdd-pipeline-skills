@@ -206,6 +206,29 @@ class UnitExecutionTests(unittest.TestCase):
         self.m["verification"]["checks"][1]["execution_status"] = "deferred"
         self.blocked("required acceptance is not passed", "start", "U-2")
 
+    def commit(self):
+        git = lambda *args: subprocess.run(["git", *args], cwd=self.p.root, check=True, capture_output=True, text=True).stdout.strip()
+        if not (self.p.root / ".git").exists():
+            git("init", "-q")
+        git("add", "-A")
+        git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "fixture")
+        return git("rev-parse", "HEAD")
+
+    def test_completed_unit_is_revalidated_at_its_code_revision(self):
+        self.complete("U-1", 3)
+        revision = self.commit()
+        self.m["unit_runs"]["U-1"]["code_revision"] = revision
+        for check in self.m["verification"]["checks"]:
+            if check["execution_status"] == "passed":
+                check["evaluated_revision"] = revision
+        self.p.write("src/alpha.txt", "A later vertical slice changed this shared file.\n")
+        self.commit()
+        self.assertEqual("passed", self.report("start", "U-2")["result"])
+        self.m["unit_runs"]["U-1"]["code_revision"] = "0" * 40
+        self.blocked("code_revision", "start", "U-2")
+        del self.m["unit_runs"]["U-1"]["code_revision"]
+        self.blocked("stale implementation evidence", "start", "U-2")
+
     def test_completion_cannot_retroactively_authorize_prior_start(self):
         self.complete("U-1", 5)
         self.begin("U-2", 3)

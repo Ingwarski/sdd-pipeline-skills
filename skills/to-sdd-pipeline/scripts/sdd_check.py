@@ -339,6 +339,29 @@ class Checker:
             self.issue(code, target, str(error))
             return False
 
+    def commit_of(self, revision):
+        """DP-R1: a commit hash that is an ancestor of HEAD, else None (e.g. a Baseline ID or no Git)."""
+        if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{7,40}", revision):
+            return None
+        try:
+            subprocess.run(["git", "merge-base", "--is-ancestor", revision, "HEAD"], cwd=self.project, capture_output=True, check=True, timeout=30)
+        except (subprocess.SubprocessError, OSError):
+            return None
+        return revision
+
+    def snapshot_at(self, revision, relative, recorded, target, code="stale_source"):
+        """Like snapshot(), but hashes the file as committed at `revision`: evidence stays bound to the code it evaluated,
+        so later units may change shared files without voiding earlier completed evidence (DP-R1)."""
+        try:
+            path = self.path(relative).relative_to(self.project).as_posix()
+            blob = subprocess.run(["git", "show", revision + ":" + path], cwd=self.project, capture_output=True, check=True, timeout=30).stdout
+            if hash_matches(recorded, digest(blob)):
+                return True
+            self.issue(code, target, "missing/changed hash at " + revision + ": " + relative)
+        except (ValueError, OSError, subprocess.SubprocessError) as error:
+            self.issue(code, target, relative + " at " + revision + ": " + str(error).splitlines()[0][:120])
+        return False
+
     @staticmethod
     def reference_path(reference):
         return reference.get("path", "") if isinstance(reference, dict) else str(reference).split("#", 1)[0]
@@ -955,7 +978,12 @@ class Checker:
                 evaluated = check.get("evaluated_source_hashes", {})
                 if check.get("phase") in ("implementation", "both") and not evaluated:
                     self.issue("missing_evaluated_revision", "qa-checklist", key)
-                self.sources({"source_hashes": evaluated}, "qa-checklist")
+                revision = self.commit_of(check.get("evaluated_revision"))
+                if revision and isinstance(evaluated, dict):
+                    for path, value in evaluated.items():
+                        self.snapshot_at(revision, path, value, "qa-checklist")
+                else:
+                    self.sources({"source_hashes": evaluated}, "qa-checklist")
             elif status == "not_run" and check.get("evidence"):
                 self.issue("ambiguous_execution", "qa-checklist", key + ": not_run cannot claim executed evidence")
             for finding in check.get("findings", []):
@@ -1307,7 +1335,9 @@ class Checker:
                 require(finding.get("severity") in ("P0", "P1", "P2", "P3") and finding.get("release_effect") in ("blocking", "advisory") and finding.get("status") in ("open", "closed"), "invalid unit finding")
             return any((x["severity"] in ("P0", "P1") or x["release_effect"] == "blocking") and x["status"] != "closed" for x in findings)
 
-        def passed(check_id, started, finished, seen=None):
+        revision_of = {}  # DP-R1: completed unit -> commit its evidence was evaluated on
+
+        def passed(check_id, started, finished, seen=None, revision=None):
             seen = set() if seen is None else seen
             if check_id in seen:
                 return
@@ -1325,7 +1355,8 @@ class Checker:
             hashes = check.get("evaluated_source_hashes", {})
             require(isinstance(hashes, dict) and paths <= set(hashes), check_id + ": evidence does not cover required implementation/consumer paths")
             for path, value in hashes.items():
-                require(self.snapshot(path, value, "implementation", "unit_stale_evidence"), check_id + ": stale implementation evidence")
+                fresh = self.snapshot_at(revision, path, value, "implementation", "unit_stale_evidence") if revision else self.snapshot(path, value, "implementation", "unit_stale_evidence")
+                require(fresh, check_id + ": stale implementation evidence")
             for evidence in check["evidence"]:
                 require(self.snapshot(evidence.get("path"), evidence.get("content_hash"), "implementation", "unit_stale_evidence"), check_id + ": unreadable/changed evidence")
             if qa["evidence_mode"] == "real_consumers":
@@ -1335,7 +1366,7 @@ class Checker:
                 prior_run = runs.get(prior_owner, {})
                 prior_started = timestamp(prior_run.get("started_at"))
                 prior_finished = min(executed, timestamp(prior_run.get("completed_at"))) if prior_owner != record["owner_unit"] else executed
-                passed(prerequisite, prior_started, prior_finished, seen)
+                passed(prerequisite, prior_started, prior_finished, seen, revision_of.get(prior_owner) if prior_owner != record["owner_unit"] else revision)
 
         completed = {}
         def clear_unit_findings(key, run):
@@ -1358,8 +1389,13 @@ class Checker:
                 finished = timestamp(run.get("completed_at"))
                 require(started <= finished <= now, key + ": completion time blocks unit")
                 clear_unit_findings(key, run)
+                revision = None
+                if run.get("code_revision") is not None:  # optional: without it the working tree is used, as before
+                    revision = self.commit_of(run["code_revision"])
+                    require(revision, key + ": code_revision must be a commit that is an ancestor of HEAD")
+                    revision_of[key] = revision
                 for check_id in units[key]["required_check_ids"]:
-                    passed(check_id, started, finished)
+                    passed(check_id, started, finished, revision=revision)
                 completed[key] = finished
             else:
                 require(not run.get("completed_at"), key + ": unfinished run cannot claim completion time")
