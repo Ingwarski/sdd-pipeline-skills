@@ -114,7 +114,7 @@ Release requires a **new user message after that pause** explicitly starting pro
 
 On that later message, revalidate sources, baseline and plan. If changed, reconcile through owners and wait for a new prompt for the new plan. Otherwise record the exact prompt receipt/hash, intent, IDs/timestamps and current plan/baseline binding; run `--before implementation`. Only success permits handoff to the separately authorized Phase 3 runner. No new scope/authority is implied.
 
-At planning/handoff, read the [unit execution contract](references/unit-execution-contract.md). Index the plan and QA owners' canonical unit/acceptance records. Require `--start-unit ID` before each start/resume and `--complete-unit ID` before and after recording completion. Keep the active unit until completion or a genuine blocker/input need; later starts need prior completion or a bound explicit exception. The host must enforce transitions and continuation; instructions/checker cannot prevent an assistant turn from ending.
+At planning/handoff, read the [unit execution contract](references/unit-execution-contract.md); return plans missing its full-unit execution rule to their owner. Index canonical plan/QA records. Require `--start-unit ID` before start/resume and `--complete-unit ID` before and after recording completion. The executing assistant must finish the FULL active unit unless blocked, needing user input or explicitly stopped/redirected; no routine partial handoff. Enforce the contract's sequencing and resumption rules.
 
 ## Stops and return
 

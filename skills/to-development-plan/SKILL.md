@@ -44,7 +44,7 @@ Unresolved upstream decisions return to their owner first. Ask only for material
 
 ## Artifact coverage
 
-Required semantic sections: Source References; Implementation Strategy; Implementation Units; Dependency Order; Verification Plan; Out Of Scope; Open Questions.
+Required semantic sections: Source References; Implementation Strategy; Implementation Units; Dependency Order; Verification Plan; Out Of Scope; Open Questions. Embed the unit contract's mandatory full-unit execution rule in the strategy, not just a link: implementation agents must receive it with the plan.
 
 Add Codebase Map, Visual/UX Verification, Risks/Sequencing or Prototype Promotion Plan only when applicable. The latter is required for traced reuse.
 

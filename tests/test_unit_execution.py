@@ -184,6 +184,45 @@ class UnitExecutionTests(unittest.TestCase):
         self.begin("U-2", 3)
         self.assertEqual("passed", self.report("start", "U-2")["result"])
 
+    def test_partial_progress_resumes_same_unit_without_advancing(self):
+        self.begin("U-1", 3)
+        self.p.save()
+        saved = sdd.read_json(self.p.root / "forge/sdd-manifest.json")
+        report = sdd.Checker(self.p.root, saved).run("implementation", unit_action="start", unit_id="U-1")
+        self.assertEqual("passed", report["result"], report)
+        self.assertEqual("running", saved["unit_runs"]["U-1"]["status"])
+        self.assertNotIn("completed_at", saved["unit_runs"]["U-1"])
+        self.blocked("required acceptance is not passed", "complete", "U-1")
+        self.blocked("incomplete at start", "start", "U-2")
+
+    def test_blocked_unit_needs_reason_and_resume_even_with_passing_checks(self):
+        self.begin("U-1", 3)
+        self.evidence("U-1", 4)
+        run = self.m["unit_runs"]["U-1"]
+        run["status"] = "blocked"
+        self.blocked("blocked run needs a reason", "start", "U-1")
+        run["reason"] = "Synthetic required user decision is outstanding."
+        self.assertEqual("passed", self.report("start", "U-1")["result"])
+        self.blocked("unit must be running", "complete", "U-1")
+        self.blocked("incomplete at start", "start", "U-2")
+        run.update(status="running")
+        run.pop("reason")
+        self.assertEqual("passed", self.report("complete", "U-1")["result"])
+        run.update(status="completed", completed_at="2026-08-20T10:05:00Z")
+        self.assertEqual("passed", self.report("complete", "U-1")["result"])
+        self.assertEqual("passed", self.report("start", "U-2")["result"])
+
+    def test_one_passed_check_does_not_complete_the_full_unit(self):
+        self.complete("U-1", 3)
+        self.complete("U-2", 6)
+        self.begin("U-3", 9)
+        self.evidence("U-3", 10)
+        remaining = next(x for x in self.m["verification"]["checks"] if x["check_id"] == "QA-04")
+        remaining["execution_status"] = "not_run"
+        self.blocked("required acceptance is not passed", "complete", "U-3")
+        remaining["execution_status"] = "passed"
+        self.assertEqual("passed", self.report("complete", "U-3")["result"])
+
     def test_exceptions_cannot_waive_dependencies_or_authorize_implementation(self):
         self.exception("U-3", ["U-1", "U-2"])
         self.blocked("cannot waive")

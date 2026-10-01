@@ -1,12 +1,18 @@
 # Independently completable implementation units
 
-Read for development planning, unit-record migration and production handoff. Artifact authoring dependencies remain in `pipeline-contract.json`; implementation dependencies use the separate records below.
+For planning, migration and implementation. Artifact dependencies stay in `pipeline-contract.json`; unit dependencies use these records.
+
+## Mandatory full-unit execution
+
+The plan owner must embed this rule in every generated/reconciled `docs/development-plan.md`, in `working_language`; a link or JSON alone is insufficient:
+
+> Once implementation is authorized, ALWAYS finish the FULL active unit: all scoped work, required integration, tests, defect fixes and acceptance evidence. Continue without asking "shall I continue?"; a subtask, code edit, commit or progress report is not a stopping point. Pause only for a genuine blocker, required user input/permission, or an explicit user stop/change. Investigate failures and attempt safe in-scope fixes before declaring a blocker; never bypass safeguards, weaken acceptance or expand authority. At a pause report the unit ID, completed/remaining work, evidence, exact blocker/question and next action; keep unfinished work incomplete. Resume that unit when unblocked, revalidating changed sources. Later units require completion or a recorded explicit user sequencing exception, never waived prerequisites or acceptance.
 
 ## Planning and reconciliation
 
-Under `strict_sequential`, every unit must finish its required acceptance using its own implementation and completed predecessors. Combine construction dependencies with acceptance prerequisites, including the owners of prerequisite checks. Reject cycles and any prerequisite scheduled after its consumer. Checks within one unit may depend on other checks in that unit, but their check graph must be acyclic. Every prerequisite of a required check must itself be required acceptance of its owner, recursively; otherwise that owner could finish without evidence needed downstream. Resolve conflicting advisory definitions through QA, not by silently changing the projection.
+Under `strict_sequential`, units finish required acceptance using only their implementation and completed predecessors. Combine construction and acceptance dependencies, including prerequisite-check owners; reject cycles and prerequisites scheduled after consumers. Same-unit check dependencies must also be acyclic. Every required check's recursive prerequisites must be required acceptance of their owners, preventing premature owner completion. Resolve advisory-definition conflicts through QA, never projection edits.
 
-Resolve a forward dependency through a source-backed split, merge or reorder. Separate independently verifiable component work from required system integration work, with explicit acceptance ownership for both. Component checks demonstrate only their bounded contribution. If the original unit promises full behavior, it remains incomplete until reconciled; never rename partial work as completion.
+Resolve forward dependencies through source-backed splits, merges or reordering. Give independently verifiable components and required system integration explicit acceptance owners. Component checks prove only bounded contributions; a unit promising full behavior stays incomplete until reconciled. Never relabel partial work as completion.
 
 For an existing plan, preserve old IDs, allocations, results and authorization receipts in history. Show every moved obligation/check, old and new owner, prerequisite and reason. Reconcile changed scope/behavior through its source owner; material non-inferable decisions need the user. Reconcile architecture → DoD → QA → plan where affected, retaining unchanged sources and the approved baseline. Changed plan bytes invalidate implementation authorization: pause for a fresh explicit implementation prompt. Do not manufacture acceptance exclusions, smaller criteria, earlier completion or historical consent.
 
@@ -47,4 +53,4 @@ After the fresh implementation prompt, run `--before implementation`. Immediatel
 
 The checker also validates unit records after the development-plan owner returns and during implementation/release checks and plan audits. It does not create runs, execute tests or grant authorization.
 
-No production execution runner exists in this repository; its executables are checkers, installation/update helpers and tests. A separate assistant host/runner must enforce exit codes before dispatch and completion, persist receipts/results, and maintain an active-unit loop until validated completion or a genuine blocker/user-input boundary. An ordinary assistant turn ending must retain the unfinished active unit; it cannot authorize the next unit. Runtime scheduling/resumption must be implemented by that host. Neither Markdown nor this standalone checker can prevent a host/assistant from ending a turn. Planning correctness, evidence validation and runtime continuation enforcement are separate guarantees.
+The executing assistant/host must enforce this rule and checker exits and persist progress. Forced context/session interruptions preserve the unfinished active unit. No production runner is included: Markdown/checker cannot mechanically prevent a turn ending or schedule a restart.

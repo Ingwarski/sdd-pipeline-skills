@@ -25,7 +25,11 @@ Legacy plans require owner-reviewed `unit_contract_version: 1` records; missing 
 
 No production execution runner is present here. The host must enforce start/completion exit codes and continue/resume the active unit until validated completion or a genuine blocker/input boundary. Tests exercise declared records, not the authenticity of user events, completeness of source inventories or host turn continuation.
 
+The 2026-10-02 full-skillset review found that continuation was stated at the host boundary but not explicitly required in generated plan prose. The plan owner now embeds the mandatory full-unit execution rule in `docs/development-plan.md`; the orchestrator returns plans missing it to that owner. It forbids routine partial handoffs, requires safe investigation/fixes before declaring a blocker, and specifies pause/resume reporting. User stop/change and authorization boundaries still take precedence. Existing product plans are not silently rewritten; reconcile them through their owner and preserve the fresh-prompt requirement when plan bytes change. No new skill, approval, runtime record or checker schema is added.
+
 `tests/test_unit_execution.py` uses isolated synthetic fixtures for the earlier-unit/later-acceptance conflicts, mixed dependency cycles, ownership, stale/failed/deferred evidence, blockers, exceptions, migration, localization and valid component-to-integration sequencing. The Windows updater test's Git delegate preserves native exit codes in the caller scope; a module closure previously masked nonzero ancestry results after the installer set a local exit code. Production updater code is unchanged.
+
+Full-unit regressions additionally cover resuming saved partial progress without advancement, blocked runs with passing checks, and one passed check not completing a multi-check unit. The current local Python 3.12 suite passes 172 tests with no skips; Unix installer, retirement and updater suites also pass. These are record/transition tests, not an independent agent-continuation evaluation.
 
 ## OWASP security integration
 
@@ -105,19 +109,19 @@ That pre-unit-correction revision had 15,592 entrypoint tokens versus 14,881 at 
 
 The 2026-09-15 unit-contract review advances the recent comparison to pre-change revision `1272cdd`, while retaining the earlier audit table above. The new contract is counted in full for QA, planning and orchestration, including repeated invocations. Runtime record fields are necessary for the execution handoff; putting them in a shared conditional reference avoids repeating the schema in skill entrypoints but does not imply free cached reads.
 
-| Measured scope | Before unit correction | After correction | Increase | Absolute ceiling | Allowed growth from 1272cdd |
+| Measured scope | Before unit correction | After correction | Full-unit clarification (Oct 2) | Absolute ceiling | Allowed growth from 1272cdd |
 |---|---:|---:|---:|---:|---:|
-| Entrypoints | 15,592 | 15,855 | 1.69% | 15,900 | 300 |
-| README | 3,698 | 3,807 | 2.95% | 3,850 | 150 |
-| First setup, including one retry | 103,522 | 112,501 | 8.67% | 113,000 | 9,500 |
-| Approved-design revision, including one retry | 54,855 | 62,993 | 14.84% | 63,500 | 8,500 |
-| Interrupted Claude resume, including one retry | 64,522 | 72,894 | 12.98% | 73,500 | 8,800 |
+| Entrypoints | 15,592 | 15,855 | 15,883 | 15,900 | 300 |
+| README | 3,698 | 3,807 | 3,827 | 3,850 | 150 |
+| First setup, including one retry | 103,522 | 112,501 | 112,817 | 113,000 | 9,500 |
+| Approved-design revision, including one retry | 54,855 | 62,993 | 63,309 | 63,500 | 8,500 |
+| Interrupted Claude resume, including one retry | 64,522 | 72,894 | 73,210 | 73,500 | 8,800 |
 
 The previous ceilings failed. The [reviewed policy](../tests/fixtures/instruction-budget.json) explicitly accepts this measured correctness cost for dependency/ownership validation, evidence-backed completion, migration and host boundaries. Entrypoint/README loads remain below the much older baseline; full scenario loads exceed it. Both absolute ceilings and growth limits retain bounded headroom. Run without `--summary` for counted files. `--check` fails above either limit; further growth needs another explicit policy/table review. Instruction reuse is encouraged but receives no assumed discount.
 
 These are deterministic **instruction-load budgets**, not live-agent benchmarks. They do not measure generated-document savings, actual retry frequency, tool output, model quality, cached-token billing or total end-to-end cost. Concise document rules are enforced as authoring guidance; real project runs are still needed to measure their practical effect.
 
-The complete Python 3.14 suite with pinned test dependencies passes 167 tests with no skips. The Python 3.12 suite also passes, with its optional YAML parser checked separately when absent. Isolated Windows installer, retirement and updater suites pass. These validate code and records; they do not establish production-host continuation or constitute real product acceptance evidence.
+At the September unit-contract release, the complete Python 3.14 suite with pinned test dependencies passed 167 tests with no skips. Python 3.12 and isolated Windows installer, retirement and updater suites also passed. The October clarification fits the unchanged token ceilings/growth limits above. These checks validate code and records; they do not establish production-host continuation or constitute real product acceptance evidence.
 
 Security procedure and record instructions are counted for their consumers. Selected ASVS controls returned by the offline reader are tool output and therefore add tokens outside this static budget. Only the PRD owner reads applicable controls; downstream owners reuse requirement IDs and their local consequences. Offline does not mean token-free, but this integration starts no deep scans or paid security service.
 
