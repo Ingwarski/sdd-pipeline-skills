@@ -1,18 +1,18 @@
 {
-  "recent_base": "1272cddd801e993ea43510f581ea9961072a5812",
-  "reason": "2026-09-15 review: sequential unit acceptance adds canonical ownership, combined dependencies, fresh run evidence, migration and host boundaries. Count its shared contract for QA, planning and orchestration, including retries. Compare against pre-change revision 1272cdd; retain historical f0923e2 and incremental measurements in docs/maintenance.md. Scenario loads grow 8.67-14.84%; this is an explicit correctness cost, not a savings claim. Tight rounded ceilings and separate growth limits remain enforced; further growth requires another review.",
+  "recent_base": "8bad1f6ea6aa439bee6e76ab4f24585c0ba29aac",
+  "reason": "2026-10-02 numeric-order review: add completion-prerequisite walkthroughs before numbering, precise QA scope, safe ID migration and actual checker/skill provenance. Against 8bad1f6, entrypoints add 62 tokens, README 83, scenarios 1478-1587 (1.31-2.33%). Retain prior measurements in docs/maintenance.md. This is a bounded correctness cost, not a savings claim; absolute and recent-growth caps remain enforced.",
   "absolute": {
-    "entrypoints": 15900,
-    "readme": 3850,
-    "first_setup_with_retry": 113000,
-    "approved_design_revision": 63500,
-    "interrupted_claude_resume": 73500
+    "entrypoints": 16000,
+    "readme": 3950,
+    "first_setup_with_retry": 114500,
+    "approved_design_revision": 65000,
+    "interrupted_claude_resume": 75000
   },
   "approved_growth_tokens": {
-    "entrypoints": 300,
+    "entrypoints": 120,
     "readme": 150,
-    "first_setup_with_retry": 9500,
-    "approved_design_revision": 8500,
-    "interrupted_claude_resume": 8800
+    "first_setup_with_retry": 1700,
+    "approved_design_revision": 1700,
+    "interrupted_claude_resume": 1800
   }
 }

@@ -9,7 +9,7 @@ The September 2026 audit remediation builds on the earlier seven-point update. T
 3. **Proportional scope (F3, F9).** Confirmed headless projects skip UI documents/approval; existing changes reuse valid artifacts and reconcile affected owners. Full UI projects retain three candidates. Bounded early exploration remains non-production.
 4. **Typed traceability (F5).** Existing owner documents define job, use-case, requirement/clause, surface/state, QA and unit IDs. A compact index checks types, references and stage-appropriate coverage; later mappings are not earlier dependencies.
 5. **Clear design and portable execution (F7–F8).** Separate neutral behavioral research from operator decisions; apply measurable accessibility before house-style defaults. Direct hosts can run owners inline, persist intake, reject stale returns and honor an explicitly selected visible browser.
-6. **Lifecycle and behavior evaluation (F10–F11).** Existing owners cover applicable delivery, rollback/restore, operations, maintenance, performance/cost and outcome measurement. Ten raw agent-evaluation scenarios and an evidence rubric are provided; they are explicitly **not run**, separate from deterministic tests.
+6. **Lifecycle and behavior evaluation (F10–F11).** Existing owners cover applicable delivery, rollback/restore, operations, maintenance, performance/cost and outcome measurement. Raw agent-evaluation scenarios and an evidence rubric are provided; cases start **not run**, separate from deterministic tests.
 7. **Supported installation (F6, F12).** Maintained Python boundaries, exact installed-target/resource checks, old-clone bootstrap, no-op ordering and a CI-tested `stable` channel. Agents resolve declared legacy names before checking availability; a known rename needs no extra approval. Scoped retirement and unrelated-work protections remain unchanged.
 8. **Measured instruction costs (F13).** Shared rules are shorter; unchanged rules/sources are reused when available. `--snapshot NODE` proposes hashes without claiming validation. Recent-version growth and absolute ceilings now prevent regressions hidden by an older benchmark.
 
@@ -29,7 +29,17 @@ The 2026-10-02 full-skillset review found that continuation was stated at the ho
 
 `tests/test_unit_execution.py` uses isolated synthetic fixtures for the earlier-unit/later-acceptance conflicts, mixed dependency cycles, ownership, stale/failed/deferred evidence, blockers, exceptions, migration, localization and valid component-to-integration sequencing. The Windows updater test's Git delegate preserves native exit codes in the caller scope; a module closure previously masked nonzero ancestry results after the installer set a local exit code. Production updater code is unchanged.
 
-Full-unit regressions additionally cover resuming saved partial progress without advancement, blocked runs with passing checks, and one passed check not completing a multi-check unit. The current local Python 3.12 suite passes 172 tests with no skips; Unix installer, retirement and updater suites also pass. These are record/transition tests, not an independent agent-continuation evaluation.
+Full-unit regressions additionally cover resuming saved partial progress without advancement, blocked runs with passing checks, and one passed check not completing a multi-check unit. That clarification passed 172 local Python 3.12 tests with no skips, plus Unix installer, retirement and updater suites. These are record/transition tests, not an independent agent-continuation evaluation.
+
+### Numeric-order correction — 2026-10-02
+
+The earlier graph validator accepted a list ordered 09 → 08 when its edges matched that list. It now requires one numbered-ID namespace, unique integer suffixes and increasing numeric execution order, in addition to the existing combined-graph checks. Thus lower-numbered units cannot depend on higher-numbered units through construction, acceptance or prerequisite-check owners. Zero, gaps and padding remain valid; labels like 08a and duplicate numeric aliases do not. This strengthens version 1 validation without adding a competing schema; invalid legacy plans return to their owner for reconciliation.
+
+The plan owner walks through complete acceptance with all later units absent, records source-backed dependency reasons, resolves cycles and only then numbers units. QA owns precise test/fixture/consumer scope; the plan owner owns allocation; the orchestrator rejects missing walkthroughs and failed checker results. Broad system checks remain required under integration owners, not copied into every early component check. Existing plans retain old IDs/results/receipts in history with an explicit old-to-new mapping when renumbering is necessary; no historical completion or authorization is rebound.
+
+CLI reports now fingerprint actual checker and skillset bytes, including local edits and excluding generated Python/Finder caches. Preserve reports, rerun after toolchain changes and freeze sources for evaluations. These fingerprints identify the source version without Git but do not prove that the agent disclosed every semantic dependency. The new `numbered-unit-planning` scenario tests that reasoning separately from graph regressions. Product plans are not automatically migrated by a skills update.
+
+Verification: 182 local Python 3.12 tests passed without skips, all 13 skills validated, and isolated Unix installer/retirement/updater suites passed. A fresh-agent standalone planning smoke test on frozen synthetic sources produced five increasing-number units and preserved all six required checks, with full release/security acceptance last and no higher-numbered prerequisites. Seven input files remained unchanged; no product code or manifest was written. The author reviewed the result and checked its graph/source hashes; this is not an independent reviewer score, full-pipeline evaluation or product acceptance. The later provenance-helper scoping refinement changed no tested authoring instructions. Evaluation artifacts remain outside Git.
 
 ## OWASP security integration
 
@@ -117,7 +127,17 @@ The 2026-09-15 unit-contract review advances the recent comparison to pre-change
 | Approved-design revision, including one retry | 54,855 | 62,993 | 63,309 | 63,500 | 8,500 |
 | Interrupted Claude resume, including one retry | 64,522 | 72,894 | 73,210 | 73,500 | 8,800 |
 
-The previous ceilings failed. The [reviewed policy](../tests/fixtures/instruction-budget.json) explicitly accepts this measured correctness cost for dependency/ownership validation, evidence-backed completion, migration and host boundaries. Entrypoint/README loads remain below the much older baseline; full scenario loads exceed it. Both absolute ceilings and growth limits retain bounded headroom. Run without `--summary` for counted files. `--check` fails above either limit; further growth needs another explicit policy/table review. Instruction reuse is encouraged but receives no assumed discount.
+Those historical ceilings accepted the measured correctness cost for dependency/ownership validation, evidence-backed completion, migration and host boundaries. The [current reviewed policy](../tests/fixtures/instruction-budget.json) compares the numeric-order correction against `8bad1f6`:
+
+| Scope | Before numeric-order correction | After | Absolute ceiling | Allowed growth |
+|---|---:|---:|---:|---:|
+| Entrypoints | 15,883 | 15,945 | 16,000 | 120 |
+| README | 3,827 | 3,910 | 3,950 | 150 |
+| First setup, including one retry | 112,817 | 114,295 | 114,500 | 1,700 |
+| Approved-design revision, including one retry | 63,309 | 64,787 | 65,000 | 1,700 |
+| Interrupted Claude resume, including one retry | 73,210 | 74,797 | 75,000 | 1,800 |
+
+The added walkthrough, numeric rules, migration and provenance increase cold scenario loads 1.31–2.33%. Both absolute ceilings and growth limits retain bounded headroom. Run without `--summary` for counted files. `--check` fails above either limit; further growth needs another explicit policy/table review. Instruction reuse is encouraged but receives no assumed discount.
 
 These are deterministic **instruction-load budgets**, not live-agent benchmarks. They do not measure generated-document savings, actual retry frequency, tool output, model quality, cached-token billing or total end-to-end cost. Concise document rules are enforced as authoring guidance; real project runs are still needed to measure their practical effect.
 

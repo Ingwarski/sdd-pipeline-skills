@@ -1,6 +1,7 @@
 """Self-contained unit execution tests using isolated synthetic projects."""
 import copy
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -45,6 +46,24 @@ class UnitExecutionTests(unittest.TestCase):
     def sync(self):
         self.p.sync_unit_contract()
         self.p.authorize()
+
+    def rename_units(self, replacements):
+        """Rename a fixture consistently, without changing its graph or test meaning."""
+        def rename(value):
+            if isinstance(value, dict):
+                return {replacements.get(key, key): rename(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [rename(item) for item in value]
+            return replacements.get(value, value) if isinstance(value, str) else value
+
+        self.m["unit_plan"] = rename(self.m["unit_plan"])
+        artifact = self.m["artifacts"]["development-plan"]
+        artifact["traceability"] = rename(artifact["traceability"])
+        path = "docs/development-plan.md"
+        pattern = r"\b(?:" + "|".join(map(re.escape, replacements)) + r")\b"
+        self.p.write(path, re.sub(pattern, lambda match: replacements[match[0]],
+                                 (self.p.root / path).read_text(encoding="utf-8")))
+        self.sync()
 
     def report(self, action=None, unit=None, release=False):
         return sdd.Checker(self.p.root, self.m).run("release" if release else "implementation", unit_action=action, unit_id=unit)
@@ -96,6 +115,91 @@ class UnitExecutionTests(unittest.TestCase):
         self.m["unit_plan"]["acceptance"]["QA-02"]["prerequisite_units"] = ["U-2"]
         self.sync()
         self.blocked("combined construction/acceptance: dependency cycle")
+
+    def test_reordered_list_cannot_hide_higher_numbered_prerequisites(self):
+        for source in ("construction", "acceptance", "check_owner"):
+            with self.subTest(source=source):
+                plan = self.m["unit_plan"]
+                plan["order"] = ["U-2", "U-1", "U-3"]
+                plan["units"]["U-1"]["construction_dependencies"] = ["U-2"] if source == "construction" else []
+                plan["acceptance"]["QA-02"]["prerequisite_units"] = ["U-2"] if source == "acceptance" else []
+                plan["acceptance"]["QA-02"]["prerequisite_checks"] = ["QA-03"] if source == "check_owner" else []
+                self.sync()
+                self.blocked("unit numbers must increase")
+
+    def test_even_independent_units_follow_numeric_order(self):
+        self.m["unit_plan"]["order"] = ["U-2", "U-1", "U-3"]
+        self.sync()
+        self.blocked("unit numbers must increase")
+        self.exception()
+        self.blocked("unit numbers must increase", "start", "U-2")
+
+    def test_numbering_is_numeric_not_lexical_and_allows_zero_padding_and_gaps(self):
+        self.rename_units({"U-1": "UNIT-EXP-00", "U-2": "UNIT-EXP-8", "U-3": "UNIT-EXP-10"})
+        self.assertEqual("passed", self.p.run(after=True)["result"])
+        self.assertEqual("passed", self.report("start", "UNIT-EXP-00")["result"])
+
+    def test_duplicate_numeric_aliases_cannot_define_distinct_units(self):
+        self.rename_units({"U-2": "U-01"})
+        self.blocked("unit numbers must be unique")
+
+    def test_ambiguous_ids_and_multiple_numbering_namespaces_are_rejected(self):
+        for invalid in ("U-02a", "U--2", "U-٢", "U-two", "U2"):
+            with self.subTest(invalid=invalid):
+                self.rename_units({"U-2": invalid})
+                self.blocked("unit IDs require")
+                self.rename_units({invalid: "U-2"})
+        self.rename_units({"U-2": "OTHER-02"})
+        self.blocked("one shared prefix")
+
+    def test_authoring_learning_assessment_completion_cycle(self):
+        self.rename_units({"U-1": "UNIT-EXP-08", "U-2": "UNIT-EXP-09", "U-3": "UNIT-EXP-10"})
+        plan = self.m["unit_plan"]
+        plan["units"]["UNIT-EXP-08"]["scope"] = "Course authoring and release"
+        plan["units"]["UNIT-EXP-09"].update(scope="Protected learning", construction_dependencies=["UNIT-EXP-08"])
+        plan["units"]["UNIT-EXP-10"]["scope"] = "Assessment consuming authored content and learning"
+        plan["acceptance"]["QA-02"]["prerequisite_units"] = ["UNIT-EXP-09", "UNIT-EXP-10"]
+        self.sync()
+        self.blocked("combined construction/acceptance: dependency cycle")
+        self.assertNotEqual("passed", self.p.run(after=True)["result"])
+
+    def test_indirect_higher_numbered_check_owner_is_rejected(self):
+        # Following check prerequisites recursively must not hide a later owner.
+        plan = self.m["unit_plan"]
+        plan["acceptance"]["QA-02"]["prerequisite_checks"] = ["QA-03"]
+        plan["acceptance"]["QA-03"]["prerequisite_checks"] = ["QA-01"]
+        plan["units"]["U-3"]["construction_dependencies"] = []
+        self.sync()
+        self.blocked("forward acceptance/construction prerequisite")
+
+    def test_repaired_authoring_learning_assessment_release_sequence_completes(self):
+        self.rename_units({"U-1": "UNIT-08", "U-2": "UNIT-09", "U-3": "UNIT-11"})
+        plan = self.m["unit_plan"]
+        plan["order"] = ["UNIT-08", "UNIT-09", "UNIT-10", "UNIT-11"]
+        plan["units"]["UNIT-08"]["scope"] = "Course authoring only"
+        plan["units"]["UNIT-09"].update(scope="Learning contribution", construction_dependencies=["UNIT-08"])
+        plan["units"]["UNIT-10"] = {"scope": "Assessment contribution", "owner": "fixture executor", "kind": "implementation",
+            "construction_dependencies": ["UNIT-08", "UNIT-09"], "implementation_paths": ["src/assessment.txt"], "required_check_ids": ["QA-05"]}
+        plan["units"]["UNIT-11"].update(scope="Full release integration", construction_dependencies=["UNIT-08", "UNIT-09", "UNIT-10"])
+        plan["acceptance"]["QA-05"] = {"owner_unit": "UNIT-10", "prerequisite_units": [], "prerequisite_checks": ["QA-03"], "obligation_ids": []}
+        check = copy.deepcopy(self.m["verification"]["checks"][1])
+        check.update(check_id="QA-05")
+        check["acceptance"]["required_source_paths"] = ["src/assessment.txt"]
+        self.m["verification"]["checks"].append(check)
+        next(g for g in self.m["verification"]["gates"] if g["gate_id"] == check["gate_id"])["check_ids"].append("QA-05")
+        for artifact, kind, key, heading in (("development-plan", "unit", "UNIT-10", "## Definition"),
+                                              ("qa-checklist", "check", "QA-05", "## Checks")):
+            path = "docs/" + artifact + ".md"
+            self.m["artifacts"][artifact]["traceability"]["definitions"].append(
+                {"id": key, "kind": kind, "required": True, "definition_ref": {"path": path, "heading": heading}})
+            self.p.write(path, (self.p.root / path).read_text(encoding="utf-8").replace(heading + "\n", heading + "\n" + key + "\n"))
+        self.sync()
+        self.assertEqual("passed", self.p.run(after=True)["result"])
+        for unit, minute in zip(plan["order"], (3, 6, 9, 12)):
+            self.assertEqual("passed", self.report("start", unit)["result"])
+            self.complete(unit, minute)
+            self.assertEqual("passed", self.report("complete", unit)["result"])
+        self.assertEqual("passed", self.report(release=True)["result"])
 
     def test_check_owner_edges_and_check_cycles(self):
         self.m["unit_plan"]["acceptance"]["QA-02"]["prerequisite_checks"] = ["QA-03"]

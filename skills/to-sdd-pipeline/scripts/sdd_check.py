@@ -22,6 +22,7 @@ ASVS_CATALOG_SHA256 = "bcdbec214d70abcfad9284a31d4f9e5134305831d628aad3aa85d7e26
 SECURITY_GATE = "product_security_requirements"
 SECURITY_OWNERS = {"architecture", "dod-evals", "qa-checklist", "development-plan"}
 HASH_RE = re.compile(r"^(?:sha256:)?([0-9a-fA-F]{64})$")
+UNIT_ID_RE = re.compile(r"([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)-([0-9]+)")
 EXECUTION_STATES = {"not_run", "passed", "failed", "blocked", "deferred", "not_applicable"}
 GATE_KINDS = {
     "approved_visual_baseline_fidelity": "visual",
@@ -51,6 +52,31 @@ def digest(data):
 def hash_matches(recorded, observed):
     match = HASH_RE.fullmatch(recorded) if isinstance(recorded, str) else None
     return bool(match and match.group(1).lower() == observed)
+
+
+def toolchain_identity(skills_root=None):
+    """Content-address the installed sources, including uncommitted edits; no Git needed."""
+    root = Path(skills_root) if skills_root is not None else Path(__file__).resolve().parents[2]
+    contract = read_json(root / "to-sdd-pipeline/references/pipeline-contract.json")
+    names = {"to-sdd-pipeline"} | {item["owner_skill"] for item in contract["artifacts"].values()}
+    entries = []
+    for name in sorted(names):
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+            raise ValueError("invalid skill owner in toolchain identity")
+        skill = root / name
+        if not (skill / "SKILL.md").is_file():
+            raise ValueError("skill sources unavailable for toolchain identity: " + name)
+        for path in sorted(skill.rglob("*")):
+            relative = path.relative_to(root)
+            if "__pycache__" in relative.parts or path.suffix in (".pyc", ".pyo") or path.name == ".DS_Store":
+                continue
+            if path.is_file():
+                entries.append((relative.as_posix(), digest(path.read_bytes())))
+    entries.sort(key=lambda entry: entry[0].encode("utf-8"))
+    return {"algorithm": "sdd-toolchain-sha256-v1",
+            "checker_sha256": digest((root / "to-sdd-pipeline/scripts/sdd_check.py").read_bytes()),
+            "skillset_sha256": digest("".join(path + "\n" + value + "\n" for path, value in entries).encode("utf-8")),
+            "source_file_count": len(entries)}
 
 
 def is_link(path):
@@ -1198,6 +1224,11 @@ class Checker:
         units, acceptance = plan["units"], plan["acceptance"]
         require(isinstance(units, dict) and set(units) == unit_ids, "order must contain every unit exactly once")
         require(isinstance(acceptance, dict) and acceptance, "acceptance ownership required")
+        numbered = [UNIT_ID_RE.fullmatch(key) for key in order]
+        require(all(numbered), "unit IDs require one shared prefix and a final ASCII integer, e.g. UNIT-001; reconcile legacy IDs")
+        require(len({match[1] for match in numbered}) == 1, "unit IDs must use one shared prefix across the plan")
+        numbers = [int(match[2]) for match in numbered]
+        require(len(set(numbers)) == len(numbers), "unit numbers must be unique, including zero-padded aliases")
         positions = {key: index for index, key in enumerate(order)}
         trace = self.artifacts["development-plan"]["traceability"]
         defined_units = {x["id"] for x in trace["definitions"] if x.get("kind") == "unit"}
@@ -1278,6 +1309,7 @@ class Checker:
         acyclic(edges, "combined construction/acceptance")
         for key, deps in edges.items():
             require(all(positions[dep] < positions[key] for dep in deps), key + ": forward acceptance/construction prerequisite under strict sequential execution")
+        require(numbers == sorted(numbers), "unit numbers must increase in execution order; a lower-numbered unit cannot depend on a higher-numbered unit by reordering the list")
 
         runs = self.manifest.get("unit_runs", {})
         require(isinstance(runs, dict) and set(runs) <= unit_ids, "unknown unit run")
@@ -1489,6 +1521,7 @@ def main():
             print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=True, indent=2))
             return 0
         report = Checker(args.project, manifest, contract).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit)
+        report["toolchain"] = toolchain_identity()
         print(json.dumps(report, ensure_ascii=True, indent=2))
         return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:

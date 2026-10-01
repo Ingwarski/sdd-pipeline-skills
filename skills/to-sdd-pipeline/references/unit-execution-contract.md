@@ -12,9 +12,15 @@ The plan owner must embed this rule in every generated/reconciled `docs/developm
 
 Under `strict_sequential`, units finish required acceptance using only their implementation and completed predecessors. Combine construction and acceptance dependencies, including prerequisite-check owners; reject cycles and prerequisites scheduled after consumers. Same-unit check dependencies must also be acyclic. Every required check's recursive prerequisites must be required acceptance of their owners, preventing premature owner completion. Resolve advisory-definition conflicts through QA, never projection edits.
 
+Build and review this graph **before numbering units**. Read each unit's full work/acceptance, referenced QA task/fixtures and architecture interfaces. Ask: with every later unit absent, can this unit pass all its required checks? Record each prerequisite's source and reason in the unit's existing definition; a missing dependency in JSON is not independence. Check shared security, roles, learning/payment flows, user validation and release conditions, not only module imports. Return overbroad checks to QA for bounded additions, preserving full integration checks. Compare this walkthrough with the graph before declaring the plan validated.
+
+Number the resulting dependency order, not feature categories. All active IDs use one shared prefix plus a final ASCII integer, e.g. `UNIT-001` or `UNIT-EXP-08`; numbers are unique and strictly increase in `order`. Zero, padding and gaps are allowed; suffixes such as `08a` and mixed prefixes are not. Every construction, acceptance and prerequisite-check-owner dependency must have a **lower number** than its consumer. Reordering the list to put 09 before 08, or a sequencing exception, cannot bypass this rule. Same-unit checks remain allowed if acyclic.
+
 Resolve forward dependencies through source-backed splits, merges or reordering. Give independently verifiable components and required system integration explicit acceptance owners. Component checks prove only bounded contributions; a unit promising full behavior stays incomplete until reconciled. Never relabel partial work as completion.
 
-For an existing plan, preserve old IDs, allocations, results and authorization receipts in history. Show every moved obligation/check, old and new owner, prerequisite and reason. Reconcile changed scope/behavior through its source owner; material non-inferable decisions need the user. Reconcile architecture → DoD → QA → plan where affected, retaining unchanged sources and the approved baseline. Changed plan bytes invalidate implementation authorization: pause for a fresh explicit implementation prompt. Do not manufacture acceptance exclusions, smaller criteria, earlier completion or historical consent.
+For example, authoring plus release cannot finish before learning/assessment if release tests require both. Split into authoring → learning → assessment → release integration, then number; merging is valid when genuinely one useful unit. Test each resulting boundary, not just the reordered labels.
+
+For an existing plan, preserve old IDs, allocations, results and authorization receipts in history. Keep valid IDs; when renumbering is necessary, record an explicit old → new ID/scope map and update all active references together. Show every moved obligation/check, old and new owner, prerequisite and reason. Reconcile changed scope/behavior through its source owner; material non-inferable decisions need the user. Reconcile architecture → DoD → QA → plan where affected, retaining unchanged sources and the approved baseline. Changed plan bytes invalidate implementation authorization: pause for a fresh explicit implementation prompt. Do not manufacture acceptance exclusions, smaller criteria, earlier completion or historical consent.
 
 ## Version 1 records
 
@@ -25,7 +31,7 @@ The plan owner writes one JSON fence in a dedicated section of `docs/development
 | Field | Meaning |
 |---|---|
 | `policy` | `strict_sequential`; exceptions below authorize individual starts, not an alternate acceptance standard |
-| `order` | Every current unit ID once, in execution order |
+| `order` | Every current unit ID once, in increasing numeric execution order |
 | `units` | Object keyed by unit ID |
 | Unit | Nonempty `scope`, responsible `owner`, `kind: implementation \| integration \| release`, `construction_dependencies`, nonempty `implementation_paths`, nonempty `required_check_ids` |
 | `acceptance` | Object keyed by every applicable implementation/both QA check ID, including advisory/deferred checks |

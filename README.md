@@ -145,6 +145,8 @@ After the plan validates, `awaiting-implementation-prompt` remains mandatory. Ap
 
 After implementation authorization, **always finish the full active unit**, including required integration, tests, fixes and evidence. No routine partial handoff; pause only for a genuine blocker, required input/permission or explicit user stop/change. Every generated/reconciled plan must include this rule. The [unit execution contract](skills/to-sdd-pipeline/references/unit-execution-contract.md) covers dependency/acceptance ownership, fresh evidence, `--start-unit ID` / `--complete-unit ID`, migration and explicit sequencing exceptions. Component checks do not pass full product requirements. The host enforces continuation/resumption; this repository contains no production runner.
 
+Unit numbers follow execution order: **Unit 8 cannot depend on Unit 9**, for construction or required acceptance. Review complete test prerequisites, split/merge cycles, then number units. The checker rejects backward numbering, including a reordered list used to hide it. Existing plans need owner-reviewed reconciliation with ID/history preservation, not silent renumbering or waived tests. Checker reports identify the exact skill/checker bytes used.
+
 ## Delivery and evaluation
 
 The [risk-based lifecycle checklist](skills/to-sdd-pipeline/references/lifecycle-contract.md) covers applicable rollout/rollback, migrations, restore, operational ownership, performance/cost, content and post-release feedback within existing owners. It adds no document, deployment permission or approval procedure.

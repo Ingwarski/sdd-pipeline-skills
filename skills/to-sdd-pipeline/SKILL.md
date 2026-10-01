@@ -73,7 +73,7 @@ python3 /resolved/to-sdd-pipeline/scripts/sdd_check.py --project /project --afte
 
 Use `python` on Windows when that is the detected Python 3 executable. Resolve real paths first.
 
-Before **every** owner/node dispatch, run `--before`. After recording an owner's result, run `--after`. On nonzero exit, inspect issue codes, re-invoke only affected owners or surface the exact missing capability/evidence; do not advance or self-declare the check passed. The checker never writes files, approves design, runs product tests or authorizes implementation.
+Before **every** owner/node dispatch, run `--before`. After recording an owner's result, run `--after`. Retain its actual report and toolchain hashes; a saved pass from different skill/checker bytes is not current validation. On nonzero exit, inspect issue codes, re-invoke only affected owners or surface the exact missing capability/evidence; do not advance or self-declare the check passed. The checker never writes files, approves design, runs product tests or authorizes implementation.
 
 For older manifests, preserve all documents/history/IDs and add only metadata verified from current sources/receipts. Missing evidence is not reconstructed as success. Unavailable original evidence stays a named limitation; see migration instructions.
 
@@ -114,7 +114,7 @@ Release requires a **new user message after that pause** explicitly starting pro
 
 On that later message, revalidate sources, baseline and plan. If changed, reconcile through owners and wait for a new prompt for the new plan. Otherwise record the exact prompt receipt/hash, intent, IDs/timestamps and current plan/baseline binding; run `--before implementation`. Only success permits handoff to the separately authorized Phase 3 runner. No new scope/authority is implied.
 
-At planning/handoff, read the [unit execution contract](references/unit-execution-contract.md); return plans missing its full-unit execution rule to their owner. Index canonical plan/QA records. Require `--start-unit ID` before start/resume and `--complete-unit ID` before and after recording completion. The executing assistant must finish the FULL active unit unless blocked, needing user input or explicitly stopped/redirected; no routine partial handoff. Enforce the contract's sequencing and resumption rules.
+At planning/handoff, read the [unit execution contract](references/unit-execution-contract.md); return plans missing its full-unit rule, completion-prerequisite walkthrough or increasing numeric order to their owner. Index canonical plan/QA records. Require `--start-unit ID` before start/resume and `--complete-unit ID` before and after recording completion. The executing assistant must finish the FULL active unit unless blocked, needing user input or explicitly stopped/redirected; no routine partial handoff. Enforce the contract's sequencing and resumption rules.
 
 ## Stops and return
 
