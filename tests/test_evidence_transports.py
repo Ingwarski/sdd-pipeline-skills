@@ -8,6 +8,8 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -713,6 +715,55 @@ class JsonCommandAdapterTests(TransportTestCase):
         adapter = self.adapter("import time\ntime.sleep(10)\n", timeout_seconds=1)
         with self.assertRaises(ValueError):
             adapter({"version": 1})
+
+    def test_denied_group_signal_falls_back_to_owned_child_and_preserves_error(self):
+        import evidence.transports as module
+        adapter = self.adapter("import sys,time\nsys.stdout.write('x' * 4096)\nsys.stdout.flush()\ntime.sleep(10)\n", max_metadata_bytes=256)
+        original_popen, processes = module.subprocess.Popen, []
+        def track(*args, **kwargs):
+            process = original_popen(*args, **kwargs)
+            processes.append(process)
+            return process
+        with patch.object(module.subprocess, "Popen", side_effect=track), patch.object(module.os, "killpg", create=True, side_effect=PermissionError(errno.EPERM, "synthetic denial")):
+            with self.assertRaisesRegex(EvidenceError, "output exceeds metadata bound"):
+                adapter({"version":1})
+        self.assertEqual(1, len(processes))
+        self.assertIsNotNone(processes[0].returncode)
+        self.assertTrue(processes[0].stdin.closed)
+        self.assertFalse(any(t.name == "sdd-transport-input" and t.is_alive() for t in threading.enumerate()))
+
+    @unittest.skipUnless(os.name == "posix", "process groups are POSIX only")
+    def test_changed_process_group_never_signals_unrelated_group(self):
+        import evidence.transports as module
+        adapter = self.adapter("import sys,time\nsys.stdout.write('x' * 4096)\nsys.stdout.flush()\ntime.sleep(10)\n", max_metadata_bytes=256)
+        original_popen, processes = module.subprocess.Popen, []
+        def track(*args, **kwargs):
+            process = original_popen(*args, **kwargs)
+            processes.append(process)
+            return process
+        with patch.object(module.subprocess, "Popen", side_effect=track), patch.object(module.os, "getpgid", side_effect=lambda pid:pid + 1), patch.object(module.os, "killpg") as group_signal:
+            with self.assertRaisesRegex(EvidenceError, "output exceeds metadata bound"):
+                adapter({"version":1})
+        group_signal.assert_not_called()
+        self.assertIsNotNone(processes[0].returncode)
+
+    def test_nonreading_bridge_large_stdin_cannot_bypass_timeout(self):
+        import evidence.transports as module
+        adapter = self.adapter("import time\ntime.sleep(10)\n", timeout_seconds=1)
+        original_popen, processes = module.subprocess.Popen, []
+        def track(*args, **kwargs):
+            process = original_popen(*args, **kwargs)
+            processes.append(process)
+            return process
+        started = time.monotonic()
+        with patch.object(module.subprocess, "Popen", side_effect=track):
+            with self.assertRaisesRegex(EvidenceError, "timed out"):
+                adapter({"version":1,"synthetic_input":"x" * (2 * 1024 * 1024)})
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(1, len(processes))
+        self.assertIsNotNone(processes[0].returncode)
+        self.assertTrue(processes[0].stdin.closed)
+        self.assertFalse(any(t.name == "sdd-transport-input" and t.is_alive() for t in threading.enumerate()))
 
 
 if __name__ == "__main__":

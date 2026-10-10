@@ -113,6 +113,12 @@ keep tokens and account details out of responses. The command bridge additionall
 supervises timeout, output size, and downloaded size; injected callables depend on
 the host honoring that advertised bound. Tests use a synthetic host and actual
 subprocess bridge fixtures; those tests do not establish live connector capability.
+Request writes share the command deadline even if the bridge never reads stdin.
+Cleanup signals only the owned child or its verified original process group,
+falls back to direct child termination if a group signal is denied, and waits for
+the child and input writer. An unverified helper shutdown reports incomplete
+cleanup with the original operation failure; a host bridge owns any separately
+detached helper lifecycle.
 
 ## Interrupted uploads and recovery
 

@@ -218,7 +218,7 @@ class EvidenceSetupTests(unittest.TestCase):
     def test_source_repository_contains_no_machine_config_after_setup(self):
         self.configure()
         generated = list(self.project.rglob("*"))
-        self.assertEqual({"forge", "forge/evidence-policy.json"}, {str(path.relative_to(self.project)) for path in generated})
+        self.assertEqual({"forge", "forge/evidence-policy.json"}, {path.relative_to(self.project).as_posix() for path in generated})
 
     def test_connected_bridge_argument_array_is_portable(self):
         value = ["python", "C:\\Synthetic folder\\bridge.py", "--option"]

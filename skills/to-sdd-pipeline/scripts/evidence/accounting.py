@@ -65,66 +65,72 @@ class Accounting:
         if self.path.exists() and not stat.S_ISREG(self.path.lstat().st_mode):
             raise EvidenceError("accounting ledger must be a regular file")
         self.connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA journal_mode=WAL")
-        self.connection.execute("PRAGMA synchronous=FULL")
-        self.connection.execute("PRAGMA foreign_keys=ON")
-        self.connection.executescript("""
-            CREATE TABLE IF NOT EXISTS identity (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS runs (
-                id TEXT PRIMARY KEY, unit_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
-                gross_bytes INTEGER NOT NULL DEFAULT 0, gross_files INTEGER NOT NULL DEFAULT 0,
-                migration INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'active', created REAL NOT NULL);
-            CREATE TABLE IF NOT EXISTS reservations (
-                id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
-                bytes INTEGER NOT NULL, files INTEGER NOT NULL, local_bytes INTEGER NOT NULL,
-                metadata_bytes INTEGER NOT NULL, metadata_files INTEGER NOT NULL,
-                retained_bytes INTEGER NOT NULL DEFAULT 0, retained_objects INTEGER NOT NULL DEFAULT 0,
-                state TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL);
-            CREATE TABLE IF NOT EXISTS objects (
-                identity TEXT PRIMARY KEY, bytes INTEGER NOT NULL, physical_count INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS local_usage (
-                key TEXT PRIMARY KEY, kind TEXT NOT NULL, bytes INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS metadata_usage (
-                key TEXT PRIMARY KEY, bytes INTEGER NOT NULL, files INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS durable_generation (
-                operation_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, unit_id TEXT NOT NULL,
-                gross_bytes INTEGER NOT NULL, logical_files INTEGER NOT NULL, mode TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS working_reservations (
-                id TEXT PRIMARY KEY, bytes INTEGER NOT NULL, migration INTEGER NOT NULL,
-                metadata_bytes INTEGER NOT NULL DEFAULT 0, metadata_files INTEGER NOT NULL DEFAULT 0,
-                cache_bytes INTEGER NOT NULL DEFAULT 0,
-                owner_pid INTEGER, owner_host TEXT,
-                state TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL);
-            CREATE TABLE IF NOT EXISTS outputs (
-                id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), path TEXT NOT NULL,
-                reconciled INTEGER NOT NULL DEFAULT 0);
-            CREATE TABLE IF NOT EXISTS observations (
-                output_id TEXT NOT NULL REFERENCES outputs(id), path TEXT NOT NULL,
-                digest TEXT NOT NULL, bytes INTEGER NOT NULL,
-                PRIMARY KEY(output_id, path));
-            CREATE TABLE IF NOT EXISTS coordinator (
-                singleton INTEGER PRIMARY KEY CHECK(singleton=1), owner TEXT NOT NULL,
-                expires REAL NOT NULL, complete_knowledge INTEGER NOT NULL);
-        """)
-        with self._transaction():
-            # Intermediate ledgers and future recovery clients must preserve
-            # unknown owners. NULL ownership is intentionally unverifiable.
-            working_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(working_reservations)")}
-            for name, declaration in (("metadata_bytes", "INTEGER NOT NULL DEFAULT 0"),
-                                      ("metadata_files", "INTEGER NOT NULL DEFAULT 0"),
-                                      ("cache_bytes", "INTEGER NOT NULL DEFAULT 0"),
-                                      ("owner_pid", "INTEGER"), ("owner_host", "TEXT")):
-                if name not in working_columns:
-                    self.connection.execute("ALTER TABLE working_reservations ADD COLUMN " + name + " " + declaration)
-            prior = self.connection.execute("SELECT value FROM identity WHERE key='project_id'").fetchone()
-            if prior is not None and prior[0] != project_id:
-                raise EvidenceError("ledger belongs to another project")
-            self.connection.execute("INSERT OR IGNORE INTO identity VALUES ('project_id', ?)", (project_id,))
-            self.connection.execute("INSERT OR IGNORE INTO identity VALUES ('version', '1')")
-            version = self.connection.execute("SELECT value FROM identity WHERE key='version'").fetchone()[0]
-            if version != "1":
-                raise EvidenceError("unsupported accounting ledger version")
+        try:
+            self.connection.row_factory = sqlite3.Row
+            self.connection.execute("PRAGMA journal_mode=WAL")
+            self.connection.execute("PRAGMA synchronous=FULL")
+            self.connection.execute("PRAGMA foreign_keys=ON")
+            self.connection.executescript("""
+                CREATE TABLE IF NOT EXISTS identity (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS runs (
+                    id TEXT PRIMARY KEY, unit_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+                    gross_bytes INTEGER NOT NULL DEFAULT 0, gross_files INTEGER NOT NULL DEFAULT 0,
+                    migration INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'active', created REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS reservations (
+                    id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
+                    bytes INTEGER NOT NULL, files INTEGER NOT NULL, local_bytes INTEGER NOT NULL,
+                    metadata_bytes INTEGER NOT NULL, metadata_files INTEGER NOT NULL,
+                    retained_bytes INTEGER NOT NULL DEFAULT 0, retained_objects INTEGER NOT NULL DEFAULT 0,
+                    state TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS objects (
+                    identity TEXT PRIMARY KEY, bytes INTEGER NOT NULL, physical_count INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS local_usage (
+                    key TEXT PRIMARY KEY, kind TEXT NOT NULL, bytes INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS metadata_usage (
+                    key TEXT PRIMARY KEY, bytes INTEGER NOT NULL, files INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS durable_generation (
+                    operation_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, unit_id TEXT NOT NULL,
+                    gross_bytes INTEGER NOT NULL, logical_files INTEGER NOT NULL, mode TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS working_reservations (
+                    id TEXT PRIMARY KEY, bytes INTEGER NOT NULL, migration INTEGER NOT NULL,
+                    metadata_bytes INTEGER NOT NULL DEFAULT 0, metadata_files INTEGER NOT NULL DEFAULT 0,
+                    cache_bytes INTEGER NOT NULL DEFAULT 0,
+                    owner_pid INTEGER, owner_host TEXT,
+                    state TEXT NOT NULL DEFAULT 'pending', created REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS outputs (
+                    id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), path TEXT NOT NULL,
+                    reconciled INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS observations (
+                    output_id TEXT NOT NULL REFERENCES outputs(id), path TEXT NOT NULL,
+                    digest TEXT NOT NULL, bytes INTEGER NOT NULL,
+                    PRIMARY KEY(output_id, path));
+                CREATE TABLE IF NOT EXISTS coordinator (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton=1), owner TEXT NOT NULL,
+                    expires REAL NOT NULL, complete_knowledge INTEGER NOT NULL);
+            """)
+            with self._transaction():
+                # Intermediate ledgers and future recovery clients must preserve
+                # unknown owners. NULL ownership is intentionally unverifiable.
+                working_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(working_reservations)")}
+                for name, declaration in (("metadata_bytes", "INTEGER NOT NULL DEFAULT 0"),
+                                          ("metadata_files", "INTEGER NOT NULL DEFAULT 0"),
+                                          ("cache_bytes", "INTEGER NOT NULL DEFAULT 0"),
+                                          ("owner_pid", "INTEGER"), ("owner_host", "TEXT")):
+                    if name not in working_columns:
+                        self.connection.execute("ALTER TABLE working_reservations ADD COLUMN " + name + " " + declaration)
+                prior = self.connection.execute("SELECT value FROM identity WHERE key='project_id'").fetchone()
+                if prior is not None and prior[0] != project_id:
+                    raise EvidenceError("ledger belongs to another project")
+                self.connection.execute("INSERT OR IGNORE INTO identity VALUES ('project_id', ?)", (project_id,))
+                self.connection.execute("INSERT OR IGNORE INTO identity VALUES ('version', '1')")
+                version = self.connection.execute("SELECT value FROM identity WHERE key='version'").fetchone()[0]
+                if version != "1":
+                    raise EvidenceError("unsupported accounting ledger version")
+        except BaseException:
+            # A failed constructor has no context manager available to close
+            # SQLite handles, which otherwise block native Windows cleanup.
+            self.connection.close()
+            raise
 
     def close(self):
         self.connection.close()

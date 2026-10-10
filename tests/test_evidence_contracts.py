@@ -37,7 +37,7 @@ class EvidenceContracts(unittest.TestCase):
         scenario["evidence_storage_consumers"] = ["to-sdd-pipeline"]
         self.assertIn(evidence_path, dict(module.resource_loads("to-sdd-pipeline", scenario, None)))
         self.assertNotIn(evidence_path, dict(module.resource_loads("to-qa-checklist", scenario, None)))
-        scenarios = json.loads((ROOT / "tests/fixtures/token-scenarios.json").read_text())
+        scenarios = json.loads((ROOT / "tests/fixtures/token-scenarios.json").read_text(encoding="utf-8"))
         for value in scenarios.values():
             self.assertIn("to-sdd-pipeline", value["evidence_storage_consumers"])
             self.assertIn("not payloads", value["description"])
@@ -45,13 +45,13 @@ class EvidenceContracts(unittest.TestCase):
     def test_no_unnecessary_action_uploads_or_false_log_retention_claim(self):
         workflows = list((ROOT / ".github/workflows").glob("*.yml")) + list((ROOT / ".github/workflows").glob("*.yaml"))
         for path in workflows:
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
             for step in text.split("- uses:")[1:]:
                 if "actions/upload-artifact@" in step.splitlines()[0]:
                     self.assertIn("retention-days: 30", step)
-        readme = (ROOT / "README.md").read_text()
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("Workflow YAML does not configure log retention", readme)
-        self.assertIn("never blanket-ignore `forge/` or `output/`", (REFS / "evidence-storage-contract.md").read_text())
+        self.assertIn("never blanket-ignore `forge/` or `output/`", (REFS / "evidence-storage-contract.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

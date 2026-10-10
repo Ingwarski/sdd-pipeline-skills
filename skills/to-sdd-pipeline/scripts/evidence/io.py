@@ -14,6 +14,9 @@ class EvidenceError(ValueError):
     """Evidence cannot be safely read, accounted, stored, or verified."""
 
 
+_WINDOWS_STAT = os.name == "nt"
+
+
 def safe_relative(value: str) -> str:
     """Validate a portable member/source path without normalizing unsafe spelling."""
     if not isinstance(value, str) or not value or "\\" in value or "\0" in value:
@@ -33,6 +36,27 @@ def safe_relative(value: str) -> str:
 def _signature(info):
     return (info.st_dev, info.st_ino, info.st_mode, info.st_size,
             info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _path_descriptor_signature(info, *, path=None):
+    """Compare the same fields across the path and descriptor stat APIs.
+
+    CPython 3.12+ Windows path stat exposes creation time as deprecated ctime,
+    while descriptor stat can expose the actual metadata change time there.
+    Birthtime is explicit and comparable in both APIs. Windows path stat also
+    synthesizes execute bits for executable filename extensions; descriptor stat
+    does not. Descriptor-to-descriptor stability keeps native mode and ctime.
+    """
+    signature = _signature(info)
+    if _WINDOWS_STAT:
+        birthtime = getattr(info, "st_birthtime_ns", None)
+        if type(birthtime) is not int:
+            raise EvidenceError("Windows file stat lacks nanosecond creation time")
+        name = getattr(path, "name", "")
+        if stat.S_ISREG(info.st_mode) and "." in name and name.rsplit(".", 1)[1].casefold() in ("exe", "bat", "cmd", "com"):
+            signature = signature[:2] + (signature[2] & ~0o111,) + signature[3:]
+        return signature[:-1] + (birthtime,)
+    return signature
 
 
 def _is_link(info):
@@ -70,11 +94,16 @@ def _open_regular(path):
                 os.close(parent_fd)
         else:
             fd = os.open(path, flags)
-        actual = os.fstat(fd)
-        if not stat.S_ISREG(actual.st_mode) or _signature(before) != _signature(actual):
+        try:
+            actual = os.fstat(fd)
+            if _is_link(actual) or not stat.S_ISREG(actual.st_mode) or _path_descriptor_signature(before, path=path) != _path_descriptor_signature(actual, path=path):
+                raise EvidenceError("file changed while opening: " + str(path))
+        except BaseException:
             os.close(fd)
-            raise EvidenceError("file changed while opening: " + str(path))
-        return path, fd, before
+            raise
+        # Preserve the descriptor's native metadata-change clock as the read
+        # baseline; a path snapshot cannot supply that clock on Windows.
+        return path, fd, actual
     except OSError as exc:
         raise EvidenceError("cannot safely open " + str(path) + ": " + str(exc)) from exc
 
@@ -82,7 +111,10 @@ def _open_regular(path):
 def _verify_stable(path, fd, before):
     try:
         _parents(path)
-        if _signature(before) != _signature(os.fstat(fd)) or _signature(before) != _signature(path.lstat()):
+        actual, current = os.fstat(fd), path.lstat()
+        if (_is_link(actual) or _is_link(current)
+                or _signature(before) != _signature(actual)
+                or _path_descriptor_signature(before, path=path) != _path_descriptor_signature(current, path=path)):
             raise EvidenceError("input changed while reading: " + str(path))
     except OSError as exc:
         raise EvidenceError("input disappeared while reading: " + str(path)) from exc

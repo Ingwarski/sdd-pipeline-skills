@@ -63,7 +63,7 @@ Hashes may be raw SHA-256 or `sha256:<hex>`. Project-source paths, including res
 }
 ```
 
-The canonical section references the ID, hashes and receipt identity. `visual_target_ref` may replace target path/hash; approval receipts accept a direct evidence reference or wrapper. Original semantic/binding checks still apply. The receipt records the original operator event (`approve_design_baseline` or `accepted_scoped_baseline_override`), actor, Baseline ID, target/tree hashes and timezone-aware `approved_at`. Normalize an existing receipt only from its retained original provenance; never invent approval or request it again just to fill metadata.
+The canonical section references the ID, hashes and receipt identity. `visual_target_ref` replaces the path, retaining `visual_target_hash`; approval receipts accept a direct evidence reference or wrapper. Original semantic/binding checks still apply. The receipt records the original operator event (`approve_design_baseline` or `accepted_scoped_baseline_override`), actor, Baseline ID, target/tree hashes and timezone-aware `approved_at`. Normalize an existing receipt only from its retained original provenance; never invent approval or request it again just to fill metadata.
 
 Recompute frozen hashes; recorded `integrity.status` is not proof. Preserve older versions and supersede explicitly. A changed baseline invalidates affected bindings, production units and prior implementation authorization.
 

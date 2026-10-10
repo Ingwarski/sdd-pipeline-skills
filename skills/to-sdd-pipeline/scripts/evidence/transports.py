@@ -16,7 +16,9 @@ import re
 import signal
 import stat as file_stat
 import subprocess
+import sys
 import tempfile
+import threading
 import time
 import unicodedata
 
@@ -283,6 +285,41 @@ class LocalTransport(Transport):
         return sorted(result)
 
 
+def _stop_owned_process(process):
+    """Reap this Popen child; group denial must not prevent direct cleanup."""
+    if process.poll() is None:
+        group_stopped = False
+        if os.name == "posix":
+            try:
+                # start_new_session made this child its group leader. Never
+                # signal a different group if a host command changed groups.
+                if os.getpgid(process.pid) == process.pid:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    group_stopped = True
+            except OSError:
+                # Exit races and denied group signals both fall back to the
+                # exact child owned by this Popen object, without guessing IDs.
+                pass
+        if not group_stopped and process.poll() is None:
+            try:
+                process.kill()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired as exc:
+                raise EvidenceError("owned transport helper could not be reaped: PID " + str(process.pid)) from exc
+    else:
+        process.wait()
+
+
 def _run_command(command, *, payload=None, timeout_seconds=120,
                  max_output_bytes=16 * 1024 * 1024, output_path=None, max_file_bytes=None):
     """Bound process time, captured output, and an optional download file.
@@ -293,15 +330,30 @@ def _run_command(command, *, payload=None, timeout_seconds=120,
     _positive(timeout_seconds, "timeout_seconds")
     _positive(max_output_bytes, "max_output_bytes")
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-        process = None
+        process, writer = None, None
+        write_errors = []
         try:
             process = subprocess.Popen(command, stdin=subprocess.PIPE if payload is not None else subprocess.DEVNULL,
                                        stdout=stdout, stderr=stderr, start_new_session=os.name == "posix")
-            if payload is not None:
-                process.stdin.write(payload)
-                process.stdin.close()
             deadline = time.monotonic() + timeout_seconds
+            if payload is not None:
+                def send_request():
+                    try:
+                        process.stdin.write(payload)
+                        process.stdin.close()
+                    except (OSError, ValueError):
+                        write_errors.append(True)
+                        try:
+                            process.stdin.close()
+                        except (OSError, ValueError):
+                            pass
+                # A host that ignores stdin cannot block the monitoring thread
+                # before timeout or output/download bounds are enforced.
+                writer = threading.Thread(target=send_request, name="sdd-transport-input", daemon=True)
+                writer.start()
             while process.poll() is None:
+                if write_errors:
+                    raise EvidenceError("transport command could not receive the complete request")
                 if time.monotonic() >= deadline:
                     raise EvidenceError("transport command timed out; outcome may be unknown")
                 if stdout.tell() + stderr.tell() > max_output_bytes:
@@ -312,22 +364,36 @@ def _run_command(command, *, payload=None, timeout_seconds=120,
                 time.sleep(0.01)
             if stdout.tell() + stderr.tell() > max_output_bytes:
                 raise EvidenceError("transport command output exceeds metadata bound")
+            if writer is not None:
+                writer.join(timeout=5)
+                if writer.is_alive() or write_errors:
+                    raise EvidenceError("transport command could not receive the complete request")
             stdout.seek(0)
             result = stdout.read(max_output_bytes + 1)
             return process.returncode, result
         except FileNotFoundError as exc:
             raise EvidenceError("transport executable is missing; install the optional tool or configure the host bridge") from exc
         finally:
+            original_error = sys.exception()
+            cleanup_error = None
             if process is not None:
-                if process.poll() is None:
-                    if os.name == "posix":
-                        try:
-                            os.killpg(process.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                    else:
-                        process.kill()
-                process.wait()
+                try:
+                    _stop_owned_process(process)
+                except (OSError, EvidenceError) as exc:
+                    cleanup_error = "owned transport process cleanup failed: PID " + str(process.pid) + " (" + type(exc).__name__ + ")"
+            if writer is not None:
+                writer.join(timeout=5)
+                if writer.is_alive():
+                    cleanup_error = "owned transport input writer did not stop after process cleanup"
+            if process is not None and process.stdin is not None and (writer is None or not writer.is_alive()):
+                try:
+                    process.stdin.close()
+                except (OSError, ValueError):
+                    pass
+            if cleanup_error:
+                if original_error is not None:
+                    raise EvidenceError(str(original_error) + "; " + cleanup_error) from original_error
+                raise EvidenceError(cleanup_error)
 
 
 class JsonCommandAdapter:

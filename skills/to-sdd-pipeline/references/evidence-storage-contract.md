@@ -25,7 +25,7 @@ Legacy contained `{path, content_hash, kind}` remains valid. Direct reference or
 
 Placeholders are not evidence. Preserve applicable source/plan/baseline/environment/toolchain/execution bindings and imported original path/times. Schemas: `evidence-bytes-v1`, `evidence-json-v1`, `source-inventory-v1`, `environment-v1`, `sdd-receipt-v1`, `sdd-result-v1`, `archive-attachment-v1`. `dependencies` supplies closure; split imports need contiguous offset/length/hash segments and original whole-file hash/size. URLs alone prove nothing; unsupported/incomplete/mismatched records block claims.
 
-Evidence arrays and approval/browser/visual/promotion/prompt/sequencing receipts accept references with original JSON semantics. `visual_target_ref`, `source_manifest_ref`, `codex_access_receipt_ref`, `claude_source_read_receipt_ref` replace path/hash pairs. `source_inventory_ref` expands `{version:1, source_hashes, consumed_source_fragments?}` into identical contained maps; inline conflicts fail. Source containment and test reuse stay strict.
+Evidence arrays and approval/browser/visual/promotion/prompt/sequencing receipts accept references with original JSON semantics. `visual_target_ref` replaces the path; retain `visual_target_hash` for semantic approval bindings. Source-manifest/access/read refs replace path/hash pairs. `source_inventory_ref` expands `{version:1, source_hashes, consumed_source_fragments?}` into identical contained maps; inline conflicts fail. Source containment and test reuse stay strict.
 
 ## Preparation and resources
 
