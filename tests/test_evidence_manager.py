@@ -516,7 +516,7 @@ class EvidenceManagerTests(unittest.TestCase):
                                                "synthetic_segment": number, "padding": "x" * 200000})
                 published += 1
             except EvidenceError as error:
-                self.assertIn("combined metadata", str(error))
+                self.assertRegex(str(error), r"combined (?:catalog )?metadata")
                 break
         else:
             self.fail("splitting indexes evaded combined metadata bound")
