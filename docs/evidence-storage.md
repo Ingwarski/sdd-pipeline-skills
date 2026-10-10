@@ -154,7 +154,7 @@ Drive retention is explicit during setup and never inherits local cache expiry. 
 python3 skills/to-sdd-pipeline/scripts/evidence_store.py retention-policy --project /path/to/product --artifact imported-report-1
 ```
 
-Repeat `--artifact` for each chosen imported record. This command records the decision to use the selected portable policy and releases only the pending-import protection. It uploads no payload, changes no original sealing/execution/verification time and does not immediately delete content. Current claims, dependencies and other protections still prevent permanent expiry; actual expiry requires the explicit cleanup mode with a complete claim snapshot.
+Repeat `--artifact` for each chosen imported record. This command records an administrative catalog decision to use the selected portable policy and releases only the pending-import protection. The decision remains separate from immutable evidence references: original sealing times, provenance, bindings and payloads stay intact, with no new execution or refreshed verification time. Legacy Boolean retention flags remain compatibility metadata and cannot authorize pruning. The command uploads no payload and does not immediately delete content. Current claims, dependencies and other protections still prevent permanent expiry; actual expiry requires the explicit cleanup mode with a complete claim snapshot.
 
 ## Adopt existing archives and recover
 

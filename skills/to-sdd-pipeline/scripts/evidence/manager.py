@@ -1,7 +1,7 @@
 """Single-coordinator immutable catalogs, resumable packs, preparation and retention."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 import hashlib
@@ -18,6 +18,7 @@ import uuid
 from .archive import build_pack, verify_pack, capture
 from .io import EvidenceError, atomic_json, hash_file, read_json, safe_relative, _open_regular, _verify_stable
 from .policy import validate_policy
+from .identity import same_reference
 
 
 def canonical(value):
@@ -146,7 +147,7 @@ class Manager:
         used, pending, external = self._usage(), 0, 0
         ledger_path = self.state / "accounting.sqlite"
         if ledger_path.is_file():
-            with sqlite3.connect(ledger_path.as_uri() + "?mode=ro", uri=True) as connection:
+            with closing(sqlite3.connect(ledger_path.as_uri() + "?mode=ro", uri=True)) as connection:
                 pending = connection.execute("SELECT COALESCE(SUM(local_bytes),0) FROM reservations WHERE state='pending' AND id!=?", (self._active_reservation or "",)).fetchone()[0]
                 table = connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='working_reservations'").fetchone()
                 if table:
@@ -231,7 +232,7 @@ class Manager:
         if not roots:
             return {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"],
                     "sequence": 0, "coordinator": self.coordinator, "segments": [], "refs": {}, "packs": {},
-                    "generation": {}, "root_key": None, "metadata_bytes": 0, "metadata_files": 0, "unreconciled_packs": self._unreconciled_packs({})}
+                    "generation": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": 0, "metadata_files": 0, "unreconciled_packs": self._unreconciled_packs({})}
         keys = sorted((x if isinstance(x, str) else x["key"]) for x in roots)
         latest = keys[-1]
         root, (digest, size) = self._read_remote_json(latest, self.limits["metadata_stop_bytes"])
@@ -258,7 +259,7 @@ class Manager:
             total += int(self.transport.stat(key)["size"])
         for key in index_keys:
             total += int(self.transport.stat(key)["size"])
-        refs, packs, generation, pending_deletions, retired_refs = {}, {}, {}, {}, {}
+        refs, packs, generation, pending_deletions, retired_refs, import_retention_decisions = {}, {}, {}, {}, {}, {}
         seen = set()
         for descriptor in root["segments"]:
             if descriptor["sha256"] in seen:
@@ -289,12 +290,40 @@ class Manager:
                 packs.pop(ident, None)
                 pending_deletions.pop(ident, None)
             for ref in data.get("updated_refs", []):
-                if ref["artifact_id"] not in refs:
-                    raise EvidenceError("retention update references a missing artifact")
-                refs[ref["artifact_id"]] = ref
+                ident = ref.get("artifact_id")
+                original = refs.get(ident)
+                if (original is None or original.get("retention", {}).get("imported") is not True
+                        or ref.get("retention", {}).get("migration_policy_established") is not True
+                        or not same_reference(original, ref)):
+                    raise EvidenceError("legacy retention update must preserve a registered imported reference")
+                # Older v1 writers placed administrative decisions inside refs.
+                # Preserve their original immutable records and no invented time.
+                import_retention_decisions.setdefault(ident, {"version": 1, "legacy": True})
+            decisions = data.get("import_retention_decisions", {})
+            if not isinstance(decisions, dict):
+                raise EvidenceError("unsupported imported retention decision index")
+            for ident, decision in decisions.items():
+                if (ident not in refs or refs[ident].get("retention", {}).get("imported") is not True
+                        or not isinstance(decision, dict) or type(decision.get("version")) is not int
+                        or decision["version"] != 1):
+                    raise EvidenceError("retention decision lacks a registered imported artifact")
+                if set(decision) != {"version", "policy_sha256", "provider", "days", "decided_at"}:
+                    raise EvidenceError("unsupported imported retention decision fields")
+                digest = decision["policy_sha256"]
+                days = decision["days"]
+                if (not isinstance(digest, str) or len(digest) != 64
+                        or any(char not in "0123456789abcdef" for char in digest)
+                        or decision["provider"] not in ("local", "folder", "google-drive")
+                        or days is None and decision["provider"] != "google-drive"
+                        or days is not None and (type(days) is not int or days <= 0)):
+                    raise EvidenceError("invalid imported retention policy binding")
+                timestamp(decision["decided_at"])
+                if ident in import_retention_decisions and import_retention_decisions[ident] != decision:
+                    raise EvidenceError("conflicting imported retention decisions")
+                import_retention_decisions[ident] = decision
         if len(keys) + len(index_keys) > self.limits["metadata_stop_files"] or total > self.limits["metadata_stop_bytes"]:
             raise EvidenceError("combined metadata allowance exhausted")
-        root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, pending_deletions=pending_deletions, retired_refs=retired_refs, root_key=latest,
+        root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, pending_deletions=pending_deletions, retired_refs=retired_refs, import_retention_decisions=import_retention_decisions, root_key=latest,
                     metadata_bytes=total, metadata_files=len(keys) + len(index_keys))
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
@@ -737,7 +766,7 @@ class Manager:
                 raise EvidenceError("cyclic or excessive preparation reference closure")
             self._preparing.add(supplied["artifact_id"])
             ref = catalog["refs"].get(supplied["artifact_id"])
-            if ref != supplied:
+            if ref is None or not same_reference(ref, supplied):
                 raise EvidenceError("reference is missing/mismatched in authoritative durable catalog")
             for dependency in ref.get("dependencies", []):
                 self._prepare([dependency], catalog=catalog)
@@ -838,7 +867,7 @@ class Manager:
             new_refs = []
             for ref in refs:
                 prior = catalog["refs"].get(ref["artifact_id"])
-                if prior is not None and prior != ref:
+                if prior is not None and not same_reference(prior, ref):
                     raise EvidenceError("import artifact identity conflicts with an existing logical record")
                 if prior is None:
                     new_refs.append(ref)
@@ -900,18 +929,29 @@ class Manager:
                 "coordinator_authorized": catalog["coordinator"] == self.coordinator}
 
     def establish_import_retention(self, artifact_ids):
+        """Acknowledge selected policy administratively; immutable references stay valid."""
+        if not isinstance(artifact_ids, (list, tuple)) or any(not isinstance(ident, str) or not ident for ident in artifact_ids):
+            raise EvidenceError("retention migration decision requires registered artifact IDs")
         with self.locked():
             catalog = self._catalog(mutation=True)
-            updates = []
-            for ident in artifact_ids:
-                ref = deepcopy(catalog["refs"][ident])
-                if not ref["retention"].get("imported"):
-                    raise EvidenceError("retention migration decision applies only to imported collections")
-                ref["retention"]["migration_policy_established"] = True
-                updates.append(ref)
-            if updates:
-                self._publish(catalog, {"version": 1, "updated_refs": updates})
-            return updates
+            acknowledged = catalog.get("import_retention_decisions", {})
+            if not isinstance(acknowledged, dict):
+                raise EvidenceError("unsupported imported retention decision index")
+            decisions, refs = {}, []
+            for ident in dict.fromkeys(artifact_ids):
+                ref = catalog["refs"].get(ident)
+                if ref is None or ref["retention"].get("imported") is not True:
+                    raise EvidenceError("retention migration decision applies only to registered imported artifacts: " + ident)
+                refs.append(deepcopy(ref))
+                if ident in acknowledged or ref["retention"].get("migration_policy_established") is True:
+                    continue  # Preserve previous decisions and avoid repeated catalog growth.
+                decisions[ident] = {"version": 1, "policy_sha256": hashlib.sha256(canonical(self.policy)).hexdigest(),
+                    "provider": self.policy["provider"],
+                    "days": self.policy["retention"]["drive_days" if self.policy["provider"] == "google-drive" else "local_days"],
+                    "decided_at": datetime.now(timezone.utc).isoformat()}
+            if decisions:
+                self._publish(catalog, {"version": 1, "import_retention_decisions": decisions})
+            return refs
 
     def reconcile(self, *, dry_run=True):
         """Resume individually registered deletion intents, never discover disposable paths."""
@@ -950,6 +990,16 @@ class Manager:
         now = now or datetime.now(timezone.utc)
         with self.locked():
             catalog = self._catalog(mutation=expire)
+            decisions = catalog.get("import_retention_decisions", {})
+            if not isinstance(decisions, dict):
+                raise EvidenceError("unsupported imported retention decision index")
+            def pending_import(ref):
+                retention = ref["retention"]
+                for field in ("imported", "migration_policy_established"):
+                    if field in retention and type(retention[field]) is not bool:
+                        raise EvidenceError("unsupported imported retention flag: " + field)
+                return (retention.get("imported") is True and retention.get("migration_policy_established") is not True
+                        and ref["artifact_id"] not in decisions)
             protected = set(protected_refs)
             if expire and not reference_snapshot_complete:
                 raise EvidenceError("permanent expiry requires a complete current claim/reference snapshot from the coordinator")
@@ -957,7 +1007,7 @@ class Manager:
             roots = set(protected)
             roots.update(ref["artifact_id"] for ref in catalog["refs"].values() if ref["retention"].get("protections") or
                          ref["kind"] in ("approval", "authorization", "approved-baseline", "unresolved-failure") or
-                         ref["retention"].get("imported") and not ref["retention"].get("migration_policy_established"))
+                         pending_import(ref))
             queue, visited = list(roots), set()
             while queue:
                 ident = queue.pop()
@@ -993,7 +1043,7 @@ class Manager:
                 protections = list(ref["retention"].get("protections", []))
                 if ref["artifact_id"] in protected:
                     protections.append("current-claim-or-prerequisite")
-                if ref["retention"].get("imported") and not ref["retention"].get("migration_policy_established"):
+                if pending_import(ref):
                     protections.append("imported-migration-policy-pending")
                 if ref["kind"] in ("approval", "authorization", "approved-baseline", "unresolved-failure"):
                     protections.append(ref["kind"])

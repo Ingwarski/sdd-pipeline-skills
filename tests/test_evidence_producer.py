@@ -39,9 +39,10 @@ class ManagedProducerTests(unittest.TestCase):
         result = self.run_script("from pathlib import Path; import os; Path(os.environ['SDD_EVIDENCE_OUTPUT_DIR'],'observation.txt').write_text('synthetic'); print('observed')")
         self.assertEqual(result["status"], "complete")
         self.assertEqual(result["gross_files"], 2)
-        self.assertEqual(result["gross_bytes"], 18)
+        expected_bytes = len(b"synthetic") + len(("observed" + os.linesep).encode())
+        self.assertEqual(result["gross_bytes"], expected_bytes)
         self.assertEqual(set(result["observations"]), {"producer.log", "observation.txt"})
-        self.assertEqual(self.ledger.snapshot()["totals"]["project_generated_bytes"], 18)
+        self.assertEqual(self.ledger.snapshot()["totals"]["project_generated_bytes"], expected_bytes)
         self.assertEqual(self.ledger.snapshot()["reservations"], [])
         observed = result["observations"]["observation.txt"]
         binding = self.ledger.require_managed_source(result["output_id"], "run-1", "unit-01",

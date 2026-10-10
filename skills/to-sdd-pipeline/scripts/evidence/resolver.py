@@ -7,7 +7,8 @@ import os
 import hashlib
 import sys
 
-from .io import hash_file, read_json, safe_relative, _parents
+from .io import hash_file, read_json, safe_relative, _parents, _open_regular, _verify_stable
+from .identity import same_reference
 
 SCHEMAS = frozenset({"evidence-bytes-v1", "evidence-json-v1", "source-inventory-v1",
                      "environment-v1", "sdd-receipt-v1", "sdd-result-v1", "archive-attachment-v1"})
@@ -28,8 +29,18 @@ def evidence_reference(record):
 
 def _regular(path):
     try:
-        _parents(path)
-        info = path.lstat()
+        if sys.platform == "win32":
+            # Windows path ctime can mean creation time. A descriptor supplies
+            # the metadata-change clock required to invalidate hash/JSON memos
+            # after equal-size edits whose modification time was restored.
+            path, descriptor, info = _open_regular(path)
+            try:
+                _verify_stable(path, descriptor, info)
+            finally:
+                os.close(descriptor)
+        else:
+            _parents(path)
+            info = path.lstat()
     except OSError as error:
         raise ValueError("prepared evidence missing/unreadable: " + str(path)) from error
     if not stat.S_ISREG(info.st_mode) or path.is_symlink() or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
@@ -170,7 +181,7 @@ class EvidenceResolver:
         key = ref["artifact_id"]
         if key in self.active:
             raise ValueError("cyclic evidence reference closure")
-        if key in self.references and self.references[key] != ref:
+        if key in self.references and not same_reference(self.references[key], ref):
             raise ValueError("artifact identity refers to conflicting evidence")
         if len(self.active) >= 32 or len(self.references) >= self.closure_limit and key not in self.references:
             raise ValueError("evidence reference closure exceeds validation bounds")
@@ -180,7 +191,7 @@ class EvidenceResolver:
         self.active.add(key)
         try:
             receipt = self._json(self._path("receipts", key + ".json"))
-            if not isinstance(receipt, dict) or {k: v for k, v in receipt.items() if k != "verified_archive"} != ref:
+            if not isinstance(receipt, dict) or not same_reference({k: v for k, v in receipt.items() if k != "verified_archive"}, ref):
                 raise ValueError("prepared receipt identity/reference mismatch: " + key)
             archive = receipt.get("verified_archive")
             archives = archive if isinstance(archive, list) else [archive]
@@ -211,9 +222,8 @@ class EvidenceResolver:
                 raise ValueError("prepared original bytes hash/size mismatch: " + key)
             segment_key = (path, tuple((segment["offset"], segment["length"], segment["sha256"]) for segment in segments)) if segments is not None else None
             if segments is not None and segment_key not in self.segment_hashes:
-                descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
+                path, descriptor, descriptor_info = _open_regular(path)
                 try:
-                    descriptor_info = os.fstat(descriptor)
                     signature = (descriptor_info.st_dev, descriptor_info.st_ino, descriptor_info.st_size,
                                  descriptor_info.st_mtime_ns, descriptor_info.st_ctime_ns)
                     if not stat.S_ISREG(descriptor_info.st_mode) or signature != saved:
@@ -228,6 +238,7 @@ class EvidenceResolver:
                             remaining -= len(block)
                         if digest.hexdigest() != segment["sha256"]:
                             raise ValueError("split evidence segment bytes mismatch")
+                    _verify_stable(path, descriptor, descriptor_info)
                     if _regular(path) != saved:
                         raise ValueError("split evidence changed during validation")
                     self.segment_hashes[segment_key] = saved

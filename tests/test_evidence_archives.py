@@ -34,7 +34,11 @@ class ArchiveTests(unittest.TestCase):
         target = self.root / "archive.zip"
         with zipfile.ZipFile(target, "w", compression=compression) as archive:
             for name in names:
-                archive.writestr(name, payload)
+                info = zipfile.ZipInfo(name)
+                # Preserve hostile raw member spelling on every host; Windows
+                # ZipInfo otherwise rewrites backslashes before writing them.
+                info.filename = name
+                archive.writestr(info, payload, compress_type=compression)
         return target
 
     def tar(self, names=("file",), *, payload=b"original", mode="w", special=None, pax=None):
