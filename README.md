@@ -17,7 +17,7 @@ Existing changes reuse valid documents/baselines and reconcile affected owners. 
 
 ## Installation
 
-Requires **Python 3.12+**; local installer/checker/storage tools use its standard library. Python 3.14 is recommended under [runtime policy](runtime-policy.json); no student Node dependency is added. If necessary, use the [official Python installers](https://www.python.org/downloads/) and [platform instructions](docs/installation.md). Preserve a supported existing runtime and the OS interpreter.
+Requires **Python 3.12+**; local installer/checker/storage tools use its standard library. Python 3.14 is recommended under [runtime policy](runtime-policy.json); no student Node dependency is added. If necessary, use the [official Python installers](https://www.python.org/downloads/) and [platform instructions](docs/installation.md). Already-current setups preserve a supported runtime; never replace the OS interpreter.
 
 Paste the complete [install-or-update prompt](INSTALL-OR-UPDATE-PROMPT.md) into a local agent. It checks repository revision, exact installed links/resources, Python and evidence setup before deciding what needs work. A current skill installation can still need storage setup; existing choices are preserved. Opening a repository does not install skills, choose a cloud account or upload evidence.
 

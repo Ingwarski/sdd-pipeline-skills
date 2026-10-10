@@ -943,7 +943,7 @@ class Manager:
                 if ref is None or ref["retention"].get("imported") is not True:
                     raise EvidenceError("retention migration decision applies only to registered imported artifacts: " + ident)
                 refs.append(deepcopy(ref))
-                if ident in acknowledged or ref["retention"].get("migration_policy_established") is True:
+                if ident in acknowledged:
                     continue  # Preserve previous decisions and avoid repeated catalog growth.
                 decisions[ident] = {"version": 1, "policy_sha256": hashlib.sha256(canonical(self.policy)).hexdigest(),
                     "provider": self.policy["provider"],
@@ -998,8 +998,7 @@ class Manager:
                 for field in ("imported", "migration_policy_established"):
                     if field in retention and type(retention[field]) is not bool:
                         raise EvidenceError("unsupported imported retention flag: " + field)
-                return (retention.get("imported") is True and retention.get("migration_policy_established") is not True
-                        and ref["artifact_id"] not in decisions)
+                return retention.get("imported") is True and ref["artifact_id"] not in decisions
             protected = set(protected_refs)
             if expire and not reference_snapshot_complete:
                 raise EvidenceError("permanent expiry requires a complete current claim/reference snapshot from the coordinator")

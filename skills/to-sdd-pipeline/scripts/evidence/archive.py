@@ -1,5 +1,6 @@
 """Stable capture and bounded ZIP/tar verification. No archive-owned extraction paths."""
 import hashlib
+import binascii
 import bz2
 from contextlib import ExitStack
 import gzip
@@ -140,6 +141,36 @@ def build_pack(objects, destination, maximum, max_files):
     return {"sha256": digest, "size": size, "members": members}
 
 
+def _zip_member_name(name):
+    # Permit the ZIP directory marker without normalizing repeated separators
+    # or archive-controlled backslashes/NULs into apparently safe names.
+    safe_relative(name[:-1] if name.endswith("/") else name)
+
+
+def _zip_raw_names(raw_name, extra, flags):
+    try:
+        _zip_member_name(raw_name.decode("utf-8" if flags & 0x800 else "cp437"))
+        position = 0
+        while position + 4 <= len(extra):
+            field, length = struct.unpack_from("<HH", extra, position)
+            begin, end = position + 4, position + 4 + length
+            if end > len(extra):
+                raise EvidenceError("invalid ZIP extra field length")
+            # CPython can choose this Unicode name and sanitize it separately
+            # from orig_filename. Validate that raw alternative before parsing.
+            if field == 0x7075:
+                if length < 5:
+                    raise EvidenceError("invalid ZIP Unicode path extra field")
+                version, checksum = struct.unpack_from("<BL", extra, begin)
+                if version == 1 and checksum == binascii.crc32(raw_name):
+                    alternative = extra[begin + 5:end].decode("utf-8")
+                    if alternative:
+                        _zip_member_name(alternative)
+            position = end
+    except UnicodeError as error:
+        raise EvidenceError("invalid ZIP member filename encoding") from error
+
+
 def _zip_preflight(stream, encoded_size, max_files, metadata_limit):
     """Check ZIP central records before ZipFile constructs an entry list."""
     stream.seek(max(0, encoded_size - 65557))
@@ -186,7 +217,11 @@ def _zip_preflight(stream, encoded_size, max_files, metadata_limit):
         actual_count += 1
         if consumed > directory_size or actual_count > max_files:
             raise EvidenceError("ZIP actual member count or metadata bound exceeded")
-        stream.seek(length - 46, os.SEEK_CUR)
+        raw_name, extra = stream.read(name_size), stream.read(extra_size)
+        if len(raw_name) != name_size or len(extra) != extra_size:
+            raise EvidenceError("truncated ZIP member metadata")
+        _zip_raw_names(raw_name, extra, struct.unpack_from("<H", header, 8)[0])
+        stream.seek(entry_comment, os.SEEK_CUR)
     if actual_count != count:
         raise EvidenceError("ZIP declared member count does not match central records")
     stream.seek(0)
@@ -316,9 +351,12 @@ def verify_pack(path, expected_hash, expected_size, expected_members=None, *,
                 _zip_preflight(raw, expected_size, max_files, max_metadata_bytes)
                 archive = stack.enter_context(zipfile.ZipFile(raw))
                 for info in archive.infolist():
+                    # filename is normalized by ZipInfo on Windows. Its raw
+                    # spelling must remain safe independently of that rewrite.
+                    _zip_member_name(info.orig_filename)
                     mode = info.external_attr >> 16
                     if info.is_dir():
-                        safe_relative(info.filename.rstrip("/"))
+                        _zip_member_name(info.filename)
                         if info.filename in seen:
                             raise EvidenceError("duplicate directory member")
                         seen.add(info.filename)

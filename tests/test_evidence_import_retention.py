@@ -112,6 +112,22 @@ class ImportedRetentionTests(unittest.TestCase):
         self.assertEqual({"version": 1, "legacy": True}, cold._catalog()["import_retention_decisions"][child["artifact_id"]])
         self.assertEqual(fixtures.SEALED, child["retention"]["sealed_at"])
 
+    def test_stored_boolean_alone_requires_a_catalog_administrative_decision(self):
+        # A legacy reference-shaped record by itself supplies no policy decision.
+        # Create a new logical alias, preserving the already verified archive.
+        original = self.import_refs()[0]
+        legacy = deepcopy(original)
+        legacy["artifact_id"] = "legacy-boolean-only"
+        legacy["retention"]["migration_policy_established"] = True
+        self.manager._publish(self.manager._catalog(mutation=True), {"version": 1, "refs": [legacy]})
+        protected = {a["artifact_id"]: a for a in self.actions() if a["action"] == "expired-but-protected"}
+        self.assertIn("imported-migration-policy-pending", protected[legacy["artifact_id"]]["reasons"])
+        self.manager.establish_import_retention([legacy["artifact_id"]])
+        decision = self.manager._catalog()["import_retention_decisions"][legacy["artifact_id"]]
+        self.assertEqual(30, decision["days"])
+        self.assertIn("policy_sha256", decision)
+        self.assertTrue(any(a.get("artifact_id") == legacy["artifact_id"] and a["action"] == "retire" for a in self.actions()))
+
     def test_mixed_false_true_references_match_receipts_in_one_resolver_invocation(self):
         child, parent = self.import_refs(dependency=True)
         legacy = deepcopy(parent)

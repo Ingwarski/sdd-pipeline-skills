@@ -3,7 +3,7 @@
 Local users need only Python 3.12+. Selecting Drive requires explicit account and
 folder authorization, an external credential configuration, and the evidence
 manager's successful synthetic upload, independent original-byte retrieval, hash
-verification, and cold restoration probe. A successful connector response, browser
+verification, and original-byte restoration probe. A successful connector response, browser
 preview, exported document, or local synchronization folder is not that proof.
 
 Both Drive transports implement immutable `put(key, source_path)`,

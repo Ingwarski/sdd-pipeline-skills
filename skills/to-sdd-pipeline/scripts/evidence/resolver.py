@@ -1,5 +1,6 @@
 """Read-only resolution of prepared evidence. No transport, writes or extraction."""
 from datetime import datetime
+import errno
 from pathlib import Path, PurePosixPath
 import re
 import stat
@@ -7,7 +8,7 @@ import os
 import hashlib
 import sys
 
-from .io import hash_file, read_json, safe_relative, _parents, _open_regular, _verify_stable
+from .io import EvidenceError, hash_file, read_json, safe_relative, _parents, _open_regular, _verify_stable
 from .identity import same_reference
 
 SCHEMAS = frozenset({"evidence-bytes-v1", "evidence-json-v1", "source-inventory-v1",
@@ -33,7 +34,15 @@ def _regular(path):
             # Windows path ctime can mean creation time. A descriptor supplies
             # the metadata-change clock required to invalidate hash/JSON memos
             # after equal-size edits whose modification time was restored.
-            path, descriptor, info = _open_regular(path)
+            try:
+                path, descriptor, info = _open_regular(path)
+            except EvidenceError as error:
+                cause = error.__cause__
+                # Normalize unavailable inputs only at open. Stability failures
+                # after opening and unsafe no-follow failures retain their cause.
+                if isinstance(cause, OSError) and cause.errno != errno.ELOOP:
+                    raise ValueError("prepared evidence missing/unreadable: " + str(path)) from cause
+                raise
             try:
                 _verify_stable(path, descriptor, info)
             finally:

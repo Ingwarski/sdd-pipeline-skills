@@ -564,10 +564,34 @@ class Checker:
                 raise ValueError("source inventory contains an invalid source hash")
         return hashes, fragments
 
-    def check_bindings(self, check):
+    def check_bindings(self, check, evidence=None):
         expected = {key: check[key] for key in ("check_id", "executed_at", "evaluated_plan_hash", "baseline_id", "target_hash") if key in check}
         hashes, _ = self.source_inventory(check, "evaluated_source_hashes")
-        if hashes:
+        inventory = evidence_reference(check.get("source_inventory_ref"))
+        if evidence is None:
+            if inventory is not None:
+                expected["evaluated_source_inventory_sha256"] = inventory["sha256"]
+            elif hashes:
+                expected["evaluated_source_hashes"] = hashes
+            return expected
+        reference = evidence_reference(evidence)
+        supplied = reference.get("bindings", {}) if reference is not None else {}
+        if not isinstance(supplied, dict):
+            raise ValueError("evidence bindings must be an object")
+        compact = "evaluated_source_inventory_sha256" in supplied
+        full = "evaluated_source_hashes" in supplied
+        if compact:
+            if inventory is None:
+                raise ValueError("compact evaluated-source binding requires a declared source inventory")
+            # Resolving this root proves its own closure; unrelated prepared inventories cannot cover it.
+            self.evidence_resolver.resolve(reference)
+            if not any(key != reference["artifact_id"] and
+                       self.evidence_resolver.references[key].get("schema") == "source-inventory-v1" and
+                       self.evidence_resolver.references[key].get("sha256") == inventory["sha256"]
+                       for key in self.evidence_resolver.visited):
+                raise ValueError("compact evaluated-source binding requires its verified source-inventory dependency")
+            expected["evaluated_source_inventory_sha256"] = inventory["sha256"]
+        if full or hashes and not compact:
             expected["evaluated_source_hashes"] = hashes
         return expected
 
@@ -1192,7 +1216,7 @@ class Checker:
                 kinds = set()
                 for item in evidence:
                     try:
-                        bindings = self.check_bindings(check)
+                        bindings = self.check_bindings(check, evidence=item)
                     except (ValueError, OSError, KeyError, TypeError) as error:
                         self.issue("invalid_evidence", "qa-checklist", str(error))
                         bindings = {}
@@ -1591,7 +1615,7 @@ class Checker:
                     require(ref.get("provenance", {}).get("unit_id") == record["owner_unit"], check_id + ": evidence provenance belongs to another unit")
                     if check.get("run_id"):
                         require(ref.get("provenance", {}).get("run_id") == check["run_id"], check_id + ": evidence provenance belongs to another run")
-                require(self.evidence_snapshot(evidence, "implementation", "unit_stale_evidence", self.check_bindings(check)), check_id + ": unreadable/changed evidence")
+                require(self.evidence_snapshot(evidence, "implementation", "unit_stale_evidence", self.check_bindings(check, evidence=evidence)), check_id + ": unreadable/changed evidence")
             if qa["evidence_mode"] == "real_consumers":
                 require(check.get("execution_mode") == "real_consumers" and any(self.evidence_kind(x) == "integration" for x in check["evidence"]), check_id + ": mocks/fixtures cannot replace real-consumer integration evidence")
             for prerequisite in check_edges[check_id]:
