@@ -20,7 +20,7 @@ Keep these existing fields; add verified checker metadata without replacing the 
 
 Unset optional values may remain null. Artifact status is `missing | input_needed | ready | running | validated | invalidated | blocked`. Operator projections are `Pending | Input needed | Running | Ready | Needs attention | Approved design | Blocked | Done`: validated maps to Done, invalidated to Needs attention until ready, and blocked to Blocked. An unanswered question is Input needed, not failure or approval; ready means dispatchable. Reserve Approved design for the active whole-design baseline.
 
-Keep machine values unchanged but translate displayed labels into `working_language`. In Ukrainian, do not display ordinary English status/report headings. Artifact language equals working language; product locales remain independent.
+Keep machine values; apply shared language rules to displayed labels/prose. Artifact language equals working language; product locales stay independent.
 
 Design states remain `not_started | awaiting_executor_choice | preflighting_source_access | awaiting_design_source_access | generating_candidates | awaiting_claude_design_selection | awaiting_claude_design_export | awaiting_export_transfer | validating_import | awaiting_design_approval | approved_visual_baseline`. Transport is `direct_export | codex_assisted_import | manual_transfer | authorized_url_capture`; follow the handoff reference.
 
@@ -36,7 +36,7 @@ A validated artifact needs:
 - `dependencies`: required-before artifact IDs; the context-bundle node can expand to both members;
 - `validation.result: passed` and `validation.working_language`: a **document** validation, not product test success;
 - owner-reviewed `source_usage`: path → `"full"`, nonempty list of exact consumed headings, or `{"unused":"reason"}`. Resolve every required input, including unused context/terms; non-context prerequisites cannot be waived. Include additional consumed files and shared scope/evidence/terminology sections, not only check IDs. The checker verifies declared coverage, not unreported reading;
-- `source_hashes`: repository-relative POSIX file paths → SHA-256 for consumed full sources;
+- `source_hashes`: repository-relative POSIX file paths → SHA-256 for consumed full sources; optional `source_inventory_ref` expands the identical contained map/fragments, rejecting conflicting inline values;
 - optional `consumed_source_fragments`: path → list of `{heading, content_hash}`. Use the exact unique Markdown ATX heading and hash its section through the next equal/higher heading; do not also snapshot that whole file;
 - after approval, architecture/DoD/QA/plan also need `validated_baseline_id`. No-change revalidation updates metadata without rewriting valid document bytes.
 
@@ -44,7 +44,7 @@ Both context artifacts use one invocation and the same two-path `declared_output
 
 Repository observations cover only inspected paths and commands. `paths` maps files to hashes, or `null` for observed absence; include commands and timezone-aware observation time. Recheck those paths on reuse. Unobserved claims are invalid; unrelated files never justify a whole-repository invalidation.
 
-Hashes may be raw SHA-256 or `sha256:<hex>`. Paths, including resolved links, stay inside the project. Missing/ambiguous headings and unknown algorithms fail closed. Compute with `--hash PATH [--heading '## Exact heading']`; directories use `sdd-tree-sha256-v1`, include every regular file and reject symlinks/reparse points in or leading to the frozen source root.
+Hashes may be raw SHA-256 or `sha256:<hex>`. Project-source paths, including resolved links, stay inside the project. Generated evidence may instead use version 1 [storage references](evidence-storage-contract.md); URLs or arbitrary external source paths never replace hashes. Missing/ambiguous headings and unknown algorithms fail closed. Compute with `--hash PATH [--heading '## Exact heading']`; directories use `sdd-tree-sha256-v1`, include every regular file and reject symlinks/reparse points in or leading to the frozen source root.
 
 ## Baseline
 
@@ -63,7 +63,7 @@ Hashes may be raw SHA-256 or `sha256:<hex>`. Paths, including resolved links, st
 }
 ```
 
-The canonical section references the ID, hashes and receipt path. The receipt records the original operator event (`approve_design_baseline` or `accepted_scoped_baseline_override`), actor, Baseline ID, target/tree hashes and timezone-aware `approved_at`. Normalize an existing receipt only from its retained original provenance; never invent approval or request it again just to fill metadata.
+The canonical section references the ID, hashes and receipt identity. `visual_target_ref` may replace target path/hash; approval receipts accept a direct evidence reference or wrapper. Original semantic/binding checks still apply. The receipt records the original operator event (`approve_design_baseline` or `accepted_scoped_baseline_override`), actor, Baseline ID, target/tree hashes and timezone-aware `approved_at`. Normalize an existing receipt only from its retained original provenance; never invent approval or request it again just to fill metadata.
 
 Recompute frozen hashes; recorded `integrity.status` is not proof. Preserve older versions and supersede explicitly. A changed baseline invalidates affected bindings, production units and prior implementation authorization.
 
@@ -85,7 +85,7 @@ For Claude, normalize the actual records as follows:
 - `codex_access_receipt_path/hash` and `claude_source_read_receipt_path/hash`: JSON with `manifest_hash`, one `results` entry per inventory ID, and any `unresolved_material_ids`. Required entries must report `accessible` and `read`, respectively, with the matching content hash/capture ID.
 - `required_source_count`, `codex_accessible_required_source_count` and `claude_read_required_source_count` must equal the actual required-ID count; `unresolved_required_source_ids` must be empty.
 
-Before generation, the checker validates these individual records, not just totals. Optional unavailable sources stay explicitly marked; required missing sources block. The design owner/reviewer still verifies that the inventory represents every required source, not a convenient subset.
+External payloads use `source_manifest_ref`, `codex_access_receipt_ref` and `claude_source_read_receipt_ref` instead of their path/hash pairs. Browser/visual, promotion, prompt and sequencing receipts accept evidence references too. Before generation, the checker validates these individual records, not just totals. Optional unavailable sources stay explicitly marked; required missing sources block. The design owner/reviewer still verifies that the inventory represents every required source, not a convenient subset.
 
 ## Verification index
 
@@ -93,7 +93,7 @@ At plan validation and implementation handoff, add the separately versioned [uni
 
 The [security traceability contract](security-contract.md) defines `artifacts.prd.security_review`, downstream `security_coverage`, and the required `product_security_requirements` gate/check mappings. Record only actual owner returns bound to current document hashes. Missing records require assessment/reconciliation through those owners, not a fabricated historical review or a new approval step.
 
-`verification` is a compact projection from QA/DoD owner returns, bound by `source_hashes` to both current documents. Definitions and results stay canonical in those documents.
+`verification` is a compact projection from QA/DoD owner returns, bound by `source_hashes` to both current documents. Definitions and compact current results stay canonical there; verified references preserve detailed payloads and superseded history.
 
 | Record | Checker fields |
 |---|---|
@@ -101,7 +101,7 @@ The [security traceability contract](security-contract.md) defines `artifacts.pr
 | Gate | `gate_id`, `definition_ref: {path, heading}` into DoD, `active`, `required`, `applicability: applicable \| not_applicable`, exclusion rationale, real `check_ids` once QA exists |
 | Check | `check_id`, `gate_id`, `definition_ref` into QA, definition/execution statuses, `phase: prototype \| implementation \| both`, scope |
 | UI scope | task, user group, route, state, viewport, applicable JOB/UC and heuristic IDs; actual `baseline_id` and `target_hash` after approval |
-| Executed check | executor, timezone-aware `executed_at`, `evidence: [{path, content_hash, kind}]`, `evaluated_source_hashes` for implementation scope |
+| Executed check | executor, timezone-aware `executed_at`, `evidence: [legacy path/hash or version 1 evidence_ref]`, `evaluated_source_hashes` for implementation scope |
 
 References contain the declared IDs. H1–H10 coverage combines applicable checks' `heuristic_ids` and `not_applicable_heuristics: {Hn: reason}`, without overlap. The three UI gate IDs from [verification rules](verification-contract.md) must be present or explicitly inapplicable. Evidence kinds are `visual`, `heuristic` and `representative_user`; none substitutes for another.
 
@@ -123,12 +123,12 @@ For declared reuse, `prototype_promotions` indexes unit ID, planned `path_mappin
 4. Run `--before NODE`; dispatch only on exit 0. Record owner results, then run `--after NODE`. Exit 1 means blocked/invalid input; exit 2 means otherwise-valid legacy data still needs checker metadata. Inspect all issues when migration and defects coexist.
 5. Use `--before development-plan` after approved architecture/DoD/QA reconciliation; `--before implementation` after the separate prompt; `--before release` only for an actual release evaluation. Candidate evidence is checked after generation and before approval, not required before candidates exist.
 
-The CLI lists nodes on an invalid name. `--audit` checks recorded artifacts without dispatching, writing or approving. `--snapshot NODE` proposes unvalidated metadata; context starts as `{"review_required":true}`, never presumed unused. Repeat `--consume 'PATH#EXACT HEADING'` for each consumed section (including shared definitions), or `--consume PATH` for a full file; `--unused 'PATH=reason'` records a reviewed exclusion. These flags compute the existing hashes/fragments without writing or validating. Resolve pending decisions from actual reading before accepting an owner return. `--hash-render RECORD` hashes declared rendering inputs. Python 3.12+, standard library only; no network or product-test execution.
+The CLI lists nodes on an invalid name. `--audit` checks recorded artifacts without dispatching, writing or approving. `--snapshot NODE` proposes unvalidated metadata; context starts as `{"review_required":true}`, never presumed unused. Repeat `--consume 'PATH#EXACT HEADING'` for each consumed section (including shared definitions), or `--consume PATH` for a full file; `--unused 'PATH=reason'` records a reviewed exclusion. These flags compute the existing hashes/fragments without writing or validating. Resolve pending decisions from actual reading before accepting an owner return. `--hash-render RECORD` hashes declared rendering inputs. Use `--evidence-cache PATH` for prepared bytes outside the project. Preparation is a separate storage command; the checker performs no network/cache writes. Python 3.12+, standard library only; no product-test execution.
 
 Validation reports include `toolchain`: checker SHA-256 and `sdd-toolchain-sha256-v1` skillset digest (byte-sorted skill-relative paths plus content hashes, each newline-delimited; excludes Python caches and `.DS_Store`). This identifies actual installed source bytes, including uncommitted edits, without requiring Git. Retain reports with source/plan bindings; rerun after toolchain changes. Hashes establish identity, not semantic correctness or independent review.
 
 ## External runner boundary
 
-Skills require the checker before advancement. For hard DAS Forge enforcement, that separate runner must call the installed checker with the project/node and per-unit boundaries, enforce exit codes, record provenance and recheck persisted completion. Implement the active-unit continuation/resumption loop in that host as specified by the unit execution contract. Project failures as capability/evidence/validation issues, not extra approvals; preserve reconciliation and the implementation pause.
+External runners must call the installed checker at node/unit boundaries and enforce exits, persisted completion, active-unit continuation and the implementation pause. Report capability/evidence/validation failures without extra approvals.
 
-This repository does not contain or modify that runner. The checker verifies declared records, bindings and integrity, not prose semantics, inventory completeness, research authenticity or whether an external runner obeyed its result.
+This collection supplies no production runner. The checker validates records/bindings/integrity, not semantics, inventory completeness, research authenticity or host compliance.

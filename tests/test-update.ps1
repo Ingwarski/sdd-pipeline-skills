@@ -8,6 +8,7 @@ $Remote = Join-Path $TestRoot 'remote.git'
 $NativeGit = (Get-Command git -CommandType Application | Select-Object -First 1).Source
 $OldResult = $env:SDD_UPDATE_TEST_RESULT
 $OldBackup = $env:SDD_SKILL_BACKUP_DIR
+$OriginalEvidenceHome = $env:SDD_EVIDENCE_HOME
 $StudentRoots = @()
 
 function Test-Git([string]$Root, [string[]]$Arguments) {
@@ -34,6 +35,7 @@ function Expect-Failure([string]$Message) {
     Assert-True (-not (Test-Path -LiteralPath $env:SDD_UPDATE_TEST_RESULT)) 'Installer ran after a failed update check.'
 }
 try {
+    $env:SDD_EVIDENCE_HOME = Join-Path $TestRoot 'evidence-machine-state'
     New-Item -ItemType Directory -Path (Join-Path $Publisher 'scripts') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'update.ps1') -Destination (Join-Path $Publisher 'update.ps1')
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/retired-skills.ps1') -Destination (Join-Path $Publisher 'scripts/retired-skills.ps1')
@@ -164,6 +166,7 @@ try {
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Student 'unverified.txt'))) 'Stable consumed an unverified main commit.'
     Write-Host 'Windows updater tests passed.'
 } finally {
+    $env:SDD_EVIDENCE_HOME = $OriginalEvidenceHome
     Remove-Item -Path Function:git -ErrorAction SilentlyContinue
     $env:SDD_UPDATE_TEST_RESULT = $OldResult
     $env:SDD_SKILL_BACKUP_DIR = $OldBackup

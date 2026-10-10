@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "limits": {
+    "run_warning_bytes": 262144000,
+    "run_stop_bytes": 524288000,
+    "run_stop_files": 10000,
+    "unit_warning_bytes": 1073741824,
+    "unit_stop_bytes": 2147483648,
+    "unit_stop_files": 50000,
+    "project_generation_warning_bytes": 10737418240,
+    "project_generation_stop_bytes": 21474836480,
+    "project_generation_stop_files": 500000,
+    "retained_warning_bytes": 5368709120,
+    "retained_stop_bytes": 10737418240,
+    "retained_stop_objects": 100000,
+    "metadata_stop_bytes": 134217728,
+    "metadata_stop_files": 10000,
+    "local_stop_bytes": 2147483648,
+    "cache_stop_bytes": 536870912,
+    "free_space_reserve_bytes": 268435456,
+    "max_unit_retries": 4,
+    "migration_batch_stop_bytes": 524288000,
+    "migration_batch_stop_files": 10000,
+    "migration_local_stop_bytes": 1073741824,
+    "archive_pack_target_bytes": 67108864,
+    "archive_pack_stop_bytes": 134217728
+  },
+  "targets": {
+    "manifest_bytes": 1048576,
+    "compact_result_bytes": 262144,
+    "structured_capture_bytes": 1048576,
+    "scenario_json_bytes": 10485760
+  },
+  "git_review": {"blob_bytes": 1048576, "range_bytes": 52428800},
+  "retention": {"local_days": 30, "drive_days": null, "github_artifact_days": 30, "github_log_days": 30},
+  "rationale": {
+    "run": "250 MiB warns and 500 MiB stops a managed run; synthetic tests include small captures, logs, and aggregate split attempts.",
+    "cumulative": "A unit allows four retries and 2 GiB gross generation; a project allows 20 GiB and 500000 logical files across sessions and worktrees. Deletion and deduplication never refund these charges.",
+    "occupancy": "10 GiB retained unique originals and 100000 physical objects are a starter profile; immutable packs reduce object overhead. 128 MiB of combined catalog, history, index and ledger metadata prevents split-index bypass.",
+    "local": "2 GiB covers all registered capture, cache, staging, readback and restoration allocations; cache is limited to 512 MiB within that total. The configurable 256 MiB free-space floor supports small checks without a universal 10 GiB prerequisite.",
+    "migration": "Existing-data migration has a separate 500 MiB/10000-file batch allowance and 1 GiB local allowance so over-budget projects can evacuate evidence incrementally without charging new generation.",
+    "packs": "64 MiB targets and 128 MiB pack maximum bound staging and readback peaks; these limits do not cap total migration volume.",
+    "targets": "Manifest and result/capture/scenario sizes are compactness targets; exceeding one requires review and does not permit splitting, truncating, or skipping required observations.",
+    "git": "1 MiB per newly introduced blob and 50 MiB across the complete commit range trigger review, not automatic source rejection.",
+    "retention": "30 days uses original sealing time. Drive expiry remains unset until explicitly selected; access and restoration do not reset evidence age."
+  }
+}

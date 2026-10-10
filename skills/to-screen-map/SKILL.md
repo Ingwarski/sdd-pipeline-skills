@@ -4,7 +4,7 @@ description: Define screens, surfaces, routes, navigation, transitions and the c
 ---
 # to-screen-map
 
-Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve the link from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
+Read [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve installed resources from this SKILL.md's real directory.
 
 ## Inputs
 

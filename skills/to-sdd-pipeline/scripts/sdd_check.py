@@ -15,6 +15,13 @@ import sys
 from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
+# Resource-local imports also work when a host loads this script through importlib.
+sys.dont_write_bytecode = True  # A validation-only CLI must not generate resource caches.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from evidence.io import hash_file, read_json as safe_read_json
+from evidence.resolver import EvidenceResolver, evidence_reference, _regular
+from evidence.policy import validate_policy
+
 
 CONTRACT = Path(__file__).resolve().parent.parent / "references/pipeline-contract.json"
 ASVS_CATALOG = Path(__file__).resolve().parents[2] / "to-sdd-prd/references/owasp/ASVS-5.0.0.json"
@@ -41,8 +48,8 @@ def unique_object(pairs):
 
 
 def read_json(path):
-    return json.loads(Path(path).read_text(encoding="utf-8-sig"), object_pairs_hook=unique_object,
-                      parse_constant=lambda value: (_ for _ in ()).throw(ValueError("invalid JSON: " + value)))
+    path = Path(path)
+    return safe_read_json(path.parent.resolve() / path.name, 64 * 1024 * 1024)
 
 
 def digest(data):
@@ -56,7 +63,7 @@ def hash_matches(recorded, observed):
 
 def toolchain_identity(skills_root=None):
     """Content-address the installed sources, including uncommitted edits; no Git needed."""
-    root = Path(skills_root) if skills_root is not None else Path(__file__).resolve().parents[2]
+    root = Path(skills_root).resolve() if skills_root is not None else Path(__file__).resolve().parents[2]
     contract = read_json(root / "to-sdd-pipeline/references/pipeline-contract.json")
     names = {"to-sdd-pipeline"} | {item["owner_skill"] for item in contract["artifacts"].values()}
     entries = []
@@ -71,10 +78,10 @@ def toolchain_identity(skills_root=None):
             if "__pycache__" in relative.parts or path.suffix in (".pyc", ".pyo") or path.name == ".DS_Store":
                 continue
             if path.is_file():
-                entries.append((relative.as_posix(), digest(path.read_bytes())))
+                entries.append((relative.as_posix(), hash_file(path)[0]))
     entries.sort(key=lambda entry: entry[0].encode("utf-8"))
     return {"algorithm": "sdd-toolchain-sha256-v1",
-            "checker_sha256": digest((root / "to-sdd-pipeline/scripts/sdd_check.py").read_bytes()),
+            "checker_sha256": hash_file(root / "to-sdd-pipeline/scripts/sdd_check.py")[0],
             "skillset_sha256": digest("".join(path + "\n" + value + "\n" for path, value in entries).encode("utf-8")),
             "source_file_count": len(entries)}
 
@@ -84,16 +91,24 @@ def is_link(path):
     return path.is_symlink() or bool(getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
 
 
-def tree_hash(root):
+def tree_hash(root, hasher=None, stable_directories=None):
     """sdd-tree-sha256-v1: byte-sorted POSIX paths; every regular file, no exclusions."""
     root = Path(root)
+    if is_link(root):
+        raise ValueError("prototype root must be a frozen real directory")
+    root = root.resolve()
     if not root.is_dir() or is_link(root):
         raise ValueError("prototype root must be a frozen real directory")
-    entries = []
+    entries, directories = [], {}
     def walk_error(error):
         raise error
 
     for directory, dirs, files in os.walk(root, followlinks=False, onerror=walk_error):
+        directory_path = Path(directory)
+        info = directory_path.lstat()
+        if not stat.S_ISDIR(info.st_mode) or is_link(directory_path):
+            raise ValueError("prototype directory changed into a link/special file")
+        directories[directory_path] = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
         for name in dirs + files:
             path = Path(directory) / name
             if is_link(path):
@@ -105,7 +120,15 @@ def tree_hash(root):
             relative = path.relative_to(root).as_posix()
             if "\n" in relative or "\r" in relative:
                 raise ValueError("newline in prototype path")
-            entries.append((relative, digest(path.read_bytes())))
+            entries.append((relative, hasher(path) if hasher else hash_file(path)[0]))
+    for path, expected in directories.items():
+        info = path.lstat()
+        if is_link(path) or not stat.S_ISDIR(info.st_mode) or (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns) != expected:
+            raise ValueError("prototype directory changed while hashing")
+        if stable_directories is not None:
+            if path in stable_directories and stable_directories[path] != expected:
+                raise ValueError("prototype directory changed during checker invocation")
+            stable_directories[path] = expected
     if not entries:
         raise ValueError("empty prototype source tree")
     entries.sort(key=lambda item: item[0].encode("utf-8"))
@@ -285,9 +308,16 @@ def validate_contract(contract):
 
 
 class Checker:
-    def __init__(self, project, manifest, contract=None):
+    def __init__(self, project, manifest, contract=None, evidence_cache=None):
         self.project = Path(project).resolve()
         self.manifest = manifest
+        if evidence_cache is not None and Path(evidence_cache).resolve().is_relative_to(self.project):
+            raise ValueError("prepared evidence cache must be outside the repository")
+        self.evidence_resolver = EvidenceResolver(evidence_cache)
+        self.hash_cache, self.json_cache, self.section_cache, self.directory_cache = {}, {}, {}, {}
+        self.accounted_refs = {}
+        self.accounting_reference_id = None
+        self._invocation_active = False
         self.contract = copy.deepcopy(contract or read_contract())
         validate_contract(self.contract)
         scope = manifest.get("product_scope", {})
@@ -356,7 +386,7 @@ class Checker:
 
     def snapshot(self, relative, recorded, target, code="stale_source"):
         try:
-            observed = digest(self.path(relative).read_bytes())
+            observed = self.file_hash(self.path(relative, no_links=True))
             if not hash_matches(recorded, observed):
                 self.issue(code, target, "missing/changed hash: " + relative)
                 return False
@@ -364,6 +394,182 @@ class Checker:
         except (ValueError, OSError) as error:
             self.issue(code, target, str(error))
             return False
+
+    def file_hash(self, path):
+        """Memoize stable regular files; any later mutation blocks this invocation."""
+        path = Path(path)
+        signature = _regular(path)
+        if path not in self.hash_cache:
+            self.hash_cache[path] = (signature, hash_file(path)[0])
+        saved, value = self.hash_cache[path]
+        if signature != saved or _regular(path) != saved:
+            raise ValueError("input changed during checker invocation: " + str(path))
+        return value
+
+    def document(self, path):
+        path = Path(path)
+        signature = _regular(path)
+        if path not in self.json_cache:
+            self.json_cache[path] = (signature, read_json(path))
+        saved, value = self.json_cache[path]
+        if signature != saved or _regular(path) != saved:
+            raise ValueError("document changed during checker invocation: " + str(path))
+        return value
+
+    def section(self, relative, heading):
+        path = self.path(relative, no_links=True)
+        identity = self.file_hash(path)
+        key = (path, heading)
+        if key not in self.section_cache:
+            self.section_cache[key] = (identity, section_bytes(path, heading))
+        saved, value = self.section_cache[key]
+        if saved != identity or self.file_hash(path) != identity:
+            raise ValueError("source fragment changed during checker invocation")
+        return value
+
+    def evidence_snapshot(self, record, target, code="invalid_evidence", bindings=None):
+        try:
+            ref = evidence_reference(record)
+            if ref is None:
+                if not isinstance(record, dict):
+                    raise ValueError("evidence record must be an object")
+                return self.snapshot(record.get("path"), record.get("content_hash"), target, code)
+            self.evidence_resolver.resolve(ref)
+            self.evidence_accounting(ref)
+            if record is not ref and "content_hash" in record and not hash_matches(record["content_hash"], ref["sha256"]):
+                raise ValueError("evidence reference differs from recorded content hash")
+            if record is not ref and record.get("kind", ref["kind"]) != ref["kind"]:
+                raise ValueError("evidence wrapper kind differs from original reference")
+            self.evidence_resolver.validate_bindings(ref, bindings or {})
+            return True
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            self.issue(code, target, str(error))
+            return False
+
+    def evidence_accounting(self, ref=None, *, run_id=None, unit_id=None):
+        """Verify compact reconciled records; validation never opens a mutable ledger."""
+        if ref is None and "evidence_storage" not in self.manifest:
+            return
+        storage = self.manifest.get("evidence_storage", {})
+        if not isinstance(storage, dict):
+            raise ValueError("evidence storage declaration must be an object")
+        policy_path = self.path(storage.get("policy_path", "forge/evidence-policy.json"), no_links=True)
+        policy = validate_policy(self.document(policy_path))
+        self.evidence_resolver.metadata_limit = policy["limits"]["metadata_stop_bytes"]
+        self.evidence_resolver.closure_limit = policy["limits"]["metadata_stop_files"]
+        if self.evidence_resolver.json_bytes > self.evidence_resolver.metadata_limit or len(self.evidence_resolver.references) > self.evidence_resolver.closure_limit:
+            raise ValueError("prepared metadata/reference closure exceeds project allowance")
+        receipt = self.manifest.get("evidence_accounting")
+        if receipt is None:
+            raise ValueError("missing required reconciled evidence accounting")
+        accounting_ref = evidence_reference(receipt)
+        self.accounting_reference_id = accounting_ref.get("artifact_id") if accounting_ref is not None else None
+        if accounting_ref is not None:
+            receipt = self.evidence_resolver.json(accounting_ref)
+        if not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] != 1:
+            raise ValueError("unsupported evidence accounting version")
+        if receipt.get("project_id") != policy["project_id"] or not hash_matches(receipt.get("policy_sha256"), self.file_hash(policy_path)):
+            raise ValueError("evidence accounting belongs to another project or policy")
+        runs = receipt.get("runs")
+        if not isinstance(runs, dict):
+            raise ValueError("evidence accounting run index required")
+        def reconciled(original_run, original_unit):
+            if not isinstance(original_run, str) or not original_run or not isinstance(original_unit, str) or not original_unit:
+                raise ValueError("original stable run/unit accounting identities required")
+            observed = runs.get(original_run)
+            if not isinstance(observed, dict) or observed.get("unit_id") != original_unit or observed.get("status") != "complete":
+                raise ValueError("missing/incomplete accounting for original run/unit")
+            for field in ("gross_generated_bytes", "original_logical_files", "pending_reservations", "unreconciled_outputs"):
+                value = observed.get(field)
+                if type(value) is not int or value < 0:
+                    raise ValueError("invalid reconciled accounting amount: " + field)
+            if observed["pending_reservations"] or observed["unreconciled_outputs"]:
+                raise ValueError("evidence accounting has outstanding reservations or outputs")
+            return observed
+        if ref is not None:
+            # Every current prepared dependency is required; archival history stays unloaded.
+            for reference in list(self.evidence_resolver.references.values()):
+                if reference["artifact_id"] == self.accounting_reference_id:
+                    continue
+                provenance = reference["provenance"]
+                original_run, original_unit = provenance.get("run_id"), provenance.get("unit_id")
+                observed = reconciled(original_run, original_unit)
+                if observed.get("mode") == "imported-existing":
+                    if not (reference.get("retention", {}).get("imported") is True or provenance.get("accounting_mode") == "imported-existing") or observed["gross_generated_bytes"] or observed["original_logical_files"]:
+                        raise ValueError("imported accounting requires explicit existing-data provenance and zero new generation")
+                    continue
+                if observed.get("mode", "generated") != "generated":
+                    raise ValueError("unsupported evidence accounting mode")
+                associated = self.accounted_refs.setdefault(original_run, {})
+                original_path = reference.get("original_path")
+                logical_file = (original_unit, original_path if isinstance(original_path, str) and original_path else reference["artifact_id"], reference["sha256"])
+                associated[logical_file] = reference["size"]
+                if observed["gross_generated_bytes"] < sum(associated.values()) or observed["original_logical_files"] < len(associated):
+                    raise ValueError("required evidence exceeds reconciled original generation accounting")
+        elif run_id is not None or unit_id is not None:
+            reconciled(run_id, unit_id)
+
+    def evidence_json(self, record):
+        ref = evidence_reference(record)
+        return self.evidence_resolver.json(ref) if ref is not None else self.document(self.path(record["path"], no_links=True))
+
+    @staticmethod
+    def capture_record(record, stem):
+        if stem + "_ref" in record:
+            supplied = record[stem + "_ref"]
+            ref = evidence_reference(supplied)
+            if ref is None:
+                raise ValueError("versioned evidence reference required for " + stem + "_ref")
+            wrapper = {"evidence_ref": ref}
+            if record.get(stem + "_hash") is not None:
+                wrapper["content_hash"] = record[stem + "_hash"]
+            return wrapper
+        return {"path": record.get(stem + "_path"), "content_hash": record.get(stem + "_hash")}
+
+    @staticmethod
+    def evidence_kind(record):
+        ref = evidence_reference(record)
+        return ref["kind"] if ref is not None else record.get("kind")
+
+    @staticmethod
+    def evidence_hash(record):
+        ref = evidence_reference(record)
+        return ref["sha256"] if ref is not None else record.get("content_hash")
+
+    @staticmethod
+    def evidence_label(record):
+        ref = evidence_reference(record)
+        return ref["artifact_id"] if ref is not None else record.get("path")
+
+    def source_inventory(self, entry, key="source_hashes"):
+        inline = entry.get(key, {})
+        if not isinstance(inline, dict):
+            raise ValueError("source hash map must be an object")
+        reference = entry.get("source_inventory_ref")
+        if reference is None:
+            return inline, entry.get("consumed_source_fragments", {})
+        ref = evidence_reference(reference)
+        if ref is None or ref.get("schema") != "source-inventory-v1":
+            raise ValueError("shared source inventory reference schema required")
+        record = self.evidence_resolver.json(ref)
+        self.evidence_accounting(ref)
+        hashes, fragments = record["source_hashes"], record.get("consumed_source_fragments", {})
+        if not isinstance(fragments, dict):
+            raise ValueError("source inventory fragments must be an object")
+        if inline and inline != hashes or entry.get("consumed_source_fragments") and entry["consumed_source_fragments"] != fragments:
+            raise ValueError("inline and shared source inventory differ")
+        for path, value in hashes.items():
+            self.path(path)
+            if not isinstance(value, str) or not HASH_RE.fullmatch(value):
+                raise ValueError("source inventory contains an invalid source hash")
+        return hashes, fragments
+
+    def check_bindings(self, check):
+        expected = {key: check[key] for key in ("check_id", "executed_at", "evaluated_plan_hash", "baseline_id", "target_hash") if key in check}
+        hashes, _ = self.source_inventory(check, "evaluated_source_hashes")
+        if hashes:
+            expected["evaluated_source_hashes"] = hashes
+        return expected
 
     @staticmethod
     def reference_path(reference):
@@ -375,14 +581,17 @@ class Checker:
                 path, heading = reference["path"], reference["heading"]
             else:
                 path, heading = reference.split("#", 1)
-            return section_bytes(self.path(path), heading).decode("utf-8")
+            return self.section(path, heading).decode("utf-8")
         except (AttributeError, KeyError, ValueError, OSError) as error:
             self.issue("invalid_reference", target, str(error))
             return ""
 
     def sources(self, entry, target, required=()):
-        hashes = entry.get("source_hashes", {})
-        fragments = entry.get("consumed_source_fragments", {})
+        try:
+            hashes, fragments = self.source_inventory(entry)
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            self.issue("invalid_provenance", target, str(error))
+            return
         if not isinstance(hashes, dict) or not isinstance(fragments, dict):
             self.issue("invalid_provenance", target, "source hashes/fragments must be objects")
             return
@@ -396,7 +605,7 @@ class Checker:
                 continue
             for record in records:
                 try:
-                    current = digest(section_bytes(self.path(path), record["heading"]))
+                    current = digest(self.section(path, record["heading"]))
                     if not hash_matches(record.get("content_hash"), current):
                         self.issue("stale_fragment", target, path + "#" + record["heading"])
                 except (TypeError, KeyError, ValueError, OSError) as error:
@@ -484,7 +693,10 @@ class Checker:
         if not isinstance(usage, dict):
             self.issue("source_usage_missing", target, "owner must review consumed sources and unused context; do not infer from old hashes")
             return
-        hashes, fragments = entry.get("source_hashes", {}), entry.get("consumed_source_fragments", {})
+        try:
+            hashes, fragments = self.source_inventory(entry)
+        except (ValueError, OSError, KeyError, TypeError):
+            return  # sources() reports a malformed or missing prepared inventory.
         if not isinstance(hashes, dict) or not isinstance(fragments, dict):
             return  # sources() reports the malformed binding containers.
         required_paths = {self.specs[key]["path"]: key for key in required}
@@ -512,7 +724,7 @@ class Checker:
                 headings = {item.get("heading") for item in bound if isinstance(item, dict) and isinstance(item.get("heading"), str)} if isinstance(bound, list) else set()
                 for heading in decision:
                     try:
-                        section_bytes(self.path(path), heading)
+                        self.section(path, heading)
                     except (ValueError, OSError) as error:
                         self.issue("invalid_source_usage", target, str(error))
                     if path not in hashes and heading not in headings:
@@ -556,9 +768,9 @@ class Checker:
         hashes, fragments = {}, {}
         for path, decision in usage.items():
             if decision == "full":
-                hashes[path] = digest(self.path(path).read_bytes())
+                hashes[path] = self.file_hash(self.path(path, no_links=True))
             elif isinstance(decision, list):
-                fragments[path] = [{"heading": heading, "content_hash": digest(section_bytes(self.path(path), heading))} for heading in decision]
+                fragments[path] = [{"heading": heading, "content_hash": digest(self.section(path, heading))} for heading in decision]
         return {"node": node, "status": "unvalidated", "outputs": spec["outputs"], "source_usage": usage,
                 "source_hashes": hashes, "consumed_source_fragments": fragments,
                 "limits": "Hash proposal only. Resolve review_required from actual reading, include shared scope/terms/evidence sections, and return owner validation; no inferred consumption or approval."}
@@ -586,9 +798,9 @@ class Checker:
         if review.get("status") != "complete":
             self.issue("security_review_incomplete", "prd", "resolve material security specification gaps before advancement")
         try:
-            if digest(ASVS_CATALOG.read_bytes()) != ASVS_CATALOG_SHA256:
+            if self.file_hash(ASVS_CATALOG) != ASVS_CATALOG_SHA256:
                 raise ValueError("ASVS catalog does not match the reviewed pin; repair the skill resources")
-            catalog = read_json(ASVS_CATALOG)
+            catalog = self.document(ASVS_CATALOG)
             if catalog.get("Version") != "5.0.0":
                 raise ValueError("expected bundled ASVS 5.0.0")
             known = {"v5.0.0-" + item["Shortcode"][1:]
@@ -769,6 +981,9 @@ class Checker:
                         self.issue("trace_link", "qa-checklist", str(check.get("check_id")) + ": unresolved " + field)
 
     def render_hash(self, record):
+        if not self._invocation_active:
+            self.hash_cache.clear()  # Standalone utility calls are separate observations.
+            self.directory_cache.clear()
         root_name = record.get("prototype_source_root")
         root = self.path(root_name, no_links=True)
         if not root.is_dir():
@@ -787,7 +1002,7 @@ class Checker:
         for name, path in zip(names, paths):
             if not path.is_dir() and not path.is_file():
                 raise ValueError("render input must be a regular file or directory")
-            value = tree_hash(path) if path.is_dir() else digest(path.read_bytes())
+            value = tree_hash(path, self.file_hash, self.directory_cache) if path.is_dir() else self.file_hash(path)
             entries.append((name, value))
             files.update(p.resolve() for p in path.rglob("*") if p.is_file()) if path.is_dir() else files.add(path)
         validate_render_files(root, files)
@@ -801,7 +1016,7 @@ class Checker:
             observed = self.render_hash(record)
             if not hash_matches(record.get("prototype_tree_hash"), observed):
                 self.issue("baseline_integrity", target, "prototype source tree changed")
-            self.snapshot(record.get("visual_target_path"), record.get("visual_target_hash"), target, "visual_target_integrity")
+            self.evidence_snapshot(self.capture_record(record, "visual_target"), target, "visual_target_integrity")
         except (ValueError, OSError) as error:
             self.issue("baseline_integrity", target, str(error))
 
@@ -819,17 +1034,17 @@ class Checker:
             if not isinstance(value, str) or value not in text:
                 self.issue("baseline_projection_mismatch", "design-brief", "canonical section must contain current ID and hashes")
         receipt = record.get("approval_receipt", {})
-        if not isinstance(receipt, dict) or not self.snapshot(receipt.get("path"), receipt.get("content_hash"), "design-brief", "approval_receipt"):
+        if not isinstance(receipt, dict) or not self.evidence_snapshot(receipt, "design-brief", "approval_receipt", {key: record.get(key) for key in ("baseline_id", "visual_target_hash", "prototype_tree_hash")}):
             return
         try:
-            approval = read_json(self.path(receipt["path"]))
+            approval = self.evidence_json(receipt)
             if approval.get("event") not in ("approve_design_baseline", "accepted_scoped_baseline_override") or not approval.get("actor"):
                 raise ValueError("explicit operator approval/accepted override event required")
             for field in ("baseline_id", "visual_target_hash", "prototype_tree_hash"):
                 if approval.get(field) != record.get(field):
                     raise ValueError("approval does not match current " + field)
             timestamp(approval.get("approved_at"))
-            if receipt["path"] not in text:
+            if self.evidence_label(receipt) not in text:
                 raise ValueError("approval receipt must be referenced by the canonical design section")
         except (ValueError, OSError, KeyError) as error:
             self.issue("approval_receipt", "design-brief", str(error))
@@ -840,11 +1055,12 @@ class Checker:
             return
         records = {}
         for key in ("source_manifest", "codex_access_receipt", "claude_source_read_receipt"):
-            if not self.snapshot(handoff.get(key + "_path"), handoff.get(key + "_hash"), "design", "source_access_receipt"):
-                return
             try:
-                records[key] = read_json(self.path(handoff[key + "_path"]))
-            except (OSError, ValueError) as error:
+                current = self.capture_record(handoff, key)
+                if not self.evidence_snapshot(current, "design", "source_access_receipt"):
+                    return
+                records[key] = self.evidence_json(current)
+            except (OSError, ValueError, KeyError, TypeError) as error:
                 self.issue("source_access_receipt", "design", str(error))
                 return
         try:
@@ -863,7 +1079,9 @@ class Checker:
                 for key in ("required_source_count", "codex_accessible_required_source_count", "claude_read_required_source_count")
             ):
                 raise ValueError("required source counts must match the actual material IDs")
-            manifest_hash = digest(self.path(handoff["source_manifest_path"]).read_bytes())
+            manifest_record = self.capture_record(handoff, "source_manifest")
+            manifest_hash = self.evidence_hash(manifest_record)
+            manifest_hash = HASH_RE.fullmatch(manifest_hash).group(1).lower()
             for key, success in (("codex_access_receipt", "accessible"), ("claude_source_read_receipt", "read")):
                 receipt = records[key]
                 results = receipt["results"]
@@ -910,10 +1128,10 @@ class Checker:
                 self.issue("candidate_scope", "design", "stable live URL and route required")
             for field in ("browser_receipt", "visual_qa_evidence"):
                 receipt = record.get(field, {})
-                if not self.snapshot(receipt.get("path"), receipt.get("content_hash"), "design", field):
+                if not self.evidence_snapshot(receipt, "design", field, {key: record[key] for key in ("candidate_id", "version", "visual_target_hash", "prototype_tree_hash", "preview_url") if key in record}):
                     continue
                 try:
-                    actual = read_json(self.path(receipt["path"]))
+                    actual = self.evidence_json(receipt)
                     for key in ("candidate_id", "version", "visual_target_hash", "prototype_tree_hash", "preview_url"):
                         if not record.get(key) or actual.get(key) != record[key]:
                             raise ValueError("receipt does not match current " + key)
@@ -973,12 +1191,21 @@ class Checker:
                     self.issue("unsupported_result", "qa-checklist", key + ": " + str(error))
                 kinds = set()
                 for item in evidence:
-                    self.snapshot(item.get("path"), item.get("content_hash"), "qa-checklist", "invalid_evidence")
-                    kinds.add(item.get("kind"))
+                    try:
+                        bindings = self.check_bindings(check)
+                    except (ValueError, OSError, KeyError, TypeError) as error:
+                        self.issue("invalid_evidence", "qa-checklist", str(error))
+                        bindings = {}
+                    self.evidence_snapshot(item, "qa-checklist", "invalid_evidence", bindings)
+                    kinds.add(self.evidence_kind(item))
                 expected_kind = "security" if check.get("gate_id") == SECURITY_GATE else GATE_KINDS.get(check.get("gate_id"))
                 if expected_kind and expected_kind not in kinds:
                     self.issue("wrong_evidence_class", "qa-checklist", key + ": expected " + expected_kind)
-                evaluated = check.get("evaluated_source_hashes", {})
+                try:
+                    evaluated, _ = self.source_inventory(check, "evaluated_source_hashes")
+                except (ValueError, OSError, KeyError, TypeError) as error:
+                    self.issue("invalid_evidence", "qa-checklist", str(error))
+                    evaluated = {}
                 if check.get("phase") in ("implementation", "both") and not evaluated:
                     self.issue("missing_evaluated_revision", "qa-checklist", key)
                 self.sources({"source_hashes": evaluated}, "qa-checklist")
@@ -1068,9 +1295,9 @@ class Checker:
                 if not any(destinations):
                     continue
                 receipt = record.get("receipt", {})
-                if not self.snapshot(receipt.get("path"), receipt.get("content_hash"), "implementation", "promotion_receipt"):
+                if not self.evidence_snapshot(receipt, "implementation", "promotion_receipt", {"unit_id": record.get("unit_id"), "baseline_id": self.manifest.get("approved_baseline_id"), "development_plan_hash": self.artifacts.get("development-plan", {}).get("content_hash")}):
                     continue
-                actual = read_json(self.path(receipt["path"]))
+                actual = self.evidence_json(receipt)
                 if not record.get("unit_id") or actual.get("unit_id") != record["unit_id"] or actual.get("baseline_id") != self.manifest.get("approved_baseline_id") or actual.get("development_plan_hash") != self.artifacts.get("development-plan", {}).get("content_hash"):
                     raise ValueError("promotion receipt does not match current unit/plan/baseline")
                 observed = actual.get("path_mappings", [])
@@ -1117,7 +1344,7 @@ class Checker:
         if not isinstance(evidence, list) or not evidence:
             raise ValueError("promotion needs actual visual evidence")
         for item in evidence:
-            if item.get("kind") != "visual" or not hash_matches(item.get("content_hash"), digest(self.path(item.get("path")).read_bytes())):
+            if self.evidence_kind(item) != "visual" or not self.evidence_snapshot(item, "implementation", "promotion_receipt"):
                 raise ValueError("invalid promotion visual evidence")
         base, head = actual.get("base_commit"), actual.get("head_commit")
         if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value) for value in (base, head)) or base != record.get("base_commit"):
@@ -1139,11 +1366,11 @@ class Checker:
                 raise ValueError("promotion source is not in the frozen render bundle")
             if not source.is_file() or not destination.is_file():
                 raise ValueError("promotion mappings must enumerate regular files")
-            if not hash_matches(item.get("source_hash"), digest(source.read_bytes())) or not hash_matches(item.get("destination_hash"), digest(destination.read_bytes())):
+            if not hash_matches(item.get("source_hash"), self.file_hash(source)) or not hash_matches(item.get("destination_hash"), self.file_hash(destination)):
                 raise ValueError("promotion source/destination bytes changed")
-            if digest(git("show", head + ":" + item["destination"])) != digest(destination.read_bytes()):
+            if digest(git("show", head + ":" + item["destination"])) != self.file_hash(destination):
                 raise ValueError("destination differs from promoted commit")
-            if item["strategy"] == "copy" and source.read_bytes() != destination.read_bytes():
+            if item["strategy"] == "copy" and self.file_hash(source) != self.file_hash(destination):
                 raise ValueError("copy strategy changed source bytes")
             destinations.append(item["destination"])
         if len(destinations) != len(set(destinations)):
@@ -1163,10 +1390,10 @@ class Checker:
             self.issue("implementation_not_authorized", "implementation", "separate prompt must match current plan and baseline")
             return
         receipt = gate.get("prompt_receipt", {})
-        if not self.snapshot(receipt.get("path"), receipt.get("content_hash"), "implementation", "prompt_receipt"):
+        if not self.evidence_snapshot(receipt, "implementation", "prompt_receipt", {key: gate.get(key) for key in ("prompt_id", "development_plan_hash", "approved_baseline_id")}):
             return
         try:
-            prompt = read_json(self.path(receipt["path"]))
+            prompt = self.evidence_json(receipt)
             if prompt.get("event") != "implementation_prompt" or prompt.get("intent") != "start_production_implementation" or prompt.get("role") != "user":
                 raise ValueError("explicit user implementation event required")
             scope = self.manifest.get("product_scope")
@@ -1320,8 +1547,8 @@ class Checker:
         now = datetime.now().astimezone()
         waivers = []
         for receipt in exceptions:
-            require(self.snapshot(receipt.get("path"), receipt.get("content_hash"), "implementation", "unit_exception"), "invalid sequencing receipt")
-            event = read_json(self.path(receipt["path"]))
+            require(self.evidence_snapshot(receipt, "implementation", "unit_exception"), "invalid sequencing receipt")
+            event = self.evidence_json(receipt)
             require(event.get("event") == "unit_sequence_exception" and event.get("role") == "user" and event.get("message") and event.get("prompt_id"), "explicit original user sequencing event required")
             require(str(event["message"]).strip().lower().rstrip(".! ") not in ("", "continue", "продовжуй", "продовжити"), "generic continuation is not a sequencing exception")
             require(event.get("development_plan_hash") == plan_hash and "approved_baseline_id" in event and event["approved_baseline_id"] == baseline, "sequencing exception is stale")
@@ -1354,14 +1581,19 @@ class Checker:
             paths = set(qa["required_source_paths"])
             for dep in {record["owner_unit"]} | edges[record["owner_unit"]]:
                 paths.update(units[dep]["implementation_paths"])
-            hashes = check.get("evaluated_source_hashes", {})
+            hashes, _ = self.source_inventory(check, "evaluated_source_hashes")
             require(isinstance(hashes, dict) and paths <= set(hashes), check_id + ": evidence does not cover required implementation/consumer paths")
             for path, value in hashes.items():
                 require(self.snapshot(path, value, "implementation", "unit_stale_evidence"), check_id + ": stale implementation evidence")
             for evidence in check["evidence"]:
-                require(self.snapshot(evidence.get("path"), evidence.get("content_hash"), "implementation", "unit_stale_evidence"), check_id + ": unreadable/changed evidence")
+                ref = evidence_reference(evidence)
+                if ref is not None:
+                    require(ref.get("provenance", {}).get("unit_id") == record["owner_unit"], check_id + ": evidence provenance belongs to another unit")
+                    if check.get("run_id"):
+                        require(ref.get("provenance", {}).get("run_id") == check["run_id"], check_id + ": evidence provenance belongs to another run")
+                require(self.evidence_snapshot(evidence, "implementation", "unit_stale_evidence", self.check_bindings(check)), check_id + ": unreadable/changed evidence")
             if qa["evidence_mode"] == "real_consumers":
-                require(check.get("execution_mode") == "real_consumers" and any(x.get("kind") == "integration" for x in check["evidence"]), check_id + ": mocks/fixtures cannot replace real-consumer integration evidence")
+                require(check.get("execution_mode") == "real_consumers" and any(self.evidence_kind(x) == "integration" for x in check["evidence"]), check_id + ": mocks/fixtures cannot replace real-consumer integration evidence")
             for prerequisite in check_edges[check_id]:
                 prior_owner = acceptance[prerequisite]["owner_unit"]
                 prior_run = runs.get(prior_owner, {})
@@ -1387,6 +1619,8 @@ class Checker:
             if run["status"] == "blocked":
                 require(run.get("reason"), key + ": blocked run needs a reason")
             if run["status"] == "completed":
+                if "evidence_storage" in self.manifest:
+                    self.evidence_accounting(run_id=run.get("run_id"), unit_id=key)
                 finished = timestamp(run.get("completed_at"))
                 require(started <= finished <= now, key + ": completion time blocks unit")
                 clear_unit_findings(key, run)
@@ -1411,6 +1645,8 @@ class Checker:
                 require(run["status"] != "completed", unit_id + ": already complete")
                 can_start(unit_id, now)
             elif action == "complete":
+                if "evidence_storage" in self.manifest:
+                    self.evidence_accounting(run_id=run.get("run_id"), unit_id=unit_id)
                 require(run["status"] in ("running", "completed"), unit_id + ": unit must be running before completion")
                 clear_unit_findings(unit_id, run)
                 for check_id in units[unit_id]["required_check_ids"]:
@@ -1419,6 +1655,37 @@ class Checker:
             require(set(completed) == unit_ids, "release requires every unit, including integration, completed")
 
     def run(self, node, after=False, audit=False, unit_action=None, unit_id=None):
+        self.hash_cache.clear()
+        self.json_cache.clear()
+        self.section_cache.clear()
+        self.directory_cache.clear()
+        self.accounted_refs.clear()
+        self.issues, self.warnings = [], []
+        self.checked, self.affected = set(), set()
+        self.security_requirements = {}
+        self.evidence_resolver = EvidenceResolver(self.evidence_resolver.cache)
+        self._invocation_active = True
+        try:
+            report = self._run(node, after, audit, unit_action, unit_id)
+            try:
+                for cache in (self.hash_cache, self.json_cache, self.evidence_resolver.hashes, self.evidence_resolver.documents):
+                    for path, (signature, _) in cache.items():
+                        if _regular(path) != signature:
+                            raise ValueError("input changed during checker invocation: " + str(path))
+                for path, signature in self.directory_cache.items():
+                    info = path.lstat()
+                    if is_link(path) or not stat.S_ISDIR(info.st_mode) or (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns) != signature:
+                        raise ValueError("prototype directory changed during checker invocation: " + str(path))
+            except (ValueError, OSError) as error:
+                self.issue("changing_input", "manifest", str(error))
+                report["result"] = "blocked"
+            return report
+        finally:
+            self._invocation_active = False
+
+    def _run(self, node, after=False, audit=False, unit_action=None, unit_id=None):
+        if "evidence_storage" in self.manifest and not isinstance(self.manifest["evidence_storage"], dict):
+            self.issue("evidence_storage", "manifest", "evidence storage declaration must be an object")
         if unit_action is not None and (unit_action not in ("start", "complete") or node != "implementation" or audit or after or not unit_id):
             self.issue("unit_boundary", "implementation", "unit transitions require implementation node, start/complete action and unit ID")
         self.product_scope()
@@ -1484,10 +1751,12 @@ def main():
     group.add_argument("--hash", dest="hash_path")
     group.add_argument("--hash-render", metavar="RECORD", help="hash a candidate/baseline JSON record and its declared render resources")
     group.add_argument("--snapshot", metavar="NODE", help="emit unvalidated owner/source metadata without writing files or claiming review")
+    parser.add_argument("--evidence-cache", type=Path, help="read-only prepared evidence cache outside the project; manager performs preparation")
     parser.add_argument("--heading", help="with --hash: exact Markdown heading for a fragment")
     parser.add_argument("--consume", action="append", default=[], metavar="PATH[#HEADING]", help="with --snapshot: consumed full file or exact heading; repeat for every consumed section, including shared definitions")
     parser.add_argument("--unused", action="append", default=[], metavar="PATH=REASON", help="with --snapshot: explicitly unused context/optional source; cannot waive other required inputs")
     args = parser.parse_args()
+    args.project = args.project.resolve()
     if (args.consume or args.unused) and not args.snapshot:
         parser.error("--consume and --unused require --snapshot")
     if sys.version_info < (3, 12):
@@ -1496,31 +1765,35 @@ def main():
         contract = read_contract()
         validate_contract(contract)
         if args.hash_render:
-            checker = Checker(args.project, {}, contract)
+            checker = Checker(args.project, {}, contract, evidence_cache=args.evidence_cache)
             print(checker.render_hash(read_json(checker.path(args.hash_render))))
             return 0
         if args.hash_path:
-            checker = Checker(args.project, {}, contract)
+            checker = Checker(args.project, {}, contract, evidence_cache=args.evidence_cache)
             path = checker.path(args.hash_path)
-            value = digest(section_bytes(path, args.heading)) if args.heading else tree_hash(checker.path(args.hash_path, no_links=True)) if path.is_dir() else digest(path.read_bytes())
+            value = digest(section_bytes(path, args.heading)) if args.heading else tree_hash(checker.path(args.hash_path, no_links=True)) if path.is_dir() else hash_file(path)[0]
             print(value)
             return 0
         unit_action = "start" if args.start_unit else "complete" if args.complete_unit else None
         node = "implementation" if unit_action else args.before or args.after or args.snapshot or "audit"
         if not args.audit and node not in contract["nodes"]:
             raise ValueError("unknown node; choose: " + ", ".join(contract["nodes"]))
-        manifest = read_json(args.project / "forge/sdd-manifest.json")
+        manifest_path = args.project / "forge/sdd-manifest.json"
+        manifest_signature = _regular(manifest_path)
+        manifest = read_json(manifest_path)
         if not isinstance(manifest, dict):
             raise ValueError("manifest must be an object")
         if args.snapshot:
-            checker = Checker(args.project, manifest, contract)
+            checker = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache)
             checker.product_scope()
             if checker.issues:
                 raise ValueError("resolve product scope before snapshotting")
             # Escape JSON Unicode for locale-dependent Windows output pipes; decoding preserves text.
             print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=True, indent=2))
             return 0
-        report = Checker(args.project, manifest, contract).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit)
+        report = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit)
+        if _regular(manifest_path) != manifest_signature:
+            raise ValueError("manifest changed during checker invocation")
         report["toolchain"] = toolchain_identity()
         print(json.dumps(report, ensure_ascii=True, indent=2))
         return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1

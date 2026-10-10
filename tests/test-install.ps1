@@ -5,6 +5,7 @@ $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $TestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-sdd-installer-" + [guid]::NewGuid().ToString('N'))
 $CodexDir = Join-Path $TestRoot 'codex'
 $ClaudeDir = Join-Path $TestRoot 'claude'
+$OriginalEvidenceHome = $env:SDD_EVIDENCE_HOME
 
 $CustomClone = Join-Path $TestRoot 'custom-clone'
 function Assert-UnrelatedPreserved {
@@ -25,6 +26,7 @@ function Assert-UnrelatedPreserved {
 }
 
 try {
+    $env:SDD_EVIDENCE_HOME = Join-Path $TestRoot 'evidence-machine-state'
     New-Item -ItemType Directory -Path $CodexDir -Force | Out-Null
     $UnrelatedPrd = Join-Path $ClaudeDir 'to-prd'
     New-Item -ItemType Directory -Path $UnrelatedPrd -Force | Out-Null
@@ -50,12 +52,33 @@ try {
     & (Join-Path $RepoRoot 'install.ps1') -All -CodexDir $CodexDir -ClaudeDir $ClaudeDir
     Assert-UnrelatedPreserved
 
+    $TestPython = $null
+    $TestPythonPrefix = @()
+    foreach ($Candidate in @('python3', 'python', 'py')) {
+        $Executable = Get-Command $Candidate -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -eq $Executable) { continue }
+        $Prefix = if ($Candidate -eq 'py') { @('-3') } else { @() }
+        & $Executable.Source @Prefix -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>$null
+        if ($LASTEXITCODE -eq 0) { $TestPython = $Executable.Source; $TestPythonPrefix = $Prefix; break }
+    }
+    if ($null -eq $TestPython) { throw 'Installer test requires Python 3.12+.' }
+    $StatusArgs = @((Join-Path $RepoRoot 'scripts/installation_status.py'), '--root', $RepoRoot, '--skill-root', $CodexDir, '--skill-root', $ClaudeDir)
+    $StatusText = & $TestPython @TestPythonPrefix @StatusArgs
+    if ($LASTEXITCODE -ne 1) { throw 'Missing evidence setup must block full current status.' }
+    $Status = ($StatusText -join "`n") | ConvertFrom-Json
+    if ($Status.links_result -ne 'current' -or $Status.result -ne 'setup_required') { throw 'Exact links and missing setup were not distinguished.' }
+    if (-not (Test-Path -LiteralPath (Join-Path $env:SDD_EVIDENCE_HOME 'setup-status.json'))) { throw 'First install omitted the isolated setup-required state.' }
+    & $TestPython @TestPythonPrefix (Join-Path $RepoRoot 'scripts/evidence_setup.py') configure --provider local | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Explicit isolated local evidence setup failed.' }
+    & $TestPython @TestPythonPrefix @StatusArgs | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Fully configured exact installation should be current.' }
+
     $Manifest = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills-manifest.json') -Raw | ConvertFrom-Json
     foreach ($Skill in $Manifest.skills) {
         $SourceSkill = Join-Path (Join-Path $RepoRoot $Skill.path) 'SKILL.md'
         $SkillText = Get-Content -LiteralPath $SourceSkill -Raw
-        if (-not $SkillText.Contains('working_language') -or -not $SkillText.Contains('common-contract.md')) {
-            throw "$SourceSkill is missing the working-language contract"
+        if (-not $SkillText.Contains('common-contract.md')) {
+            throw "$SourceSkill is missing the required shared-contract link"
         }
         foreach ($InstallRoot in @($CodexDir, $ClaudeDir)) {
             $Destination = Join-Path $InstallRoot $Skill.name
@@ -74,7 +97,8 @@ try {
     }
 
     $CommonContract = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills/to-sdd-pipeline/references/common-contract.md') -Raw
-    if (-not $CommonContract.Contains('For Ukrainian (`uk`)')) { throw 'Shared Ukrainian language contract is missing.' }
+    if (-not $CommonContract.Contains('working_language')) { throw 'Shared working-language contract is missing.' }
+    if (-not $CommonContract.Contains('Ukrainian is idiomatic')) { throw 'Shared Ukrainian language contract is missing.' }
     $ClaudeHandoff = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills/to-sdd-pipeline/references/claude-design-handoff.md') -Raw
     if (-not $ClaudeHandoff.Contains('working_language') -or -not $ClaudeHandoff.Contains('preserved_english_terms')) {
         throw 'Claude Design handoff is missing the working-language contract.'
@@ -136,6 +160,7 @@ try {
     Assert-UnrelatedPreserved
     Write-Host 'Windows installer tests passed.'
 } finally {
+    $env:SDD_EVIDENCE_HOME = $OriginalEvidenceHome
     foreach ($Root in @($CodexDir, $ClaudeDir)) {
         if (Test-Path -LiteralPath $Root) {
             foreach ($Item in Get-ChildItem -LiteralPath $Root -Force) {

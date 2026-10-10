@@ -1,6 +1,6 @@
 {
   "recent_base": "8bad1f6ea6aa439bee6e76ab4f24585c0ba29aac",
-  "reason": "2026-10-02 numeric-order review: add completion-prerequisite walkthroughs before numbering, precise QA scope, safe ID migration and actual checker/skill provenance. Against 8bad1f6, entrypoints add 62 tokens, README 83, scenarios 1478-1587 (1.31-2.33%). Retain prior measurements in docs/maintenance.md. This is a bounded correctness cost, not a savings claim; absolute and recent-growth caps remain enforced.",
+  "reason": "2026-10-11 evidence storage: count the detailed storage contract only for explicitly declared evidence-producing/resolving pipeline invocations. Condense repeated shared, prototype and handoff rules while retaining owner/approval/quality boundaries. Absolute ceilings and recent-growth allowances against 8bad1f6 stay unchanged. Current measured loads and historical numeric-order review are recorded in docs/maintenance.md; these static costs are not live-run savings.",
   "absolute": {
     "entrypoints": 16000,
     "readme": 3950,

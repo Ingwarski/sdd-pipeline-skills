@@ -10,6 +10,7 @@ cleanup() {
   esac
 }
 trap cleanup EXIT
+export SDD_EVIDENCE_HOME="$test_root/evidence-machine-state"
 export SDD_SKILL_BACKUP_DIR="$test_root/former-backups"
 codex_dir="$test_root/codex"
 claude_dir="$test_root/claude"

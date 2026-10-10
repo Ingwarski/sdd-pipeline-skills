@@ -10,6 +10,7 @@ cleanup() {
   esac
 }
 trap cleanup EXIT
+export SDD_EVIDENCE_HOME="$test_root/evidence-machine-state"
 publisher="$test_root/publisher"
 checkout="$test_root/checkout"
 remote="$test_root/remote.git"

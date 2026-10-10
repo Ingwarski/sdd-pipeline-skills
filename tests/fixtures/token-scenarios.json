@@ -1,6 +1,6 @@
 {
   "first_setup_with_retry": {
-    "description": "New comparison product, Ukrainian working language and English UI; one design-brief retry, then approval reconciliation.",
+    "description": "New comparison product, Ukrainian working language and English UI; one design-brief retry, then approval reconciliation. The orchestrator resolves generated evidence storage; QA invocations author/reconcile definitions, not payloads.",
     "seed": "Create a comparison tool for people deciding between options on mobile and desktop. Preserve their selections after an error. Use Ukrainian for SDD and English for the interface.",
     "invocations": [
       "to-sdd-pipeline",
@@ -25,10 +25,13 @@
     "retries": 1,
     "intake": true,
     "prototype_reuse": false,
-    "claude_design": false
+    "claude_design": false,
+    "evidence_storage_consumers": [
+      "to-sdd-pipeline"
+    ]
   },
   "approved_design_revision": {
-    "description": "Existing operational product changes an approved interaction; revalidate affected owners, including one QA retry.",
+    "description": "Existing operational product changes an approved interaction; revalidate affected owners, including one QA retry. The orchestrator resolves generated evidence storage; QA invocations author/reconcile definitions, not payloads.",
     "seed": "Use the accepted revision of our operational dashboard. Preserve the existing approved version and history; update only affected architecture, checks and units, then wait for a new implementation prompt.",
     "invocations": [
       "to-sdd-pipeline",
@@ -42,10 +45,13 @@
     "retries": 1,
     "intake": false,
     "prototype_reuse": true,
-    "claude_design": false
+    "claude_design": false,
+    "evidence_storage_consumers": [
+      "to-sdd-pipeline"
+    ]
   },
   "interrupted_claude_resume": {
-    "description": "Resume an interrupted Claude Design handoff without another intake; verify current references and one retry after an incomplete receipt.",
+    "description": "Resume an interrupted Claude Design handoff without another intake; verify current references and one retry after an incomplete receipt. The orchestrator resolves generated evidence storage; QA invocations author/reconcile definitions, not payloads.",
     "seed": "Resume the selected Claude Design export after an interrupted session. Recheck source receipts and keep my saved answers and earlier approval history. Do not implement production code.",
     "invocations": [
       "to-sdd-pipeline",
@@ -59,6 +65,9 @@
     "retries": 1,
     "intake": false,
     "prototype_reuse": false,
-    "claude_design": true
+    "claude_design": true,
+    "evidence_storage_consumers": [
+      "to-sdd-pipeline"
+    ]
   }
 }

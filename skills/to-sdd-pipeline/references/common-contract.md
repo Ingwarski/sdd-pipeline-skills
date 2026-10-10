@@ -1,50 +1,31 @@
 # Shared SDD Operating Rules
 
-Read before owner work. All 13 skills ship together. Resolve resources from SKILL.md's **real directory**, following installed links, not the product directory. Report/repair missing references; never invent rules.
+Read before work. All 13 skills ship together; resolve resources from SKILL.md's real directory through installed links. Report missing rules; never invent them.
 
-## Sources and ownership
+## Sources, ownership and writing
 
-- Product truth comes from sources and explicit user decisions, not AI recommendations. Inspect discoverable facts; preserve terms/IDs and label assumptions or unresolved questions.
-- Write only declared owner outputs. Only the orchestrator writes `forge/sdd-manifest.json`; tool operators/adapters own receipts. Return provenance to the caller.
-- Context clarifies; it cannot override PRD, design, architecture or quality rules. Read relevant confirmed sections without copying them.
-- Return `source_usage`: path → `"full"`, consumed heading list, or `{"unused":"reason"}` for context/optional files. Include referenced scope, terms and evidence sections. Bind consumption with file/section hashes; omission never means unused. Exclude later results from planning inputs.
-- Repository claims need observation date, command, exact paths/hashes, including the command supporting absence. Recheck scoped inputs on reuse, not a whole-repository fingerprint.
-- Preserve useful content, decisions, progress, approvals and immutable candidates. Route changed facts to their owner; retain history.
+Sources/explicit decisions determine truth. Inspect facts, retain terms/IDs, label assumptions. Context cannot override PRD/design/architecture/quality. Write declared outputs: orchestrator owns `forge/sdd-manifest.json`, operators receipts. Owners reconcile changes, preserving history/progress/approvals/immutable candidates.
 
-## Language and concise writing
+Return reviewed `source_usage`: path → `"full"`, exact consumed headings, or `{"unused":"reason"}` for context/optional files. Bind referenced scope/terms/evidence sections; omission is not unused. Exclude later results from planning. Repository claims need time, command, scoped paths/hashes/absence; recheck on reuse.
 
-Use `working_language`: explicit instruction > recorded preference > latest substantive user message. Apply it to intake, owners, adapters, questions, displayed statuses, reports and artifact prose. Template headings describe meaning; localize them. Product UI/content locales remain separate.
+`working_language`: explicit instruction > saved preference > latest substantive message. Localize prose/questions/adapters/labels; product locales stay separate. Ukrainian is idiomatic; retain paths/code/commands/identifiers/names/quotes and approved English IT terms with meanings in `canonical-terms.md`.
 
-For Ukrainian (`uk`), use idiomatic language. Retain English only for paths, code, commands, machine values, API identifiers, proper names, quotes and accepted IT terms. `to-project-context` records those terms and Ukrainian meanings in `canonical-terms.md`.
+State decisions once, cite IDs/sections with local consequences. Use compact shared records/equivalent localized headings; retain obligations/assumptions/sources/evidence/risks/authority, justify exclusions. No filler/empty sections. Report changes/evidence/risks/next action.
 
-State decisions once at their owner; elsewhere cite the ID/section and local consequence. Use direct sentences, compact records and brief term explanations; no filler, repeated summaries or empty optional sections. Preserve every obligation, assumption, source, risk, evidence, owner and authorization boundary. Existing/localized headings may satisfy required sections; exclusions need source-backed reasons. Reference shared route/state/viewport records. Report revisions as changes, evidence, risks and next action.
+## Security and authority
 
-## Product security
+PRD's OWASP baseline protects scope without adding features/authority. Retain security IDs; changed actors/data/privileges/inputs/integrations/consequential actions return upstream when obligations change, styling alone does not. Never weaken mockup controls or equate documents with security. No automatic scans/paid services.
 
-The PRD's OWASP baseline adds protection within confirmed scope, not new features or authority. Downstream owners preserve security IDs and add local consequences. Changed actors, data, privileges, inputs, integrations or consequential actions return to PRD when obligations change; styling alone does not. Never weaken controls for a mockup or equate document validation with security. No automatic scan or paid service is authorized.
+Ask one material non-inferable foreground question. Operator choices get rationale/recommendation/consequences; research asks neutrally about concrete experiences. Separate assumptions/observations; silence/playback/timeouts/recommendations are not consent. Otherwise assume reversibly from sources. Materials intake is not approval.
 
-## Questions and autonomy
+One approval covers integrated design; seek risk-specific authority just in time, retain permission. Owners return `baseline_change_required`; accepted scoped corrections are overrides, never self-approval. Stop validated plans at `awaiting-implementation-prompt` until a later explicit implementation request. SDD drives; QA verifies without mandatory TDD.
 
-Ask one question only for a material, non-inferable decision. Operator decisions get a recommendation, source-based rationale and consequences. Behavioral research gets neutral questions about concrete experiences, without suggested answers or assumed feature needs. Distinguish hypotheses from observations; briefly confirm the answer's meaning.
+## Evidence and validation
 
-The one-time design-materials request is source intake, not approval.
+Produce required observations once; share inventories/environments and original bulk output. Capture required visuals deliberately; diagnose selectively, detect repeated failures, never omit required evidence for budgets. Clean task-owned browsers/profiles under AGENTS.md.
 
-Use a foreground adapter or active conversation, never logs alone. Silence, timeouts, recommendations and playback are not consent. For non-material gaps, record a minimal reversible source-grounded assumption and continue.
+Git keeps compact results/receipts; the store keeps generated payloads/history. Read [storage](evidence-storage-contract.md) for capture/archive/prepare/import/cleanup only. Missing/corrupt evidence blocks claims; storage never reruns/refreshes checks.
 
-One normal approval covers the integrated design; none is added per document, screen, finding or transition. Request risk-specific authority just in time. Approved-design changes return `baseline_change_required`; owners cannot approve their own changes. An explicit scoped operator correction is an override, not a repeated question.
+Apply [scope/execution](scope-and-execution.md), confirming headless UI exclusions. Product idea/PRD/screen map/QA/plan return [traceability](traceability-contract.md); others reuse IDs. Read instructions fully/sources selectively; reuse unchanged rules, reload after compaction/version changes.
 
-Production implementation is separate. After plan validation stop at `awaiting-implementation-prompt`; only a later explicit implementation prompt releases it. SDD determines what to build; QA verifies, without mandatory TDD.
-
-## Inputs, validation, and return
-
-Apply [scope/execution](scope-and-execution.md) for profile selection, intake/resume or host changes. Omit UI-only prerequisites only for confirmed headless scope, including standalone work; missing UI files are not an exclusion.
-
-Product-idea, PRD, screen-map, QA and plan return [typed traceability](traceability-contract.md); other owners reuse IDs. Reuse unchanged instructions in context; reload after compaction/version changes. Read required instructions fully, product sources selectively; do not resummarize unchanged documents.
-
-Only **required-before** inputs create dependencies, not optional grounding or later lookups. QA's later development-destination lookup never makes the plan a QA prerequisite.
-
-Validate distinct observable obligations, owner, terminology, applicable states, evidence limits and material gaps. A parent requirement ID is not clause coverage; document validation is not product testing.
-
-Return paths, invocation ID, independent content hashes/results, consumed hashes, scoped observations, changed decisions and risks. The caller records them; the two context outputs share an invocation, not hashes/results.
-
-Standalone owners check canonical inputs directly: do not require/create a manifest, dispatch others or claim pipeline readiness. Report affected downstream artifacts. With a manifest, the caller runs the checker before dispatch and after recording results; without one, perform equivalent checks and disclose unavailable automatic orchestration validation.
+Only required-before inputs create dependencies. Validate obligations/owners/terms/states/evidence/gaps; parent IDs are not clause coverage; document review is not product testing. Return paths/invocation/independent results/hashes/consumed bindings/observations/decisions/risks. Context shares invocation, not hashes/results. Standalone checks inputs without manifest/dispatch; disclose unavailable orchestration validation. With manifests, check before dispatch/after results.

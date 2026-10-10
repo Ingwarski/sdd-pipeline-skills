@@ -4,7 +4,7 @@ description: Run the design-first SDD workflow from product intake through three
 ---
 # to-sdd-pipeline
 
-Read [shared operating rules](references/common-contract.md) before work. Resolve all resources from this SKILL.md's real directory, following its installed link, never from the open project. Preserve `working_language`, source truth and approval boundaries.
+Read [shared operating rules](references/common-contract.md) before work; resolve resources from this SKILL.md's real directory.
 
 ## Mission and entry
 
@@ -39,7 +39,7 @@ Directly create/update only `forge/sdd-manifest.json`. Domain owners write only 
 
 The context bundle is one invocation with two independent hashes/results. Both must validate before downstream dispatch. No domain owner writes the manifest; return metadata to this orchestrator. Mirror owner-returned typed definitions/links under [traceability](references/traceability-contract.md), never author their meaning here.
 
-Runtime adapters own operational receipts. Codex mockup writes are confined to versioned `forge/design/candidates/{candidate_id}/{version}/`, optional `forge/design/candidate-sets/{candidate_set_id}/{set_version}/shared/`, and `forge/design/evidence/`. Claude writes only the selected export under `forge/design/inbox/{handoff_id}/selected-export/` and its authorized receipt; Codex alone imports/normalizes it. Log adapter/origin/version/hash/changed paths. No adapter writes production source or domain SDD.
+Runtime adapters own operational receipts. Codex mockup writes are confined to versioned `forge/design/candidates/{candidate_id}/{version}/`, optional `forge/design/candidate-sets/{candidate_set_id}/{set_version}/shared/`, and registered managed capture locations. Compact receipts may stay in `forge/design/evidence/`. Claude writes only the selected export under `forge/design/inbox/{handoff_id}/selected-export/` and its authorized receipt; Codex alone imports/normalizes it. Log adapter/origin/version/hash/changed paths. No adapter writes production source or domain SDD.
 
 ## Stage order
 
@@ -73,7 +73,7 @@ python3 /resolved/to-sdd-pipeline/scripts/sdd_check.py --project /project --afte
 
 Use `python` on Windows when that is the detected Python 3 executable. Resolve real paths first.
 
-Before **every** owner/node dispatch, run `--before`. After recording an owner's result, run `--after`. Retain its actual report and toolchain hashes; a saved pass from different skill/checker bytes is not current validation. On nonzero exit, inspect issue codes, re-invoke only affected owners or surface the exact missing capability/evidence; do not advance or self-declare the check passed. The checker never writes files, approves design, runs product tests or authorizes implementation.
+Before **every** owner/node dispatch, run `--before`. After recording an owner's result, run `--after`. Retain its actual report and toolchain hashes; a saved pass from different skill/checker bytes is not current validation. On nonzero exit, inspect issue codes, re-invoke only affected owners or surface the exact missing capability/evidence; do not advance or self-declare the check passed. For generated evidence, read the [storage contract](references/evidence-storage-contract.md): configure storage, archive and prepare verified bytes before the checker. It never writes cache, uses the network, approves design, runs tests or authorizes implementation.
 
 For older manifests, preserve all documents/history/IDs and add only metadata verified from current sources/receipts. Missing evidence is not reconstructed as success. Unavailable original evidence stays a named limitation; see migration instructions.
 

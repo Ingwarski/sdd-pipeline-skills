@@ -44,6 +44,30 @@ update_sdd() {
     printf 'Local commits diverge from or are ahead of GitHub; stopped without replacing files.\n' >&2; return 1;
   }
   git -C "$repo_root" merge --ff-only FETCH_HEAD
+  # Existing exact links need no repair. Storage setup is checked even when Git
+  # reports "Already up to date", without choosing a provider or uploading data.
+  if [[ -f "$repo_root/scripts/installation_status.py" && -f "$repo_root/scripts/evidence_setup.py" ]] && \
+      python3 "$repo_root/scripts/installation_status.py" --root "$repo_root" --exit-on-links --installer-args "$@" >/dev/null; then
+    local evidence_args=()
+    local evidence_result=0
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --evidence-project) evidence_args+=(--project "$2"); shift 2 ;;
+        --evidence-reconfigure) evidence_args+=(--reconfigure); shift ;;
+        --evidence-non-interactive) evidence_args+=(--non-interactive); shift ;;
+        *) shift ;;
+      esac
+    done
+    python3 "$repo_root/scripts/evidence_setup.py" ensure ${evidence_args[@]+"${evidence_args[@]}"} || evidence_result=$?
+    if [[ $evidence_result -eq 2 ]]; then
+      printf '%s\n' 'Skills are current; evidence storage setup is required. Run scripts/evidence_setup.py wizard.'
+    elif [[ $evidence_result -ne 0 ]]; then
+      return "$evidence_result"
+    else
+      printf '%s\n' 'Skills and evidence storage setup are current; no link repair needed.'
+    fi
+    return 0
+  fi
   # Execute the freshly fetched installer, not a previously loaded copy.
   exec bash "$repo_root/install.sh" --repair "$@"
 }

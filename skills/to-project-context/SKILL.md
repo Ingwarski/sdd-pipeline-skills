@@ -4,7 +4,7 @@ description: Create the coupled project-context and canonical-terms documents af
 ---
 # to-project-context
 
-Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve the link from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
+Read [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve installed resources from this SKILL.md's real directory.
 
 ## Inputs and modes
 
