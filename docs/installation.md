@@ -129,7 +129,7 @@ from downloading GitHub changes. See [official skill documentation](https://deve
 
 ## Evidence setup and reconfiguration
 
-The installer/update flow runs `scripts/evidence_setup.py ensure` after valid links. A terminal wizard selects managed local, chosen folder/disk/mount, or Google Drive, plus limits/retention/adoption. Non-interactive execution reports `setup_required` without choosing a provider or uploading data. Saved choices are reused; the already-current status path still detects missing setup. Installing skills alone never uploads existing project evidence or purges it.
+The installer/update flow runs `scripts/evidence_setup.py ensure` after valid links. A terminal wizard selects managed local, chosen folder/disk/mount, or Google Drive, plus limits/retention/adoption. When an agent presents a storage-choice popup/dialog, its Google Drive option description must show prerequisites **before the user answers**: Codex requires installing/connecting the Google Drive plugin; Claude Code requires an authenticated Drive connector/MCP, the same Claude account and `/mcp` verification. Label rclone an optional alternative; local/folder options need neither integration nor rclone. A separate chat notice or README link does not replace this option description. Non-interactive execution reports `setup_required` without choosing a provider or uploading data. Saved choices are reused without repeating the choice; the already-current status path still detects missing setup. Installing skills alone never uploads existing project evidence or purges it.
 
 Use the complete [setup guide](evidence-storage.md) for authentication and policy. In this durable clone:
 

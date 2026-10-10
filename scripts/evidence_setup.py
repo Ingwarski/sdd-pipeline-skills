@@ -348,6 +348,10 @@ def ensure(project=None, *, home=None, interactive=False):
 def wizard(project=None, *, home=None, reconfigure=False, input_fn=input):
     """Small terminal wizard. EOF/cancel leaves existing policies and stores untouched."""
     print("Select durable evidence storage: 1 managed local, 2 selected folder/disk, 3 Google Drive.")
+    print("Before choosing connected Google Drive storage:")
+    print("  Codex: install the Google Drive plugin from Plugins and connect your Google account.")
+    print("  Claude Code: connect Google Drive in Claude's Customize > Connectors, sign in with the same Claude account, and verify it with /mcp.")
+    print("Local/folder storage needs neither integration. Rclone is an optional standalone alternative for Drive.")
     print("A folder on the same disk reduces Git clutter but does not free disk space. Cache/staging are separate from the durable store.")
     try:
         prior = None

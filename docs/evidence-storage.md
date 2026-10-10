@@ -11,13 +11,13 @@ python3 scripts/evidence_setup.py wizard --project /path/to/product
 python3 scripts/evidence_setup.py status --project /path/to/product
 ```
 
-Use `python` on Windows when it is the detected supported executable. The wizard offers:
+Use `python` on Windows when it is the detected supported executable. When a new choice or explicit reconfiguration is needed, an agent's storage-choice popup/dialog must include the following prerequisites **in the option descriptions before the user answers**. A separate notice or README link is insufficient; reuse saved choices without repeating the question. The wizard offers:
 
 | Choice | Durable destination | Requirements |
 |---|---|---|
-| Managed local | Outside the checkout in the configured evidence home | Python standard library; no cloud account |
-| Folder/disk/mount | An explicitly selected available folder outside the checkout | Writable destination and sufficient measured working space |
-| Google Drive | Explicit selected Drive destination/account | Qualified connected bridge or optional authenticated rclone; independent upload/readback probe |
+| Managed local | Outside the checkout in the configured evidence home | Python standard library; no Drive plugin/connector, rclone or cloud account |
+| Folder/disk/mount | An explicitly selected available folder outside the checkout | Writable destination and sufficient measured working space; no Drive plugin/connector or rclone |
+| Google Drive | Explicit selected Drive destination/account | Connected: first install/connect Google Drive in Codex Plugins, or authenticate the Drive connector/MCP in Claude's Customize → Connectors, use the same Claude account in Code and verify `/mcp`. A qualified host bridge and independent upload/readback probe are required. Authenticated rclone is an optional alternative. |
 
 The wizard reviews combined local space, run/unit/project byte/file limits, retained content/object limits, metadata budget, retention and optional archive adoption. Changing a folder on the same disk reduces Git clutter but does not free disk space. A mounted destination being unavailable is a storage failure; the tool never silently changes providers.
 
