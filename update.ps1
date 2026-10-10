@@ -60,7 +60,7 @@ if ((Test-Path -LiteralPath $StatusScript) -and (Test-Path -LiteralPath $SetupSc
         if ($null -eq $Executable) { continue }
         $Prefix = if ($Candidate -eq 'py') { @('-3') } else { @() }
         & $Executable.Source @Prefix -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>$null
-        if ($LASTEXITCODE -eq 0) { $StatusPython = $Executable.Source; $StatusPrefix = $Prefix; break }
+        if ($global:LASTEXITCODE -eq 0) { $StatusPython = $Executable.Source; $StatusPrefix = $Prefix; break }
     }
     $StatusArgs = @($StatusScript, '--root', $RepoRoot, '--exit-on-links', '--installer-args')
     if ($All) { $StatusArgs += '--all' }
@@ -72,19 +72,36 @@ if ((Test-Path -LiteralPath $StatusScript) -and (Test-Path -LiteralPath $SetupSc
     foreach ($Root in $RetiredSource) { $StatusArgs += @('--retired-source', $Root) }
     if (-not [string]::IsNullOrWhiteSpace($EvidenceProject)) { $StatusArgs += @('--evidence-project', $EvidenceProject) }
     if ($null -ne $StatusPython) {
-        & $StatusPython @StatusPrefix @StatusArgs | Out-Null
-        if ($LASTEXITCODE -eq 0) {
+        # A hosting function can leave a script-local LASTEXITCODE that shadows
+        # the native process result. A no-op also needs the authoritative report.
+        $StatusOutput = (& $StatusPython @StatusPrefix @StatusArgs) -join "`n"
+        $StatusExitCode = $global:LASTEXITCODE
+        $StatusReport = $StatusOutput | ConvertFrom-Json
+        if ($StatusExitCode -eq 0 -and
+            $StatusReport.PSObject.Properties.Name -contains 'links_result' -and
+            $StatusReport.links_result -eq 'current') {
             $EvidenceArgs = @($SetupScript, 'ensure')
             if (-not [string]::IsNullOrWhiteSpace($EvidenceProject)) { $EvidenceArgs += @('--project', $EvidenceProject) }
             if ($EvidenceReconfigure) { $EvidenceArgs += '--reconfigure' }
             if ($EvidenceNonInteractive) { $EvidenceArgs += '--non-interactive' }
+            # Keep the wizard attached to the terminal; capturing its output
+            # would make stdout noninteractive and suppress explicit setup.
             & $StatusPython @StatusPrefix @EvidenceArgs
-            if ($LASTEXITCODE -eq 2) {
+            $EvidenceExitCode = $global:LASTEXITCODE
+            if ($EvidenceExitCode -eq 2) {
                 Write-Host 'Skills are current; evidence storage setup is required. Run scripts/evidence_setup.py wizard.'
-            } elseif ($LASTEXITCODE -ne 0) {
-                throw 'Evidence setup failed; current skill links do not need repair.'
-            } else {
+            } elseif ($EvidenceExitCode -eq 0) {
+                $EvidenceStatusArgs = @($SetupScript, 'status')
+                if (-not [string]::IsNullOrWhiteSpace($EvidenceProject)) { $EvidenceStatusArgs += @('--project', $EvidenceProject) }
+                $EvidenceOutput = (& $StatusPython @StatusPrefix @EvidenceStatusArgs) -join "`n"
+                $EvidenceStatusExitCode = $global:LASTEXITCODE
+                $EvidenceReport = $EvidenceOutput | ConvertFrom-Json
+                if ($EvidenceStatusExitCode -ne 0 -or $EvidenceReport.result -ne 'configured') {
+                    throw 'Evidence setup did not verify a configured store; current skill links do not need repair.'
+                }
                 Write-Host 'Skills and evidence storage setup are current; no link repair needed.'
+            } else {
+                throw 'Evidence setup failed; current skill links do not need repair.'
             }
             exit 0
         }

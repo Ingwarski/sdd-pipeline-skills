@@ -31,6 +31,7 @@ class StatComparisonTests(unittest.TestCase):
              patch.object(io.Path, "lstat", return_value=path_info), \
              patch.object(io.os, "supports_dir_fd", frozenset()), \
              patch.object(io.os, "open", return_value=123), \
+             patch.object(io, "_windows_open_regular", return_value=123), \
              patch.object(io.os, "fstat", return_value=baseline), patch.object(io.os, "close"):
             path, descriptor, actual = io._open_regular("synthetic-observation.cmd")
             io._verify_stable(path, descriptor, actual)
@@ -45,6 +46,7 @@ class StatComparisonTests(unittest.TestCase):
              patch.object(io.Path, "lstat", return_value=path_info), \
              patch.object(io.os, "supports_dir_fd", frozenset()), \
              patch.object(io.os, "open", return_value=123), \
+             patch.object(io, "_windows_open_regular", return_value=123), \
              patch.object(io.os, "fstat", return_value=fd_info), patch.object(io.os, "close") as close:
             _, descriptor, baseline = io._open_regular("synthetic-observation")
             self.assertEqual(descriptor, 123)
@@ -60,6 +62,7 @@ class StatComparisonTests(unittest.TestCase):
                  patch.object(io, "_parents"), patch.object(io.Path, "lstat", return_value=path_info), \
                  patch.object(io.os, "supports_dir_fd", frozenset()), \
                  patch.object(io.os, "open", return_value=123), \
+                 patch.object(io, "_windows_open_regular", return_value=123), \
                  patch.object(io.os, "fstat", return_value=snapshot(**{field: value})), \
                  patch.object(io.os, "close") as close:
                 with self.assertRaisesRegex(io.EvidenceError, "changed while opening"):
@@ -159,15 +162,25 @@ class NativeStableReadTests(unittest.TestCase):
             path.write_bytes(b"before")
             _, descriptor, baseline = io._open_regular(path)
             try:
-                time.sleep(0.02)
-                with path.open("wb") as output:
-                    output.write(b"after!")
-                    output.flush()
-                    os.fsync(output.fileno())
-                with self.assertRaisesRegex(io.EvidenceError, "changed while reading"):
+                if os.name == "nt":
+                    # Native Windows excludes a concurrent writer rather than
+                    # relying on two fast writes having distinct timestamps.
+                    with self.assertRaises(OSError):
+                        path.write_bytes(b"after!")
                     io._verify_stable(path, descriptor, baseline)
+                    self.assertEqual(path.read_bytes(), b"before")
+                else:
+                    with path.open("wb") as output:
+                        output.write(b"after!")
+                        output.flush()
+                        os.fsync(output.fileno())
+                    with self.assertRaisesRegex(io.EvidenceError, "changed while reading"):
+                        io._verify_stable(path, descriptor, baseline)
             finally:
                 os.close(descriptor)
+            # The task's handle must release its sharing exclusion on close.
+            path.write_bytes(b"after!")
+            self.assertEqual(path.read_bytes(), b"after!")
 
 
 if __name__ == "__main__":

@@ -71,6 +71,35 @@ def _parents(path: Path):
             raise EvidenceError("linked or non-directory parent: " + str(parent))
 
 
+def _windows_open_regular(path):
+    """Hold Windows read sharing without permitting byte writes or replacement.
+
+    Timestamp comparisons alone can miss an immediate equal-size rewrite.
+    CreateFile sharing excludes existing and subsequent writable handles/maps,
+    while OPEN_REPARSE_POINT lets the regular-file guard inspect a raced link.
+    A successful CRT conversion owns the handle until ``os.close(fd)``.
+    """
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                       wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+    create.restype = wintypes.HANDLE
+    close = kernel.CloseHandle
+    close.argtypes, close.restype = (wintypes.HANDLE,), wintypes.BOOL
+    handle = create(str(path), 0x80000000, 0x00000001, None, 3, 0x00200000, None)
+    if handle == ctypes.c_void_p(-1).value or handle is None:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        return msvcrt.open_osfhandle(handle, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0))
+    except BaseException:
+        close(handle)
+        raise
+
+
 def _open_regular(path):
     """Open the same regular inode that was inspected, without following links."""
     path = Path(os.path.abspath(os.fspath(path)))
@@ -80,7 +109,9 @@ def _open_regular(path):
         if _is_link(before) or not stat.S_ISREG(before.st_mode):
             raise EvidenceError("not a regular file: " + str(path))
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
-        if os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW"):
+        if os.name == "nt":
+            fd = _windows_open_regular(path)
+        elif os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW"):
             # Pin each parent inode while descending so a renamed ancestor
             # cannot redirect the open through a symlink between lstat/open.
             parent_fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -135,6 +166,8 @@ def hash_file(path) -> tuple[str, int]:
         if size != before.st_size:
             raise EvidenceError("file length changed while hashing: " + str(path))
         return digest.hexdigest(), size
+    except OSError as exc:
+        raise EvidenceError("cannot safely read " + str(path) + ": " + str(exc)) from exc
     finally:
         os.close(fd)
 
@@ -170,6 +203,8 @@ def read_json(path, limit: int):
             raise EvidenceError("JSON length changed while reading")
         return json.loads(b"".join(chunks).decode("utf-8"), object_pairs_hook=_unique_pairs,
                           parse_constant=lambda value: (_ for _ in ()).throw(EvidenceError("non-finite JSON number")))
+    except OSError as exc:
+        raise EvidenceError("cannot safely read JSON " + str(path) + ": " + str(exc)) from exc
     except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise EvidenceError("invalid UTF-8 JSON: " + str(path)) from exc
     except ValueError as exc:

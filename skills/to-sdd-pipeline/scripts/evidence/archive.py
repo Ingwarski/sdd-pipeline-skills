@@ -80,10 +80,12 @@ def capture(source, destination, maximum):
         if count != before.st_size:
             raise EvidenceError("capture input changed")
         return {"sha256": digest.hexdigest(), "size": count}
-    except BaseException:
+    except BaseException as error:
         if made_output:
             _parents(destination)
             destination.unlink(missing_ok=True)
+            if isinstance(error, OSError):
+                raise EvidenceError("capture could not preserve stable original bytes: " + str(source)) from error
         raise
     finally:
         os.close(descriptor)
