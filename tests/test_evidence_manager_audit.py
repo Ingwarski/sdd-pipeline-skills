@@ -387,9 +387,14 @@ class ManagerAuditTests(unittest.TestCase):
         atomic_json(config_file, {"version": 1, "store_id": self.policy["store_id"], "provider": "local",
             "destination": str(self.fixture.store), "evidence_home": str(self.fixture.home)})
         release = self.base / "release-workers"
-        code = ("from pathlib import Path; import time; Path('started').write_bytes(b'123456'); "
-                "deadline=time.monotonic()+20\nwhile not Path(" + repr(str(release)) + ").exists() and time.monotonic()<deadline: time.sleep(0.02)\n")
+        # Only the parent releases this barrier. A slow fourth startup must not
+        # let earlier producers finish before simultaneous liveness is checked.
+        readiness_timeout = 120
+        code = ("from pathlib import Path; import time; Path('started').write_bytes(b'123456')\n"
+                "while not Path(" + repr(str(release)) + ").exists(): time.sleep(0.02)\n")
         processes, outputs, results = [], [], []
+        started = time.monotonic()
+        deadline = started + readiness_timeout
         try:
             for index in range(4):
                 output = self.base / ("concurrent-" + str(index))
@@ -397,21 +402,34 @@ class ManagerAuditTests(unittest.TestCase):
                 command = [sys.executable, "-B", str(fixtures.ROOT / "skills/to-sdd-pipeline/scripts/evidence_store.py"),
                     "run", "--policy", str(policy_file), "--config", str(config_file), "--run-id", "concurrent",
                     "--unit-id", "U-1", "--output-dir", str(output), "--reserve-bytes", "100", "--reserve-files", "3",
-                    "--timeout", "25", "--defer-run-completion", "--", sys.executable, "-B", "-c", code]
-                processes.append(subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
-            deadline = time.monotonic() + 15
+                    "--timeout", str(readiness_timeout + 60), "--defer-run-completion", "--", sys.executable, "-B", "-c", code]
+                processes.append(subprocess.Popen(command, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
             while time.monotonic() < deadline and not all((path / "started").exists() for path in outputs):
                 if any(process.poll() is not None for process in processes):
                     break
                 time.sleep(0.02)
-            simultaneous = all((path / "started").exists() for path in outputs) and all(process.poll() is None for process in processes)
+            ready = [(path / "started").exists() for path in outputs]
+            alive = [process.poll() is None for process in processes]
+            simultaneous = all(ready) and all(alive)
+            readiness = {"elapsed_seconds": round(time.monotonic() - started, 3), "ready": ready, "alive": alive}
         finally:
             release.touch()
             for process in processes:
-                stdout, stderr = process.communicate(timeout=60)
-                results.append({"code": process.returncode, "stdout": stdout, "stderr": stderr})
-        self.assertTrue(simultaneous, results)
-        self.assertTrue(all(result["code"] == 0 for result in results), results)
+                timed_out = False
+                try:
+                    stdout, stderr = process.communicate(timeout=120)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    process.terminate()
+                    try:
+                        stdout, stderr = process.communicate(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        stdout, stderr = process.communicate(timeout=10)
+                results.append({"code": process.returncode, "timed_out": timed_out, "stdout": stdout, "stderr": stderr})
+        self.assertTrue(simultaneous, {"readiness": readiness, "workers": results})
+        self.assertTrue(all(result["code"] == 0 and not result["timed_out"] for result in results), results)
         status = self.manager.status()
         self.assertTrue(status["accounting_complete"], status)
         self.assertEqual(24, status["gross_generated_bytes"])
