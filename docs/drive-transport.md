@@ -29,6 +29,10 @@ The account holder enables the Drive API, creates the OAuth client, supplies its
 credentials directly to rclone, and completes Google's browser authorization.
 For an existing remote changed to a custom client, reauthorize it using
 `rclone config reconnect REMOTE: --config /absolute/external/rclone.conf`.
+An External OAuth app left in **Testing** receives a refresh token that expires
+after seven days for Drive access; reconnect when it expires. For ongoing use,
+follow Google's publishing requirements before changing the app's status, then
+reauthorize. See [Google's refresh-token expiration rules](https://developers.google.com/identity/protocols/oauth2#expiration).
 Choose scopes that cover required archive access. `drive.file` is limited to files
 created by that application and may not permit adopting existing archives.
 
