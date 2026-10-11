@@ -4,7 +4,7 @@ description: Define design and experience rules, tokens, usability coverage, sou
 ---
 # to-design-brief
 
-Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) and [H1-H10 contract](../to-sdd-pipeline/references/heuristic-usability-review.md) before work. Resolve links from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
+Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) and [H1-H10 contract](../to-sdd-pipeline/references/heuristic-usability-review.md) before work. Resolve installed resources from this SKILL.md's real directory.
 
 ## Inputs
 

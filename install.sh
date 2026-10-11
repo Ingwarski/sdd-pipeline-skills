@@ -19,6 +19,7 @@ retired_sources=()
 retired_source_count=0
 retired_extra_roots=()
 retired_extra_count=0
+evidence_args=()
 
 usage() {
   printf '%s\n' \
@@ -27,6 +28,7 @@ usage() {
     "Usage: ./install.sh [--all|--codex|--claude] [--repair|--uninstall|--retire-only]" \
     "                    [--codex-dir PATH] [--claude-dir PATH]" \
     "                    [--retired-source OLD_CLONE] [--cleanup-dir SKILL_ROOT]" \
+    "                    [--evidence-project PATH] [--evidence-reconfigure] [--evidence-non-interactive]" \
     "" \
     "With no platform flag, both Codex and Claude Code are installed." \
     "Install/update permanently deletes communications-audit and issue-happypro-certificate." \
@@ -69,6 +71,19 @@ while [[ $# -gt 0 ]]; do
       ;;
     --retire-only)
       retire_only=1
+      shift
+      ;;
+    --evidence-project)
+      [[ $# -ge 2 ]] || { printf 'Missing value for --evidence-project\n' >&2; exit 2; }
+      evidence_args+=(--project "$2")
+      shift 2
+      ;;
+    --evidence-reconfigure)
+      evidence_args+=(--reconfigure)
+      shift
+      ;;
+    --evidence-non-interactive)
+      evidence_args+=(--non-interactive)
       shift
       ;;
     --codex-dir)
@@ -342,6 +357,14 @@ if [[ $post_failures -ne 0 ]]; then
 fi
 
 if [[ $uninstall -eq 0 ]]; then
+  evidence_result=0
+  python3 "$repo_root/scripts/evidence_setup.py" ensure ${evidence_args[@]+"${evidence_args[@]}"} || evidence_result=$?
+  if [[ $evidence_result -eq 2 ]]; then
+    printf '%s\n' 'Evidence storage setup is required; skill links are installed. Run scripts/evidence_setup.py wizard before managed evidence operations.'
+  elif [[ $evidence_result -ne 0 ]]; then
+    printf '%s\n' 'Evidence setup failed; skill links are installed but storage is not ready.' >&2
+    exit "$evidence_result"
+  fi
   printf '%s\n' 'Skills are linked to this clone. Use ./update.sh for updates and retirement cleanup.'
   printf '%s\n' 'Codex normally discovers new skills automatically. Restart only if they do not appear.'
   printf '%s\n' 'Claude Code reloads SKILL.md changes live; restart if its top-level skills directory was created during this session.'

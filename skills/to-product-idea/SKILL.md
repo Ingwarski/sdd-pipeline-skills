@@ -4,7 +4,7 @@ description: Create or validate docs/product-idea.md through visible, resumable,
 ---
 # to-product-idea
 
-Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve the link from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
+Read [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve installed resources from this SKILL.md's real directory.
 
 ## Mission and inputs
 

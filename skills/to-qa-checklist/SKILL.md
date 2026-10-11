@@ -4,7 +4,7 @@ description: Prepare or reconcile source-backed acceptance, usability, accessibi
 ---
 # to-qa-checklist
 
-Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) and [verification contract](../to-sdd-pipeline/references/verification-contract.md) before work. Resolve links from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
+Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) and [verification contract](../to-sdd-pipeline/references/verification-contract.md) before work. Resolve installed resources from this SKILL.md's real directory.
 
 ## Inputs by phase
 
@@ -24,7 +24,7 @@ Guardrails owns evidence policy; DoD owns reusable gate definitions, result form
 
 Default to **authoring checks**, not executing tests. New items are `Definition Status: prepared` / `Execution Status: not_run`; no invented evidence, finding, participant, timestamp or pass.
 
-Keep stable check definitions separate from execution results/run history within this same file, joined by check ID. Record executed results only from inspected supplied evidence or a separately authorized review, with actual executor/time, evaluated revision, scope and evidence. Keep previous runs; mark stale results superseded. Writing the checklist never means the product is verified.
+Keep definitions and compact current results canonical here, joined by check ID. Preserve detailed observations and superseded run history through verified evidence references; read the [storage contract](../to-sdd-pipeline/references/evidence-storage-contract.md) when recording or resolving them. Record only inspected supplied evidence or an authorized review with original executor/time, revision and scope. Mark stale results superseded; storage migration never executes a check.
 
 Planning output uses `Release Readiness: not_evaluated`. An explicitly requested release evaluation uses `passed | blocked` under the DoD rules. A required unrun/deferred check cannot pass.
 

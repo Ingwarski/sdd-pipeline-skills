@@ -33,6 +33,7 @@ class InstallerInputTests(unittest.TestCase):
         self.manifest = json.loads((self.clone / "skills-manifest.json").read_text(encoding="utf-8"))
         self.unrelated_project = self.root / "unrelated-project"
         self.unrelated_project.mkdir()
+        self.evidence_home = self.root / "evidence-machine-state"
 
     def write_manifest(self, manifest=None, **kwargs):
         (self.clone / "skills-manifest.json").write_text(json.dumps(manifest or self.manifest, **kwargs), encoding="utf-8")
@@ -47,7 +48,9 @@ class InstallerInputTests(unittest.TestCase):
             command = ["/bin/bash", str(self.clone / "install.sh"), "--codex", "--codex-dir", str(self.dest)]
             if repair:
                 command.append("--repair")
-        return subprocess.run(command, cwd=self.unrelated_project, env=environment, capture_output=True, text=True, timeout=60)
+        isolated_environment = dict(environment if environment is not None else os.environ,
+                                    SDD_EVIDENCE_HOME=str(self.evidence_home))
+        return subprocess.run(command, cwd=self.unrelated_project, env=isolated_environment, capture_output=True, text=True, timeout=60)
 
     def assert_failed_without_mutation(self, result):
         self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
@@ -169,10 +172,12 @@ class InstallerInputTests(unittest.TestCase):
         result = self.install()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         def status(root):
-            return subprocess.run([sys.executable, str(script), "--root", str(self.clone), "--skill-root", str(root)], capture_output=True, text=True)
+            return subprocess.run([sys.executable, str(script), "--root", str(self.clone), "--skill-root", str(root)],
+                                  env=dict(os.environ, SDD_EVIDENCE_HOME=str(self.evidence_home)), capture_output=True, text=True)
         result = status(self.dest)
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual("current", json.loads(result.stdout)["result"])
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("setup_required", json.loads(result.stdout)["result"])
+        self.assertEqual("current", json.loads(result.stdout)["links_result"])
         copied = self.root / "thirteen-copies"
         for entry in self.manifest["skills"]:
             shutil.copytree(self.clone / entry["path"], copied / entry["name"])

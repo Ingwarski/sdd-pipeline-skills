@@ -4,7 +4,7 @@ Read only when an implementation unit reuses prototype presentation code. A mock
 
 The plan must freeze the approved candidate/version, normalized prototype source root/tree hash and algorithm, production base commit, allowed adaptations, and every missing production capability. Map each selected source path to an explicit production destination and strategy: `copy | adapt | reimplement`. Reuse is bounded by that map, not a blanket copy permission.
 
-For each reuse unit record: source references, Baseline ID/target hash, source root/tree hash, path map, strategy, base commit, permitted variance/adaptations, missing production capabilities, QA check IDs and required receipt path `forge/runs/{unit_id}/{run_id}/prototype-promotion.json`.
+For each reuse unit record: source references, Baseline ID/target hash, source root/tree hash, path map, strategy, base commit, permitted variance/adaptations, missing production capabilities, QA check IDs and required compact receipt `forge/runs/{unit_id}/{run_id}/prototype-promotion.json` or version 1 evidence reference. Preserve original provenance through verified external bytes; storage never changes its semantic checks.
 
 Only the separately authorized Phase 3 runner derives the actual Git diff and writes the `PrototypePromotionReceipt`. The plan owner, orchestrator and implementation agent's free-form report cannot fabricate it.
 

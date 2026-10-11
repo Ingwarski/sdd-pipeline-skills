@@ -8,6 +8,7 @@ $Remote = Join-Path $TestRoot 'remote.git'
 $NativeGit = (Get-Command git -CommandType Application | Select-Object -First 1).Source
 $OldResult = $env:SDD_UPDATE_TEST_RESULT
 $OldBackup = $env:SDD_SKILL_BACKUP_DIR
+$OriginalEvidenceHome = $env:SDD_EVIDENCE_HOME
 $StudentRoots = @()
 
 function Test-Git([string]$Root, [string[]]$Arguments) {
@@ -34,6 +35,7 @@ function Expect-Failure([string]$Message) {
     Assert-True (-not (Test-Path -LiteralPath $env:SDD_UPDATE_TEST_RESULT)) 'Installer ran after a failed update check.'
 }
 try {
+    $env:SDD_EVIDENCE_HOME = Join-Path $TestRoot 'evidence-machine-state'
     New-Item -ItemType Directory -Path (Join-Path $Publisher 'scripts') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'update.ps1') -Destination (Join-Path $Publisher 'update.ps1')
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/retired-skills.ps1') -Destination (Join-Path $Publisher 'scripts/retired-skills.ps1')
@@ -74,8 +76,8 @@ try {
             $Output = & $NativeGit -C $GitArgs[1] fetch --quiet $Remote $GitArgs[-1]
         } else { $Output = & $NativeGit @GitArgs }
         $global:LASTEXITCODE = $LASTEXITCODE
-        # Native commands expose their exit code in the caller's scope. Preserve
-        # that behavior even after the updater's installer set a script-local 0.
+        # This fixture also leaves a caller-local code, as an enclosing host can.
+        # Python native results must not be mistaken for this stale Git success.
         Set-Variable -Name LASTEXITCODE -Value $LASTEXITCODE -Scope 1
         return $Output
     }
@@ -149,8 +151,11 @@ try {
         New-Item -ItemType Directory -Path $Copy -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $Copy 'SKILL.md') -Value local-copy
     }
-    & (Join-Path $Student 'update.ps1') -All -CodexDir $StudentRoots[0] -ClaudeDir $StudentRoots[1]
+    $UpdateMessages = @(& (Join-Path $Student 'update.ps1') -All -CodexDir $StudentRoots[0] -ClaudeDir $StudentRoots[1] -EvidenceNonInteractive 6>&1)
     Assert-True ($LASTEXITCODE -eq 0) 'Source copies blocked their own retirement.'
+    $UpdateText = $UpdateMessages -join "`n"
+    Assert-True ($UpdateText -like '*Skills are current; evidence storage setup is required.*') 'Already-current update hid missing evidence setup.'
+    Assert-True ($UpdateText -notlike '*Skills and evidence storage setup are current*') 'Missing evidence setup was reported as configured.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Student 'skills/communications-audit'))) 'Source copy remains.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Student '.agents/skills/issue-happypro-certificate'))) 'Repo-local copy remains.'
     Assert-True ([string]::IsNullOrWhiteSpace(((Test-Git $Student @('status','--porcelain')) -join "`n"))) 'Student checkout is not clean.'
@@ -164,6 +169,7 @@ try {
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Student 'unverified.txt'))) 'Stable consumed an unverified main commit.'
     Write-Host 'Windows updater tests passed.'
 } finally {
+    $env:SDD_EVIDENCE_HOME = $OriginalEvidenceHome
     Remove-Item -Path Function:git -ErrorAction SilentlyContinue
     $env:SDD_UPDATE_TEST_RESULT = $OldResult
     $env:SDD_SKILL_BACKUP_DIR = $OldBackup

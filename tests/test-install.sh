@@ -12,6 +12,7 @@ cleanup() {
   esac
 }
 trap cleanup EXIT
+export SDD_EVIDENCE_HOME="$test_root/evidence-machine-state"
 
 codex_dir="$test_root/codex"
 claude_dir="$test_root/claude"
@@ -46,16 +47,25 @@ first_output=$("$repo_root/install.sh" --all --codex-dir "$codex_dir" --claude-d
 printf '%s\n' "$first_output"
 assert_unrelated_preserved
 
+# Exact skill links are current while first-install evidence setup is missing.
+status_result=0
+status_report=$(python3 "$repo_root/scripts/installation_status.py" --root "$repo_root" --skill-root "$codex_dir" --skill-root "$claude_dir") || status_result=$?
+[[ $status_result -eq 1 ]]
+python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["links_result"] == "current"; assert value["result"] == "setup_required"' <<< "$status_report"
+[[ -f "$SDD_EVIDENCE_HOME/setup-status.json" && ! -e "$SDD_EVIDENCE_HOME/default.json" ]]
+python3 "$repo_root/scripts/evidence_setup.py" configure --provider local > /dev/null
+python3 "$repo_root/scripts/installation_status.py" --root "$repo_root" --skill-root "$codex_dir" --skill-root "$claude_dir" > /dev/null
+
 while IFS='|' read -r skill_name relative_path legacy_name; do
   [[ -L "$codex_dir/$skill_name" ]]
   [[ -L "$claude_dir/$skill_name" ]]
   cmp -s "$repo_root/$relative_path/SKILL.md" "$codex_dir/$skill_name/SKILL.md"
   cmp -s "$repo_root/$relative_path/SKILL.md" "$claude_dir/$skill_name/SKILL.md"
-  grep -q 'working_language' "$repo_root/$relative_path/SKILL.md"
   grep -Fq 'common-contract.md' "$repo_root/$relative_path/SKILL.md"
 done < <(python3 "$repo_root/scripts/install_manifest.py" --root "$repo_root" --metadata-only)
 
-grep -Fq 'For Ukrainian (`uk`)' "$repo_root/skills/to-sdd-pipeline/references/common-contract.md"
+grep -Fq 'Ukrainian is idiomatic' "$repo_root/skills/to-sdd-pipeline/references/common-contract.md"
+grep -q 'working_language' "$repo_root/skills/to-sdd-pipeline/references/common-contract.md"
 
 grep -q 'working_language' "$repo_root/skills/to-sdd-pipeline/references/claude-design-handoff.md"
 grep -q 'preserved_english_terms' "$repo_root/skills/to-sdd-pipeline/references/claude-design-handoff.md"

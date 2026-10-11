@@ -4,7 +4,7 @@ description: Create implementation units, dependencies and verification mapping 
 ---
 # to-development-plan
 
-Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) and [verification contract](../to-sdd-pipeline/references/verification-contract.md) before work. Resolve links from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
+Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) and [verification contract](../to-sdd-pipeline/references/verification-contract.md) before work. Resolve installed resources from this SKILL.md's real directory.
 
 ## Inputs
 
@@ -54,7 +54,7 @@ Each unit resolves:
 - Delivery layer: frontend, backend, full-stack, integration or infrastructure.
 - For user-visible units: JOB/UC/journey/state, Baseline ID/target hash, scope, permitted variance/overrides, `approved_visual_baseline_fidelity`, applicable `heuristic_usability_review`/H1-H10/QA IDs and `representative_user_task_validation` task/success/evidence references.
 - For backend-only units: whether it enables user-visible states/data/actions.
-- For cross-layer/parallel units: interface producer/consumer, contract, owner, compatibility and integration checks.
+- For parallel tasks inside the active unit: interfaces, exclusive write ownership, shared evidence reservations and coordinator integration. Later units remain sequential.
 - For traced prototype reuse: the fields in the promotion reference.
 
 Shared records may carry repeated scope/contract data if each unit's references resolve. Do not add a context field to every unit; use its existing Source References only where relevant.

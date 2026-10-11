@@ -6,7 +6,7 @@ For new student clones, use `git clone --branch stable https://github.com/Ingwar
 
 ### Agent-assisted installation or update
 
-Paste the single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md) into a local file/terminal agent. It first checks revision, exact installed targets, packaged resources and Python support. A clean, current installation with supported Python stops without reinstalling or upgrading Python. Necessary install/update work uses the latest official stable Python, without replacing the OS interpreter. Opening this repository alone does not authorize installation.
+Paste the single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md) into a local file/terminal agent. It first checks revision, exact installed targets, packaged resources and Python support. A clean, current installation with supported Python skips reinstalling and upgrading Python; it still checks evidence setup and initializes only missing configuration with the user's selected policy. Necessary install/update work uses the latest official stable Python, without replacing the OS interpreter. Opening this repository alone does not authorize installation.
 
 macOS or Linux:
 
@@ -126,3 +126,23 @@ changing skills during a running task. Use the tested `stable` channel and prese
 After files arrive locally, Codex detects local skill changes and follows skill
 links; restart it if the update is not visible. That local reloading is different
 from downloading GitHub changes. See [official skill documentation](https://developers.openai.com/codex/skills/).
+
+## Evidence setup and reconfiguration
+
+The installer/update flow runs `scripts/evidence_setup.py ensure` after valid links. A terminal wizard selects managed local, chosen folder/disk/mount, or Google Drive, plus limits/retention/adoption. When an agent presents a storage-choice popup/dialog, its Google Drive option description must show prerequisites **before the user answers**: Codex requires installing/connecting the Google Drive plugin; Claude Code requires an authenticated Drive connector/MCP, the same Claude account and `/mcp` verification. Label rclone an optional alternative; local/folder options need neither integration nor rclone. A separate chat notice or README link does not replace this option description. Non-interactive execution reports `setup_required` without choosing a provider or uploading data. Saved choices are reused without repeating the choice; the already-current status path still detects missing setup. Installing skills alone never uploads existing project evidence or purges it.
+
+Use the complete [setup guide](evidence-storage.md) for authentication and policy. In this durable clone:
+
+```bash
+python3 scripts/evidence_setup.py wizard --project /path/to/product
+python3 scripts/evidence_setup.py status --project /path/to/product
+python3 scripts/evidence_setup.py wizard --project /path/to/product --reconfigure
+```
+
+Windows uses the detected supported `python`. The manager's first evidence use after a plain Git pull calls `ensure --project PATH`; status remains read-only. This does not replace the updater's separate retirement cleanup. Configure an installation's product explicitly with `--evidence-project PATH`, `--evidence-reconfigure`, `--evidence-non-interactive`, or PowerShell `-EvidenceProject`, `-EvidenceReconfigure`, `-EvidenceNonInteractive`.
+
+`SDD_EVIDENCE_HOME` overrides the external configuration/state root, otherwise `~/.sdd-pipeline/evidence`. Machine destinations and credential configuration remain there or in provider configuration outside Git. Portable `forge/evidence-policy.json` contains stable project/store IDs, numeric limits and retention only. Preserve it across worktrees and reuse the same configured store; a new run path or chat is not a new accounting identity.
+
+Reconfiguration is explicit; changing destination does not silently migrate, delete or reupload old evidence. If adopting an existing collection, preserve original catalogs and use a declarative import mapping, then independently verify active referenced bytes. Adoption reuses the exact selected machine binding, including a custom evidence home. Local users do not need rclone or a cloud account. Connected Drive is the default Drive transport: the active agent services the bundled adapter with its existing plugin/connector, using a temporary `--host-session` or `SDD_EVIDENCE_HOST_SESSION`. No custom bridge program is required. [Host session workflow](drive-transport.md#connected-host-bridge). Drive setup must pass its independent upload/download probe and project generation-authority check before succeeding.
+
+A folder on the same disk can remove generated files from Git without reducing physical disk usage. Durable storage and replaceable working/cache space remain separate, even on the same device. Storage setup does not authorize product implementation, approved-baseline changes or Git-history rewriting.

@@ -12,7 +12,7 @@
 | Running checks and producing observations/receipts | Authorized reviewer, user-test facilitator, test harness or Phase 3 runner |
 | Hash-bound operational index and scheduling | `to-sdd-pipeline` / `forge/sdd-manifest.json` |
 
-DoD authoring never executes gates. QA authoring never implies execution: it may record supplied, inspected run evidence, or perform a separately requested review within the user's authorization. Name the actual executor. The checker validates records and references; it is not a test runner or a substitute for human research.
+DoD defines gates; QA defines checks/interprets inspected evidence. Executors produce observations; storage persists them; the orchestrator indexes them. Authoring is not execution. Name the actual executor. The checker validates records, never runs tests or substitutes for research.
 
 ## Two independent statuses
 
@@ -53,7 +53,7 @@ Every gate definition: ID, purpose, source, applicability, required evidence, pa
 
 Every QA item: stable check ID, source obligation, task, expected behavior, scope, applicability/rationale, gate ID, definition status, execution status, evidence requirements and actual evidence. UI/heuristic items also resolve H1-H10, JOB/UC, user group, route, state, viewport, finding, severity, release effect, and recommendation. Visual items additionally resolve Baseline ID, target hash and variance after approval. User-validation items add task success criterion and timing (`pre-approval | post-implementation | both`). Error items use the shared recovery sequence.
 
-Every executed result: check/gate ID, exact evaluated artifact/baseline or implementation revision, executor, time, environment/content fixture, evidence kind/path/hash, result, findings, and rerun rule. Keep prior runs; supersede them explicitly when sources change. `passed` requires fresh, readable evidence appropriate to that claim, not merely a nonempty path.
+Every executed result retains check/gate ID, evaluated artifact/baseline/revision, executor, original time, environment/fixture, evidence identity/hash, result, findings and rerun rule. QA keeps compact current records; verified references preserve detailed observations and superseded history. Use [storage procedures](evidence-storage-contract.md) when recording/resolving generated payloads. `passed` needs fresh readable evidence for its claim; migration and access never create a new execution.
 
 ## Severity and release effect
 

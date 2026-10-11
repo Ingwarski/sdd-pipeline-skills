@@ -4,7 +4,7 @@ description: Define SDD source authority, autonomy, scope, conflict handling, st
 ---
 # to-guardrails
 
-Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve the link from this SKILL.md's real directory, not the open project. Preserve `working_language`, source truth and approval boundaries.
+Read [shared operating rules](../to-sdd-pipeline/references/common-contract.md) before work; resolve installed resources from this SKILL.md's real directory.
 
 ## Inputs
 
@@ -42,7 +42,7 @@ Re-run only when a named upstream decision or consumed source fragment changes a
 
 Required semantic sections: Source References; Source Of Truth Order; AI Autonomy Boundaries; Forbidden Changes; When To Ask; When To Stop; Artifact Separation Rules; Verification Rules; Open Questions.
 
-Add Allowed Changes, Scope Boundaries, Design Authority, Conflict Resolution, Evidence Requirements or Source Access Failures only when they add decisions. Cite shared evidence definitions; do not copy them.
+Add Allowed Changes, Scope Boundaries, Design Authority, Conflict Resolution, Evidence Requirements or Source Access Failures only when they add decisions. Cite shared evidence definitions and the selected portable storage policy; do not copy procedures or expose machine paths/credentials. Retain quality and original authorization bindings regardless of storage.
 
 ## Return
 

@@ -7,6 +7,7 @@ $ClaudeDir = Join-Path $TestRoot 'claude'
 $History = Join-Path $TestRoot 'history'
 $ExportDest = Join-Path $TestRoot 'export installs'
 $OriginalBackup = $env:SDD_SKILL_BACKUP_DIR
+$OriginalEvidenceHome = $env:SDD_EVIDENCE_HOME
 $LockedFile = $null
 
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
@@ -26,6 +27,7 @@ function Run-Install([hashtable]$Extra = @{}) {
 }
 
 try {
+    $env:SDD_EVIDENCE_HOME = Join-Path $TestRoot 'evidence-machine-state'
     foreach ($Directory in @($CodexDir, $ClaudeDir, $History, (Join-Path $TestRoot 'external'))) {
         New-Item -ItemType Directory -Path $Directory -Force | Out-Null
     }
@@ -130,6 +132,7 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $ExportDest 'to-wireframes/SKILL.md')) 'Policy retired an unrelated skill.'
     Write-Host 'Windows permanent retirement tests passed.'
 } finally {
+    $env:SDD_EVIDENCE_HOME = $OriginalEvidenceHome
     if ($null -ne $LockedFile) { $LockedFile.Dispose() }
     $env:SDD_SKILL_BACKUP_DIR = $OriginalBackup
     foreach ($Root in @($CodexDir, $ClaudeDir, $ExportDest)) {

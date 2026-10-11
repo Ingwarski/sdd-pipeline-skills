@@ -57,6 +57,8 @@ def resource_loads(skill, scenario, revision):
         paths.append("skills/to-development-plan/references/prototype-promotion.md")
     if skill in ("to-development-plan", "to-qa-checklist", "to-sdd-pipeline"):
         paths.append(SHARED + "unit-execution-contract.md")
+    if skill in scenario.get("evidence_storage_consumers", []):
+        paths.append(SHARED + "evidence-storage-contract.md")
     # Old entrypoints inline several of these contracts. Count only existing files,
     # not fictional shared copies. Every invocation reloads its complete read set.
     return [(path, text) for path in paths if (text := read_version(path, revision)) is not None]

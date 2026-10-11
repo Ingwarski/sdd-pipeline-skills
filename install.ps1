@@ -9,7 +9,10 @@ param(
     [string]$CodexDir,
     [string]$ClaudeDir,
     [string[]]$RetiredSource = @(),
-    [string[]]$CleanupDir = @()
+    [string[]]$CleanupDir = @(),
+    [string]$EvidenceProject,
+    [switch]$EvidenceReconfigure,
+    [switch]$EvidenceNonInteractive
 )
 
 Set-StrictMode -Version Latest
@@ -308,6 +311,16 @@ if ($PostFailures -ne 0) {
 }
 
 if (-not $Uninstall) {
+    $EvidenceArgs = @((Join-Path $RepoRoot 'scripts/evidence_setup.py'), 'ensure')
+    if (-not [string]::IsNullOrWhiteSpace($EvidenceProject)) { $EvidenceArgs += @('--project', $EvidenceProject) }
+    if ($EvidenceReconfigure) { $EvidenceArgs += '--reconfigure' }
+    if ($EvidenceNonInteractive) { $EvidenceArgs += '--non-interactive' }
+    & $PythonCommand @PythonPrefix @EvidenceArgs
+    if ($LASTEXITCODE -eq 2) {
+        Write-Host 'Evidence storage setup is required; skill links are installed. Run scripts/evidence_setup.py wizard before managed evidence operations.'
+    } elseif ($LASTEXITCODE -ne 0) {
+        throw 'Evidence setup failed; skill links are installed but storage is not ready.'
+    }
     Write-Host 'Skills are linked to this clone. Use .\update.ps1 for updates and retirement cleanup.'
     Write-Host 'Codex normally discovers new skills automatically. Restart only if they do not appear.'
     Write-Host 'Claude Code reloads SKILL.md changes live; restart if its top-level skills directory was created during this session.'
