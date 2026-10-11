@@ -18,7 +18,7 @@ import time
 import uuid
 
 from .archive import build_pack, verify_pack, capture
-from .io import EvidenceError, atomic_json, hash_file, read_json, safe_relative, _open_regular, _verify_stable
+from .io import EvidenceError, atomic_json, hash_file, read_json, safe_relative, _open_regular, _verify_stable, _is_link
 from .policy import validate_policy
 from .identity import same_reference, same_imported_original
 
@@ -77,20 +77,29 @@ class Manager:
         # owner records and cannot inflate another operation's working usage.
         if identity.exists() or identity.is_symlink():
             return existing()
-        guard = self.state / ".coordinator-init.lock"
-        if guard.is_symlink() or (guard.exists() and not guard.is_file()):
-            raise EvidenceError("coordinator initialization lock is unsafe; retained")
+        with self._advisory_lock(self.state / ".coordinator-init.lock", 30):
+            if not identity.exists() and not identity.is_symlink():
+                atomic_json(identity, {"id": str(uuid.uuid4()), "host": socket.gethostname()})
+            return existing()
+
+    @staticmethod
+    @contextmanager
+    def _advisory_lock(guard, timeout):
+        """Never remove this synchronization inode; process death releases it."""
+        try:
+            before = guard.lstat()
+        except FileNotFoundError:
+            before = None
+        if before is not None and (_is_link(before) or not stat.S_ISREG(before.st_mode)):
+            raise EvidenceError("ownership guard is unsafe; retained: " + str(guard))
         descriptor = os.open(guard, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
         acquired = False
         try:
             info, current = os.fstat(descriptor), guard.lstat()
-            if (not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(current.st_mode)
+            if (not stat.S_ISREG(info.st_mode) or _is_link(current)
                     or (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino)):
-                raise EvidenceError("coordinator initialization lock changed; retained")
-            if info.st_size == 0:
-                os.write(descriptor, b"\0")
-                os.fsync(descriptor)
-            deadline = time.monotonic() + 30
+                raise EvidenceError("ownership guard changed; retained: " + str(guard))
+            deadline = time.monotonic() + timeout
             while not acquired:
                 try:
                     if os.name == "nt":
@@ -103,11 +112,15 @@ class Manager:
                     acquired = True
                 except (BlockingIOError, PermissionError):
                     if time.monotonic() >= deadline:
-                        raise EvidenceError("coordinator initialization is busy; bounded wait exhausted")
-                    time.sleep(0.01)
-            if not identity.exists() and not identity.is_symlink():
-                atomic_json(identity, {"id": str(uuid.uuid4()), "host": socket.gethostname()})
-            return existing()
+                        raise EvidenceError("ownership guard is busy; bounded wait exhausted: " + str(guard))
+                    time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+            # Initialize under the lock, including when a previous creator died
+            # before writing. Windows permits byte locks beyond current EOF.
+            if os.fstat(descriptor).st_size == 0:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+            yield
         finally:
             if acquired:
                 if os.name == "nt":
@@ -136,55 +149,118 @@ class Manager:
                 finally:
                     self._catalog_lock_depth = 0
 
+    def _catalog_guard(self, timeout=600):
+        return self._advisory_lock(self.state / ".catalog-lifecycle.lock", timeout)
+
+    @staticmethod
+    def _catalog_lock_identity(lock):
+        try:
+            info = lock.lstat()
+        except FileNotFoundError:
+            return None
+        if _is_link(info) or not stat.S_ISDIR(info.st_mode):
+            raise EvidenceError("catalog coordinator lock is unsafe; retained: " + str(lock))
+        return info.st_dev, info.st_ino, getattr(info, "st_birthtime_ns", None)
+
+    @staticmethod
+    def _catalog_owner(lock):
+        try:
+            owner = read_json(lock / "owner.json", 4096)
+        except (FileNotFoundError, EvidenceError) as error:
+            cause = getattr(error, "__cause__", None)
+            if (isinstance(error, FileNotFoundError) or isinstance(cause, FileNotFoundError)
+                    or getattr(cause, "winerror", None) in (32, 33)
+                    or str(error).startswith(("file changed while opening:", "input changed while reading:"))):
+                return None  # Bounded retry applies only to the ownership handshake.
+            raise
+        if not isinstance(owner, dict):
+            raise EvidenceError("catalog lock ownership is invalid; retained")
+        return owner
+
     @contextmanager
     def _file_locked(self, timeout):
         lock = self.state / "catalog.lock"
         deadline = time.monotonic() + timeout
+        own = {"pid": os.getpid(), "host": socket.gethostname(), "coordinator": self.coordinator}
         while True:
-            try:
-                lock.mkdir()
-                break
-            except FileExistsError as error:
-                if not lock.exists() and not lock.is_symlink():
-                    continue
-                if lock.is_symlink() or not lock.is_dir():
-                    raise EvidenceError("catalog coordinator lock is unsafe; retained: " + str(lock)) from error
+            acquired = False
+            with self._catalog_guard(max(0, deadline - time.monotonic())):
                 try:
-                    owner = read_json(lock / "owner.json", 4096)
-                except (FileNotFoundError, EvidenceError) as read_error:
-                    cause = getattr(read_error, "__cause__", None)
-                    # Opening a Windows owner record can briefly conflict with
-                    # its publisher/remover, just as releasing it can conflict
-                    # with a stable reader. Retry only this lock handshake.
-                    transient = (isinstance(cause, FileNotFoundError)
-                        or getattr(cause, "winerror", None) in (32, 33)
-                        or str(read_error).startswith(("file changed while opening:", "input changed while reading:")))
-                    if not transient and ((lock / "owner.json").exists() or (lock / "owner.json").is_symlink()):
+                    lock.mkdir()
+                except FileExistsError:
+                    identity = self._catalog_lock_identity(lock)
+                    owner = self._catalog_owner(lock) if identity is not None else None
+                    if owner is not None and identity == self._catalog_lock_identity(lock):
+                        if owner.get("host") != socket.gethostname() or owner.get("coordinator") != self.coordinator:
+                            raise EvidenceError("catalog lock belongs to another host/coordinator; retained")
+                        if not self._owner_alive(owner.get("pid")):
+                            # Legacy clients may not use the lifecycle guard.
+                            # A completed owner can release and exit after our
+                            # first observation; never mistake that for a stale lock.
+                            if self._catalog_owner(lock) == owner and identity == self._catalog_lock_identity(lock):
+                                raise EvidenceError("catalog coordinator exited; reconcile the recorded lock: " + str(lock))
+                else:
+                    identity = self._catalog_lock_identity(lock)
+                    try:
+                        atomic_json(lock / "owner.json", own)
+                    except BaseException:
+                        self._remove_catalog_lock(lock, identity, own, allow_unpublished=True)
                         raise
-                    owner = None  # Another same-home process is creating/removing its lock.
-                if owner is not None:
-                    if owner.get("host") != socket.gethostname() or owner.get("coordinator") != self.coordinator:
-                        raise EvidenceError("catalog lock belongs to another host/coordinator; retained") from error
-                    if not self._owner_alive(owner.get("pid")):
-                        raise EvidenceError("catalog coordinator exited; reconcile the recorded lock: " + str(lock)) from error
-                if time.monotonic() >= deadline:
-                    raise EvidenceError("catalog coordinator is busy; bounded wait exhausted: " + str(lock)) from error
-                time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+                    acquired = True
+            if acquired:
+                break
+            if time.monotonic() >= deadline:
+                raise EvidenceError("catalog coordinator is busy; bounded wait exhausted: " + str(lock))
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
         try:
-            atomic_json(lock / "owner.json", {"pid": os.getpid(), "host": socket.gethostname(), "coordinator": self.coordinator})
             yield
         finally:
-            self._release_owner_file(lock / "owner.json")
-            lock.rmdir()
+            with self._catalog_guard():
+                self._remove_catalog_lock(lock, identity, own)
+
+    def _remove_catalog_lock(self, lock, identity, expected_owner, *, allow_unpublished=False):
+        """Caller holds the lifecycle guard throughout validation and removal."""
+        if identity is None or identity != self._catalog_lock_identity(lock):
+            raise EvidenceError("catalog lock changed before release; retained")
+        contents = {path.name for path in lock.iterdir()}
+        if not contents and allow_unpublished:
+            self._release_lock_directory(lock)
+            return
+        if contents != {"owner.json"}:
+            raise EvidenceError("catalog lock ownership is incomplete; retained")
+        deadline = time.monotonic() + 5
+        while True:
+            actual = self._catalog_owner(lock)
+            if actual is not None:
+                break
+            if time.monotonic() >= deadline:
+                raise EvidenceError("catalog owner could not be verified before release; retained")
+            time.sleep(0.01)
+        if actual != expected_owner or identity != self._catalog_lock_identity(lock):
+            raise EvidenceError("catalog lock owner changed before release; retained")
+        self._release_owner_file(lock / "owner.json")
+        self._release_lock_directory(lock)
 
     @staticmethod
     def _release_owner_file(path):
-        # Windows stable readers deny deletion while their short-lived handle
-        # is open. Wait for those readers; never change evidence read sharing.
+        # Stable Windows readers can temporarily deny deletion. The lifecycle
+        # guard prevents new managed readers until the complete removal ends.
         deadline = time.monotonic() + 5
         while True:
             try:
                 path.unlink(missing_ok=True)
+                return
+            except PermissionError as error:
+                if getattr(error, "winerror", None) not in (32, 33) or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
+
+    @staticmethod
+    def _release_lock_directory(path):
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                path.rmdir()
                 return
             except PermissionError as error:
                 if getattr(error, "winerror", None) not in (32, 33) or time.monotonic() >= deadline:
@@ -221,26 +297,29 @@ class Manager:
 
     def _reconcile_lock(self, dry_run):
         lock = self.state / "catalog.lock"
-        if not lock.exists() and not lock.is_symlink():
-            return []
-        if lock.is_symlink() or not lock.is_dir() or {p.name for p in lock.iterdir()} != {"owner.json"}:
-            raise EvidenceError("catalog lock ownership is incomplete; inspect without removing: " + str(lock))
-        owner = read_json(lock / "owner.json", 4096)
-        if owner.get("host") != socket.gethostname() or owner.get("coordinator") != self.coordinator:
-            raise EvidenceError("catalog lock belongs to another host/coordinator; retained")
-        if self._owner_alive(owner.get("pid")):
-            raise EvidenceError("catalog coordinator process is still running; retained")
-        action = {"action": "reconcile-exited-catalog-lock", "path": str(lock), "dry_run": dry_run}
-        if not dry_run:
-            atomic_json(self.state / "lock-reconciliation.json", {"version": 1, "owner": owner, "verified_exited": True})
-            if read_json(lock / "owner.json", 4096) != owner or self._owner_alive(owner["pid"]):
-                raise EvidenceError("catalog lock changed during reconciliation; retained")
-            self._release_owner_file(lock / "owner.json")
-            lock.rmdir()
-            if lock.exists():
-                raise EvidenceError("catalog lock removal failed")
-            action["verified"] = True
-        return [action]
+        with self._catalog_guard():
+            identity = self._catalog_lock_identity(lock)
+            if identity is None:
+                return []
+            if {p.name for p in lock.iterdir()} != {"owner.json"}:
+                raise EvidenceError("catalog lock ownership is incomplete; inspect without removing: " + str(lock))
+            owner = self._catalog_owner(lock)
+            if owner is None:
+                raise EvidenceError("catalog lock owner could not be verified; retained")
+            if owner.get("host") != socket.gethostname() or owner.get("coordinator") != self.coordinator:
+                raise EvidenceError("catalog lock belongs to another host/coordinator; retained")
+            if self._owner_alive(owner.get("pid")):
+                raise EvidenceError("catalog coordinator process is still running; retained")
+            action = {"action": "reconcile-exited-catalog-lock", "path": str(lock), "dry_run": dry_run}
+            if not dry_run:
+                atomic_json(self.state / "lock-reconciliation.json", {"version": 1, "owner": owner, "verified_exited": True})
+                if self._owner_alive(owner["pid"]):
+                    raise EvidenceError("catalog lock changed during reconciliation; retained")
+                self._remove_catalog_lock(lock, identity, owner)
+                if self._catalog_lock_identity(lock) is not None:
+                    raise EvidenceError("catalog lock removal failed")
+                action["verified"] = True
+            return [action]
 
     def _usage(self, *, include_ledger=True, include_checkpoints=True):
         """Account all local capture/cache/staging/readback/restoration, without following links."""

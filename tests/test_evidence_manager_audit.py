@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 import hashlib
 import json
+import os
+import socket
 from pathlib import Path
 import subprocess
 import sqlite3
@@ -186,6 +188,102 @@ class ManagerAuditTests(unittest.TestCase):
             self.assertTrue(result.result(timeout=5))
         self.assertEqual(3, len(attempts))
         self.assertFalse((self.manager.state / "catalog.lock").exists())
+
+    def test_disappearing_normal_lock_is_retried_from_one_directory_snapshot(self):
+        lock = self.manager.state / "catalog.lock"
+        lock.mkdir()
+        atomic_json(lock / "owner.json", {"pid": os.getpid(), "host": socket.gethostname(),
+            "coordinator": self.manager.coordinator})
+        original = Path.mkdir
+        released = []
+        def disappearing(path, *args, **kwargs):
+            if path == lock and not released:
+                try:
+                    original(path, *args, **kwargs)
+                except FileExistsError:
+                    # A former client releases after mkdir observed existence,
+                    # before this waiter can inspect the directory.
+                    (lock / "owner.json").unlink()
+                    lock.rmdir()
+                    released.append(True)
+                    raise
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "mkdir", disappearing):
+            with self.manager.locked(timeout=2):
+                self.assertTrue((lock / "owner.json").is_file())
+        self.assertEqual([True], released)
+        self.assertFalse(lock.exists())
+
+    def test_released_owner_exit_is_not_reported_as_a_stale_lock(self):
+        lock = self.manager.state / "catalog.lock"
+        lock.mkdir()
+        previous_pid = 2**30
+        atomic_json(lock / "owner.json", {"pid": previous_pid, "host": socket.gethostname(),
+            "coordinator": self.manager.coordinator})
+        original = self.manager._owner_alive
+        exited = []
+        def released_then_exited(pid):
+            if pid == previous_pid:
+                (lock / "owner.json").unlink()
+                lock.rmdir()
+                exited.append(True)
+                return False
+            return original(pid)
+        with patch.object(self.manager, "_owner_alive", side_effect=released_then_exited):
+            with self.manager.locked(timeout=2):
+                pass
+        self.assertEqual([True], exited)
+        self.assertFalse(lock.exists())
+
+    def test_two_reconcilers_cannot_remove_a_new_live_catalog_lock(self):
+        lock = self.manager.state / "catalog.lock"
+        lock.mkdir()
+        atomic_json(lock / "owner.json", {"pid": 2**30, "host": socket.gethostname(),
+            "coordinator": self.manager.coordinator})
+        second = Manager(self.fixture.transport, self.fixture.home, self.policy)
+        holder = Manager(self.fixture.transport, self.fixture.home, self.policy)
+        blocked, retire, started_reaper, started_holder, holding, finish = (threading.Event() for _ in range(6))
+        original = self.manager._release_owner_file
+        def paused_retirement(path):
+            original(path)
+            blocked.set()
+            self.assertTrue(retire.wait(5))
+        def second_reaper():
+            started_reaper.set()
+            try:
+                return second._reconcile_lock(False)
+            except EvidenceError as error:
+                return str(error)
+        def new_holder():
+            started_holder.set()
+            with holder.locked(timeout=5):
+                holding.set()
+                self.assertTrue(finish.wait(5))
+        with patch.object(self.manager, "_release_owner_file", side_effect=paused_retirement), ThreadPoolExecutor(max_workers=3) as pool:
+            first = pool.submit(self.manager._reconcile_lock, False)
+            try:
+                self.assertTrue(blocked.wait(3))
+                following = pool.submit(second_reaper)
+                fresh = pool.submit(new_holder)
+                self.assertTrue(started_reaper.wait(3))
+                self.assertTrue(started_holder.wait(3))
+                self.assertFalse(following.done())
+                self.assertFalse(holding.is_set())
+                retire.set()
+                self.assertTrue(first.result(timeout=5)[0]["verified"])
+                self.assertTrue(holding.wait(5))
+                result = following.result(timeout=5)
+                self.assertTrue(result == [] or "still running" in result, result)
+                self.assertTrue((lock / "owner.json").is_file())
+                contender = Manager(self.fixture.transport, self.fixture.home, self.policy)
+                with self.assertRaisesRegex(EvidenceError, "busy"):
+                    with contender.locked(timeout=0.02):
+                        self.fail("another operation entered the live catalog lock")
+            finally:
+                retire.set()
+                finish.set()
+            fresh.result(timeout=5)
+        self.assertFalse(lock.exists())
 
     def test_unsettled_remote_generation_reports_unknown_after_loss_of_home(self):
         self.manager.initialize_generation_authority()
