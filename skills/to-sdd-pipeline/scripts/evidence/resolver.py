@@ -1,5 +1,6 @@
 """Read-only resolution of prepared evidence. No transport, writes or extraction."""
 from datetime import datetime
+from contextlib import contextmanager
 import errno
 from pathlib import Path, PurePosixPath
 import re
@@ -9,7 +10,7 @@ import hashlib
 import sys
 
 from .io import EvidenceError, hash_file, read_json, safe_relative, _parents, _open_regular, _verify_stable
-from .identity import same_reference
+from .identity import same_reference, same_imported_original
 
 SCHEMAS = frozenset({"evidence-bytes-v1", "evidence-json-v1", "source-inventory-v1",
                      "environment-v1", "sdd-receipt-v1", "sdd-result-v1", "archive-attachment-v1"})
@@ -129,6 +130,38 @@ def validate_reference(ref):
     return ref
 
 
+def payload_references(value, schema="evidence-json-v1"):
+    """Yield current JSON dependencies without loading inactive historical payloads."""
+    if schema not in SCHEMAS - {"evidence-bytes-v1", "archive-attachment-v1"}:
+        raise ValueError("evidence schema is not a JSON record")
+    if not isinstance(value, dict):
+        raise ValueError("evidence JSON payload must be an object")
+    if schema == "source-inventory-v1":
+        if type(value.get("version")) is not int or value["version"] != 1 or not isinstance(value.get("source_hashes"), dict):
+            raise ValueError("unsupported source inventory schema")
+    elif schema == "environment-v1" and (type(value.get("version")) is not int or value["version"] != 1):
+        raise ValueError("unsupported environment schema")
+    visited = 0
+    def closure(record, depth=0):
+        nonlocal visited
+        visited += 1
+        if depth > 64 or visited > 1000000:
+            raise ValueError("JSON evidence reference closure exceeds validation bounds")
+        if isinstance(record, dict):
+            nested = evidence_reference(record)
+            if nested is not None:
+                yield nested
+            for key, child in record.items():
+                # Wrapper siblings can carry required captures. History is loaded
+                # only when a current reference explicitly depends on it.
+                if key not in ("evidence_ref", "history", "run_history", "superseded"):
+                    yield from closure(child, depth + 1)
+        elif isinstance(record, list):
+            for child in record:
+                yield from closure(child, depth + 1)
+    yield from closure(value)
+
+
 class EvidenceResolver:
     """Prepared original bytes plus verified readback receipts, bounded per invocation."""
     def __init__(self, cache_path=None):
@@ -145,6 +178,7 @@ class EvidenceResolver:
         self.metadata_limit, self.closure_limit, self.json_bytes = 128 * 1024 * 1024, 10000, 0
         self.active = set()
         self.visited, self.resolved_paths = set(), {}
+        self.validation_depth = 0
 
     def _path(self, category, name):
         if self.cache is None:
@@ -157,23 +191,30 @@ class EvidenceResolver:
         _regular(current)
         return current
 
-    def _json(self, path):
+    def _json(self, path, maximum=JSON_LIMIT):
         before = _regular(path)
+        if before[2] > min(maximum, self.metadata_limit):
+            raise ValueError("evidence JSON exceeds validation allowance")
         if path not in self.documents:
             if self.json_bytes + before[2] > self.metadata_limit:
                 raise ValueError("combined prepared metadata exceeds validation allowance")
-            self.documents[path] = (before, read_json(path, min(JSON_LIMIT, self.metadata_limit)))
+            self.documents[path] = (before, read_json(path, min(maximum, self.metadata_limit)))
             self.json_bytes += before[2]
         saved, value = self.documents[path]
         if before != saved or _regular(path) != saved:
             raise ValueError("prepared evidence changed during validation: " + str(path))
         return value
 
-    def resolve(self, ref):
-        root = not self.active
+    @contextmanager
+    def _validation(self):
+        root = self.validation_depth == 0
         if root:
             self.visited.clear()
-        path = self._resolve(ref)
+        self.validation_depth += 1
+        try:
+            yield
+        finally:
+            self.validation_depth -= 1
         if root:
             # A shared DAG is visited once, then all its prepared inputs are rechecked.
             for key in self.visited:
@@ -183,25 +224,42 @@ class EvidenceResolver:
                 receipt = self._path("receipts", key + ".json")
                 if _regular(receipt) != self.documents[receipt][0]:
                     raise ValueError("prepared receipt changed during validation: " + key)
-        return path
+
+    def resolve(self, ref):
+        with self._validation():
+            return self._resolve(ref)
 
     def _resolve(self, ref):
         validate_reference(ref)
         key = ref["artifact_id"]
         if key in self.active:
             raise ValueError("cyclic evidence reference closure")
-        if key in self.references and not same_reference(self.references[key], ref):
-            raise ValueError("artifact identity refers to conflicting evidence")
         if len(self.active) >= 32 or len(self.references) >= self.closure_limit and key not in self.references:
             raise ValueError("evidence reference closure exceeds validation bounds")
+        receipt = self._json(self._path("receipts", key + ".json"))
+        if not isinstance(receipt, dict):
+            raise ValueError("prepared receipt identity/reference mismatch: " + key)
+        canonical = {k: v for k, v in receipt.items() if k not in ("verified_archive", "original_references")}
+        validate_reference(canonical)
+        aliases = receipt.get("original_references", [])
+        if not isinstance(aliases, list) or len(aliases) > self.closure_limit:
+            raise ValueError("prepared original reference aliases exceed validation bounds")
+        for alias in aliases:
+            if not same_imported_original(alias, canonical):
+                raise ValueError("prepared original reference alias changes evidence identity")
+        if not same_reference(canonical, ref) and not any(same_reference(alias, ref) for alias in aliases):
+            raise ValueError("prepared receipt identity/reference mismatch: " + key)
+        # An immutable imported JSON can still name its exact pre-adoption ref.
+        # Use the verified adopted form for closure and zero-generation accounting;
+        # content, bindings, provenance and sealing time are identical.
+        ref = canonical
+        if key in self.references and not same_reference(self.references[key], ref):
+            raise ValueError("artifact identity refers to conflicting evidence")
         self.references[key] = ref
         if key in self.visited:
             return self.resolved_paths[key]
         self.active.add(key)
         try:
-            receipt = self._json(self._path("receipts", key + ".json"))
-            if not isinstance(receipt, dict) or not same_reference({k: v for k, v in receipt.items() if k != "verified_archive"}, ref):
-                raise ValueError("prepared receipt identity/reference mismatch: " + key)
             archive = receipt.get("verified_archive")
             archives = archive if isinstance(archive, list) else [archive]
             locator = ref["locator"]
@@ -256,41 +314,25 @@ class EvidenceResolver:
             for dependency in ref.get("dependencies", []):
                 self.resolve(dependency)
             if ref["schema"] not in ("evidence-bytes-v1", "archive-attachment-v1"):
-                self._validate_payload(ref, self._json(path))
+                self.validate_json_payload(self._json(path), ref["schema"])
             self.resolved_paths[key] = path
             self.visited.add(key)
             return path
         finally:
             self.active.remove(key)
 
-    def _validate_payload(self, ref, value):
-        if not isinstance(value, dict):
-            raise ValueError("evidence JSON payload must be an object")
-        if ref["schema"] == "source-inventory-v1":
-            if type(value.get("version")) is not int or value["version"] != 1 or not isinstance(value.get("source_hashes"), dict):
-                raise ValueError("unsupported source inventory schema")
-        elif ref["schema"] == "environment-v1" and (type(value.get("version")) is not int or value["version"] != 1):
-            raise ValueError("unsupported environment schema")
-        visited = 0
-        def closure(record, depth=0):
-            nonlocal visited
-            visited += 1
-            if depth > 64 or visited > 1000000:
-                raise ValueError("JSON evidence reference closure exceeds validation bounds")
-            if isinstance(record, dict):
-                nested = evidence_reference(record)
-                if nested is not None:
-                    self.resolve(nested)
-                for key, child in record.items():
-                    # Sibling captures remain required even when this object wraps a ref.
-                    # Superseded payloads are resolved when a current claim needs them.
-                    if key not in ("evidence_ref", "history", "run_history", "superseded"):
-                        closure(child, depth + 1)
-            elif isinstance(record, list):
-                for child in record:
-                    closure(child, depth + 1)
-        closure(value)
+    def validate_json_payload(self, value, schema="evidence-json-v1"):
+        """Validate an active original JSON value and all its prepared dependencies."""
+        with self._validation():
+            for reference in payload_references(value, schema):
+                self.resolve(reference)
         return value
+
+    def json_file(self, path, schema="evidence-json-v1"):
+        """Validate contained JSON, retaining its legacy 64 MiB per-file ceiling."""
+        path = Path(path)
+        self.validate_json_payload(self._json(path, 64 * 1024 * 1024), schema)
+        return self._json(path, 64 * 1024 * 1024)  # Stable throughout closure reads.
 
     def json(self, ref):
         if ref.get("schema") not in SCHEMAS - {"evidence-bytes-v1", "archive-attachment-v1"}:

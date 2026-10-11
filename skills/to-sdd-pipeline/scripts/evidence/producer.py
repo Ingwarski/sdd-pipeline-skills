@@ -146,14 +146,16 @@ def _inventory(root):
 
 def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
                  reserve_bytes: int, reserve_files: int, *, timeout=3600,
-                 poll_interval=0.25) -> dict:
+                 poll_interval=0.25, complete_run=True) -> dict:
     """Reserve, launch, monitor, stop, reconcile, and seal one managed attempt.
 
     The byte/file allowance includes ``producer.log``. Logs are never truncated;
     exceeding the allowance stops the responsible process and preserves partial
     observations with an incomplete status. ``SDD_EVIDENCE_OUTPUT_DIR`` names the
     registered folder for the producer. The command is an argv list, never shell
-    source. Existing nonempty output folders are rejected.
+    source. Existing nonempty output folders are rejected. Parallel workers use
+    ``complete_run=False``; their coordinator calls ``ledger.complete_run`` only
+    after every worker has settled and every required output is reconciled.
     """
     if not isinstance(command, list) or not command or any(not isinstance(value, str) or not value or "\0" in value for value in command):
         raise EvidenceError("producer command must be a nonempty argv list")
@@ -179,7 +181,7 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
     environment = os.environ.copy()
     environment["SDD_EVIDENCE_OUTPUT_DIR"] = str(root)
 
-    def observe():
+    def observe(*, check_limits=True):
         nonlocal previous, gross_bytes, gross_files, last_inventory
         current = _inventory(root)
         for name, value in current.items():
@@ -189,15 +191,15 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
                 gross_files += 1
             elif value[2] > old[2]:
                 gross_bytes += value[2] - old[2]
-            elif name != "producer.log" and value[3:] != old[3:]:
+            elif value[3:] != old[3:]:
                 # Observed same-length rewrites conservatively charge the whole
                 # logical file again. Changes between polls remain unobservable.
                 gross_bytes += value[2]
                 gross_files += 1
         previous = last_inventory = current
-        if gross_bytes > reserve_bytes or gross_files > reserve_files:
+        if check_limits and (gross_bytes > reserve_bytes or gross_files > reserve_files):
             raise EvidenceError("producer exceeded its reserved aggregate output allowance")
-        if shutil.disk_usage(root).free < ledger.policy["limits"]["free_space_reserve_bytes"]:
+        if check_limits and shutil.disk_usage(root).free < ledger.policy["limits"]["free_space_reserve_bytes"]:
             raise EvidenceError("producer cannot preserve configured free-space reserve")
 
     try:
@@ -234,32 +236,42 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
             job.close()
     # All task-owned writers have stopped before stable-byte accounting. Unsafe
     # outputs are preserved but cannot support completion or byte-hash claims.
+    inventory_known = not cleanup_problem
     try:
-        observe()
-    except EvidenceError as exc:
+        observe(check_limits=False)
+    except (EvidenceError, OSError) as exc:
         problem = problem or str(exc)
+        inventory_known = False
     stable_files, current_bytes = {}, 0
     try:
         for name in last_inventory:
             digest, size = hash_file(root / name)
             stable_files[name] = {"content_hash": digest, "size": size}
             current_bytes += size
-    except EvidenceError as exc:
+    except (EvidenceError, OSError) as exc:
         problem = problem or str(exc)
+        inventory_known = False
     # Charge at least every surviving file even if launch/monitoring failed.
     gross_bytes, gross_files = max(gross_bytes, current_bytes), max(gross_files, len(stable_files))
-    settlement = ledger.settle(reservation, gross_bytes, gross_files, local_bytes=current_bytes)
+    if inventory_known:
+        settlement = ledger.settle(reservation, gross_bytes, gross_files, local_bytes=current_bytes)
+    else:
+        # Missing/replaced roots and live helper processes cannot be measured
+        # completely. Persist the observed lower bound without freeing capacity.
+        settlement = ledger.record_uncertain(reservation, gross_bytes, gross_files)
     incomplete = bool(problem or cleanup_problem or settlement["incomplete"])
     if incomplete:
         ledger.mark_incomplete(run_id)
     else:
         ledger.acknowledge_output(output_id)
-        ledger.complete_run(run_id)
+        if complete_run:
+            ledger.complete_run(run_id)
     if interrupted is not None:
         raise interrupted
     return {"run_id": run_id, "unit_id": unit_id, "output_id": output_id,
             "accounting_mode": "managed-generation",
             "reservation_id": reservation, "status": "incomplete" if incomplete else "complete",
+            "run_completion": "deferred" if not complete_run else "requested",
             "exit_code": process.returncode if process is not None else None,
             "problem": problem, "cleanup_problem": cleanup_problem,
             "gross_bytes": gross_bytes, "gross_files": gross_files,

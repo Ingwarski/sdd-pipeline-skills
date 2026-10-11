@@ -1,8 +1,10 @@
 """Isolated managed producers exercise actual launch/stop/accounting behavior."""
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import uuid
@@ -14,6 +16,7 @@ from evidence.accounting import Accounting
 from evidence.io import EvidenceError
 from evidence.policy import load_defaults
 from evidence.producer import run_producer
+from evidence import producer
 
 
 class ManagedProducerTests(unittest.TestCase):
@@ -106,6 +109,71 @@ class ManagedProducerTests(unittest.TestCase):
             self.run_script("print('not launched')")
         self.assertEqual(self.ledger.snapshot()["reservations"], [])
         self.assertEqual(self.ledger.snapshot()["runs"][0]["status"], "incomplete")
+
+    def test_observed_seekable_stdout_rewrites_count_and_stop_the_producer(self):
+        signals = self.root / "signals"
+        signals.mkdir()
+        original = producer._inventory
+        observed_versions = set()
+        def observe(root):
+            current = original(root)
+            log = root / "producer.log"
+            if log.exists() and log.stat().st_size == 100:
+                number = log.read_bytes()[:3].decode("ascii")
+                if number.isdigit():
+                    observed_versions.add(number)
+                    (signals / number).touch()
+            return current
+        source = ("import sys,time; from pathlib import Path\n"
+                  "for n in range(12):\n"
+                  " sys.stdout.seek(0); sys.stdout.write(str(n).zfill(3)+'x'*97); sys.stdout.flush()\n"
+                  " while not (Path(" + repr(str(signals)) + ") / str(n).zfill(3)).exists(): time.sleep(0.01)\n")
+        with patch("evidence.producer._inventory", side_effect=observe):
+            result = self.run_script(source, bytes=150, files=100)
+        self.assertEqual(result["status"], "incomplete")
+        self.assertIn("reserved aggregate", result["problem"])
+        self.assertGreaterEqual(result["gross_bytes"], 200)
+        self.assertGreaterEqual(len(observed_versions), 2)
+        self.assertEqual(self.ledger.snapshot()["reservations"], [])
+
+    @unittest.skipUnless(os.name == "posix", "Windows can deny renaming an open working directory")
+    def test_renamed_output_returns_incomplete_and_keeps_unknown_capacity_reserved(self):
+        result = self.run_script("from pathlib import Path; import time; here=Path.cwd(); here.rename(here.with_name('moved')); time.sleep(0.05)", bytes=100, files=2)
+        self.assertEqual(result["status"], "incomplete")
+        self.assertEqual(self.ledger.snapshot()["runs"][0]["status"], "incomplete")
+        self.assertEqual(self.ledger.snapshot()["totals"]["pending_generated_bytes"], 100)
+        self.assertEqual(self.ledger.snapshot()["totals"]["pending_local_bytes"], 100)
+        self.assertEqual(len(self.ledger.snapshot()["reservations"]), 1)
+
+    def test_unavailable_final_inventory_is_incomplete_and_blocks_new_generation(self):
+        with patch("evidence.producer._inventory", side_effect=FileNotFoundError("synthetic missing output root")):
+            result = self.run_script("import time; time.sleep(30)", bytes=100, files=2)
+        self.assertEqual(result["status"], "incomplete")
+        snapshot = self.ledger.snapshot()
+        self.assertFalse(snapshot["accounting_complete"])
+        self.assertEqual(snapshot["totals"]["pending_generated_bytes"], 100)
+        with self.assertRaisesRegex(EvidenceError, "accounting recovery required"):
+            self.ledger.reserve("new-attempt", "unit-02", 1, 1)
+
+    def test_parallel_workers_defer_completion_until_coordinator_seals_run(self):
+        barrier = threading.Barrier(2)
+        database, policy = self.ledger.path, self.ledger.policy
+        def worker(number):
+            output = self.root / ("worker-" + str(number))
+            output.mkdir()
+            with Accounting(database, policy["project_id"], policy) as ledger:
+                barrier.wait(timeout=5)
+                return run_producer(ledger, "shared-run", "unit-01", output,
+                    [sys.executable, "-c", "from pathlib import Path; import time; Path('file').write_bytes(b'x'); time.sleep(0.1)"],
+                    100, 2, poll_interval=0.01, complete_run=False)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(worker, (1, 2)))
+        self.assertEqual([item["status"] for item in results], ["complete", "complete"])
+        self.assertEqual(self.ledger.snapshot()["runs"][0]["status"], "active")
+        self.assertEqual(self.ledger.snapshot()["reservations"], [])
+        self.ledger.complete_run("shared-run")
+        self.assertEqual(self.ledger.snapshot()["runs"][0]["status"], "complete")
+        self.assertEqual(self.ledger.snapshot()["totals"]["project_generated_bytes"], 2)
 
     @unittest.skipUnless(os.name == "posix", "Unix process-group assertion")
     def test_timeout_stops_helpers_in_same_task_owned_process_group(self):

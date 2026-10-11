@@ -1,7 +1,7 @@
 # Google Drive evidence transport
 
 Local users need only Python 3.12+. Selecting Drive requires explicit account and
-folder authorization, an external credential configuration, and the evidence
+folder authorization, an authenticated plugin/connector or optional rclone, and the evidence
 manager's successful synthetic upload, independent original-byte retrieval, hash
 verification, and original-byte restoration probe. A successful connector response, browser
 preview, exported document, or local synchronization folder is not that proof.
@@ -51,12 +51,70 @@ third-party diagnostics can contain credentials.
 
 ## Connected host bridge
 
-A host may inject a Python callable `adapter(request) -> response`, or provide an
-external `bridge_command` argument array to `JsonCommandAdapter`. The latter starts
-one process per request, writes one UTF-8 JSON object on stdin, and expects one
-bounded JSON object on stdout. No shell, scheduler, or credential storage is
-provided. The host owns the authenticated tool calls; this repository provides
-the transport and protocol, not a universal connector runtime.
+The bundled `ConnectedHostAdapter` lets an active Codex/Claude agent use its
+already authenticated Google Drive tools. It requires no user-written bridge,
+separate OAuth client or rclone installation. The user chooses the folder and
+retention; the agent performs the following session workflow from the skill's
+real script directory. Keep temporary session/response files outside Git.
+
+1. Inspect the host's available Drive tools. Start a private session with
+   `python3 evidence_host.py start --parent /external/host-sessions` and retain
+   the returned absolute `session` path.
+2. Start the authorized setup/manager command with `--host-session SESSION`,
+   or set `SDD_EVIDENCE_HOST_SESSION=SESSION` for that command. Keep the command
+   running while servicing requests; a blocking wait that prevents tool calls
+   will time out. The adapter waits at most 300 seconds per tool request.
+3. Call `python3 evidence_host.py next --session SESSION`. For a non-null
+   `request`, use its `request_id`, `tool`, `arguments` and `requirements`.
+   `host_capabilities` is a local handshake: return the discovered tool basenames
+   in `tools` and `original_download:true` only after confirming original binary
+   download is available. Required basenames are `list_folder`, `upload_file`,
+   `get_file_metadata`, `fetch` and `delete_file`. Other requests call the
+   corresponding authenticated Drive tool with the supplied arguments.
+4. Save the raw tool result as bounded JSON, then run
+   `python3 evidence_host.py respond --session SESSION --request REQUEST_ID --response /external/tool-result.json`.
+   For Codex `fetch`, pass the unchanged result: the bundled helper materializes
+   its authenticated `file_uri.download_url` automatically, enforcing the byte
+   limit and download deadline. Other hosts may provide an accessible
+   `workspace_path` or add `--download /external/original-file` for an original
+   already materialized through that host's download facility. Respect
+   `max_bytes`; never substitute a preview, document export or source upload.
+   The adapter independently copies and verifies the original file. The manager
+   reserves space for the control queue and independent downloaded copy.
+5. Repeat until the command exits. Close the session with
+   `python3 evidence_host.py close --session SESSION`, remove task-owned response
+   and download files, and report the command's verification result. In a
+   `finally` path, first stop/wait for the owned command; inspect unresolved
+   remote operations before using `close --cancel`. The upload journal remains
+   available for reconciliation. Do not delete unrelated Drive objects.
+
+Start a fresh session for a later operation/chat. Session paths never enter saved
+bindings or portable policy; account authentication remains with the plugin.
+Without an active session, the manager reports the missing host action instead
+of prompting for custom code or switching to rclone. A different connector must
+expose the listed tool interface and compatible arguments/results as well as
+equivalent capabilities. In Claude Code, `/mcp` establishes connector discovery,
+not compatibility with this adapter or successful archive verification; inspect
+the actual exposed tools before starting setup. Unavailable raw downloads or
+incomplete listings fail explicitly.
+
+The bundled adapter enumerates binary files with `list_folder`; native search
+can omit archived binary objects. The current folder tool accepts `top_k:1000`
+but exposes no continuation argument. The adapter rejects saturated, partial or
+continuation-bearing listings and stops before an upload would add the 1,000th
+direct folder item. Its supported folder capacity is therefore at most 999
+direct items, including catalog/accounting objects and unrelated existing items;
+the 1 MiB control-response limit or configured object bound can lower that limit.
+Use a compatible paginated custom adapter or explicitly choose rclone for a
+larger folder. A successful small-folder probe does not prove arbitrary-size
+folder support, and the manager never silently changes the selected transport.
+
+Custom integrations remain supported: a host may inject a Python callable
+`adapter(request) -> response`, or explicitly configure a `bridge_command`
+argument array for `JsonCommandAdapter` using `--bridge-command '["python3", "/external/bridge.py"]'`.
+That adapter starts one process per request, writes one UTF-8 JSON object on stdin,
+and expects one bounded JSON object on stdout. The transport protocol below is
+implemented by the bundled adapter as well as custom adapters.
 
 The first request is:
 
@@ -101,8 +159,10 @@ The exposed connector may return normalized metadata: read `name` or `title` for
 the exact key, `mimeType` or `mime_type` for binary-file validation, and `parents`
 or `parent_ids` to verify the selected folder. Parse the original `size` as a
 nonnegative integer and retain `id` unchanged as `object_id`.
-Every `lookup` must enumerate all exact matches, including duplicate IDs across
-pages; every `list` must reach the final page. Never set `next_page_token:null`
+Every `lookup` must enumerate all exact matches; a paginated custom adapter must
+include duplicate IDs across pages, and every `list` must reach the final page.
+The bundled adapter supports only a demonstrably unsaturated single-page folder.
+Never set `next_page_token:null`
 merely because a connector's result cap was reached. Refuse truncation, unknown
 pagination completeness, or a namespace beyond the host's explicit supported
 limit before claiming absence, cold recovery, or safe deletion. A small synthetic
@@ -130,10 +190,11 @@ the same key does not blindly upload again. A missing object retains its pending
 checkpoint and blocks with an unknown-outcome error, including after restart.
 
 Resume at the verified pack boundary. If the account holder has inspected the
-selected destination and confirmed the upload never created an object,
-`transport.acknowledge_missing_upload(key)` explicitly clears that one pending
-checkpoint; a following `put` may try again. Existing objects cannot be abandoned
-through this action. Duplicate remote names require reconciliation and are never
+selected destination and confirmed the upload never created an object, run
+`python3 evidence_store.py acknowledge-missing-upload --project PATH --key EXACT_PENDING_KEY`
+with an active host session for connected Drive. This explicitly clears that one
+pending checkpoint after fresh absence checks; retry the original archive command
+to resume. Existing objects cannot be abandoned through this action. Duplicate remote names require reconciliation and are never
 automatically deduplicated or deleted. This favors recoverable failure over
 duplicate payloads when a remote listing is delayed.
 

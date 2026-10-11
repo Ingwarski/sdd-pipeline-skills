@@ -7,8 +7,10 @@ stable identities, limits and retention, never account credentials or disk paths
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -148,9 +150,9 @@ def _valid_config(config):
                 raise SetupError("configured rclone executable is missing; install the optional rclone tool or restore its saved executable path, then authenticate the selected remote with rclone config")
         else:
             command = config.get("bridge_command")
-            if not isinstance(command, list) or not command or any(not isinstance(item, str) or not item for item in command):
-                raise SetupError("configured connected Drive bridge command is missing; explicitly --reconfigure with --bridge-command")
-            if not shutil.which(command[0]):
+            if command is not None and (not isinstance(command, list) or not command or any(not isinstance(item, str) or not item for item in command)):
+                raise SetupError("configured custom Drive bridge command must be a nonempty argument array")
+            if command and not shutil.which(command[0]):
                 raise SetupError("configured connected Drive bridge executable is missing; restore the saved host bridge or explicitly --reconfigure")
     if config["provider"] != "google-drive" and not Path(config["destination"]).is_dir():
         raise SetupError("selected durable folder is unavailable: " + config["destination"])
@@ -174,7 +176,7 @@ def inspect(project=None, home=None):
                 **_setup_action(project, home)}
 
 
-def _probe(config, project=None):
+def _probe(config, project=None, *, host_session=None):
     """The manager, never an upload response, establishes storage availability."""
     home = evidence_home(config["evidence_home"])
     home.mkdir(parents=True, exist_ok=True)
@@ -184,6 +186,8 @@ def _probe(config, project=None):
         command = [sys.executable, str(ENGINE_ROOT / "evidence_store.py"), "setup-probe", "--config", str(candidate)]
         if project:
             command += ["--project", str(Path(project).resolve())]
+        if host_session is not None:
+            command += ["--host-session", str(host_session)]
         result = subprocess.run(command, capture_output=True, text=True, timeout=600)
         try:
             receipt = json.loads(result.stdout)
@@ -197,9 +201,125 @@ def _probe(config, project=None):
         return receipt
 
 
+def _initialize_authority(config, policy, project, *, host_session=None):
+    """Claim durable generation authority before exposing a project as configured."""
+    home = evidence_home(config["evidence_home"])
+    home.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="setup-authority-", dir=home) as temporary:
+        candidate = Path(temporary) / "candidate.json"
+        candidate_policy = Path(temporary) / "policy.json"
+        _write(candidate, config)
+        _write(candidate_policy, policy)
+        command = [sys.executable, str(ENGINE_ROOT / "evidence_store.py"), "initialize-generation-authority",
+                   "--project", str(Path(project).resolve()), "--config", str(candidate), "--policy", str(candidate_policy)]
+        if host_session is not None:
+            command += ["--host-session", str(host_session)]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=600)
+        try:
+            receipt = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise SetupError("generation authority initialization returned no receipt; project setup remains incomplete") from exc
+        if result.returncode:
+            raise SetupError("generation authority initialization failed: " + str(receipt.get("error") or receipt.get("reason") or "project setup remains incomplete"))
+
+
+@contextmanager
+def _checkpoint_setup(config, policy, project, *, fixed_project=False, fixed_store=False, reconfigure=False):
+    home = evidence_home(config["evidence_home"])
+    scope = str(Path(project).expanduser().resolve()) if project else "installation-default"
+    key = hashlib.sha256(scope.encode("utf-8")).hexdigest()
+    lock_path = home / "pending-setup" / (key + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as stream:
+        if stream.seek(0, os.SEEK_END) == 0:
+            stream.write(b"0")
+            stream.flush()
+        stream.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise SetupError("another setup is updating this project's pending checkpoint; retry after it finishes") from exc
+        try:
+            yield _claim_setup_checkpoint(config, policy, project, fixed_project=fixed_project,
+                                          fixed_store=fixed_store, reconfigure=reconfigure)
+        finally:
+            stream.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream, fcntl.LOCK_UN)
+
+
+def _claim_setup_checkpoint(config, policy, project, *, fixed_project, fixed_store, reconfigure):
+    """Keep identities through unknown remote outcomes without saving credentials."""
+    home = evidence_home(config["evidence_home"])
+    scope = str(Path(project).expanduser().resolve()) if project else "installation-default"
+    key = hashlib.sha256(scope.encode("utf-8")).hexdigest()
+    path = home / "pending-setup" / (key + ".json")
+    selected_config = {key: value for key, value in config.items()
+                       if key not in ("project_id", "store_id", "setup_receipt", "configured_at")}
+    automatic_local = config["provider"] == "local" and config["destination"] == str(home / "durable" / config["store_id"])
+    if automatic_local:
+        selected_config["destination"] = {"managed_local": True}
+    selected_policy = {key: value for key, value in policy.items() if key not in ("project_id", "store_id")}
+    selection = hashlib.sha256(json.dumps([selected_config, selected_policy], sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    candidate = {"version": 1, "selection_sha256": selection, "project_id": policy["project_id"], "store_id": policy["store_id"]}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Publish one complete immutable checkpoint, without replacing another setup's
+    # winning identities. Temporary and destination paths are on the same disk.
+    with tempfile.TemporaryDirectory(prefix=".claim-", dir=path.parent) as temporary:
+        source = Path(temporary) / "pending.json"
+        _write(source, candidate)
+        try:
+            os.link(source, path)
+        except FileExistsError:
+            pass
+    pending = _read(path)
+    if (not isinstance(pending, dict) or type(pending.get("version")) is not int or pending.get("version") != 1
+            or set(pending) != set(candidate) or not isinstance(pending.get("selection_sha256"), str)
+            or len(pending["selection_sha256"]) != 64 or any(character not in "0123456789abcdef" for character in pending["selection_sha256"])):
+        raise SetupError("invalid pending setup checkpoint; preserve it for recovery: " + str(path))
+    try:
+        for field in ("project_id", "store_id"):
+            if str(uuid.UUID(pending[field])) != pending[field]:
+                raise ValueError()
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise SetupError("invalid pending setup identity; preserve it for recovery: " + str(path)) from exc
+    if pending["selection_sha256"] != selection:
+        if not reconfigure:
+            raise SetupError("unfinished setup has different storage choices; retry the original selection or explicitly use --reconfigure to preserve its recovery checkpoint and choose another store: " + str(path))
+        history = path.parent / "history" / key
+        history.mkdir(parents=True, exist_ok=True)
+        previous = history / (pending["selection_sha256"] + "-" + pending["project_id"] + ".json")
+        if previous.exists():
+            if _read(previous) != pending:
+                raise SetupError("pending setup history identity collision; preserve its recovery files")
+        else:
+            if sum(1 for _ in history.iterdir()) >= 64:
+                raise SetupError("pending setup recovery history reached 64 records; reconcile prior attempts before another reconfiguration")
+            os.link(path, previous)
+        _write(path, candidate)
+        pending = candidate
+    if ((fixed_project and pending["project_id"] != policy["project_id"])
+            or (fixed_store and pending["store_id"] != policy["store_id"])):
+        raise SetupError("pending setup identities disagree with saved project/store; preserve the checkpoint and recover the original binding: " + str(path))
+    policy.update(project_id=pending["project_id"], store_id=pending["store_id"])
+    config["store_id"] = pending["store_id"]
+    if project:
+        config["project_id"] = pending["project_id"]
+    if automatic_local:
+        config["destination"] = str(home / "durable" / pending["store_id"])
+    return path
+
+
 def configure(project=None, *, provider, destination=None, transport=None, bridge_command=None,
               rclone_config=None, rclone_executable=None, home=None, limits=None, retention_days=None,
-              drive_retention_days="unset", adopt=None, reconfigure=False, probe=None):
+              drive_retention_days="unset", adopt=None, reconfigure=False, probe=None, host_session=None):
     """An explicit selected provider authorizes its bounded verification upload."""
     home = evidence_home(home)
     _outside(home, project)
@@ -242,11 +362,9 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
     else:
         if not destination:
             raise SetupError("Google Drive requires --destination REMOTE:PATH or a connected Drive folder ID")
-        transport = transport or "rclone"
+        transport = transport or "connected"
         if transport not in ("rclone", "connected"):
             raise SetupError("Google Drive transport must be rclone or connected")
-        if transport == "connected" and not bridge_command:
-            raise SetupError("connected Drive requires --bridge-command with original-byte upload/download capabilities")
     if provider != "google-drive":
         destination = str(Path(destination).expanduser().resolve())
         _outside(Path(destination), project)
@@ -271,31 +389,40 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
     policy = validate_policy(policy)
     if project:
         config["project_id"] = project_id
-    receipt = (probe or _probe)(config, project)
-    if not isinstance(receipt, dict) or receipt.get("verified") is not True:
-        raise SetupError("storage probe did not independently verify bytes")
-    config["setup_receipt"] = receipt
-    config["configured_at"] = datetime.now(timezone.utc).isoformat()
-    config_path = home / "bindings" / (project_id + ".json") if project else home / "default.json"
-    _write(home / "stores" / (store_id + ".json"), config)
-    _write(config_path, config)
-    if project:
-        _write(policy_path, policy)
-    else:
-        # Defaults are separately saved machine choices; a project receives its own UUID.
-        _write(home / "default-policy.json", {key: value for key, value in policy.items() if key not in ("project_id", "store_id", "provider")})
-    status = inspect(project, home)
-    _write(home / "setup-status.json", status)
-    if adopt:
-        command = [sys.executable, str(ENGINE_ROOT / "evidence_store.py"), "adopt", "--project", str(Path(project).resolve()), "--mapping", str(Path(adopt).resolve())]
-        result = subprocess.run(command, capture_output=True, text=True, timeout=600)
-        if result.returncode:
-            raise SetupError("storage configured, but archive adoption is incomplete; inspect the mapping with evidence_store.py adopt before using dependent evidence")
-        status["adoption"] = "completed"
-    return status
+    with _checkpoint_setup(config, policy, project, fixed_project=existing_policy is not None,
+                           fixed_store=bool(same_store or existing_policy and not old_config), reconfigure=reconfigure) as pending_path:
+        project_id, store_id = policy["project_id"], policy["store_id"]
+        receipt = probe(config, project) if probe else _probe(config, project, **({"host_session": host_session} if host_session is not None else {}))
+        if not isinstance(receipt, dict) or receipt.get("verified") is not True:
+            raise SetupError("storage probe did not independently verify bytes")
+        config["setup_receipt"] = receipt
+        config["configured_at"] = datetime.now(timezone.utc).isoformat()
+        if project:
+            _initialize_authority(config, policy, project, host_session=host_session)
+        config_path = home / "bindings" / (project_id + ".json") if project else home / "default.json"
+        _write(home / "stores" / (store_id + ".json"), config)
+        _write(config_path, config)
+        if project:
+            _write(policy_path, policy)
+        else:
+            # Defaults are separately saved machine choices; a project receives its own UUID.
+            _write(home / "default-policy.json", {key: value for key, value in policy.items() if key not in ("project_id", "store_id", "provider")})
+        pending_path.unlink()
+        status = inspect(project, home)
+        _write(home / "setup-status.json", status)
+        if adopt:
+            command = [sys.executable, str(ENGINE_ROOT / "evidence_store.py"), "adopt", "--project", str(Path(project).resolve()),
+                       "--config", str(config_path), "--mapping", str(Path(adopt).resolve())]
+            if host_session is not None:
+                command += ["--host-session", str(host_session)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=600)
+            if result.returncode:
+                raise SetupError("storage configured, but archive adoption is incomplete; inspect the mapping with evidence_store.py adopt before using dependent evidence")
+            status["adoption"] = "completed"
+        return status
 
 
-def _apply_saved_default(project, home):
+def _apply_saved_default(project, home, *, host_session=None):
     config = _valid_config(_read(home / "default.json"))
     _outside(home, project)
     if config["provider"] != "google-drive":
@@ -309,13 +436,16 @@ def _apply_saved_default(project, home):
         policy = _read(home / "default-policy.json")
         policy.update(project_id=str(uuid.uuid4()), store_id=config["store_id"], provider=config["provider"])
         policy = validate_policy(policy)
-        _write(policy_path, policy)
     config["project_id"] = policy["project_id"]
-    _write(home / "bindings" / (policy["project_id"] + ".json"), config)
-    return inspect(project, home)
+    with _checkpoint_setup(config, policy, project, fixed_project=policy_path.exists(), fixed_store=True) as pending_path:
+        _initialize_authority(config, policy, project, host_session=host_session)
+        _write(policy_path, policy)
+        _write(home / "bindings" / (policy["project_id"] + ".json"), config)
+        pending_path.unlink()
+        return inspect(project, home)
 
 
-def ensure(project=None, *, home=None, interactive=False):
+def ensure(project=None, *, home=None, interactive=False, host_session=None):
     """An explicit managed-operation boundary; never run merely on project open."""
     home = evidence_home(home)
     status = inspect(project, home)
@@ -327,7 +457,7 @@ def ensure(project=None, *, home=None, interactive=False):
             policy = validate_policy(_read(policy_path)) if policy_path.exists() else None
             # Never replace a corrupt or unavailable selected binding with defaults.
             if policy is None or not (home / "bindings" / (policy["project_id"] + ".json")).exists():
-                status = _apply_saved_default(project, home)
+                status = _apply_saved_default(project, home, host_session=host_session)
         except (SetupError, EvidenceError, OSError, ValueError, TypeError) as exc:
             status["reason"] = str(exc)
     # Saved-but-unavailable stores require explicit reconfiguration; an ordinary
@@ -339,13 +469,13 @@ def ensure(project=None, *, home=None, interactive=False):
         except SetupError:
             saved_choice = True
     if status["result"] == "setup_required" and interactive and not saved_choice:
-        return wizard(project, home=home)
+        return wizard(project, home=home, host_session=host_session)
     _outside(home, project)
     _write(home / "setup-status.json", status)
     return status
 
 
-def wizard(project=None, *, home=None, reconfigure=False, input_fn=input):
+def wizard(project=None, *, home=None, reconfigure=False, input_fn=input, host_session=None):
     """Small terminal wizard. EOF/cancel leaves existing policies and stores untouched."""
     print("Select durable evidence storage: 1 managed local, 2 selected folder/disk, 3 Google Drive.")
     print("Before choosing connected Google Drive storage:")
@@ -365,18 +495,15 @@ def wizard(project=None, *, home=None, reconfigure=False, input_fn=input):
                     prior = _read(config_path)
         choice = input_fn("Storage choice [1/2/3; blank postpones setup]: ").strip()
         if not choice:
-            return ensure(project, home=home, interactive=False)
+            return ensure(project, home=home, interactive=False, host_session=host_session)
         if choice not in ("1", "2", "3"):
             raise SetupError("choose 1, 2, or 3")
         provider = {"1": "local", "2": "folder", "3": "google-drive"}[choice]
         destination = (input_fn("Destination folder, rclone REMOTE:PATH, or connected folder ID (blank preserves an existing same-provider choice): ").strip() or None) if choice != "1" else None
         options = {}
         if provider == "google-drive":
-            transport_default = prior.get("transport", "rclone") if prior and prior["provider"] == "google-drive" else "rclone"
-            options["transport"] = input_fn("Drive transport [rclone/connected, default " + transport_default + "]: ").strip() or transport_default
-            if options["transport"] == "connected":
-                value = input_fn("Connected original-byte bridge command (JSON argument array recommended; blank preserves saved command): ").strip()
-                options["bridge_command"] = parse_bridge_command(value) if value else None
+            transport_default = prior.get("transport", "connected") if prior and prior["provider"] == "google-drive" else "connected"
+            options["transport"] = input_fn("Drive transport [connected/rclone, default " + transport_default + "]: ").strip() or transport_default
             previous_drive = prior and prior["provider"] == "google-drive"
             drive_default = str(defaults["retention"]["drive_days"]) if defaults["retention"]["drive_days"] is not None else "never"
             label = "Drive archive expiry [days or never" + (", saved " + drive_default if previous_drive else "; explicit choice required") + "]: "
@@ -398,9 +525,9 @@ def wizard(project=None, *, home=None, reconfigure=False, input_fn=input):
         retention = input_fn("Local generated-artifact retention days [" + str(retention_default) + "]: ").strip()
         adoption = input_fn("Existing archive mapping to adopt [blank means none]: ").strip() if project else None
         return configure(project, provider=provider, destination=destination, home=home, limits=limits,
-                         retention_days=int(retention or str(retention_default)), adopt=adoption, reconfigure=reconfigure, **options)
+                         retention_days=int(retention or str(retention_default)), adopt=adoption, reconfigure=reconfigure, host_session=host_session, **options)
     except EOFError:
-        return ensure(project, home=home, interactive=False)
+        return ensure(project, home=home, interactive=False, host_session=host_session)
 
 
 def main(argv=None):
@@ -410,6 +537,7 @@ def main(argv=None):
         sub = commands.add_parser(name)
         sub.add_argument("--project", type=Path)
         sub.add_argument("--evidence-home", type=Path)
+        sub.add_argument("--host-session", type=Path, help="active connected-tool session; alternatively SDD_EVIDENCE_HOST_SESSION (never saved)")
         if name in ("ensure", "wizard"):
             sub.add_argument("--reconfigure", action="store_true")
             sub.add_argument("--non-interactive", action="store_true")
@@ -440,11 +568,11 @@ def main(argv=None):
             if args.reconfigure:
                 if not interactive:
                     raise SetupError("noninteractive reconfiguration requires the configure command and explicit provider options")
-                status = wizard(args.project, home=args.evidence_home, reconfigure=True)
+                status = wizard(args.project, home=args.evidence_home, reconfigure=True, host_session=args.host_session)
             elif args.command == "wizard" and interactive:
-                status = wizard(args.project, home=args.evidence_home)
+                status = wizard(args.project, home=args.evidence_home, host_session=args.host_session)
             else:
-                status = ensure(args.project, home=args.evidence_home, interactive=interactive)
+                status = ensure(args.project, home=args.evidence_home, interactive=interactive, host_session=args.host_session)
         else:
             limits = {}
             for value in args.limit:
@@ -460,7 +588,7 @@ def main(argv=None):
                                bridge_command=parse_bridge_command(args.bridge_command) if args.bridge_command else None,
                                rclone_config=args.rclone_config, rclone_executable=args.rclone_executable,
                                home=args.evidence_home, limits=limits, retention_days=args.retention_days,
-                               drive_retention_days=args.drive_retention_days, adopt=args.adopt, reconfigure=args.reconfigure)
+                               drive_retention_days=args.drive_retention_days, adopt=args.adopt, reconfigure=args.reconfigure, host_session=args.host_session)
         print(json.dumps(status, indent=2))
         return 0 if status["result"] == "configured" else 2
     except (OSError, SetupError, EvidenceError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:

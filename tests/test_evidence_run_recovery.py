@@ -14,7 +14,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills/to-sdd-pipeline/scripts"))
 from evidence.accounting import Accounting, BudgetExceeded
-from evidence.io import atomic_json
+from evidence.io import EvidenceError, atomic_json
 from evidence.manager import Manager
 from evidence.policy import load_defaults
 from evidence.transports import LocalTransport
@@ -66,7 +66,7 @@ class WorkingReservationTests(unittest.TestCase):
             self.assertFalse(ledger.finish_working(held, local_key="restore:synthetic", actual_bytes=13000)["incomplete"])
 
     def test_combined_metadata_and_cache_holds_cannot_be_split(self):
-        self.policy["limits"].update(metadata_stop_bytes=1024**2, metadata_stop_files=2)
+        self.policy["limits"].update(metadata_stop_bytes=1024**2, metadata_stop_files=3)
         with self.ledger() as ledger:
             ledger.reconcile_metadata("existing", 100000, 1)
             held = ledger.reserve_working(300000, metadata_bytes=200000, metadata_files=1, cache_bytes=100000)
@@ -79,7 +79,7 @@ class WorkingReservationTests(unittest.TestCase):
                 cache_key="cache", actual_cache_bytes=100000)
             self.assertFalse(result["incomplete"])
             self.assertEqual(result["totals"]["cache_bytes"], 100000)
-            self.assertEqual(result["totals"]["metadata_files"], 2)
+            self.assertEqual(result["totals"]["metadata_files"], 3)  # Includes the recovery marker.
 
     def test_recovery_ignores_generation_retained_overage_but_preserves_floor(self):
         self.policy["limits"].update(project_generation_stop_bytes=10, project_generation_warning_bytes=5,
@@ -90,7 +90,7 @@ class WorkingReservationTests(unittest.TestCase):
             held = ledger.reserve_working(1000, migration=True)
             ledger.finish_working(held)
             self.assertEqual(ledger.snapshot()["totals"]["project_generated_bytes"], 20)
-            with self.assertRaises(BudgetExceeded):
+            with self.assertRaisesRegex(EvidenceError, "accounting recovery required"):
                 ledger.reserve("new-run", "U-1", 1, 1)
 
     def test_working_hold_can_replace_its_own_archive_peak(self):
@@ -150,8 +150,8 @@ class ColdProducerCliTests(unittest.TestCase):
                 "kind": "diagnostic", "schema": "evidence-bytes-v1", "provenance": {"run_id": "old-run", "unit_id": "U-1"}}]})
             # Model a missing local database, preserving the selected durable
             # store and original coordinator. The remote catalog is authoritative.
-            for item in manager.state.glob("accounting.sqlite*"):
-                item.unlink()
+            for name in ("accounting.sqlite", "accounting.sqlite-wal", "accounting.sqlite-shm"):
+                (manager.state / name).unlink(missing_ok=True)
             config = base / "machine-config.json"
             atomic_json(config, {"version": 1, "provider": "local", "store_id": policy["store_id"], "destination": str(store), "evidence_home": str(home)})
             output = base / "producer-output"
@@ -162,11 +162,12 @@ class ColdProducerCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             response = json.loads(result.stdout)
             self.assertTrue(response["incomplete"])
-            self.assertIn("unit cumulative", response["error"])
+            self.assertIn("accounting recovery required", response["error"])
             self.assertFalse((output / "producer.log").exists())
             self.assertFalse((output / "must-not-run").exists())
             with Accounting(manager.state / "accounting.sqlite", policy["project_id"], policy) as ledger:
                 self.assertEqual(ledger.snapshot()["totals"]["project_generated_bytes"], 6)
+                self.assertFalse(ledger.snapshot()["accounting_complete"])
 
 
 if __name__ == "__main__":

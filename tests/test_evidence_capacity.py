@@ -56,7 +56,7 @@ class CapacityTests(unittest.TestCase):
         # Account SQLite's transaction overhead in this synthetic tiny allowance.
         self.manager.limits.update(local_stop_bytes=750000, cache_stop_bytes=100000)
         other.limits.update(local_stop_bytes=750000, cache_stop_bytes=100000)
-        held, release = threading.Event(), threading.Event()
+        held, release, second_entered = threading.Event(), threading.Event(), threading.Event()
         errors = []
         def worker():
             try:
@@ -68,16 +68,28 @@ class CapacityTests(unittest.TestCase):
                 held.set()
         thread = threading.Thread(target=worker)
         thread.start()
+        def second_worker():
+            try:
+                with other._working(400000):
+                    second_entered.set()
+            except BaseException as error:
+                errors.append(error)
+        second = threading.Thread(target=second_worker)
         try:
             self.assertTrue(held.wait(10))
             self.assertEqual([], errors)
-            with self.assertRaises(BudgetExceeded):
-                with other._working(400000):
-                    self.fail('second operation bypassed shared pending capacity')
+            second.start()
+            self.assertFalse(second_entered.wait(0.1), 'coordinator operations must serialize their combined working peaks')
+            with Accounting(self.manager.state / 'accounting.sqlite', self.policy['project_id'], self.policy) as ledger:
+                self.assertEqual(400000, ledger.snapshot()['totals']['pending_working_bytes'])
         finally:
             release.set()
             thread.join(10)
+            if second.ident is not None:
+                second.join(10)
         self.assertFalse(thread.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertTrue(second_entered.is_set())
         self.assertEqual([], errors)
         with Accounting(self.manager.state / 'accounting.sqlite', self.policy['project_id'], self.policy) as ledger:
             self.assertEqual(0, ledger.snapshot()['totals']['pending_working_bytes'])

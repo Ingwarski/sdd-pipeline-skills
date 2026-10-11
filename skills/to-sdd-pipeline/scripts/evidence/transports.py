@@ -468,7 +468,8 @@ class _CheckpointedDrive(Transport):
                                      "state": "located", "locator": verified})
             return verified
         if record is not None:
-            raise EvidenceError("unknown upload outcome: pending checkpoint retained; resume lookup without reupload or explicitly acknowledge missing upload")
+            raise EvidenceError("unknown upload outcome: pending checkpoint retained; resume lookup without reupload or use evidence_store.py acknowledge-missing-upload --key after checking the selected destination")
+        self._pre_upload(key)
         atomic_json(checkpoint, {"version": 1, "key": key, "sha256": digest, "size": size, "state": "pending"})
         try:
             self._upload(key, Path(source_path), digest, size)
@@ -498,10 +499,30 @@ class _CheckpointedDrive(Transport):
             raise EvidenceError("upload object exists; resume the verified object instead")
         self._checkpoint(key).unlink(missing_ok=True)
 
+    def _pre_upload(self, key):
+        return None
+
 
 class ConnectedDriveTransport(_CheckpointedDrive):
     REQUIRED_CAPABILITIES = frozenset({"upload", "download_original", "metadata", "lookup", "list", "delete",
                                        "stable_object_id", "bounded_original_download"})
+
+    @property
+    def control_peak_bytes(self):
+        return getattr(self.adapter, "control_peak_bytes", 0)
+
+    @property
+    def host_session_path(self):
+        return getattr(self.adapter, "host_session_path", None)
+
+    def working_overhead(self, *, upload_bytes=0, download_bytes=0):
+        method = getattr(self.adapter, "working_overhead", None)
+        return method(upload_bytes=upload_bytes, download_bytes=download_bytes) if method else 0
+
+    def _pre_upload(self, key):
+        method = getattr(self.adapter, "preflight_upload", None)
+        if method:
+            method(self.folder_id, key)
 
     def __init__(self, adapter, folder_id, *, state_dir=None, attempts=3,
                  max_metadata_bytes=16 * 1024 * 1024, max_objects=100_000):
@@ -523,6 +544,8 @@ class ConnectedDriveTransport(_CheckpointedDrive):
         try:
             result = self.adapter({"version": 1, "operation": operation, "folder_id": self.folder_id, **values})
         except Exception as exc:
+            if isinstance(exc, EvidenceError) and getattr(self.adapter, "safe_error_messages", False):
+                raise
             raise EvidenceError("connected Drive " + operation + " failed; check selected account, permission and host bridge") from exc
         if not isinstance(result, dict):
             raise EvidenceError("connected Drive " + operation + " returned no JSON object")
@@ -597,7 +620,8 @@ class ConnectedDriveTransport(_CheckpointedDrive):
         result, identities, seen_keys, tokens, page_token, total_bytes = [], set(), set(), set(), None, 0
         while True:
             response = self._call("list", prefix=prefix, page_token=page_token, max_objects=self.max_objects - len(result))
-            total_bytes += len(json.dumps(response).encode())
+            total_bytes += max(len(json.dumps(response).encode()),
+                               _positive(response.get("metadata_bytes", 0), "Drive listing metadata bytes", zero=True))
             objects = response.get("objects")
             if not isinstance(objects, list) or total_bytes > self.max_metadata_bytes:
                 raise EvidenceError("Drive listing exceeds combined metadata bound or has invalid objects")

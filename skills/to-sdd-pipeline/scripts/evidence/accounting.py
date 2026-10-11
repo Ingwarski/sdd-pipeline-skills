@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -18,7 +19,7 @@ import subprocess
 import time
 import uuid
 
-from .io import EvidenceError, hash_file, _is_link
+from .io import EvidenceError, atomic_json, hash_file, read_json, _is_link
 from .policy import validate_policy
 
 
@@ -64,6 +65,10 @@ class Accounting:
                 raise EvidenceError("linked accounting path: " + str(ancestor))
         if self.path.exists() and not stat.S_ISREG(self.path.lstat().st_mode):
             raise EvidenceError("accounting ledger must be a regular file")
+        self.recovery_dir = Path(str(self.path) + ".recovery")
+        self._dirty_runs = set()
+        self._journal_ready = False
+        self._recovery_problem = None
         self.connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         try:
             self.connection.row_factory = sqlite3.Row
@@ -91,6 +96,9 @@ class Accounting:
                 CREATE TABLE IF NOT EXISTS durable_generation (
                     operation_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, unit_id TEXT NOT NULL,
                     gross_bytes INTEGER NOT NULL, logical_files INTEGER NOT NULL, mode TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS uncertain_generation (
+                    reservation_id TEXT PRIMARY KEY REFERENCES reservations(id),
+                    gross_bytes INTEGER NOT NULL, logical_files INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS working_reservations (
                     id TEXT PRIMARY KEY, bytes INTEGER NOT NULL, migration INTEGER NOT NULL,
                     metadata_bytes INTEGER NOT NULL DEFAULT 0, metadata_files INTEGER NOT NULL DEFAULT 0,
@@ -126,6 +134,7 @@ class Accounting:
                 version = self.connection.execute("SELECT value FROM identity WHERE key='version'").fetchone()[0]
                 if version != "1":
                     raise EvidenceError("unsupported accounting ledger version")
+                self._initialize_recovery()
         except BaseException:
             # A failed constructor has no context manager available to close
             # SQLite handles, which otherwise block native Windows cleanup.
@@ -144,16 +153,191 @@ class Accounting:
     @contextmanager
     def _transaction(self):
         self.connection.execute("BEGIN IMMEDIATE")
+        checkpoint_started = False
         try:
+            if self._journal_ready:
+                reason = self._current_recovery_reason()
+                if reason:
+                    self._recovery_problem = reason
+                    self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_required',?)", (reason,))
             yield
+            if self._journal_ready:
+                checkpoint_started = bool(self._dirty_runs)
+                self._checkpoint_runs()
             self.connection.execute("COMMIT")
         except BaseException:
             self.connection.execute("ROLLBACK")
+            if checkpoint_started:
+                self._recovery_problem = "accounting checkpoint/transaction was interrupted; known charges require recovery"
             raise
+        finally:
+            self._dirty_runs.clear()
+
+    def _initialize_recovery(self):
+        """Keep charge floors independently of SQLite; missing history fails closed.
+
+        These compact checkpoints are not output backups. After database loss
+        they recover known generation/holds, but cannot reconstruct lost output
+        observations or certify completeness. Payload restoration still works.
+        """
+        if self.recovery_dir.is_symlink() or self.recovery_dir.exists() and (_is_link(self.recovery_dir.lstat()) or not self.recovery_dir.is_dir()):
+            raise EvidenceError("unsafe accounting recovery directory")
+        self.recovery_dir.mkdir(exist_ok=True)
+        marker_path = self.recovery_dir / "marker.json"
+        stored = self.connection.execute("SELECT value FROM identity WHERE key='ledger_id'").fetchone()
+        reason = None
+        if marker_path.exists():
+            marker = read_json(marker_path, 4096)
+            if not isinstance(marker, dict) or type(marker.get("version")) is not int or marker["version"] != 1 or marker.get("project_id") != self.project_id:
+                raise EvidenceError("accounting recovery marker belongs to another project/version")
+            _identity(marker.get("ledger_id"), "recovery ledger identity")
+            _amount(marker.get("runs"), "recovery run count")
+            _amount(marker.get("revision"), "recovery revision")
+            if stored and stored[0] != marker["ledger_id"]:
+                raise EvidenceError("accounting database and recovery journal identities differ")
+            if not stored:
+                reason = "accounting database was lost; original output observations and complete history require recovery"
+            self._ledger_id = marker["ledger_id"]
+            revision = self.connection.execute("SELECT value FROM identity WHERE key='recovery_revision'").fetchone()
+            if stored and revision and int(revision[0]) == marker["revision"]:
+                self._journal_ready = True
+                return
+            if stored:
+                reason = "accounting transaction/checkpoint differs; complete generation accounting requires recovery"
+        else:
+            self._ledger_id = stored[0] if stored else str(uuid.uuid4())
+            marker = {"runs": 0}
+            if stored:
+                reason = "accounting recovery journal was lost; complete generation history cannot be verified"
+        self.connection.execute("INSERT OR IGNORE INTO identity VALUES('ledger_id',?)", (self._ledger_id,))
+        paths = sorted(self.recovery_dir.glob("run-*.json"))
+        if len(paths) > self.policy["limits"]["metadata_stop_files"]:
+            raise EvidenceError("accounting recovery journal exceeds metadata file bound")
+        if self._recovery_usage()[0] > self.policy["limits"]["metadata_stop_bytes"]:
+            raise EvidenceError("combined accounting recovery journal exceeds metadata byte bound")
+        if len(paths) != marker["runs"]:
+            reason = "accounting recovery journal is incomplete; generation history cannot be verified"
+        for path in paths:
+            item = read_json(path, self.policy["limits"]["metadata_stop_bytes"])
+            if not isinstance(item, dict) or not isinstance(item.get("run"), dict):
+                raise EvidenceError("invalid accounting recovery checkpoint")
+            run = item.get("run", {})
+            if type(item.get("version")) is not int or item["version"] != 1 or item.get("project_id") != self.project_id or item.get("ledger_id") != self._ledger_id:
+                raise EvidenceError("invalid accounting recovery checkpoint identity")
+            _identity(run.get("id"), "recovered run"); _identity(run.get("unit_id"), "recovered unit")
+            if path.name != self._recovery_path(run["id"]).name:
+                raise EvidenceError("accounting recovery checkpoint has an invalid filename")
+            for field in ("ordinal", "gross_bytes", "gross_files", "migration"):
+                _amount(run.get(field), "recovered " + field)
+            if run["migration"] not in (0, 1) or run.get("status") not in ("active", "complete", "incomplete"):
+                raise EvidenceError("invalid recovered accounting run state")
+            if not isinstance(run.get("created"), (int, float)) or isinstance(run["created"], bool):
+                raise EvidenceError("invalid recovered accounting creation time")
+            present = self.connection.execute("SELECT * FROM runs WHERE id=?", (run["id"],)).fetchone()
+            if present is not None and (present["unit_id"] != run["unit_id"] or present["migration"] != run["migration"]):
+                raise EvidenceError("recovered accounting run identity was rebound")
+            if present is None or dict(present) != run:
+                reason = reason or "accounting transaction/checkpoint differs; known charges retained but complete accounting requires recovery"
+                if present is None:
+                    self.connection.execute("INSERT INTO runs(id,unit_id,ordinal,gross_bytes,gross_files,migration,status,created) VALUES(?,?,?,?,?,?,?,?)", tuple(run[key] for key in ("id", "unit_id", "ordinal", "gross_bytes", "gross_files", "migration", "status", "created")))
+                else:
+                    self.connection.execute("UPDATE runs SET gross_bytes=MAX(gross_bytes,?),gross_files=MAX(gross_files,?) WHERE id=?", (run["gross_bytes"], run["gross_files"], run["id"]))
+                self.connection.execute("UPDATE runs SET status='incomplete' WHERE id=?", (run["id"],))
+            pending = item.get("pending")
+            if not isinstance(pending, list):
+                raise EvidenceError("invalid recovered pending reservations")
+            for hold in pending:
+                if not isinstance(hold, dict) or hold.get("run_id") != run["id"] or hold.get("state") != "pending":
+                    raise EvidenceError("invalid recovered reservation binding")
+                _identity(hold.get("id"), "recovered reservation")
+                fields = ("id", "run_id", "bytes", "files", "local_bytes", "metadata_bytes", "metadata_files", "retained_bytes", "retained_objects", "state", "created")
+                for field in fields[2:-2]:
+                    _amount(hold.get(field), "recovered reservation " + field)
+                if not isinstance(hold.get("created"), (int, float)) or isinstance(hold["created"], bool):
+                    raise EvidenceError("invalid recovered reservation creation time")
+                previous = self.connection.execute("SELECT * FROM reservations WHERE id=?", (hold["id"],)).fetchone()
+                if previous is None:
+                    self.connection.execute("INSERT INTO reservations(" + ",".join(fields) + ") VALUES(" + ",".join("?" for _ in fields) + ")", tuple(hold[field] for field in fields))
+                    reason = reason or "pending accounting reservation recovered without its original ledger"
+                elif dict(previous) != hold:
+                    reason = reason or "pending accounting reservation and checkpoint differ"
+            self._dirty_runs.add(run["id"])
+        if reason:
+            self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_required',?)", (reason,))
+        self._dirty_runs.update(row[0] for row in self.connection.execute("SELECT id FROM runs"))
+        self._journal_ready = True
+        self._checkpoint_runs(force=True)
+        self._dirty_runs.clear()
+
+    def _recovery_path(self, run_id):
+        return self.recovery_dir / ("run-" + hashlib.sha256(run_id.encode()).hexdigest() + ".json")
+
+    def _checkpoint_runs(self, *, force=False):
+        if not self._dirty_runs and not force:
+            return
+        count = self.connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        prior = self.connection.execute("SELECT value FROM identity WHERE key='recovery_revision'").fetchone()
+        revision = int(prior[0]) + 1 if prior else 1
+        marker = {"version": 1, "project_id": self.project_id, "ledger_id": self._ledger_id, "runs": count, "revision": revision}
+        # Persist intent first. A crash after any subsequent partial write leaves
+        # a revision mismatch, so another client cannot treat old totals as final.
+        atomic_json(self.recovery_dir / "marker.json", marker)
+        for run_id in sorted(self._dirty_runs):
+            row = self.connection.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            if row is None:
+                continue
+            value = {"version": 1, "project_id": self.project_id, "ledger_id": self._ledger_id,
+                     "run": dict(row), "pending": [dict(item) for item in self.connection.execute("SELECT * FROM reservations WHERE run_id=? AND state='pending' ORDER BY id", (run_id,))]}
+            if len((json.dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False, indent=2) + "\n").encode()) > self.policy["limits"]["metadata_stop_bytes"]:
+                raise EvidenceError("accounting run checkpoint exceeds metadata byte bound")
+            atomic_json(self._recovery_path(run_id), value)
+        self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_revision',?)", (str(revision),))
+
+    def require_generation_ready(self):
+        reason = self._current_recovery_reason()
+        if reason:
+            raise EvidenceError("accounting recovery required: " + reason + "; restore the original accounting.sqlite and its journal before generating or completing evidence")
+
+    def _current_recovery_reason(self):
+        row = self.connection.execute("SELECT value FROM identity WHERE key='recovery_required'").fetchone()
+        reason = self._recovery_problem or (row[0] if row else None)
+        if reason:
+            return reason
+        try:
+            marker = read_json(self.recovery_dir / "marker.json", 4096)
+            revision = self.connection.execute("SELECT value FROM identity WHERE key='recovery_revision'").fetchone()
+            if not isinstance(marker, dict) or marker.get("ledger_id") != self._ledger_id or revision is None or marker.get("revision") != int(revision[0]):
+                return "accounting checkpoint/transaction differs; complete history requires recovery"
+        except (EvidenceError, OSError, ValueError):
+            return "accounting recovery marker is missing or unreadable; complete history requires recovery"
+        return None
+
+    def _recovery_usage(self):
+        # Include interrupted atomic-write temporaries in the physical budget.
+        byte_count, file_count = 0, 0
+        for path in self.recovery_dir.iterdir():
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                if path.name.startswith(".") and path.name.endswith(".tmp"):
+                    # Atomic checkpoint temporaries can disappear while manager
+                    # occupancy is inspected outside a ledger transaction.
+                    continue
+                raise
+            if _is_link(info) or not stat.S_ISREG(info.st_mode):
+                raise EvidenceError("unsafe accounting recovery journal entry: " + str(path))
+            byte_count += info.st_size
+            file_count += 1
+        return byte_count, file_count
 
     def _ledger_bytes(self):
-        return sum(path.stat().st_size for path in
-                   (self.path, Path(str(self.path) + "-wal"), Path(str(self.path) + "-shm")) if path.exists())
+        result = self.path.stat().st_size
+        for suffix in ("-wal", "-shm"):
+            try:
+                result += Path(str(self.path) + suffix).stat().st_size
+            except FileNotFoundError:
+                pass  # SQLite may remove an unused sidecar during checkpoint.
+        return result + self._recovery_usage()[0]
 
     def _totals(self, run_id=None, unit_id=None):
         query = "SELECT COALESCE(SUM(gross_bytes),0), COALESCE(SUM(gross_files),0) FROM runs WHERE migration=0"
@@ -184,7 +368,7 @@ class Accounting:
                 "pending_cache_bytes": working_pending[3],
                 "pending_retained_bytes": all_pending[3], "pending_retained_objects": all_pending[4],
                 "retained_unique_bytes": objects[0], "retained_physical_objects": objects[1],
-                "metadata_bytes": metadata[0] + ledger_bytes, "metadata_files": metadata[1],
+                "metadata_bytes": metadata[0] + ledger_bytes, "metadata_files": metadata[1] + self._recovery_usage()[1],
                 "local_bytes": local + ledger_bytes, "cache_bytes": cache,
                 "ledger_bytes": ledger_bytes}
 
@@ -232,6 +416,7 @@ class Accounting:
                              (retained_bytes, "retained bytes"), (retained_objects, "retained objects")):
             _amount(value, label)
         with self._transaction():
+            self.require_generation_ready()
             run = self.connection.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
             if run is None:
                 ordinal = self.connection.execute("SELECT COUNT(*) FROM runs WHERE unit_id=? AND migration=0", (unit_id,)).fetchone()[0]
@@ -244,22 +429,30 @@ class Accounting:
             elif run["status"] != "active":
                 raise EvidenceError("run is " + run["status"] + "; reconcile or start another bounded attempt")
             totals = self._totals(run_id, unit_id)
+            journal_path = self._recovery_path(run_id)
+            # One compact run snapshot is replaced atomically per change. Its
+            # temporary copy and the new reservation's metadata share the same
+            # combined bounds as payload writes; it is not free hidden storage.
+            journal_peak = (journal_path.stat().st_size if journal_path.exists() else 0) + 8192
             violations = self._violations(totals, extra_bytes=byte_count, extra_files=file_count,
-                                          extra_local=local_bytes, extra_metadata=metadata_bytes,
-                                          extra_metadata_files=metadata_files, extra_retained=retained_bytes,
+                                          extra_local=local_bytes + journal_peak, extra_metadata=metadata_bytes + 8192,
+                                          extra_metadata_files=metadata_files + (0 if journal_path.exists() else 1), extra_retained=retained_bytes,
                                           extra_retained_objects=retained_objects, migration=migration)
             # Reservation uses peak additional writes plus the selected floor,
             # never a fixed 10 GiB prerequisite. Existing occupied bytes are
             # already reflected by the filesystem's current free capacity.
             capacity = Path(capacity_path) if capacity_path is not None else self.path.parent
             free = shutil.disk_usage(capacity).free
-            if free - totals["pending_local_bytes"] - local_bytes < self.policy["limits"]["free_space_reserve_bytes"]:
+            if free - totals["pending_local_bytes"] - local_bytes - journal_peak < self.policy["limits"]["free_space_reserve_bytes"]:
                 violations.append("free-space reserve cannot be preserved")
+            if shutil.disk_usage(self.path.parent).free - journal_peak < self.policy["limits"]["free_space_reserve_bytes"]:
+                violations.append("accounting journal cannot preserve free-space reserve")
             if violations:
                 raise BudgetExceeded(violations)
             identifier = str(uuid.uuid4())
             self.connection.execute("INSERT INTO reservations(id,run_id,bytes,files,local_bytes,metadata_bytes,metadata_files,retained_bytes,retained_objects,created) VALUES(?,?,?,?,?,?,?,?,?,?)",
                                     (identifier, run_id, byte_count, file_count, local_bytes, metadata_bytes, metadata_files, retained_bytes, retained_objects, time.time()))
+            self._dirty_runs.add(run_id)
             return identifier
 
     def settle(self, reservation_id: str, actual_bytes: int, actual_files: int, *,
@@ -277,6 +470,11 @@ class Accounting:
             reservation = self.connection.execute("SELECT q.*,r.unit_id,r.migration FROM reservations q JOIN runs r ON r.id=q.run_id WHERE q.id=?", (reservation_id,)).fetchone()
             if reservation is None or reservation["state"] != "pending":
                 raise EvidenceError("reservation is unknown or already settled")
+            uncertain = self.connection.execute("SELECT gross_bytes,logical_files FROM uncertain_generation WHERE reservation_id=?", (reservation_id,)).fetchone()
+            if uncertain:
+                # Unknown gross production cannot be established from a later
+                # surviving inventory. Preserve its held allowance and failure.
+                raise EvidenceError("uncertain production requires original accounting recovery; reservation retained")
             self.connection.execute("UPDATE reservations SET state='settled' WHERE id=?", (reservation_id,))
             self.connection.execute("UPDATE runs SET gross_bytes=gross_bytes+?,gross_files=gross_files+? WHERE id=?", (actual_bytes, actual_files, reservation["run_id"]))
             self.connection.execute("INSERT OR REPLACE INTO local_usage VALUES(?,?,?)", ("settled:" + reservation_id, "capture", local_bytes))
@@ -299,15 +497,43 @@ class Accounting:
                 violations.append("migration batch exceeded bounded allowance")
             if violations:
                 self.connection.execute("UPDATE runs SET status='incomplete' WHERE id=?", (reservation["run_id"],))
+            self._dirty_runs.add(reservation["run_id"])
             return {"reservation_id": reservation_id, "run_id": reservation["run_id"],
                     "incomplete": bool(violations), "violations": violations, "totals": totals}
+
+    def record_uncertain(self, reservation_id: str, observed_bytes: int, observed_files: int):
+        """Charge an observed lower bound while keeping an unknown output's hold.
+
+        The operation is idempotent: repeated observations only raise its floor.
+        A surviving reservation deliberately remains conservative until the
+        original output and its complete accounting can be recovered.
+        """
+        _amount(observed_bytes, "observed bytes"); _amount(observed_files, "observed files")
+        with self._transaction():
+            row = self.connection.execute("SELECT q.*,r.unit_id FROM reservations q JOIN runs r ON r.id=q.run_id WHERE q.id=?", (reservation_id,)).fetchone()
+            if row is None or row["state"] != "pending":
+                raise EvidenceError("uncertain reservation is unknown or no longer pending")
+            prior = self.connection.execute("SELECT gross_bytes,logical_files FROM uncertain_generation WHERE reservation_id=?", (reservation_id,)).fetchone()
+            previous_bytes, previous_files = tuple(prior) if prior else (0, 0)
+            byte_count, file_count = max(observed_bytes, previous_bytes), max(observed_files, previous_files)
+            self.connection.execute("INSERT OR REPLACE INTO uncertain_generation VALUES(?,?,?)", (reservation_id, byte_count, file_count))
+            self.connection.execute("UPDATE runs SET gross_bytes=gross_bytes+?,gross_files=gross_files+?,status='incomplete' WHERE id=?", (byte_count - previous_bytes, file_count - previous_files, row["run_id"]))
+            self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_required',?)", ("managed output inventory is unknown; observed charges are lower bounds and its reservation remains held",))
+            self._dirty_runs.add(row["run_id"])
+            return {"reservation_id": reservation_id, "run_id": row["run_id"], "incomplete": True,
+                    "violations": ["actual output inventory is unknown; reservation retained"],
+                    "totals": self._totals(row["run_id"], row["unit_id"])}
 
     def cancel(self, reservation_id: str):
         """Release an unused reservation only; charged generation is immutable."""
         with self._transaction():
+            if self.connection.execute("SELECT 1 FROM uncertain_generation WHERE reservation_id=?", (reservation_id,)).fetchone():
+                raise EvidenceError("unknown actual output cannot release its reservation")
+            row = self.connection.execute("SELECT run_id FROM reservations WHERE id=?", (reservation_id,)).fetchone()
             changed = self.connection.execute("UPDATE reservations SET state='cancelled' WHERE id=? AND state='pending'", (reservation_id,)).rowcount
             if not changed:
                 raise EvidenceError("reservation is unknown or not pending")
+            self._dirty_runs.add(row[0])
 
     def reserve_working(self, byte_count: int, *, capacity_path=None, migration=False,
                         exclude_reservation=None, metadata_bytes=0, metadata_files=0, cache_bytes=0) -> str:
@@ -457,7 +683,7 @@ class Accounting:
             byte_count, file_count = item.get("gross_bytes"), item.get("logical_files")
             _amount(byte_count, "durable generated bytes"); _amount(file_count, "durable logical files")
             mode = item.get("mode", "generation")
-            if mode not in ("generation", "managed-generation", "imported-existing", "migration"):
+            if mode not in ("generation", "managed-generation", "managed-run-total", "imported-existing", "migration"):
                 raise EvidenceError("unsupported durable accounting mode")
             if mode in ("migration", "imported-existing") and (byte_count or file_count):
                 raise EvidenceError("existing-data accounting cannot claim new generation charges")
@@ -468,16 +694,29 @@ class Accounting:
                 if existing is not None and tuple(existing) != item:
                     raise EvidenceError("immutable durable generation operation changed")
                 self.connection.execute("INSERT OR IGNORE INTO durable_generation VALUES(?,?,?,?,?,?)", item)
-            totals = self.connection.execute("SELECT run_id,unit_id,SUM(gross_bytes),SUM(logical_files) FROM durable_generation WHERE mode IN ('generation','managed-generation') GROUP BY run_id,unit_id").fetchall()
+            # New managed records are cumulative run snapshots, not independent
+            # output charges. Multiple output archives and failure checkpoints
+            # may publish the same run total. Keep the largest snapshot once.
+            totals = self.connection.execute("""SELECT run_id,unit_id,
+                MAX(SUM(CASE WHEN mode IN ('generation','managed-generation') THEN gross_bytes ELSE 0 END),
+                    MAX(CASE WHEN mode='managed-run-total' THEN gross_bytes ELSE 0 END)),
+                MAX(SUM(CASE WHEN mode IN ('generation','managed-generation') THEN logical_files ELSE 0 END),
+                    MAX(CASE WHEN mode='managed-run-total' THEN logical_files ELSE 0 END))
+                FROM durable_generation WHERE mode IN ('generation','managed-generation','managed-run-total')
+                GROUP BY run_id,unit_id""").fetchall()
             for run_id, unit_id, byte_count, file_count in totals:
                 run = self.connection.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
                 if run is not None:
                     if run["unit_id"] != unit_id or run["migration"]:
                         raise EvidenceError("durable run identity differs from local accounting")
                     self.connection.execute("UPDATE runs SET gross_bytes=MAX(gross_bytes,?),gross_files=MAX(gross_files,?) WHERE id=?", (byte_count, file_count, run_id))
+                    if byte_count > run["gross_bytes"] or file_count > run["gross_files"]:
+                        self._dirty_runs.add(run_id)
                 else:
                     ordinal = self.connection.execute("SELECT COUNT(*) FROM runs WHERE unit_id=? AND migration=0", (unit_id,)).fetchone()[0]
-                    self.connection.execute("INSERT INTO runs(id,unit_id,ordinal,gross_bytes,gross_files,migration,created) VALUES(?,?,?,?,?,0,?)", (run_id, unit_id, ordinal, byte_count, file_count, time.time()))
+                    self.connection.execute("INSERT INTO runs(id,unit_id,ordinal,gross_bytes,gross_files,migration,status,created) VALUES(?,?,?,?,?,0,'incomplete',?)", (run_id, unit_id, ordinal, byte_count, file_count, time.time()))
+                    self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_required',?)", ("generation charges were reconstructed from the durable catalog without original run/output accounting; known totals are lower bounds",))
+                    self._dirty_runs.add(run_id)
             actual = self._totals()
             return {"violations": self._violations(actual), "totals": actual}
 
@@ -519,6 +758,7 @@ class Accounting:
             added_bytes, added_files = sum(item[2] for item in changed), len(changed)
             if changed:
                 self.connection.execute("UPDATE runs SET gross_bytes=gross_bytes+?,gross_files=gross_files+?,status='incomplete' WHERE id=?", (added_bytes, added_files, row["run_id"]))
+                self._dirty_runs.add(row["run_id"])
             self.connection.execute("DELETE FROM observations WHERE output_id=?", (output_id,))
             self.connection.executemany("INSERT INTO observations VALUES(?,?,?,?)", [(output_id, *item) for item in inventory])
             self.connection.execute("UPDATE outputs SET reconciled=1 WHERE id=?", (output_id,))
@@ -555,6 +795,7 @@ class Accounting:
     def complete_run(self, run_id: str) -> dict:
         """Completion requires settled reservations and reconciled output roots."""
         with self._transaction():
+            self.require_generation_ready()
             row = self.connection.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
             if row is None:
                 raise EvidenceError("run has no required accounting")
@@ -566,6 +807,7 @@ class Accounting:
             if violations:
                 raise BudgetExceeded(violations)
             self.connection.execute("UPDATE runs SET status='complete' WHERE id=?", (run_id,))
+            self._dirty_runs.add(run_id)
             return self._totals(run_id, row["unit_id"])
 
     def mark_incomplete(self, run_id: str):
@@ -573,6 +815,7 @@ class Accounting:
         with self._transaction():
             if not self.connection.execute("UPDATE runs SET status='incomplete' WHERE id=?", (run_id,)).rowcount:
                 raise EvidenceError("run has no required accounting")
+            self._dirty_runs.add(run_id)
 
     def require_managed_source(self, output_id: str, run_id: str, unit_id: str,
                                path, digest: str, size: int):
@@ -622,6 +865,7 @@ class Accounting:
     def snapshot(self, run_id=None, unit_id=None):
         with self._transaction():
             totals = self._totals(run_id, unit_id)
+            recovery_reason = self._current_recovery_reason()
             limits = self.policy["limits"]
             warnings = []
             for field, key in (("run_generated_bytes", "run_warning_bytes"), ("unit_generated_bytes", "unit_warning_bytes"),
@@ -629,6 +873,9 @@ class Accounting:
                 if totals[field] >= limits[key]:
                     warnings.append(field + " reached warning threshold")
             return {"project_id": self.project_id, "totals": totals, "warnings": warnings,
+                    "accounting_complete": recovery_reason is None,
+                    "recovery_required": recovery_reason,
+                    "totals_are_lower_bounds": recovery_reason is not None,
                     "runs": [dict(row) for row in self.connection.execute("SELECT * FROM runs ORDER BY created,id")],
                     "working_reservations": [dict(row) for row in self.connection.execute("SELECT * FROM working_reservations WHERE state='pending' ORDER BY created,id")],
                     "reservations": [dict(row) for row in self.connection.execute("SELECT * FROM reservations WHERE state='pending' ORDER BY created,id")]}

@@ -13,12 +13,14 @@ import socket
 import sqlite3
 import stat
 import tempfile
+import threading
+import time
 import uuid
 
 from .archive import build_pack, verify_pack, capture
 from .io import EvidenceError, atomic_json, hash_file, read_json, safe_relative, _open_regular, _verify_stable
 from .policy import validate_policy
-from .identity import same_reference
+from .identity import same_reference, same_imported_original
 
 
 def canonical(value):
@@ -54,21 +56,112 @@ class Manager:
                 raise EvidenceError("evidence working directory is linked")
             path.mkdir(exist_ok=True)
         identity = self.state / "coordinator.json"
-        if not identity.exists():
-            atomic_json(identity, {"id": str(uuid.uuid4()), "host": socket.gethostname()})
-        self.coordinator = read_json(identity, 4096)["id"]
+        self.coordinator = self._coordinator_identity(identity)
         self._preparing = set()
         self._active_reservation = None
         self._working_depth = 0
         self._working_reservation = None
+        self._catalog_thread_lock = threading.RLock()
+        self._catalog_lock_depth = 0
+
+    def _coordinator_identity(self, identity):
+        """Publish once; the OS releases initialization ownership after a crash."""
+        def existing():
+            value = read_json(identity, 4096)
+            if not isinstance(value, dict) or not isinstance(value.get("id"), str) or not value["id"]:
+                raise EvidenceError("coordinator identity is invalid; retained")
+            return value["id"]
+
+        # Initialized identities never change, so readers need no temporary
+        # owner records and cannot inflate another operation's working usage.
+        if identity.exists() or identity.is_symlink():
+            return existing()
+        guard = self.state / ".coordinator-init.lock"
+        if guard.is_symlink() or (guard.exists() and not guard.is_file()):
+            raise EvidenceError("coordinator initialization lock is unsafe; retained")
+        descriptor = os.open(guard, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        acquired = False
+        try:
+            info, current = os.fstat(descriptor), guard.lstat()
+            if (not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(current.st_mode)
+                    or (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino)):
+                raise EvidenceError("coordinator initialization lock changed; retained")
+            if info.st_size == 0:
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+            deadline = time.monotonic() + 30
+            while not acquired:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+                        os.lseek(descriptor, 0, os.SEEK_SET)
+                        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                except (BlockingIOError, PermissionError):
+                    if time.monotonic() >= deadline:
+                        raise EvidenceError("coordinator initialization is busy; bounded wait exhausted")
+                    time.sleep(0.01)
+            if not identity.exists() and not identity.is_symlink():
+                atomic_json(identity, {"id": str(uuid.uuid4()), "host": socket.gethostname()})
+            return existing()
+        finally:
+            if acquired:
+                if os.name == "nt":
+                    import msvcrt
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
     @contextmanager
-    def locked(self):
+    def locked(self, timeout=600):
+        with self._catalog_thread_lock:
+            if self._catalog_lock_depth:
+                self._catalog_lock_depth += 1
+                try:
+                    yield
+                finally:
+                    self._catalog_lock_depth -= 1
+                return
+            with self._file_locked(timeout):
+                self._catalog_lock_depth = 1
+                try:
+                    yield
+                finally:
+                    self._catalog_lock_depth = 0
+
+    @contextmanager
+    def _file_locked(self, timeout):
         lock = self.state / "catalog.lock"
-        try:
-            lock.mkdir()
-        except FileExistsError as error:
-            raise EvidenceError("catalog coordinator is busy; reconcile the recorded lock after its process exits: " + str(lock)) from error
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                lock.mkdir()
+                break
+            except FileExistsError as error:
+                if not lock.exists() and not lock.is_symlink():
+                    continue
+                if lock.is_symlink() or not lock.is_dir():
+                    raise EvidenceError("catalog coordinator lock is unsafe; retained: " + str(lock)) from error
+                try:
+                    owner = read_json(lock / "owner.json", 4096)
+                except (FileNotFoundError, EvidenceError) as read_error:
+                    if not isinstance(getattr(read_error, "__cause__", None), FileNotFoundError) and ((lock / "owner.json").exists() or (lock / "owner.json").is_symlink()):
+                        raise
+                    owner = None  # Another same-home process is creating/removing its lock.
+                if owner is not None:
+                    if owner.get("host") != socket.gethostname() or owner.get("coordinator") != self.coordinator:
+                        raise EvidenceError("catalog lock belongs to another host/coordinator; retained") from error
+                    if not self._owner_alive(owner.get("pid")):
+                        raise EvidenceError("catalog coordinator exited; reconcile the recorded lock: " + str(lock)) from error
+                if time.monotonic() >= deadline:
+                    raise EvidenceError("catalog coordinator is busy; bounded wait exhausted: " + str(lock)) from error
+                time.sleep(min(0.05, max(0, deadline - time.monotonic())))
         try:
             atomic_json(lock / "owner.json", {"pid": os.getpid(), "host": socket.gethostname(), "coordinator": self.coordinator})
             yield
@@ -127,20 +220,58 @@ class Manager:
             action["verified"] = True
         return [action]
 
-    def _usage(self):
+    def _usage(self, *, include_ledger=True):
         """Account all local capture/cache/staging/readback/restoration, without following links."""
         count = 0
         for directory, dirs, files in os.walk(self.state, followlinks=False):
             for name in dirs + files:
                 path = Path(directory) / name
-                info = path.lstat()
+                if not include_ledger and (path.name.startswith("accounting.sqlite") or (self.state / "accounting.sqlite.recovery") in path.parents):
+                    continue
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:
+                    continue  # A managed sibling completed its reserved temporary work.
                 if stat.S_ISLNK(info.st_mode):
                     raise EvidenceError("unregistered link in evidence workspace: " + str(path))
                 if stat.S_ISREG(info.st_mode):
                     count += info.st_size
                 elif not stat.S_ISDIR(info.st_mode):
                     raise EvidenceError("special file in evidence workspace")
-        return count
+        return count + self._existing_bytes(self._transport_records())
+
+    @staticmethod
+    def _existing_bytes(paths):
+        total = 0
+        for path in paths:
+            try:
+                total += path.stat().st_size
+            except FileNotFoundError:
+                continue  # Occupancy disappeared; its in-flight peak remains reserved.
+        return total
+
+    def _transport_records(self):
+        folder = getattr(self.transport, "host_session_path", None)
+        if folder is None:
+            return []
+        root = Path(folder).absolute()
+        if root == self.state or self.state in root.parents:
+            return []  # Already included in the ordinary workspace walk.
+        if root.is_symlink() or not root.is_dir():
+            raise EvidenceError("host transport session directory is missing or linked")
+        records = []
+        for directory, dirs, files in os.walk(root, followlinks=False):
+            for name in dirs + files:
+                path = Path(directory) / name
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISREG(info.st_mode):
+                    records.append(path)
+                elif not stat.S_ISDIR(info.st_mode):
+                    raise EvidenceError("host transport session contains an unsafe entry")
+        return records
 
     def _capacity(self, peak, *, migration=False):
         local_limit = self.limits["migration_local_stop_bytes" if migration else "local_stop_bytes"]
@@ -160,25 +291,53 @@ class Manager:
             raise EvidenceError("measured staging/restoration peak plus preserved free-space reserve unavailable")
 
     def _local_records(self, ledger):
-        cache_bytes = sum(p.stat().st_size for p in (self.cache / "objects").glob("*") if p.is_file())
+        cache_bytes = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
         ledger.reconcile_local("cache", cache_bytes, "cache")
-        ledger.reconcile_local("manager-working", max(0, self._usage() - cache_bytes - ledger._ledger_bytes()), "staging")
-        records = [p for p in self.state.rglob("*.json") if p.is_file() and not p.is_symlink()]
-        ledger.reconcile_metadata("local-journals-receipts", sum(p.stat().st_size for p in records), len(records))
+        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False) - cache_bytes), "staging")
+        records = self._metadata_records()
+        ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
+
+    def _metadata_records(self):
+        recovery = self.state / "accounting.sqlite.recovery"
+        return [p for p in self.state.rglob("*.json")
+                if p.is_file() and not p.is_symlink() and recovery not in p.parents] + [
+                p for p in self._transport_records() if p.suffix == ".json"]
 
     @contextmanager
-    def _working(self, peak, *, migration=False, metadata_bytes=0, metadata_files=0, cache_bytes=0):
+    def _working(self, peak, *, migration=False, metadata_bytes=0, metadata_files=0, cache_bytes=0,
+                 additional_peak=False, capacity_path=None, transport_scope=False):
+        with self.locked():
+            with self._working_reserved(peak, migration=migration, metadata_bytes=metadata_bytes,
+                metadata_files=metadata_files, cache_bytes=cache_bytes, additional_peak=additional_peak,
+                capacity_path=capacity_path, transport_scope=transport_scope):
+                yield
+
+    @contextmanager
+    def _working_reserved(self, peak, *, migration=False, metadata_bytes=0, metadata_files=0, cache_bytes=0,
+                          additional_peak=False, capacity_path=None, transport_scope=False):
         """Share atomic local holds with producers; nesting retains the outer peak."""
         nested = bool(self._working_depth)
-        if nested and not (metadata_bytes or metadata_files or cache_bytes):
+        if not nested and not transport_scope:
+            overhead = getattr(self.transport, "working_overhead", None)
+            control = overhead(upload_bytes=0, download_bytes=0) if overhead else 0
+            if type(control) is not int or control < 0:
+                raise EvidenceError("transport control overhead must be nonnegative")
+            peak += control
+            metadata_bytes += control
+            metadata_files += 3 if control else 0
+            session = getattr(self.transport, "host_session_path", None)
+            if control and session is not None and shutil.disk_usage(session).free < control + self.limits["free_space_reserve_bytes"]:
+                raise EvidenceError("host transport control peak cannot preserve the configured free-space reserve")
+        if nested and not (metadata_bytes or metadata_files or cache_bytes or additional_peak):
             yield
             return
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-            self._local_records(ledger)
-            ident = ledger.reserve_working(0 if nested else peak, migration=migration,
+            if not (nested and additional_peak):
+                self._local_records(ledger)
+            ident = ledger.reserve_working(peak if not nested or additional_peak else 0, migration=migration,
                 exclude_reservation=self._active_reservation, metadata_bytes=metadata_bytes,
-                metadata_files=metadata_files, cache_bytes=cache_bytes)
+                metadata_files=metadata_files, cache_bytes=cache_bytes, capacity_path=capacity_path)
             if not nested:
                 self._working_reservation = ident
             self._working_depth += 1
@@ -190,12 +349,14 @@ class Manager:
                 raise
             finally:
                 try:
-                    cache = sum(p.stat().st_size for p in (self.cache / "objects").glob("*") if p.is_file())
-                    records = [p for p in self.state.rglob("*.json") if p.is_file() and not p.is_symlink()]
-                    allocations = {"metadata_key": "local-journals-receipts", "actual_metadata_bytes": sum(p.stat().st_size for p in records),
+                    cache = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
+                    records = self._metadata_records()
+                    allocations = {"metadata_key": "local-journals-receipts", "actual_metadata_bytes": self._existing_bytes(p for p in records),
                         "actual_metadata_files": len(records)}
+                    if nested and additional_peak and not (metadata_bytes or metadata_files):
+                        allocations = {}  # The enclosing operation owns persistent control metadata.
                     if not nested:
-                        allocations.update(local_key="manager-working", actual_bytes=max(0, self._usage() - cache - ledger._ledger_bytes()),
+                        allocations.update(local_key="manager-working", actual_bytes=max(0, self._usage(include_ledger=False) - cache),
                             kind="staging", cache_key="cache", actual_cache_bytes=cache)
                     result = ledger.finish_working(ident, **allocations)
                     violations = [v for v in result["violations"] if not
@@ -208,6 +369,30 @@ class Manager:
                     if not nested:
                         self._working_reservation = None
 
+    def _transport_call(self, method, *args, **kwargs):
+        """Reserve private host queues and materialized originals outside this state."""
+        overhead = getattr(self.transport, "working_overhead", None)
+        if overhead is None:
+            return getattr(self.transport, method)(*args, **kwargs)
+        upload = Path(args[1]).stat().st_size if method == "put" else 0
+        download = args[2] if method == "get" else 0
+        peak = overhead(upload_bytes=upload, download_bytes=download)
+        if type(peak) is not int or peak < 0:
+            raise EvidenceError("transport working overhead must be a nonnegative byte bound")
+        if not peak:
+            return getattr(self.transport, method)(*args, **kwargs)
+        control = overhead(upload_bytes=0, download_bytes=0)
+        if type(control) is not int or control < 0 or control > peak:
+            raise EvidenceError("transport control overhead must fit its working bound")
+        if self._working_depth:
+            peak -= control  # The outer operation holds the fixed queue bound throughout.
+            if not peak:
+                return getattr(self.transport, method)(*args, **kwargs)
+            control = 0
+        with self._working(peak, additional_peak=True, metadata_bytes=control, metadata_files=3 if control else 0,
+                           capacity_path=getattr(self.transport, "host_session_path", None), transport_scope=True):
+            return getattr(self.transport, method)(*args, **kwargs)
+
     def _checkpoint(self, path, value):
         data = local_json_size(value)
         previous = path.stat().st_size if path.exists() else 0
@@ -216,23 +401,32 @@ class Manager:
             atomic_json(path, value)
 
     def _read_remote_json(self, locator, maximum):
-        size = self.transport.stat(locator)["size"]
+        size = self._transport_call("stat", locator)["size"]
         if size > maximum:
             raise EvidenceError("remote metadata exceeds combined configured bound")
         self._capacity(size)
         with self._working(size), tempfile.TemporaryDirectory(dir=self.staging, prefix="index-") as temp:
             target = Path(temp).resolve() / "data.json"
-            self.transport.get(locator, target, size)
+            self._transport_call("get", locator, target, size)
             return read_json(target, maximum), hash_file(target)
 
     def _catalog(self, *, mutation=False, recover_policy=False):
-        roots = self.transport.keys(self.prefix + "roots/")
-        if len(roots) > self.limits["metadata_stop_files"]:
+        with self.locked():
+            return self._catalog_locked(mutation=mutation, recover_policy=recover_policy)
+
+    def _catalog_locked(self, *, mutation=False, recover_policy=False):
+        roots = self._transport_call("keys", self.prefix + "roots/")
+        authorities = self._transport_call("keys", self.prefix + "authority/")
+        authority_bytes = sum(self._transport_call("stat", item)["size"] for item in authorities)
+        authority = self._generation_authority() if authorities else None
+        if mutation and authority is not None and authority["coordinator"] != self.coordinator:
+            raise EvidenceError("this client lacks designated coordinator authority; cold recovery is read-only")
+        if len(roots) + len(authorities) > self.limits["metadata_stop_files"] or authority_bytes > self.limits["metadata_stop_bytes"]:
             raise EvidenceError("combined catalog object count exhausted")
         if not roots:
             return {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"],
-                    "sequence": 0, "coordinator": self.coordinator, "segments": [], "refs": {}, "packs": {},
-                    "generation": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": 0, "metadata_files": 0, "unreconciled_packs": self._unreconciled_packs({})}
+                    "sequence": 0, "coordinator": authority["coordinator"] if authority else self.coordinator, "segments": [], "refs": {}, "packs": {},
+                    "generation": {}, "generation_intents": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
         keys = sorted((x if isinstance(x, str) else x["key"]) for x in roots)
         latest = keys[-1]
         root, (digest, size) = self._read_remote_json(latest, self.limits["metadata_stop_bytes"])
@@ -240,6 +434,8 @@ class Manager:
             raise EvidenceError("catalog root identity/hash mismatch")
         if root.get("version") != 1 or root.get("project_id") != self.policy["project_id"] or root.get("store_id") != self.policy["store_id"]:
             raise EvidenceError("unsupported or mismatched remote catalog")
+        if authority is not None and root.get("coordinator") != authority["coordinator"]:
+            raise EvidenceError("catalog and generation coordinator authority disagree; reconciliation required")
         if recover_policy:
             if "policy" not in root:
                 raise EvidenceError("cold recovery requires original portable --policy for a legacy catalog")
@@ -251,15 +447,16 @@ class Manager:
             raise EvidenceError("this clone has incomplete coordinator authority; cold recovery is read-only; explicitly transfer coordinator authority before mutation/pruning")
         if not isinstance(root.get("segments"), list) or len(root["segments"]) > self.limits["metadata_stop_files"]:
             raise EvidenceError("invalid catalog segment closure")
-        total = 0
-        indexes = self.transport.keys(self.prefix + "indexes/")
+        total = authority_bytes
+        indexes = self._transport_call("keys", self.prefix + "indexes/")
         index_keys = {(x if isinstance(x, str) else x["key"]) for x in indexes}
         # Old roots count too: splitting or retaining checkpoints cannot evade metadata limits.
         for key in keys:
-            total += int(self.transport.stat(key)["size"])
+            total += int(self._transport_call("stat", key)["size"])
         for key in index_keys:
-            total += int(self.transport.stat(key)["size"])
+            total += int(self._transport_call("stat", key)["size"])
         refs, packs, generation, pending_deletions, retired_refs, import_retention_decisions = {}, {}, {}, {}, {}, {}
+        generation_intents, reference_aliases = {}, {}
         seen = set()
         for descriptor in root["segments"]:
             if descriptor["sha256"] in seen:
@@ -278,6 +475,29 @@ class Manager:
                 refs[ref["artifact_id"]] = ref
             packs.update(data.get("packs", {}))
             generation.update(data.get("generation", {}))
+            for ident, intent in data.get("generation_intents", {}).items():
+                if (not isinstance(ident, str) or not isinstance(intent, dict)
+                        or set(intent) != {"run_id", "unit_id", "reserve_bytes", "reserve_files", "owner_pid", "owner_host"}
+                        or any(not isinstance(intent[field], str) or not intent[field] for field in ("run_id", "unit_id"))
+                        or any(type(intent[field]) is not int or intent[field] < 0 for field in ("reserve_bytes", "reserve_files"))
+                        or type(intent["owner_pid"]) is not int or intent["owner_pid"] <= 0
+                        or not isinstance(intent["owner_host"], str) or not intent["owner_host"]
+                        or ident in generation_intents):
+                    raise EvidenceError("invalid or duplicated durable generation intent")
+                generation_intents[ident] = intent
+            for ident in data.get("settled_generation_intents", []):
+                if ident not in generation_intents:
+                    raise EvidenceError("durable generation settlement lacks its original intent")
+                generation_intents[ident] = {**generation_intents[ident], "settled": True}
+            for ident, aliases in data.get("reference_aliases", {}).items():
+                if ident not in refs or not isinstance(aliases, list) or len(aliases) > 10000:
+                    raise EvidenceError("imported reference aliases lack registered original identity")
+                target = reference_aliases.setdefault(ident, [])
+                for alias in aliases:
+                    if not same_imported_original(alias, refs[ident]):
+                        raise EvidenceError("imported reference alias changes original evidence")
+                    if not any(same_reference(alias, prior) for prior in target):
+                        target.append(alias)
             for ident in data.get("deletion_intent", []):
                 if ident not in packs:
                     raise EvidenceError("deletion intent lacks registered archive identity")
@@ -321,29 +541,29 @@ class Manager:
                 if ident in import_retention_decisions and import_retention_decisions[ident] != decision:
                     raise EvidenceError("conflicting imported retention decisions")
                 import_retention_decisions[ident] = decision
-        if len(keys) + len(index_keys) > self.limits["metadata_stop_files"] or total > self.limits["metadata_stop_bytes"]:
+        if len(keys) + len(index_keys) + len(authorities) > self.limits["metadata_stop_files"] or total > self.limits["metadata_stop_bytes"]:
             raise EvidenceError("combined metadata allowance exhausted")
-        root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, pending_deletions=pending_deletions, retired_refs=retired_refs, import_retention_decisions=import_retention_decisions, root_key=latest,
-                    metadata_bytes=total, metadata_files=len(keys) + len(index_keys))
+        root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, generation_intents=generation_intents, reference_aliases=reference_aliases, pending_deletions=pending_deletions, retired_refs=retired_refs, import_retention_decisions=import_retention_decisions, root_key=latest,
+                    metadata_bytes=total, metadata_files=len(keys) + len(index_keys) + len(authorities))
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-            ledger.reconcile_metadata("remote-catalog", total, len(keys) + len(index_keys))
+            ledger.reconcile_metadata("remote-catalog", total, len(keys) + len(index_keys) + len(authorities))
         return root
 
     def _unreconciled_packs(self, packs):
         registered = {pack["locator"].get("key") for pack in packs.values()}
         unknown = {}
-        for entry in self.transport.keys(self.prefix + "packs/"):
+        for entry in self._transport_call("keys", self.prefix + "packs/"):
             key = entry if isinstance(entry, str) else entry["key"]
             if key not in registered:
-                metadata = self.transport.stat(key)
+                metadata = self._transport_call("stat", key)
                 unknown[metadata["object_id"]] = metadata
         return unknown
 
     def _reconcile_ledger(self, catalog, ledger):
         # Remote records are authoritative after cold recovery; local deletion never resets charges.
         existing = {row[0] for row in ledger.connection.execute("SELECT identity FROM objects")}
-        unique = {r["sha256"]: r["size"] for r in catalog["refs"].values()}
+        unique = self._retained_content(catalog["packs"])
         for digest, size in unique.items():
             ledger.record_object("content:" + digest, size, physical_count=0)
         for digest in catalog["packs"]:
@@ -356,12 +576,24 @@ class Manager:
         for ident in existing - active:
             ledger.remove_object(ident)
         ledger.reconcile_metadata("remote-catalog", catalog["metadata_bytes"], catalog["metadata_files"])
-        local_metadata = sum(p.stat().st_size for p in self.state.rglob("*.json") if p.is_file() and not p.is_symlink())
-        ledger.reconcile_metadata("local-journals-receipts", local_metadata, sum(1 for p in self.state.rglob("*.json") if p.is_file()))
-        cache_bytes = sum(p.stat().st_size for p in (self.cache / "objects").glob("*") if p.is_file())
+        records = self._metadata_records()
+        ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
+        cache_bytes = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
         ledger.reconcile_local("cache", cache_bytes, "cache")
-        ledger.reconcile_local("manager-working", max(0, self._usage() - cache_bytes - ledger._ledger_bytes()), "staging")
+        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False) - cache_bytes), "staging")
         ledger.reconcile_generation(catalog["generation"])
+
+    @staticmethod
+    def _retained_content(packs):
+        """Every stored member occupies allowance until its pack is verified absent."""
+        unique = {}
+        for pack in packs.values():
+            for member in pack["members"]:
+                digest, size = member["sha256"], member["size"]
+                if digest in unique and unique[digest] != size:
+                    raise EvidenceError("stored original content identity has conflicting sizes")
+                unique[digest] = size
+        return unique
 
     def _put_json(self, key_prefix, value):
         data = canonical(value)
@@ -371,9 +603,9 @@ class Manager:
             temp = Path(temp).resolve()
             target = temp / "record.json"
             target.write_bytes(data)
-            locator = self.transport.put(key_prefix + digest + ".json", target)
+            locator = self._transport_call("put", key_prefix + digest + ".json", target)
             readback = temp / "readback.json"
-            self.transport.get(locator, readback, len(data))
+            self._transport_call("get", locator, readback, len(data))
             if hash_file(readback) != (digest, len(data)):
                 raise EvidenceError("catalog independent readback corrupt")
         return {"locator": locator, "sha256": digest, "size": len(data)}
@@ -385,20 +617,23 @@ class Manager:
                 "sequence": catalog["sequence"] + 1, "coordinator": self.coordinator,
                 "previous": catalog["root_key"], "segments": segments}
         # Allow locator length variation, then check exact serialized bytes before root upload.
-        local_metadata = sum(p.stat().st_size for p in self.state.rglob("*.json") if p.is_file())
-        db_metadata = sum(p.stat().st_size for p in self.state.glob("accounting.sqlite*") if p.is_file())
-        if catalog["metadata_bytes"] + local_metadata + db_metadata + segment_bytes + len(canonical(root)) + 4096 > self.limits["metadata_stop_bytes"] or catalog["metadata_files"] + sum(1 for p in self.state.rglob("*.json") if p.is_file()) + 2 > self.limits["metadata_stop_files"]:
+        local_records = self._metadata_records()
+        local_metadata = self._existing_bytes(p for p in local_records)
+        db_metadata = self._existing_bytes(p for p in self.state.glob("accounting.sqlite*") if p.is_file())
+        db_metadata += self._existing_bytes(p for p in (self.state / "accounting.sqlite.recovery").rglob("*") if p.is_file())
+        if catalog["metadata_bytes"] + local_metadata + db_metadata + segment_bytes + len(canonical(root)) + 4096 > self.limits["metadata_stop_bytes"] or catalog["metadata_files"] + len(local_records) + 2 > self.limits["metadata_stop_files"]:
             raise EvidenceError("combined metadata/index/history budget would be exceeded")
-        roots = self.transport.keys(self.prefix + "roots/")
+        roots = self._transport_call("keys", self.prefix + "roots/")
         current = max((x if isinstance(x, str) else x["key"] for x in roots), default=None)
         if current != catalog["root_key"]:
             raise EvidenceError("catalog changed on another client; mutation stopped")
         descriptor = self._put_json(self.prefix + "indexes/", segment)
         root["segments"][-1] = descriptor
         root_size = len(canonical(root))
-        local_records = [p for p in self.state.rglob("*.json") if p.is_file()]
-        db_metadata = sum(p.stat().st_size for p in self.state.glob("accounting.sqlite*") if p.is_file())
-        if catalog["metadata_bytes"] + descriptor["size"] + root_size + sum(p.stat().st_size for p in local_records) + db_metadata > self.limits["metadata_stop_bytes"] or catalog["metadata_files"] + len(local_records) + 2 > self.limits["metadata_stop_files"]:
+        local_records = self._metadata_records()
+        db_metadata = self._existing_bytes(p for p in self.state.glob("accounting.sqlite*") if p.is_file())
+        db_metadata += self._existing_bytes(p for p in (self.state / "accounting.sqlite.recovery").rglob("*") if p.is_file())
+        if catalog["metadata_bytes"] + descriptor["size"] + root_size + self._existing_bytes(p for p in local_records) + db_metadata > self.limits["metadata_stop_bytes"] or catalog["metadata_files"] + len(local_records) + 2 > self.limits["metadata_stop_files"]:
             raise EvidenceError("exact combined catalog metadata allowance exhausted; verified index is recoverable")
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
@@ -416,11 +651,12 @@ class Manager:
             # Persist expected immutable identity before upload; transport owns unknown-outcome recovery.
             checkpoint["pending_pack"] = {k: v for k, v in pack.items()}
             self._checkpoint(Path(checkpoint["path"]), checkpoint)
-            locator = self.transport.put(self.prefix + "packs/" + pack["sha256"] + ".zip", temp / "pack.zip")
+            locator = self._transport_call("put", self.prefix + "packs/" + pack["sha256"] + ".zip", temp / "pack.zip")
             readback = temp / "readback.zip"
-            self.transport.get(locator, readback, pack["size"])
+            self._transport_call("get", locator, readback, pack["size"])
             verified = verify_pack(readback, pack["sha256"], pack["size"], pack["members"],
-                                   max_bytes=maximum, max_files=self.limits["migration_batch_stop_files"])
+                                   max_bytes=maximum, max_files=self.limits["migration_batch_stop_files"],
+                                   max_decoder_memory_bytes=self.limits.get("archive_decoder_memory_bytes", 128 * 1024 * 1024))
             verified["locator"] = locator
             checkpoint["packs"][pack["sha256"]] = verified
             checkpoint.pop("pending_pack", None)
@@ -671,7 +907,7 @@ class Manager:
                 self._checkpoint(journal, checkpoint)
             new_refs = [r for r in checkpoint["refs"] if r["artifact_id"] not in catalog["refs"]]
             new_packs = {k: v for k, v in checkpoint["packs"].items() if k not in catalog["packs"]}
-            retained = {r["sha256"]: r["size"] for r in list(catalog["refs"].values()) + new_refs}
+            retained = self._retained_content({**catalog["packs"], **new_packs})
             if not migration and (sum(retained.values()) > self.limits["retained_stop_bytes"] or len(catalog["packs"]) + len(new_packs) > self.limits["retained_stop_objects"]):
                 checkpoint["status"] = "incomplete"
                 self._checkpoint(journal, checkpoint)
@@ -693,8 +929,7 @@ class Manager:
                     "run_id": logical[0]["provenance"]["run_id"] if logical else "", "unit_id": logical[0]["provenance"]["unit_id"] if logical else "", "inventory_sha256": hashlib.sha256(canonical(inventory)).hexdigest()}}
                 if managed:
                     run = ledger.connection.execute("SELECT * FROM runs WHERE id=?", (logical[0]["provenance"]["run_id"],)).fetchone()
-                    generation = {"managed:" + managed: {"gross_bytes": run["gross_bytes"], "logical_files": run["gross_files"],
-                                  "run_id": run["id"], "unit_id": run["unit_id"], "mode": "managed-generation"}}
+                    generation = self._run_generation(run)
                 self._publish(catalog, {"version": 1, "refs": new_refs, "packs": new_packs, "generation": generation})
             self.prepare(checkpoint["refs"])
             if logical and not migration:
@@ -756,6 +991,7 @@ class Manager:
 
     def _prepare(self, refs, *, catalog=None):
         """Network and cache writes live here, never in the checker."""
+        from .resolver import payload_references, JSON_LIMIT
         catalog = catalog if catalog is not None else self._catalog()
         objects = self.cache / "objects"
         receipts = self.cache / "receipts"
@@ -766,7 +1002,16 @@ class Manager:
                 raise EvidenceError("cyclic or excessive preparation reference closure")
             self._preparing.add(supplied["artifact_id"])
             ref = catalog["refs"].get(supplied["artifact_id"])
-            if ref is None or not same_reference(ref, supplied):
+            aliases = catalog.get("reference_aliases", {}).get(supplied["artifact_id"], [])
+            matching = ref is not None and (same_reference(ref, supplied) or
+                any(same_reference(alias, supplied) for alias in aliases))
+            if not matching and ref is not None and catalog.get("_adopting") and same_imported_original(supplied, ref):
+                aliases = catalog.setdefault("reference_aliases", {}).setdefault(ref["artifact_id"], [])
+                if len(aliases) >= 10000:
+                    raise EvidenceError("imported reference aliases exceed validation bounds")
+                aliases.append(deepcopy(supplied))
+                matching = True
+            if not matching:
                 raise EvidenceError("reference is missing/mismatched in authoritative durable catalog")
             for dependency in ref.get("dependencies", []):
                 self._prepare([dependency], catalog=catalog)
@@ -784,11 +1029,11 @@ class Manager:
             peak = ref["size"] + max((pack["size"] + pack["original_bytes"] for pack in packs
                 if self._session_pack is None or pack["sha256"] != self._session_pack["sha256"]), default=0)
             self._capacity(peak)
-            cache_bytes = sum(p.stat().st_size for p in objects.iterdir() if p.is_file())
+            cache_bytes = self._existing_bytes(p for p in objects.iterdir() if p.is_file())
             if cache_bytes + (0 if (objects / ref["sha256"]).exists() else ref["size"]) > self.limits["cache_stop_bytes"]:
                 raise EvidenceError("bounded evidence cache full; explicitly evict replaceable cache bytes")
             proofs, offset = [], 0
-            receipt_peak = (local_json_size(ref) + len(segments) * 1024 + 4096) * 2
+            receipt_peak = (local_json_size(ref) + local_json_size(aliases) + len(segments) * 1024 + 4096) * 2
             with self._working(peak + receipt_peak, metadata_bytes=receipt_peak, metadata_files=0 if (receipts / (ref["artifact_id"] + ".json")).exists() else 1,
                 cache_bytes=0 if (objects / ref["sha256"]).exists() else ref["size"]), tempfile.TemporaryDirectory(dir=self.staging, prefix="prepare-") as temp:
                 temp = Path(temp).resolve()
@@ -806,9 +1051,10 @@ class Manager:
                             if extracted.exists():
                                 shutil.rmtree(extracted)
                             self._session_pack = None
-                            self.transport.get(pack["locator"], archive, pack["size"])
+                            self._transport_call("get", pack["locator"], archive, pack["size"])
                             verified = verify_pack(archive, pack["sha256"], pack["size"], pack["members"], destination=extracted,
-                                max_bytes=pack["original_bytes"], max_files=self.limits["migration_batch_stop_files"])
+                                max_bytes=pack["original_bytes"], max_files=self.limits["migration_batch_stop_files"],
+                                max_decoder_memory_bytes=self.limits.get("archive_decoder_memory_bytes", 128 * 1024 * 1024))
                             archive.unlink()
                             self._session_pack = {"sha256": pack["sha256"], "verified": verified}
                         else:
@@ -834,13 +1080,21 @@ class Manager:
                 if target.is_symlink():
                     raise EvidenceError("linked cache object")
                 whole.replace(target)
-                atomic_json(receipts / (ref["artifact_id"] + ".json"), {**ref, "verified_archive": proofs})
+                receipt = {**ref, "verified_archive": proofs}
+                if aliases:
+                    receipt["original_references"] = aliases
+                atomic_json(receipts / (ref["artifact_id"] + ".json"), receipt)
+            if ref["schema"] not in ("evidence-bytes-v1", "archive-attachment-v1"):
+                value = read_json(target, min(JSON_LIMIT, self.limits["metadata_stop_bytes"]))
+                for nested in payload_references(value, ref["schema"]):
+                    self._prepare([nested], catalog=catalog)
             self._preparing.remove(supplied["artifact_id"])
         return self.cache
 
     def import_archive(self, mapping):
         """Register original remote IDs without uploading or modifying any payload."""
         from .importer import normalize
+        from .resolver import EvidenceResolver
         refs, packs = normalize(mapping, store_id=self.policy["store_id"], provider=self.policy["provider"])
         with self.locked():
             catalog = self._catalog(mutation=True)
@@ -849,15 +1103,26 @@ class Manager:
             for pack in packs.values():
                 if pack["original_bytes"] > self.limits["archive_pack_stop_bytes"] or len(pack["members"]) > self.limits["migration_batch_stop_files"]:
                     raise EvidenceError("import archive requires explicitly sized decompression bounds")
-                metadata = self.transport.stat(pack["locator"])
+                metadata = self._transport_call("stat", pack["locator"])
                 if metadata["object_id"] != pack["locator"]["object_id"] or metadata["size"] != pack["size"]:
                     raise EvidenceError("imported remote object identity/size mismatch")
+            for ref in refs:
+                prior = catalog["refs"].get(ref["artifact_id"])
+                if prior is not None and not same_reference(prior, ref):
+                    raise EvidenceError("import artifact identity conflicts with an existing logical record")
+            for digest, pack in packs.items():
+                if digest in catalog["packs"] and catalog["packs"][digest] != pack:
+                    raise EvidenceError("import archive identity conflicts with an existing original pack")
             prospective = {**catalog, "refs": {**catalog["refs"], **{r["artifact_id"]: r for r in refs}},
-                           "packs": {**catalog["packs"], **packs}}
+                           "packs": {**catalog["packs"], **packs},
+                           "reference_aliases": deepcopy(catalog.get("reference_aliases", {})), "_adopting": True}
             active = mapping.get("active_artifact_ids", [r["artifact_id"] for r in refs])
             if not isinstance(active, list) or any(ident not in prospective["refs"] for ident in active):
                 raise EvidenceError("import active reference list is incomplete or malformed")
             self.prepare([prospective["refs"][ident] for ident in active], catalog=prospective)
+            resolver = EvidenceResolver(self.cache)
+            for ident in active:
+                resolver.resolve(prospective["refs"][ident])
             saved = self.state / "imports" / (hashlib.sha256(canonical(mapping)).hexdigest() + ".json")
             saved.parent.mkdir(exist_ok=True)
             if saved.parent.is_symlink():
@@ -872,8 +1137,11 @@ class Manager:
                 if prior is None:
                     new_refs.append(ref)
             new_packs = {key: value for key, value in packs.items() if key not in catalog["packs"]}
-            if new_refs or new_packs:
+            new_aliases = {ident: aliases for ident, aliases in prospective["reference_aliases"].items()
+                          if aliases != catalog.get("reference_aliases", {}).get(ident, [])}
+            if new_refs or new_packs or new_aliases:
                 self._publish(catalog, {"version": 1, "refs": new_refs, "packs": new_packs,
+                    "reference_aliases": new_aliases,
                     "import_provenance": {"mapping_sha256": hashlib.sha256(canonical(mapping)).hexdigest(),
                                           "original_catalogs": mapping.get("original_catalogs", [])}})
             return refs
@@ -911,22 +1179,142 @@ class Manager:
                 raise EvidenceError("restoration resource settlement incomplete: " + "; ".join(result["violations"]))
         return restored
 
+    def _generation_authority(self):
+        key = self.prefix + "authority/coordinator.json"
+        entries = self._transport_call("keys", self.prefix + "authority/")
+        if not entries:
+            return None
+        if len(entries) != 1 or (entries[0] if isinstance(entries[0], str) else entries[0]["key"]) != key:
+            raise EvidenceError("ambiguous generation coordinator authority; reconciliation required")
+        value, _ = self._read_remote_json(key, 4096)
+        if (not isinstance(value, dict) or value.get("version") != 1
+                or value.get("project_id") != self.policy["project_id"]
+                or value.get("store_id") != self.policy["store_id"]
+                or not isinstance(value.get("coordinator"), str)):
+            raise EvidenceError("invalid generation coordinator authority")
+        return value
+
+    def initialize_generation_authority(self):
+        """Explicit setup selects one coordinator; another home cannot take it over."""
+        with self.locked():
+            catalog = self._catalog(mutation=True)
+            value = self._generation_authority()
+            expected = {"version": 1, "project_id": self.policy["project_id"],
+                        "store_id": self.policy["store_id"], "coordinator": self.coordinator}
+            if value is None:
+                data = canonical(expected)
+                with self._working(len(data) * 2, metadata_bytes=len(data), metadata_files=1), tempfile.TemporaryDirectory(dir=self.staging, prefix="authority-") as temp:
+                    source, readback = Path(temp) / "claim.json", Path(temp) / "verified.json"
+                    source.write_bytes(data)
+                    locator = self._transport_call("put", self.prefix + "authority/coordinator.json", source)
+                    self._transport_call("get", locator, readback, len(data))
+                    if hash_file(readback) != (hashlib.sha256(data).hexdigest(), len(data)):
+                        raise EvidenceError("generation coordinator authority readback mismatch")
+                value = self._generation_authority()
+            if value != expected:
+                raise EvidenceError("generation requires the designated coordinator and shared accounting home; cold recovery is read-only")
+            return {"coordinator_authorized": True, "coordinator": self.coordinator,
+                    "project_id": self.policy["project_id"]}
+
+    def assert_generation_authority(self):
+        """Read-only clients cannot reserve an independent generation allowance."""
+        catalog = self._catalog(mutation=True)
+        authority = self._generation_authority()
+        if authority is None:
+            if catalog["sequence"] == 0:
+                raise EvidenceError("generation coordinator is not initialized; run evidence setup for this project first")
+            # An existing catalog already records its original designated coordinator.
+            self.initialize_generation_authority()
+            authority = self._generation_authority()
+        if authority["coordinator"] != self.coordinator:
+            raise EvidenceError("generation requires the designated coordinator and shared accounting home; cold recovery is read-only")
+        from .accounting import Accounting
+        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._reconcile_ledger(catalog, ledger)
+            ledger.require_generation_ready()
+            for intent in catalog.get("generation_intents", {}).values():
+                if not intent.get("settled") and ledger.connection.execute("SELECT 1 FROM runs WHERE id=?", (intent["run_id"],)).fetchone() is None:
+                    launching = intent["owner_host"] == socket.gethostname() and self._owner_alive(intent["owner_pid"])
+                    if not launching:
+                        raise EvidenceError("durable generation intent has unknown local accounting; reconcile before generation")
+        return {"coordinator_authorized": True, "coordinator": self.coordinator}
+
+    @staticmethod
+    def _run_generation(run):
+        record = {"gross_bytes": run["gross_bytes"], "logical_files": run["gross_files"],
+                  "run_id": run["id"], "unit_id": run["unit_id"], "mode": "managed-run-total"}
+        return {"managed-run:" + hashlib.sha256(canonical(record)).hexdigest(): record}
+
+    def begin_generation(self, run_id, unit_id, reserve_bytes, reserve_files):
+        """Record an incomplete durable intent before any managed producer starts."""
+        self.assert_generation_authority()
+        if (any(not isinstance(value, str) or not value for value in (run_id, unit_id))
+                or any(type(value) is not int or value < 0 for value in (reserve_bytes, reserve_files))):
+            raise EvidenceError("generation intent requires stable run/unit and nonnegative reservation bounds")
+        intent = str(uuid.uuid4())
+        with self.locked():
+            catalog = self._catalog(mutation=True)
+            self._publish(catalog, {"version": 1, "generation_intents": {intent: {
+                "run_id": run_id, "unit_id": unit_id, "reserve_bytes": reserve_bytes, "reserve_files": reserve_files,
+                "owner_pid": os.getpid(), "owner_host": socket.gethostname()}}})
+        return intent
+
+    def finish_generation(self, intent_id, reservation_id=None):
+        """Publish settled success/failure charges without requiring a payload archive."""
+        from .accounting import Accounting
+        with self.locked():
+            catalog = self._catalog(mutation=True)
+            intent = catalog.get("generation_intents", {}).get(intent_id)
+            if intent is None:
+                raise EvidenceError("generation settlement requires its original durable intent")
+            if intent.get("settled"):
+                return {"settled": True, "intent_id": intent_id}
+            if intent["owner_host"] != socket.gethostname() or (intent["owner_pid"] != os.getpid() and self._owner_alive(intent["owner_pid"])):
+                raise EvidenceError("generation intent owner/helper exit cannot be verified; intent retained")
+            with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                snapshot = ledger.snapshot()
+                run = ledger.connection.execute("SELECT * FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
+                pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()[0]
+                if not snapshot.get("accounting_complete", True):
+                    raise EvidenceError("generation accounting remains incomplete; durable intent retained for reconciliation")
+                if reservation_id is not None:
+                    reservation = ledger.connection.execute("SELECT * FROM reservations WHERE id=?", (reservation_id,)).fetchone()
+                    if reservation is None or reservation["run_id"] != intent["run_id"] or reservation["state"] == "pending":
+                        raise EvidenceError("generation settlement lacks its settled producer reservation")
+                elif pending:
+                    raise EvidenceError("generation has pending reservations; retain intent or supply its settled producer reservation")
+                if run is not None and run["unit_id"] != intent["unit_id"]:
+                    raise EvidenceError("generation settlement run/unit differs from its durable intent")
+                generation = self._run_generation(run) if run is not None else {}
+            self._publish(catalog, {"version": 1, "generation": generation,
+                                   "settled_generation_intents": [intent_id]})
+            return {"settled": True, "pending_workers": bool(pending), "intent_id": intent_id}
+
     def status(self):
         catalog = self._catalog()
-        unique = {r["sha256"]: r["size"] for r in catalog["refs"].values()}
+        unique = self._retained_content(catalog["packs"])
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
             self._reconcile_ledger(catalog, ledger)
             accounting = ledger.snapshot()
+        pending = {key: value for key, value in catalog.get("generation_intents", {}).items() if not value.get("settled")}
+        complete = accounting.get("accounting_complete", True) and not pending
+        authority = self._generation_authority()
+        authorized = catalog["coordinator"] == self.coordinator and (authority is None or authority["coordinator"] == self.coordinator)
+        accounting["accounting_complete"] = complete
+        accounting["totals_are_lower_bounds"] = not complete
+        accounting["pending_generation_intents"] = pending
         return {"project_id": self.policy["project_id"], "refs": len(catalog["refs"]), "retained_unique_bytes": sum(unique.values()),
                 "physical_objects": len(catalog["packs"]) + len(catalog.get("unreconciled_packs", {})),
                 "unreconciled_archive_objects": len(catalog.get("unreconciled_packs", {})),
                 "unreconciled_archive_encoded_bytes": sum(p["size"] for p in catalog.get("unreconciled_packs", {}).values()),
                 "retained_allowance_bytes": accounting["totals"]["retained_unique_bytes"], "metadata_bytes": catalog["metadata_bytes"],
                 "metadata_objects": catalog["metadata_files"], "local_working_bytes": self._usage(),
-                "gross_generated_bytes": accounting["totals"]["project_generated_bytes"],
-                "original_logical_files": accounting["totals"]["project_generated_files"], "accounting": accounting,
-                "coordinator_authorized": catalog["coordinator"] == self.coordinator}
+                "gross_generated_bytes": accounting["totals"]["project_generated_bytes"] if complete else None,
+                "known_gross_generated_bytes": accounting["totals"]["project_generated_bytes"],
+                "original_logical_files": accounting["totals"]["project_generated_files"] if complete else None,
+                "known_original_logical_files": accounting["totals"]["project_generated_files"], "accounting": accounting,
+                "accounting_complete": complete, "coordinator_authorized": authorized}
 
     def establish_import_retention(self, artifact_ids):
         """Acknowledge selected policy administratively; immutable references stay valid."""
@@ -956,6 +1344,8 @@ class Manager:
     def reconcile(self, *, dry_run=True):
         """Resume individually registered deletion intents, never discover disposable paths."""
         actions = self._reconcile_lock(dry_run)
+        if dry_run and (self.state / "catalog.lock").exists():
+            return actions  # A retained stale lock must be reconciled before catalog work.
         from .accounting import Accounting
         from .transports import LocalTransport
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
@@ -984,6 +1374,26 @@ class Manager:
                 self._remove_captured(checkpoint["inventory"], checkpoint["refs"], archive_journal)
         if (self.state / "pruning.json").exists():
             actions += self.cleanup(dry_run=dry_run, expire=False)
+        catalog = self._catalog()
+        for ident, intent in catalog.get("generation_intents", {}).items():
+            if intent.get("settled"):
+                continue
+            own_catalog = catalog["coordinator"] == self.coordinator
+            exited = intent["owner_host"] == socket.gethostname() and not self._owner_alive(intent["owner_pid"])
+            action = {"action": "generation-intent-retained", "intent_id": ident, "incomplete": True,
+                      "reason": "designated coordinator or owning process exit is not verified"}
+            if own_catalog and exited:
+                with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                    known = ledger.snapshot().get("accounting_complete", True)
+                    pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()[0]
+                if known and not pending:
+                    action = {"action": "reconcile-exited-generation-intent", "intent_id": ident, "dry_run": dry_run}
+                    if not dry_run:
+                        self.finish_generation(ident)
+                        action["verified"] = True
+                else:
+                    action["reason"] = "local accounting or producer reservations remain incomplete"
+            actions.append(action)
         return actions
 
     def cleanup(self, *, now=None, dry_run=True, expire=False, protected_refs=(), reference_snapshot_complete=False):
@@ -1126,7 +1536,7 @@ class Manager:
                 continue
             try:
                 # Transport delete is idempotent and independently verifies absence.
-                self.transport.delete(pack["locator"])
+                self._transport_call("delete", pack["locator"])
                 intent["done"].append(key)
                 completed.append(key)
                 atomic_json(journal, intent)

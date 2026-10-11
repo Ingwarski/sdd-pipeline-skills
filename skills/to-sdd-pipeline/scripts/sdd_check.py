@@ -433,7 +433,16 @@ class Checker:
             if ref is None:
                 if not isinstance(record, dict):
                     raise ValueError("evidence record must be an object")
-                return self.snapshot(record.get("path"), record.get("content_hash"), target, code)
+                if not self.snapshot(record.get("path"), record.get("content_hash"), target, code):
+                    return False
+                # Compact receipts remain in Git, but their captures can be
+                # external. A local pathname must not bypass that dependency
+                # closure, including for QA results consumed only as snapshots.
+                if record.get("schema") not in ("evidence-bytes-v1", "archive-attachment-v1") and (
+                    Path(record["path"]).suffix.lower() == ".json" or "schema" in record
+                ):
+                    self.evidence_json(record)
+                return True
             self.evidence_resolver.resolve(ref)
             self.evidence_accounting(ref)
             if record is not ref and "content_hash" in record and not hash_matches(record["content_hash"], ref["sha256"]):
@@ -468,6 +477,11 @@ class Checker:
             receipt = self.evidence_resolver.json(accounting_ref)
         if not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] != 1:
             raise ValueError("unsupported evidence accounting version")
+        for flag in ("accounting_complete", "incomplete"):
+            if flag in receipt and type(receipt[flag]) is not bool:
+                raise ValueError("invalid evidence accounting completeness flag: " + flag)
+        if receipt.get("accounting_complete") is False or receipt.get("incomplete") is True:
+            raise ValueError("evidence accounting is incomplete; reconcile missing durable accounting history")
         if receipt.get("project_id") != policy["project_id"] or not hash_matches(receipt.get("policy_sha256"), self.file_hash(policy_path)):
             raise ValueError("evidence accounting belongs to another project or policy")
         runs = receipt.get("runs")
@@ -511,7 +525,14 @@ class Checker:
 
     def evidence_json(self, record):
         ref = evidence_reference(record)
-        return self.evidence_resolver.json(ref) if ref is not None else self.document(self.path(record["path"], no_links=True))
+        value = self.evidence_resolver.json(ref) if ref is not None else self.evidence_resolver.json_file(
+            self.path(record["path"], no_links=True), record.get("schema", "evidence-json-v1"))
+        # Only references need managed accounting; a legacy contained receipt
+        # with no external dependencies requires no invented run history.
+        if self.evidence_resolver.visited:
+            dependency = self.evidence_resolver.references[next(iter(self.evidence_resolver.visited))]
+            self.evidence_accounting(dependency)
+        return value
 
     @staticmethod
     def capture_record(record, stem):

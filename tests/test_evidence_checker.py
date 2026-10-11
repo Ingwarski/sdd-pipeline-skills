@@ -314,6 +314,141 @@ class EvidenceCheckerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing/unreadable"):
             EvidenceResolver(self.cache).resolve(receipt)
 
+    def test_design_approval_requires_capture_for_local_and_archived_receipts(self):
+        self.p.candidates(claude=True)
+        candidate = self.m["prototype_candidates"][0]
+        local = candidate["visual_qa_evidence"]
+        payload = json.loads((self.p.root / local["path"]).read_text())
+        capture = self.prepare(b"required synthetic visual capture", "approval-capture", "visual", "evidence-bytes-v1")
+        payload["screenshots"] = [{"evidence_ref": capture}]
+        self.p.write(local["path"], json.dumps(payload))
+        local["content_hash"] = self.p.hash(local["path"])
+        bindings = {key: candidate[key] for key in ("candidate_id", "version", "visual_target_hash", "prototype_tree_hash", "preview_url")}
+        external = self.prepare(payload, "approval-visual-receipt", "visual", "sdd-receipt-v1", bindings)
+        original_manifest = copy.deepcopy(self.m)
+        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        for receipt in (local, external):
+            candidate["visual_qa_evidence"] = receipt
+            report = self.checker().run("design-approval")
+            self.assertEqual("passed", report["result"], report)
+        self.assertEqual(before, {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+        candidate["visual_qa_evidence"] = local
+        self.assertEqual(original_manifest, self.m)
+        path = self.cache / "objects" / capture["sha256"]
+        for state in ("corrupt", "missing"):
+            if state == "corrupt":
+                path.write_bytes(b"corrupted synthetic capture")
+            else:
+                path.unlink()
+            for location, receipt in (("local", local), ("external", external)):
+                candidate["visual_qa_evidence"] = receipt
+                with self.subTest(state=state, location=location):
+                    report = self.checker().run("design-approval")
+                    self.assertNotEqual("passed", report["result"], report)
+                    self.assertTrue(any(issue["code"] == "visual_qa_evidence" for issue in report["issues"]), report)
+
+    def test_local_result_snapshot_checks_nested_accounting_and_bytes(self):
+        self.p.authorize()
+        self.p.execute_checks()
+        capture = self.prepare(b"required current observation", "result-capture", "visual", "evidence-bytes-v1")
+        check = self.m["verification"]["checks"][0]
+        local = check["evidence"][0]
+        payload = {"screenshots": [{"evidence_ref": capture}]}
+        self.p.write(local["path"], json.dumps(payload))
+        # The fixture shares this local result across evidence kinds.
+        for record in check["evidence"]:
+            record["content_hash"] = self.p.hash(local["path"])
+        self.assertEqual("passed", self.checker().run("implementation")["result"])
+        row = self.m["evidence_accounting"]["runs"][capture["provenance"]["run_id"]]
+        for field, invalid in (("gross_generated_bytes", 0), ("original_logical_files", 0), ("pending_reservations", 1), ("unreconciled_outputs", 1)):
+            old = row[field]
+            row[field] = invalid
+            with self.subTest(field=field):
+                self.assertFalse(self.checker().evidence_snapshot(local, "qa-checklist"))
+                self.assertNotEqual("passed", self.checker().run("implementation")["result"])
+            row[field] = old
+        self.m.pop("evidence_accounting")
+        self.assertFalse(self.checker().evidence_snapshot(local, "qa-checklist"))
+
+    def test_local_json_closure_preserves_inactive_history_and_validates_typed_receipts(self):
+        capture = self.prepare(b"inactive capture", "history-only", "visual", "evidence-bytes-v1")
+        (self.cache / "objects" / capture["sha256"]).unlink()
+        payload = {field: [{"evidence_ref": capture}] for field in ("history", "run_history", "superseded")}
+        local = self.p.evidence("forge/current.json", payload)
+        self.m.pop("evidence_accounting")
+        checker = self.checker()
+        self.assertTrue(checker.evidence_snapshot(local, "qa-checklist"), checker.issues)
+        self.assertEqual(payload, checker.evidence_json(local))
+        self.assertEqual({}, checker.evidence_resolver.references)
+        # Explicit JSON schemas also require closure when the filename has no extension.
+        payload["screenshots"] = [{"evidence_ref": capture}]
+        typed = self.p.evidence("forge/typed-receipt", payload)
+        typed["schema"] = "sdd-receipt-v1"
+        self.assertFalse(self.checker().evidence_snapshot(typed, "qa-checklist"))
+
+    def test_local_receipt_change_during_dependency_validation_blocks(self):
+        capture = self.prepare(b"original capture", "mutating-capture", "visual", "evidence-bytes-v1")
+        local = self.p.evidence("forge/mutable.json", {"screenshots": [{"evidence_ref": capture}]})
+        checker = self.checker()
+        resolve = checker.evidence_resolver.resolve
+        def mutate_after(reference):
+            result = resolve(reference)
+            self.p.write(local["path"], json.dumps({"different": True}))
+            return result
+        with patch.object(checker.evidence_resolver, "resolve", side_effect=mutate_after):
+            self.assertFalse(checker.evidence_snapshot(local, "qa-checklist"))
+        self.assertTrue(any("changed during validation" in issue["detail"] for issue in checker.issues), checker.issues)
+
+    def test_public_json_validation_retains_full_shared_dependency_closure(self):
+        first = self.prepare({"observed": True}, "local-first")
+        second = self.prepare(b"synthetic pixels", "local-second", "visual", "evidence-bytes-v1")
+        payload = {"observations": [{"evidence_ref": first, "screenshots": [{"evidence_ref": second}]}, {"evidence_ref": first}]}
+        original = copy.deepcopy(payload)
+        resolver = EvidenceResolver(self.cache)
+        self.assertIs(payload, resolver.validate_json_payload(payload, "sdd-receipt-v1"))
+        self.assertEqual(original, payload)
+        self.assertEqual({first["artifact_id"], second["artifact_id"]}, resolver.visited)
+        (self.cache / "objects" / second["sha256"]).unlink()
+        with self.assertRaisesRegex(ValueError, "missing/unreadable"):
+            resolver.validate_json_payload(payload)
+
+    def test_preserved_imported_json_uses_exact_original_alias_and_adopted_accounting(self):
+        original = self.prepare(b"preserved original capture", "before-adoption", "visual", "evidence-bytes-v1")
+        adopted = copy.deepcopy(original)
+        adopted["retention"]["imported"] = True
+        adopted["retention"]["migration_policy_established"] = False
+        adopted["locator"].update(provider="folder", store_id="adopted-store")
+        self.receipt(adopted)
+        receipt_path = self.cache / "receipts" / (adopted["artifact_id"] + ".json")
+        receipt = json.loads(receipt_path.read_text())
+        receipt["original_references"] = [copy.deepcopy(original)]
+        receipt_path.write_text(json.dumps(receipt))
+        payload = {"screenshots": [{"evidence_ref": original}]}
+        local = self.p.evidence("forge/imported-original.json", payload)
+        local_bytes = (self.p.root / local["path"]).read_bytes()
+        row = self.m["evidence_accounting"]["runs"][original["provenance"]["run_id"]]
+        row.update(mode="imported-existing", gross_generated_bytes=0, original_logical_files=0)
+        checker = self.checker()
+        self.assertTrue(checker.evidence_snapshot(local, "qa-checklist"), checker.issues)
+        self.assertEqual(adopted, checker.evidence_resolver.references[original["artifact_id"]])
+        self.assertEqual(local_bytes, (self.p.root / local["path"]).read_bytes())
+        # A merely compatible alias which was never registered is not accepted.
+        unregistered = copy.deepcopy(original)
+        unregistered["locator"]["store_id"] = "other-unregistered-store"
+        with self.assertRaisesRegex(ValueError, "identity/reference mismatch"):
+            EvidenceResolver(self.cache).resolve(unregistered)
+        mutations = [("sha256", "f" * 64), ("size", original["size"] + 1),
+            ("provenance", {"run_id": "different-run", "unit_id": "U-1"}),
+            ("bindings", {"changed_plan": "f" * 64}),
+            ("retention", {**original["retention"], "sealed_at": "2026-08-21T10:06:00Z"}),
+            ("locator", {**original["locator"], "object_id": "different-pack"})]
+        for field, changed in mutations:
+            altered = copy.deepcopy(receipt)
+            altered["original_references"][0][field] = changed
+            receipt_path.write_text(json.dumps(altered))
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "alias changes evidence identity"):
+                EvidenceResolver(self.cache).resolve(original)
+
     def test_missing_stale_and_unreconciled_accounting_block_new_claims(self):
         ref = self.prepare({"synthetic": True})
         original = copy.deepcopy(self.m["evidence_accounting"])
@@ -330,6 +465,23 @@ class EvidenceCheckerTests(unittest.TestCase):
         self.m.pop("evidence_accounting")
         record = self.p.evidence("forge/old.json", {"synthetic": True})
         self.assertTrue(self.checker().evidence_snapshot(record, "qa-checklist"))
+
+    def test_incomplete_durable_accounting_cannot_claim_valid_current_evidence(self):
+        ref = self.prepare({"synthetic": True})
+        receipt = self.m["evidence_accounting"]
+        # Legacy complete receipts lack flags, but an explicit unknown/incomplete
+        # history cannot be presented as authoritative zero-generation totals.
+        self.assertTrue(self.checker().evidence_snapshot(ref, "qa-checklist"))
+        for flags in ({"accounting_complete": False}, {"incomplete": True},
+                      {"accounting_complete": True, "incomplete": True},
+                      {"accounting_complete": 1}, {"incomplete": 0}):
+            with self.subTest(flags=flags):
+                self.m["evidence_accounting"] = {**receipt, **flags}
+                checker = self.checker()
+                self.assertFalse(checker.evidence_snapshot(ref, "qa-checklist"))
+                self.assertTrue(any("accounting" in issue["detail"] for issue in checker.issues))
+        self.m["evidence_accounting"] = {**receipt, "accounting_complete": True, "incomplete": False}
+        self.assertTrue(self.checker().evidence_snapshot(ref, "qa-checklist"))
 
     def test_imported_existing_accounting_preserves_original_provenance_without_generation(self):
         ref = self.prepare({"synthetic": True})

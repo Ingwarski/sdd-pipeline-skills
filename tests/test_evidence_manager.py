@@ -535,13 +535,15 @@ class EvidenceManagerTests(unittest.TestCase):
         self.manager.archive(specification)
         cold = Manager(ObservedTransport(self.store), self.base / "fresh-home-no-original-db", self.policy)
         status = cold.status()
-        self.assertEqual(500, status["gross_generated_bytes"])
-        self.assertEqual(1, status["original_logical_files"])
+        self.assertFalse(status["accounting_complete"])
+        self.assertIsNone(status["gross_generated_bytes"])
+        self.assertEqual(500, status["known_gross_generated_bytes"])
+        self.assertEqual(1, status["known_original_logical_files"])
         unit_id = specification["files"][0]["provenance"]["unit_id"]
         with Accounting(cold.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-            with self.assertRaisesRegex(BudgetExceeded, "unit cumulative bytes"):
+            with self.assertRaisesRegex(EvidenceError, "accounting recovery required"):
                 ledger.reserve("new-session-new-script-name", unit_id, 600, 1)
-        self.assertEqual(500, cold.status()["gross_generated_bytes"])
+        self.assertEqual(500, cold.status()["known_gross_generated_bytes"])
 
     def produce(self):
         output = self.base / "managed-output"
@@ -568,8 +570,9 @@ class EvidenceManagerTests(unittest.TestCase):
         for ref in refs:
             self.assertEqual((output / ref["original_path"]).read_bytes(), self.resolved(ref))
         cold = Manager(ObservedTransport(self.store), self.base / "cold-managed-home", self.policy)
-        self.assertEqual(produced["gross_bytes"], cold.status()["gross_generated_bytes"])
-        self.assertEqual(produced["gross_files"], cold.status()["original_logical_files"])
+        self.assertFalse(cold.status()["accounting_complete"])
+        self.assertEqual(produced["gross_bytes"], cold.status()["known_gross_generated_bytes"])
+        self.assertEqual(produced["gross_files"], cold.status()["known_original_logical_files"])
 
     def test_managed_output_changed_after_settlement_cannot_be_registered(self):
         produced, specification, output = self.produce()

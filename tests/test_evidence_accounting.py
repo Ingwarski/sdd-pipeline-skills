@@ -223,13 +223,16 @@ class EvidenceTests(unittest.TestCase):
             ledger.reconcile_local("staging", 200000, "staging")
             with self.assertRaises(BudgetExceeded):
                 ledger.reserve("run", "unit-01", 1, 1, local_bytes=300000)
-            with patch("evidence.accounting.shutil.disk_usage", return_value=shutil_usage(free=150)):
+            # Include the independently persisted reservation checkpoint peak.
+            with patch("evidence.accounting.shutil.disk_usage", return_value=shutil_usage(free=150 + 8192)):
                 with self.assertRaises(BudgetExceeded):
                     ledger.reserve("run", "unit-01", 1, 1, local_bytes=51)
                 ledger.cancel(ledger.reserve("run", "unit-01", 1, 1, local_bytes=50))
 
     def test_metadata_split_indexes_and_retained_reservations_share_budgets(self):
-        with self.accounting(metadata_stop_bytes=1024**2, metadata_stop_files=2, retained_stop_bytes=10, retained_stop_objects=2) as ledger:
+        with self.accounting(metadata_stop_bytes=1024**2, metadata_stop_files=4, retained_stop_bytes=10, retained_stop_objects=2) as ledger:
+            # Two index allocations plus the recovery marker and run checkpoint
+            # share the same metadata count limit.
             ledger.reconcile_metadata("segment1", 200000, 1)
             ledger.reconcile_metadata("segment2", 200000, 1)
             with self.assertRaises(BudgetExceeded):
@@ -321,6 +324,10 @@ class EvidenceTests(unittest.TestCase):
             "imported": {"run_id": "historic-run", "unit_id": "unit-01", "gross_bytes": 0, "logical_files": 0, "mode": "imported-existing"},
         }
         with self.accounting(unit_stop_bytes=10, max_unit_retries=0) as ledger:
+            # A retained original run can merge remote floors and later settle
+            # its own writes. A run reconstructed without its local accounting
+            # must instead stay incomplete (covered by recovery regressions).
+            ledger.cancel(ledger.reserve("original-run", "unit-01", 0, 0))
             ledger.reconcile_generation(catalog)
             ledger.reconcile_generation(catalog)
             self.assertEqual(ledger.snapshot()["totals"]["project_generated_bytes"], 7)

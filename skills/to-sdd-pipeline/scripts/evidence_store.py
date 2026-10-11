@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Explicit, bounded evidence management. The SDD checker never calls this tool."""
 import argparse
-from copy import deepcopy
-import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -23,7 +22,7 @@ def home_path(value=None):
     return Path(value or os.environ.get("SDD_EVIDENCE_HOME") or Path.home() / ".sdd-pipeline/evidence").expanduser().resolve()
 
 
-def transport(config, state):
+def transport(config, state, host_session=None):
     provider = config["provider"]
     if provider in ("local", "folder"):
         return LocalTransport(Path(config["destination"]).expanduser().resolve())
@@ -33,9 +32,15 @@ def transport(config, state):
         return RcloneDriveTransport(config["destination"], config=config.get("rclone_config"),
                                     executable=config.get("rclone_executable") or "rclone", state_dir=state)
     if config.get("transport") == "connected":
-        if not config.get("bridge_command"):
-            raise EvidenceError("connected Drive requires a host bridge command exposing original-byte upload/download, stable IDs, lookup and complete listing")
-        return ConnectedDriveTransport(JsonCommandAdapter(config["bridge_command"]), config["destination"], state_dir=state)
+        if config.get("bridge_command"):
+            adapter = JsonCommandAdapter(config["bridge_command"])
+        else:
+            from evidence.connected_host import ConnectedHostAdapter
+            selected = host_session or os.environ.get("SDD_EVIDENCE_HOST_SESSION")
+            if not selected:
+                raise EvidenceError("connected Drive needs an active Codex/Claude tool session; ask the agent to start the bundled evidence_host.py session and pass --host-session (or SDD_EVIDENCE_HOST_SESSION). The installed Google Drive plugin supplies authentication; no custom bridge or rclone is required")
+            adapter = ConnectedHostAdapter(selected)
+        return ConnectedDriveTransport(adapter, config["destination"], state_dir=state)
     raise EvidenceError("Google Drive has no selected authenticated transport; configure rclone or an available host bridge")
 
 
@@ -60,7 +65,7 @@ def load_manager(args):
         if project and candidate.is_relative_to(project):
             raise EvidenceError("evidence store and working space must be outside the project")
     state = home / "projects" / policy["project_id"] / "transfers"
-    manager = Manager(transport(config, state), home, policy)
+    manager = Manager(transport(config, state, getattr(args, "host_session", None)), home, policy)
     if not args.policy and not project:
         catalog = manager._catalog(recover_policy=True)
         if not catalog.get("root_key") or "policy" not in catalog:
@@ -70,6 +75,25 @@ def load_manager(args):
             raise EvidenceError("recovered portable policy disagrees with the selected storage identity")
         manager.policy, manager.limits = recovered, recovered["limits"]
     return manager
+
+
+def project_setup(args):
+    """Explicit managed first use reuses saved choices; status only inspects."""
+    if not args.project or args.config or args.policy:
+        return None
+    source = Path(__file__).resolve().parents[3] / "scripts/evidence_setup.py"
+    spec = importlib.util.spec_from_file_location("sdd_evidence_setup_boundary", source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    home = home_path(args.home)
+    report = module.inspect(Path(args.project).resolve(), home)
+    if report["result"] == "configured":
+        return None
+    if args.command in ("archive", "prepare", "restore", "import", "adopt", "run"):
+        report = module.ensure(Path(args.project).resolve(), home=home,
+                               interactive=sys.stdin.isatty() and sys.stdout.isatty(),
+                               host_session=getattr(args, "host_session", None))
+    return None if report["result"] == "configured" else report
 
 
 def references(args, manager):
@@ -90,7 +114,7 @@ def probe(args):
     home = home_path(config.get("evidence_home"))
     home.mkdir(parents=True, exist_ok=True)
     ident = str(uuid.uuid4())
-    test_transport = transport(config, home / "setup-transfers" / ident)
+    test_transport = transport(config, home / "setup-transfers" / ident, getattr(args, "host_session", None))
     locator = None
     with tempfile.TemporaryDirectory(dir=home, prefix="probe-") as temp:
         temp = Path(temp).resolve()
@@ -117,13 +141,14 @@ def probe(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("archive", "prepare", "restore", "recover", "import", "adopt", "cleanup", "reconcile", "retention-policy", "status", "accounting-receipt", "run", "git-review", "setup-probe"):
+    for name in ("archive", "prepare", "restore", "recover", "import", "adopt", "cleanup", "reconcile", "retention-policy", "status", "accounting-receipt", "run", "complete-run", "initialize-generation-authority", "acknowledge-missing-upload", "git-review", "setup-probe"):
         sub = commands.add_parser(name)
         sub.add_argument("--project")
         sub.add_argument("--policy")
         sub.add_argument("--config")
         sub.add_argument("--project-id")
         sub.add_argument("--home")
+        sub.add_argument("--host-session", help="Active agent's bundled Drive tool session; never saved as account configuration")
         sub.add_argument("--refs")
         sub.add_argument("--artifact", action="append")
         if name == "archive":
@@ -152,7 +177,12 @@ def main():
             sub.add_argument("--reserve-bytes", type=int, required=True)
             sub.add_argument("--reserve-files", type=int, required=True)
             sub.add_argument("--timeout", type=int, default=3600)
+            sub.add_argument("--defer-run-completion", action="store_true", help="Settle this worker; the coordinator seals the shared run with complete-run")
             sub.add_argument("producer", nargs=argparse.REMAINDER)
+        elif name == "complete-run":
+            sub.add_argument("--run-id", required=True)
+        elif name == "acknowledge-missing-upload":
+            sub.add_argument("--key", required=True, help="Exact immutable key from the pending upload checkpoint")
         elif name == "accounting-receipt":
             sub.add_argument("--output")
     args = parser.parse_args()
@@ -167,6 +197,10 @@ def main():
             result = git_blob_growth(Path(args.project or ".").resolve(), args.base, args.head,
                                     blob_review_bytes=thresholds["blob_bytes"], range_review_bytes=thresholds["range_bytes"])
         else:
+            setup = project_setup(args)
+            if setup is not None:
+                print(json.dumps(setup, ensure_ascii=True, sort_keys=True))
+                return 2
             manager = load_manager(args)
             if args.command in ("archive", "prepare", "restore", "recover", "import", "adopt", "run"):
                 manager.cleanup(dry_run=False)
@@ -187,11 +221,31 @@ def main():
                     protected_refs=claims.get("evidence_refs", []), reference_snapshot_complete=claims.get("complete") is True)}
             elif args.command == "reconcile":
                 result = {"actions": manager.reconcile(dry_run=not args.apply)}
+            elif args.command == "initialize-generation-authority":
+                result = manager.initialize_generation_authority()
+            elif args.command == "acknowledge-missing-upload":
+                manager.assert_generation_authority()
+                acknowledge = getattr(manager.transport, "acknowledge_missing_upload", None)
+                if acknowledge is None:
+                    raise EvidenceError("selected transport has no pending cloud-upload checkpoints")
+                prefix = "projects/" + manager.policy["project_id"] + "/"
+                if not args.key.startswith(prefix):
+                    raise EvidenceError("upload acknowledgement must name an exact key in this project's namespace")
+                acknowledge(args.key)
+                result = {"acknowledged_missing_upload": args.key, "verified_absent": True}
+            elif args.command == "complete-run":
+                manager.assert_generation_authority()
+                with Accounting(manager.state / "accounting.sqlite", manager.policy["project_id"], manager.policy) as ledger:
+                    manager._reconcile_ledger(manager._catalog(), ledger)
+                    ledger.complete_run(args.run_id)
+                result = {"run_id": args.run_id, "status": "complete"}
             elif args.command == "retention-policy":
                 if not args.artifact:
                     raise EvidenceError("explicit imported artifact identities are required for a migration retention decision")
                 result = {"refs": manager.establish_import_retention(args.artifact)}
             elif args.command == "accounting-receipt":
+                if not args.project and not args.policy:
+                    raise EvidenceError("accounting-receipt requires --project or --policy with the original portable policy file: recovered policy values cannot establish its original byte hash; cold payload restoration remains available")
                 with Accounting(manager.state / "accounting.sqlite", manager.policy["project_id"], manager.policy) as ledger:
                     catalog = manager._catalog()
                     manager._reconcile_ledger(catalog, ledger)
@@ -205,10 +259,17 @@ def main():
                     for ref in catalog["refs"].values():
                         if ref["retention"].get("imported") or ref["provenance"].get("accounting_mode") == "imported-existing":
                             runs.setdefault(ref["provenance"]["run_id"], {"unit_id": ref["provenance"]["unit_id"], "status": "complete", "mode": "imported-existing", "gross_generated_bytes": 0, "original_logical_files": 0, "pending_reservations": 0, "unreconciled_outputs": 0})
+                    snapshot = ledger.snapshot()
+                    pending_intents = {key: value for key, value in catalog.get("generation_intents", {}).items() if not value.get("settled")}
+                    complete = snapshot.get("accounting_complete", True) and not pending_intents
                     result = {"version": 1, "project_id": manager.policy["project_id"], "runs": runs,
-                              "policy_sha256": hash_file(Path(args.policy).resolve())[0] if args.policy else hash_file(Path(args.project).resolve() / "forge/evidence-policy.json")[0] if args.project else hashlib.sha256(json.dumps(manager.policy, sort_keys=True).encode()).hexdigest()}
+                              "accounting_complete": complete, "incomplete": not complete,
+                              "totals_are_lower_bounds": not complete,
+                              "pending_generation_intents": pending_intents,
+                              "policy_sha256": hash_file(Path(args.policy).resolve() if args.policy else Path(args.project).resolve() / "forge/evidence-policy.json")[0]}
             elif args.command == "run":
                 from evidence.producer import run_producer
+                manager.assert_generation_authority()
                 with Accounting(manager.state / "accounting.sqlite", manager.policy["project_id"], manager.policy) as ledger:
                     # A missing local DB is cold recovery, not a fresh project.
                     # Durable generation establishes the floor before launching
@@ -222,8 +283,14 @@ def main():
                     if selected.is_symlink():
                         raise EvidenceError("producer output directory must not be a link")
                     selected.mkdir(parents=True, exist_ok=True)
-                    result = run_producer(ledger, args.run_id, args.unit_id, selected.resolve(), command,
-                                          args.reserve_bytes, args.reserve_files, timeout=args.timeout)
+                    intent = manager.begin_generation(args.run_id, args.unit_id, args.reserve_bytes, args.reserve_files)
+                    result = None
+                    try:
+                        result = run_producer(ledger, args.run_id, args.unit_id, selected.resolve(), command,
+                                              args.reserve_bytes, args.reserve_files, timeout=args.timeout,
+                                              complete_run=not args.defer_run_completion)
+                    finally:
+                        manager.finish_generation(intent, reservation_id=(result or {}).get("reservation_id"))
             else:
                 result = manager.status()
         if getattr(args, "output", None):

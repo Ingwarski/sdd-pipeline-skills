@@ -36,14 +36,17 @@ class ResourceEdgeTests(unittest.TestCase):
         # lost local ledger and operation journal from a cold resume.
         for path in self.manager.state.glob("archive-*.json"):
             path.unlink()
-        for path in self.manager.state.glob("accounting.sqlite*"):
-            path.unlink()
+        for name in ("accounting.sqlite", "accounting.sqlite-wal", "accounting.sqlite-shm"):
+            (self.manager.state / name).unlink(missing_ok=True)
         self.source.write_bytes(b"other!")
         with self.assertRaisesRegex(EvidenceError, "inventory|generation|content"):
             self.manager.archive(self.spec)
         catalog = self.manager._catalog()
         self.assertEqual(set(catalog["refs"]), {first[0]["artifact_id"]})
-        self.assertEqual(self.manager.status()["gross_generated_bytes"], 6)
+        status = self.manager.status()
+        self.assertIsNone(status["gross_generated_bytes"])
+        self.assertEqual(status["known_gross_generated_bytes"], 6)
+        self.assertFalse(status["accounting_complete"])
 
     def test_successful_publication_then_interruption_does_not_charge_resume_twice(self):
         publish = self.manager._publish

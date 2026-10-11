@@ -27,6 +27,11 @@ class EvidenceSetupTests(unittest.TestCase):
         self.project = self.base / "project"
         self.project.mkdir()
         self.probes = []
+        # Fixture probes have no real transport; isolate its corresponding
+        # authority claim too. Subprocess CLI regressions still execute both.
+        self.authority_patch = patch.object(setup, "_initialize_authority")
+        self.authority = self.authority_patch.start()
+        self.addCleanup(self.authority_patch.stop)
 
     def probe(self, config, project):
         self.probes.append(deepcopy(config))
@@ -116,7 +121,7 @@ class EvidenceSetupTests(unittest.TestCase):
         credential = self.base / "synthetic-rclone.conf"
         credential.write_text("Synthetic fixture; no credential.\n")
         result = setup.configure(self.project, home=self.home, provider="google-drive", destination="synthetic:",
-                                 drive_retention_days="90", rclone_config=credential, rclone_executable=sys.executable, probe=self.probe)
+                                 transport="rclone", drive_retention_days="90", rclone_config=credential, rclone_executable=sys.executable, probe=self.probe)
         policy = setup._read(self.project / "forge/evidence-policy.json")
         binding = setup._read(Path(result["config_path"]))
         self.assertEqual(90, policy["retention"]["drive_days"])
@@ -215,6 +220,19 @@ class EvidenceSetupTests(unittest.TestCase):
         setup.wizard(self.project, home=self.home, input_fn=lambda prompt: "")
         self.assertEqual(before, setup._read(Path(result["config_path"])))
 
+    def test_wizard_defaults_to_connected_tools_without_custom_bridge_question(self):
+        answers = iter(["3", "synthetic-folder-id", "", "never", *("" for _ in range(10)), "", ""])
+        prompts = []
+        def answer(prompt):
+            prompts.append(prompt)
+            return next(answers)
+        with patch.object(setup, "_probe", side_effect=self.probe):
+            result = setup.wizard(self.project, home=self.home, input_fn=answer)
+        config = setup._read(Path(result["config_path"]))
+        self.assertEqual("connected", config["transport"])
+        self.assertEqual("synthetic-folder-id", config["destination"])
+        self.assertFalse(any("bridge command" in prompt for prompt in prompts))
+
     def test_source_repository_contains_no_machine_config_after_setup(self):
         self.configure()
         generated = list(self.project.rglob("*"))
@@ -225,6 +243,113 @@ class EvidenceSetupTests(unittest.TestCase):
         self.assertEqual(value, setup.parse_bridge_command(json.dumps(value)))
         with self.assertRaises(setup.SetupError):
             setup.parse_bridge_command("[]")
+
+    def test_connected_default_needs_no_custom_bridge_or_saved_host_session(self):
+        session = self.base / "active-session"
+        result = setup.configure(self.project, home=self.home, provider="google-drive", destination="synthetic-folder-id",
+                                 drive_retention_days="never", host_session=session, probe=self.probe)
+        config = setup._read(Path(result["config_path"]))
+        self.assertEqual("connected", config["transport"])
+        self.assertNotIn("bridge_command", config)
+        self.assertNotIn("host_session", config)
+        self.assertNotIn(str(session), json.dumps(config))
+        self.assertEqual("configured", setup.inspect(self.project, self.home)["result"])
+        self.assertEqual(session, self.authority.call_args.kwargs["host_session"])
+
+    def test_adoption_preserves_custom_home_binding_and_active_session(self):
+        session = self.base / "active-session"
+        mapping = self.base / "import.json"
+        mapping.write_text('{"version":1}')
+        with patch.object(setup.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "{}", "")) as invoked:
+            result = self.configure(adopt=mapping, host_session=session)
+        command = invoked.call_args.args[0]
+        self.assertEqual(result["config_path"], command[command.index("--config") + 1])
+        self.assertTrue(Path(result["config_path"]).is_relative_to(self.home))
+        self.assertEqual(str(session), command[command.index("--host-session") + 1])
+        self.assertEqual("completed", result["adoption"])
+
+    def test_authority_failure_does_not_publish_project_configuration(self):
+        self.authority.side_effect = setup.SetupError("existing generation authority requires recovery")
+        with self.assertRaisesRegex(setup.SetupError, "requires recovery"):
+            self.configure()
+        self.assertFalse((self.project / "forge/evidence-policy.json").exists())
+        self.assertFalse((self.home / "bindings").exists())
+
+    def test_failed_authority_retry_preserves_project_store_and_destination(self):
+        self.authority.side_effect = [setup.SetupError("authority uploaded but readback interrupted"), None]
+        with self.assertRaisesRegex(setup.SetupError, "interrupted"):
+            self.configure()
+        first_config = deepcopy(self.authority.call_args.args[0])
+        first_policy = deepcopy(self.authority.call_args.args[1])
+        pending_path, = (self.home / "pending-setup").glob("*.json")
+        pending = setup._read(pending_path)
+        self.assertEqual({"version", "selection_sha256", "project_id", "store_id"}, set(pending))
+        result = self.configure()
+        config = setup._read(Path(result["config_path"]))
+        self.assertEqual(first_policy["project_id"], result["project_id"])
+        self.assertEqual(first_policy["store_id"], result["store_id"])
+        self.assertEqual(first_config["destination"], config["destination"])
+        self.assertFalse(pending_path.exists())
+
+    def test_concurrent_setup_cannot_replace_inflight_checkpoint(self):
+        def initialize(config, policy, project, **options):
+            with self.assertRaisesRegex(setup.SetupError, "another setup"):
+                setup.configure(self.project, home=self.home, provider="folder", destination=str(self.base / "racing-store"),
+                                reconfigure=True, probe=self.probe)
+        self.authority.side_effect = initialize
+        result = self.configure()
+        self.assertEqual("configured", result["result"])
+        self.assertEqual(1, len(self.probes))
+
+    def test_interrupted_default_binding_retry_preserves_generation_identity(self):
+        setup.configure(home=self.home, provider="local", probe=self.probe)
+        self.authority.side_effect = [setup.SetupError("authority uploaded but settlement interrupted"), None]
+        first = setup.ensure(self.project, home=self.home)
+        self.assertEqual("setup_required", first["result"])
+        first_config = deepcopy(self.authority.call_args.args[0])
+        pending_path, = (self.home / "pending-setup").glob("*.json")
+        second = setup.ensure(self.project, home=self.home)
+        self.assertEqual("configured", second["result"])
+        self.assertEqual(first_config["project_id"], second["project_id"])
+        self.assertEqual(first_config["store_id"], second["store_id"])
+        self.assertFalse(pending_path.exists())
+
+    def test_different_pending_selection_requires_explicit_reconfiguration_and_keeps_history(self):
+        self.authority.side_effect = [setup.SetupError("unknown authority outcome"), None]
+        with self.assertRaises(setup.SetupError):
+            self.configure()
+        pending_path, = (self.home / "pending-setup").glob("*.json")
+        original = setup._read(pending_path)
+        selected = str(self.base / "different-durable-store")
+        with self.assertRaisesRegex(setup.SetupError, "--reconfigure"):
+            setup.configure(self.project, home=self.home, provider="folder", destination=selected, probe=self.probe)
+        self.assertEqual(original, setup._read(pending_path))
+        result = setup.configure(self.project, home=self.home, provider="folder", destination=selected,
+                                 reconfigure=True, probe=self.probe)
+        self.assertNotEqual(original["project_id"], result["project_id"])
+        self.assertNotEqual(original["store_id"], result["store_id"])
+        history_path, = (self.home / "pending-setup" / "history").glob("*/*.json")
+        self.assertEqual(original, setup._read(history_path))
+        self.assertEqual(selected, setup._read(Path(result["config_path"]))["destination"])
+
+    def test_saved_default_authority_failure_does_not_publish_project_configuration(self):
+        setup.configure(home=self.home, provider="local", probe=self.probe)
+        self.authority.side_effect = setup.SetupError("existing generation authority requires recovery")
+        result = setup.ensure(self.project, home=self.home)
+        self.assertEqual("setup_required", result["result"])
+        self.assertIn("requires recovery", result["reason"])
+        self.assertFalse((self.project / "forge/evidence-policy.json").exists())
+        self.assertFalse((self.home / "bindings").exists())
+
+    def test_probe_forwards_runtime_host_session_without_persisting_it(self):
+        session = self.base / "active-session"
+        config = {"evidence_home": str(self.home)}
+        receipt = {"verified": True}
+        with patch.object(setup.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(receipt), "")) as invoked:
+            self.assertEqual(receipt, setup._probe(config, self.project, host_session=session))
+        command = invoked.call_args.args[0]
+        self.assertEqual(str(session), command[command.index("--host-session") + 1])
+        self.assertEqual({"evidence_home": str(self.home)}, config)
 
     def test_new_project_explicit_choice_preserves_global_default(self):
         setup.configure(home=self.home, provider="local", probe=self.probe)
@@ -256,7 +381,7 @@ class EvidenceSetupTests(unittest.TestCase):
 
     def test_saved_missing_drive_executable_is_read_only_setup_failure(self):
         result = setup.configure(self.project, home=self.home, provider="google-drive", destination="synthetic:",
-                                 drive_retention_days="never", rclone_executable=sys.executable, probe=self.probe)
+                                 transport="rclone", drive_retention_days="never", rclone_executable=sys.executable, probe=self.probe)
         config_path = Path(result["config_path"])
         config = setup._read(config_path)
         config["rclone_executable"] = str(self.base / "removed-rclone-executable")
@@ -330,11 +455,22 @@ class EvidenceSetupTests(unittest.TestCase):
 
     def test_real_standalone_missing_tool_does_not_fallback_or_claim_setup(self):
         result = self.run_cli("scripts/evidence_setup.py", "configure", "--project", str(self.project), "--provider", "google-drive",
-            "--destination", "synthetic:", "--drive-retention-days", "never", "--rclone-executable", str(self.base / "missing-rclone"), expected=1)
+            "--transport", "rclone", "--destination", "synthetic:", "--drive-retention-days", "never", "--rclone-executable", str(self.base / "missing-rclone"), expected=1)
         self.assertEqual("setup_required", result["result"])
         self.assertIn("missing", result["reason"])
         self.assertFalse((self.project / "forge/evidence-policy.json").exists())
         self.assertFalse((self.home / "default.json").exists())
+
+    def test_real_connected_without_active_agent_explains_session_and_saves_nothing(self):
+        with patch.dict(os.environ, {"SDD_EVIDENCE_HOST_SESSION": ""}):
+            result = self.run_cli("scripts/evidence_setup.py", "configure", "--project", str(self.project),
+                                  "--provider", "google-drive", "--destination", "synthetic-folder-id",
+                                  "--drive-retention-days", "never", expected=1)
+        self.assertEqual("setup_required", result["result"])
+        self.assertIn("active Codex/Claude tool session", result["reason"])
+        self.assertIn("evidence_host.py", result["reason"])
+        self.assertFalse((self.project / "forge/evidence-policy.json").exists())
+        self.assertFalse((self.home / "bindings").exists())
 
     def test_real_default_setup_plain_pull_first_use_retains_selected_policy(self):
         default = self.run_cli("scripts/evidence_setup.py", "configure", "--provider", "local", "--retention-days", "21")

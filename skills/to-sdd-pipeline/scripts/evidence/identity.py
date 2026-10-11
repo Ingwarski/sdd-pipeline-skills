@@ -1,5 +1,6 @@
 """Version 1 reference compatibility for an obsolete administrative flag only."""
 import json
+from copy import deepcopy
 
 from .io import EvidenceError
 
@@ -60,3 +61,40 @@ def reference_identity(reference):
 
 def same_reference(left, right):
     return reference_identity(left) == reference_identity(right)
+
+
+def same_imported_original(original, adopted):
+    """Compare a preserved pre-adoption reference with its registered imported form.
+
+    Only storage selection and administrative import flags may differ. Content,
+    object IDs, provenance, bindings, retention age and dependencies remain exact.
+    Callers must separately bind the exact original alias to a verified catalog.
+    """
+    from .resolver import validate_reference
+    if not isinstance(adopted, dict) or adopted.get("retention", {}).get("imported") is not True:
+        return False
+    count = 0
+    def normalize(ref, depth=0):
+        nonlocal count
+        count += 1
+        if depth > 32 or count > 10000:
+            raise EvidenceError("imported reference identity exceeds validation bounds")
+        validate_reference(ref)
+        reference_identity(ref)  # Reject invalid flag types and non-JSON values.
+        value = deepcopy(ref)
+        value.setdefault("original_path", None)
+        for key in ("imported", "migration_policy_established"):
+            value["retention"].pop(key, None)
+        locator = value["locator"]
+        locator.pop("store_id", None)
+        locator.pop("provider", None)
+        if locator.get("segments") is not None:
+            locator.pop("object_id", None)
+        else:
+            locator.setdefault("offset", 0)
+            locator.setdefault("length", value["size"])
+            locator.setdefault("sha256", value["sha256"])
+        if "dependencies" in value:
+            value["dependencies"] = [normalize(child, depth + 1) for child in value["dependencies"]]
+        return value
+    return reference_identity(normalize(original)) == reference_identity(normalize(adopted))

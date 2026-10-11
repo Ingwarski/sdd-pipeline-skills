@@ -4,6 +4,7 @@ import binascii
 import bz2
 from contextlib import ExitStack
 import gzip
+import lzma
 import os
 from pathlib import Path
 import shutil
@@ -15,6 +16,7 @@ import zipfile
 from .io import EvidenceError, _is_link, _open_regular, _parents, _verify_stable, hash_file, safe_relative
 
 CHUNK = 1024 * 1024
+XZ_DECODER_MEMORY = 128 * 1024 * 1024
 
 
 def _safe_directory(path):
@@ -243,8 +245,75 @@ class _BoundedDecompression:
         return data
 
 
-def _tar_info(metadata_limit, max_headers):
+class _XZDecompression:
+    """One XZ stream, bounded decoder memory/output, then optional XZ padding.
+
+    LZMAFile has no decoder-memory limit. Incremental decompression also avoids
+    allocating all expanded bytes before the outer archive bound can inspect
+    them. Concatenated streams are rejected rather than hiding another archive
+    behind the first TAR end marker. Stream padding is zero bytes, modulo four.
+    """
+    def __init__(self, stream, memory_limit, encoded_size):
+        self.stream = stream
+        self.encoded_size, self.encoded_read = encoded_size, 0
+        try:
+            self.decoder = lzma.LZMADecompressor(format=lzma.FORMAT_XZ, memlimit=memory_limit)
+        except (lzma.LZMAError, OverflowError) as error:
+            raise EvidenceError("invalid XZ decoder memory bound") from error
+        self.finished = False
+
+    def _read_input(self):
+        data = self.stream.read(min(CHUNK, self.encoded_size + 1 - self.encoded_read))
+        self.encoded_read += len(data)
+        if self.encoded_read > self.encoded_size:
+            raise EvidenceError("XZ encoded archive grew beyond its verified size bound")
+        return data
+
+    def _finish(self):
+        padding, count = self.decoder.unused_data, 0
+        while True:
+            if any(padding):
+                raise EvidenceError("XZ trailing data or concatenated streams are unsupported")
+            count += len(padding)
+            padding = self._read_input()
+            if not padding:
+                break
+        if count % 4:
+            raise EvidenceError("XZ stream padding must be a multiple of four zero bytes")
+        self.finished = True
+
+    def read(self, size=-1):
+        if size == 0 or self.finished:
+            return b""
+        size = CHUNK if size < 0 else min(size, CHUNK)
+        while not self.decoder.eof:
+            data = self._read_input() if self.decoder.needs_input else b""
+            if self.decoder.needs_input and not data:
+                raise EvidenceError("truncated XZ stream")
+            try:
+                output = self.decoder.decompress(data, max_length=size)
+            except lzma.LZMAError as error:
+                raise EvidenceError("invalid XZ archive or decoder memory bound exceeded: " + str(error)) from error
+            if output:
+                return output
+        self._finish()
+        return b""
+
+
+def _tar_info(metadata_limit, max_headers, *, strict_end=False):
     class BoundedTarInfo(tarfile.TarInfo):
+        @classmethod
+        def fromtarfile(cls, archive):
+            try:
+                return super().fromtarfile(archive)
+            except tarfile.EOFHeaderError:
+                archive._evidence_tar_end = True
+                raise
+            except tarfile.HeaderError as error:
+                if strict_end:
+                    raise EvidenceError("invalid or missing XZ TAR member header") from error
+                raise
+
         def _proc_member(self, archive):
             archive._evidence_headers = getattr(archive, "_evidence_headers", 0) + 1
             if archive._evidence_headers > max_headers:
@@ -274,11 +343,13 @@ def _tar_info(metadata_limit, max_headers):
 
 def verify_pack(path, expected_hash, expected_size, expected_members=None, *,
                 destination=None, max_bytes=128 * 1024 * 1024, max_files=10000,
-                max_metadata_bytes=16 * 1024 * 1024, max_archive_bytes=None):
+                max_metadata_bytes=16 * 1024 * 1024, max_archive_bytes=None,
+                max_decoder_memory_bytes=XZ_DECODER_MEMORY):
     """Validate every member, even when only one is requested. Extract by hash only."""
     _limit(max_bytes, "archive original byte bound", zero=True)
     _limit(max_files, "archive member count")
     _limit(max_metadata_bytes, "archive metadata bound")
+    _limit(max_decoder_memory_bytes, "archive decoder memory bound")
     encoded_limit = max_bytes + max_metadata_bytes if max_archive_bytes is None else _limit(max_archive_bytes, "archive encoded byte bound", zero=True)
     if type(expected_size) is not int or expected_size < 0 or expected_size > encoded_limit:
         raise EvidenceError("encoded archive size exceeds configured bound")
@@ -345,6 +416,8 @@ def verify_pack(path, expected_hash, expected_size, expected_members=None, *,
 
     source, descriptor, before = _open_regular(path)
     try:
+        if before.st_size != expected_size:
+            raise EvidenceError("archive original byte size changed before validation")
         with ExitStack() as stack:
             raw = stack.enter_context(os.fdopen(descriptor, "rb", closefd=False))
             signature = raw.read(6)
@@ -370,17 +443,18 @@ def verify_pack(path, expected_hash, expected_size, expected_members=None, *,
                     with archive.open(info) as stream:
                         consume(info.filename, info.file_size, stream)
             else:
+                is_xz = signature == b"\xfd7zXZ\x00"
                 if signature[:2] == b"\x1f\x8b":
                     decompressed = stack.enter_context(gzip.GzipFile(fileobj=raw, mode="rb"))
                 elif signature[:3] == b"BZh":
                     decompressed = stack.enter_context(bz2.BZ2File(raw, "rb"))
-                elif signature == b"\xfd7zXZ\x00":
-                    raise EvidenceError("xz archives require a bounded repack before adoption")
+                elif is_xz:
+                    decompressed = _XZDecompression(raw, max_decoder_memory_bytes, expected_size)
                 else:
                     decompressed = raw
                 bounded = _BoundedDecompression(decompressed, max_bytes + max_metadata_bytes)
                 archive = stack.enter_context(tarfile.open(fileobj=bounded, mode="r|",
-                                                          tarinfo=_tar_info(max_metadata_bytes, max_files * 3 + 32)))
+                                                          tarinfo=_tar_info(max_metadata_bytes, max_files * 3 + 32, strict_end=is_xz)))
                 for info in archive:
                     if info.isdir():
                         safe_relative(info.name)
@@ -392,9 +466,18 @@ def verify_pack(path, expected_hash, expected_size, expected_members=None, *,
                         raise EvidenceError("linked, sparse or special archive member")
                     with archive.extractfile(info) as stream:
                         consume(info.name, info.size, stream)
-                # End-of-archive markers cannot conceal unbounded compressed tails.
-                while bounded.read(CHUNK):
-                    pass
+                # Read through TarFile's buffer as well as the decoder. Otherwise
+                # bytes already read ahead could hide a second TAR or bad tail.
+                if is_xz:
+                    if not getattr(archive, "_evidence_tar_end", False) or archive.fileobj.read(512) != b"\0" * 512:
+                        raise EvidenceError("XZ TAR requires two zero end-of-archive blocks")
+                    while tail := archive.fileobj.read(CHUNK):
+                        if any(tail):
+                            raise EvidenceError("nonzero data after XZ TAR end-of-archive")
+                else:
+                    # End markers cannot conceal unbounded compressed tails.
+                    while bounded.read(CHUNK):
+                        pass
             _verify_stable(source, descriptor, before)
     except (zipfile.BadZipFile, tarfile.TarError, EOFError, OSError, struct.error) as error:
         discard_created()

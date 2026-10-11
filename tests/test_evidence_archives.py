@@ -225,12 +225,15 @@ class ArchiveTests(unittest.TestCase):
             self.verified(target, destination=linked / "extracted")
         self.assertFalse((self.root / "extracted").exists())
 
-    def test_xz_archive_requires_explicit_bounded_repack(self):
+    def test_xz_archive_verifies_original_bytes_without_repacking(self):
         import lzma
         target = self.tar()
         target.write_bytes(lzma.compress(target.read_bytes()))
-        with self.assertRaisesRegex(EvidenceError, "bounded repack"):
-            self.verified(target)
+        original = target.read_bytes()
+        result = self.verified(target)
+        self.assertEqual(original, target.read_bytes())
+        self.assertEqual(8, result["original_bytes"])
+        self.assertEqual(hashlib.sha256(b"original").hexdigest(), result["members"][0]["sha256"])
 
 
 if __name__ == "__main__":
