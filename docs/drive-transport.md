@@ -88,7 +88,9 @@ real script directory. Keep temporary session/response files outside Git.
    remote operations before using `close --cancel`. The upload journal remains
    available for reconciliation. Do not delete unrelated Drive objects.
 
-Start a fresh session for a later operation/chat. Session paths never enter saved
+Start a separate private session for each concurrent foreground command, and a
+fresh session for a later operation/chat. One command owns each request queue;
+do not share its session between parallel commands. Session paths never enter saved
 bindings or portable policy; account authentication remains with the plugin.
 Without an active session, the manager reports the missing host action instead
 of prompting for custom code or switching to rclone. A different connector must
@@ -197,6 +199,16 @@ pending checkpoint after fresh absence checks; retry the original archive comman
 to resume. Existing objects cannot be abandoned through this action. Duplicate remote names require reconciliation and are never
 automatically deduplicated or deleted. This favors recoverable failure over
 duplicate payloads when a remote listing is delayed.
+
+If the initial generation-authority upload was interrupted before setup published
+its project policy/binding, repeat the original `evidence_setup.py configure`
+command with the same project, evidence home, destination, policy choices and
+`--acknowledge-missing-upload EXACT_PENDING_KEY` from the error. Supply a fresh
+active `--host-session` for connected Drive. The setup checkpoint restores the
+original project/store IDs, verifies absence of that one registered upload, then
+retries the probe and authority initialization. Another project's key or a remote
+object that exists cannot be acknowledged. This action clears a local pending
+checkpoint; it does not delete a Drive object.
 
 Cold restoration does not depend on transfer journals: bounded catalog key
 enumeration, stable locators, and independent downloads recover the neutral

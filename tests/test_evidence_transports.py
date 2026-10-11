@@ -17,7 +17,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills" / "to-sdd-pipeline" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from evidence.io import EvidenceError
+from evidence.io import EvidenceError, atomic_json, hash_file, read_json
 from evidence.transports import (
     ConnectedDriveTransport, JsonCommandAdapter, LocalTransport, RcloneDriveTransport,
 )
@@ -398,6 +398,105 @@ class ConnectedDriveTransportTests(TransportTestCase):
             self.connected().put("packs/p.pack", self.source)
         self.assertEqual(1, len(self.adapter.uploads()))
         self.assertTrue(any(self.state().iterdir()), "pending state must survive a fresh transport")
+
+    def test_unknown_upload_errors_name_exact_key_and_both_recovery_entrypoints(self):
+        key = "projects/synthetic-project/authority/generation-0001.json"
+        self.adapter.upload_failure = "before"
+        transport = self.connected()
+        for _ in range(2):
+            with self.assertRaises(EvidenceError) as raised:
+                transport.put(key, self.source)
+            self.assertIn(key, str(raised.exception))
+            self.assertIn("acknowledge-missing-upload --key", str(raised.exception))
+            self.assertIn("configure --acknowledge-missing-upload", str(raised.exception))
+
+    def test_checkpoint_quota_counts_escaped_wire_bytes_before_upload(self):
+        transport = self.connected()
+        transport.checkpoint_metadata_bytes = 1024
+        with self.assertRaisesRegex(EvidenceError, "checkpoint exceeds"):
+            transport.put("packs/" + "é" * 200, self.source)
+        self.assertEqual([], self.adapter.uploads())
+        self.assertEqual([], list(self.state().iterdir()))
+
+    def test_checkpoint_atomic_wire_size_boundary_preserves_previous_record(self):
+        transport = self.connected()
+        record = {"version": 1, "key": "packs/" + "é" * 16}
+        wire = (json.dumps(record, sort_keys=True, ensure_ascii=True, allow_nan=False, indent=2) + "\n").encode()
+        transport.checkpoint_metadata_bytes = len(wire)
+        target = transport._checkpoint(record["key"])
+        transport._write_checkpoint(target, record)
+        self.assertEqual(wire, target.read_bytes())
+        with self.assertRaisesRegex(EvidenceError, "checkpoint exceeds"):
+            transport._write_checkpoint(target, dict(record, key=record["key"] + "é"))
+        self.assertEqual(wire, target.read_bytes())
+
+    def test_located_checkpoint_overflow_retains_pending_and_retry_reuses_upload(self):
+        transport = self.connected()
+        key = "packs/p.pack"
+        digest, size = hash_file(self.source)
+        pending = {"version": 1, "key": key, "sha256": digest, "size": size, "state": "pending"}
+        pending_wire = (json.dumps(pending, sort_keys=True, ensure_ascii=True, allow_nan=False, indent=2) + "\n").encode()
+        transport.checkpoint_metadata_bytes = len(pending_wire)
+        with self.assertRaisesRegex(EvidenceError, "checkpoint exceeds"):
+            transport.put(key, self.source)
+        self.assertEqual("pending", read_json(transport._checkpoint(key), len(pending_wire))["state"])
+        self.assertEqual(1, len(self.adapter.uploads()))
+        transport.checkpoint_metadata_bytes = 64 * 1024
+        transport.put(key, self.source)
+        self.assertEqual(1, len(self.adapter.uploads()))
+        self.assertEqual("located", read_json(transport._checkpoint(key), 64 * 1024)["state"])
+
+    def test_missing_upload_acknowledgement_requires_matching_pending_checkpoint(self):
+        transport = self.connected()
+        key = "packs/p.pack"
+        with self.assertRaisesRegex(EvidenceError, "no owned local"):
+            transport.acknowledge_missing_upload(key)
+        self.adapter.upload_failure = "before"
+        with self.assertRaises(EvidenceError):
+            transport.put(key, self.source)
+        checkpoint = transport._checkpoint(key)
+        valid = read_json(checkpoint, 65536)
+        for changed in (dict(valid, key="packs/other.pack"), dict(valid, sha256="invalid"),
+                        dict(valid, size=True), dict(valid, version=2), dict(valid, state="unknown")):
+            atomic_json(checkpoint, changed)
+            with self.assertRaisesRegex(EvidenceError, "invalid or belongs"):
+                transport.acknowledge_missing_upload(key)
+            self.assertTrue(checkpoint.exists())
+        atomic_json(checkpoint, dict(valid, state="located"))
+        with self.assertRaisesRegex(EvidenceError, "only a pending"):
+            transport.acknowledge_missing_upload(key)
+        self.assertTrue(checkpoint.exists())
+
+    def test_changed_pending_checkpoint_is_preserved_during_acknowledgement(self):
+        transport = self.connected()
+        key = "packs/p.pack"
+        self.adapter.upload_failure = "before"
+        with self.assertRaises(EvidenceError):
+            transport.put(key, self.source)
+        checkpoint = transport._checkpoint(key)
+        previous = read_json(checkpoint, 65536)
+        def change(_):
+            atomic_json(checkpoint, dict(previous, state="located"))
+            return None
+        with patch.object(transport, "_find_retry", side_effect=change):
+            with self.assertRaisesRegex(EvidenceError, "changed during"):
+                transport.acknowledge_missing_upload(key)
+        self.assertTrue(checkpoint.exists())
+
+    def test_nonobject_checkpoints_fail_closed_in_put_and_acknowledgement(self):
+        transport = self.connected()
+        key = "packs/p.pack"
+        checkpoint = transport._checkpoint(key)
+        for record in ([], ["unexpected"], None, True, 12, "unexpected"):
+            for operation in (lambda: transport.put(key, self.source),
+                              lambda: transport.acknowledge_missing_upload(key)):
+                with self.subTest(record=record, operation=operation):
+                    atomic_json(checkpoint, record)
+                    previous = checkpoint.read_bytes()
+                    with self.assertRaisesRegex(EvidenceError, "checkpoint"):
+                        operation()
+                    self.assertEqual(previous, checkpoint.read_bytes())
+        self.assertEqual([], self.adapter.uploads())
 
     def test_explicit_missing_upload_acknowledgement_allows_safe_retry(self):
         transport = self.connected()

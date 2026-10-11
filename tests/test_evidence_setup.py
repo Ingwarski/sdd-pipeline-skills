@@ -301,6 +301,48 @@ class EvidenceSetupTests(unittest.TestCase):
         self.assertEqual("configured", result["result"])
         self.assertEqual(1, len(self.probes))
 
+    def test_initial_authority_unknown_upload_can_be_acknowledged_before_setup_retry(self):
+        options = {"home": self.home, "provider": "google-drive", "destination": "synthetic-folder-id",
+                   "drive_retention_days": "never", "probe": self.probe}
+        self.authority.side_effect = [setup.SetupError("initial authority upload outcome unknown"), None]
+        with self.assertRaisesRegex(setup.SetupError, "unknown"):
+            setup.configure(self.project, **options)
+        pending_path, = (self.home / "pending-setup").glob("*.json")
+        pending = setup._read(pending_path)
+        key = "projects/" + pending["project_id"] + "/generation-authority.json"
+        session = self.base / "active-recovery-session"
+        def acknowledge(command, **kwargs):
+            self.assertIn("acknowledge-missing-upload", command)
+            self.assertEqual(key, command[command.index("--key") + 1])
+            self.assertEqual(str(session), command[command.index("--host-session") + 1])
+            candidate_policy = setup._read(Path(command[command.index("--policy") + 1]))
+            candidate_config = setup._read(Path(command[command.index("--config") + 1]))
+            self.assertEqual(pending["project_id"], candidate_policy["project_id"])
+            self.assertEqual(pending["store_id"], candidate_config["store_id"])
+            self.assertEqual(1, len(self.probes))
+            self.assertFalse((self.project / "forge/evidence-policy.json").exists())
+            return subprocess.CompletedProcess(command, 0, json.dumps({"verified_absent": True, "acknowledged_missing_upload": key}), "")
+        with patch.object(setup.subprocess, "run", side_effect=acknowledge) as invoked:
+            result = setup.configure(self.project, **options, host_session=session, acknowledge_missing_upload=key)
+        self.assertEqual(1, invoked.call_count)
+        self.assertEqual("configured", result["result"])
+        self.assertEqual(pending["project_id"], result["project_id"])
+        self.assertEqual(pending["store_id"], result["store_id"])
+        self.assertFalse(pending_path.exists())
+
+    def test_setup_upload_acknowledgement_rejects_another_project_before_transport(self):
+        self.authority.side_effect = setup.SetupError("unknown upload")
+        with self.assertRaises(setup.SetupError):
+            self.configure()
+        pending_path, = (self.home / "pending-setup").glob("*.json")
+        before = pending_path.read_bytes()
+        with patch.object(setup.subprocess, "run", side_effect=AssertionError("must not access another project's upload")):
+            with self.assertRaisesRegex(setup.SetupError, "pending project's namespace"):
+                self.configure(acknowledge_missing_upload="projects/00000000-0000-0000-0000-000000000000/authority.json")
+        self.assertEqual(before, pending_path.read_bytes())
+        self.assertEqual(1, len(self.probes))
+        self.assertFalse((self.project / "forge/evidence-policy.json").exists())
+
     def test_interrupted_default_binding_retry_preserves_generation_identity(self):
         setup.configure(home=self.home, provider="local", probe=self.probe)
         self.authority.side_effect = [setup.SetupError("authority uploaded but settlement interrupted"), None]

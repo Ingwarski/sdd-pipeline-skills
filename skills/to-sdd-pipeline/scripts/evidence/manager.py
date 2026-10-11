@@ -61,6 +61,7 @@ class Manager:
         self._active_reservation = None
         self._working_depth = 0
         self._working_reservation = None
+        self._working_migration = False
         self._catalog_thread_lock = threading.RLock()
         self._catalog_lock_depth = 0
 
@@ -151,7 +152,8 @@ class Manager:
                 try:
                     owner = read_json(lock / "owner.json", 4096)
                 except (FileNotFoundError, EvidenceError) as read_error:
-                    if not isinstance(getattr(read_error, "__cause__", None), FileNotFoundError) and ((lock / "owner.json").exists() or (lock / "owner.json").is_symlink()):
+                    transient = isinstance(getattr(read_error, "__cause__", None), FileNotFoundError) or str(read_error).startswith(("file changed while opening:", "input changed while reading:"))
+                    if not transient and ((lock / "owner.json").exists() or (lock / "owner.json").is_symlink()):
                         raise
                     owner = None  # Another same-home process is creating/removing its lock.
                 if owner is not None:
@@ -166,8 +168,22 @@ class Manager:
             atomic_json(lock / "owner.json", {"pid": os.getpid(), "host": socket.gethostname(), "coordinator": self.coordinator})
             yield
         finally:
-            (lock / "owner.json").unlink(missing_ok=True)
+            self._release_owner_file(lock / "owner.json")
             lock.rmdir()
+
+    @staticmethod
+    def _release_owner_file(path):
+        # Windows stable readers deny deletion while their short-lived handle
+        # is open. Wait for those readers; never change evidence read sharing.
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                path.unlink(missing_ok=True)
+                return
+            except PermissionError as error:
+                if getattr(error, "winerror", None) not in (32, 33) or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
 
     @staticmethod
     def _owner_alive(pid):
@@ -213,20 +229,23 @@ class Manager:
             atomic_json(self.state / "lock-reconciliation.json", {"version": 1, "owner": owner, "verified_exited": True})
             if read_json(lock / "owner.json", 4096) != owner or self._owner_alive(owner["pid"]):
                 raise EvidenceError("catalog lock changed during reconciliation; retained")
-            (lock / "owner.json").unlink()
+            self._release_owner_file(lock / "owner.json")
             lock.rmdir()
             if lock.exists():
                 raise EvidenceError("catalog lock removal failed")
             action["verified"] = True
         return [action]
 
-    def _usage(self, *, include_ledger=True):
+    def _usage(self, *, include_ledger=True, include_checkpoints=True):
         """Account all local capture/cache/staging/readback/restoration, without following links."""
         count = 0
         for directory, dirs, files in os.walk(self.state, followlinks=False):
             for name in dirs + files:
                 path = Path(directory) / name
                 if not include_ledger and (path.name.startswith("accounting.sqlite") or (self.state / "accounting.sqlite.recovery") in path.parents):
+                    continue
+                checkpoint_root = self._checkpoint_root()
+                if not include_checkpoints and checkpoint_root is not None and (path == checkpoint_root or checkpoint_root in path.parents):
                     continue
                 try:
                     info = path.lstat()
@@ -238,7 +257,11 @@ class Manager:
                     count += info.st_size
                 elif not stat.S_ISDIR(info.st_mode):
                     raise EvidenceError("special file in evidence workspace")
-        return count + self._existing_bytes(self._transport_records())
+        count += self._existing_bytes(self._transport_records())
+        checkpoint_root = self._checkpoint_root()
+        if include_checkpoints and checkpoint_root is not None and self.state not in checkpoint_root.parents and checkpoint_root != self.state:
+            count += self._existing_bytes(self._checkpoint_records())
+        return count
 
     @staticmethod
     def _existing_bytes(paths):
@@ -249,6 +272,64 @@ class Manager:
             except FileNotFoundError:
                 continue  # Occupancy disappeared; its in-flight peak remains reserved.
         return total
+
+    def _checkpoint_root(self):
+        if not getattr(self.transport, "checkpoint_peak_bytes", 0):
+            return None
+        return Path(self.transport.state_dir).absolute()
+
+    def _checkpoint_records(self):
+        root = self._checkpoint_root()
+        if root is None:
+            return []
+        if root.is_symlink() or not root.is_dir():
+            raise EvidenceError("transfer checkpoint directory is missing or linked")
+        records = []
+        for directory, dirs, files in os.walk(root, followlinks=False):
+            for name in dirs + files:
+                path = Path(directory) / name
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISREG(info.st_mode):
+                    records.append(path)
+                elif not stat.S_ISDIR(info.st_mode):
+                    raise EvidenceError("transfer checkpoint directory contains an unsafe entry")
+        return records
+
+    def _checkpoint_allocations(self, ledger):
+        if self._checkpoint_root() is None:
+            return
+        records = self._checkpoint_records()
+        metadata = [path for path in records if path.suffix == ".json"]
+        ledger.reconcile_local("transport-checkpoints", self._existing_bytes(records), "staging")
+        ledger.reconcile_metadata("transport-checkpoints", self._existing_bytes(metadata), len(metadata))
+
+    @contextmanager
+    def _checkpoint_working(self, upload_bytes):
+        """Hold a checkpoint's atomic replacement and any immutable retry read."""
+        from .accounting import Accounting
+        with self.locked(), Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._checkpoint_allocations(ledger)
+            ident = ledger.reserve_working(self.transport.checkpoint_peak_bytes + upload_bytes,
+                migration=self._working_migration, metadata_bytes=self.transport.checkpoint_metadata_bytes,
+                metadata_files=self.transport.checkpoint_metadata_files, capacity_path=self.transport.state_dir)
+            failed = False
+            try:
+                yield
+            except BaseException:
+                failed = True
+                raise
+            finally:
+                records = self._checkpoint_records()
+                metadata = [path for path in records if path.suffix == ".json"]
+                result = ledger.finish_working(ident, local_key="transport-checkpoints",
+                    actual_bytes=self._existing_bytes(records), kind="staging", metadata_key="transport-checkpoints",
+                    actual_metadata_bytes=self._existing_bytes(metadata), actual_metadata_files=len(metadata))
+                violations = [value for value in result["violations"] if not value.startswith("combined cache")]
+                if violations and not failed:
+                    raise EvidenceError("transfer checkpoint settlement incomplete: " + "; ".join(violations))
 
     def _transport_records(self):
         folder = getattr(self.transport, "host_session_path", None)
@@ -293,15 +374,21 @@ class Manager:
     def _local_records(self, ledger):
         cache_bytes = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
         ledger.reconcile_local("cache", cache_bytes, "cache")
-        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False) - cache_bytes), "staging")
-        records = self._metadata_records()
+        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache_bytes), "staging")
+        records = self._metadata_records(include_checkpoints=False)
         ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
+        self._checkpoint_allocations(ledger)
 
-    def _metadata_records(self):
+    def _metadata_records(self, *, include_checkpoints=True):
         recovery = self.state / "accounting.sqlite.recovery"
-        return [p for p in self.state.rglob("*.json")
-                if p.is_file() and not p.is_symlink() and recovery not in p.parents] + [
+        checkpoint_root = self._checkpoint_root()
+        records = [p for p in self.state.rglob("*.json")
+                if p.is_file() and not p.is_symlink() and recovery not in p.parents
+                and (checkpoint_root is None or checkpoint_root not in p.parents)] + [
                 p for p in self._transport_records() if p.suffix == ".json"]
+        if include_checkpoints:
+            records += [p for p in self._checkpoint_records() if p.suffix == ".json"]
+        return records
 
     @contextmanager
     def _working(self, peak, *, migration=False, metadata_bytes=0, metadata_files=0, cache_bytes=0,
@@ -317,6 +404,7 @@ class Manager:
                           additional_peak=False, capacity_path=None, transport_scope=False):
         """Share atomic local holds with producers; nesting retains the outer peak."""
         nested = bool(self._working_depth)
+        migration = migration or (nested and self._working_migration)
         if not nested and not transport_scope:
             overhead = getattr(self.transport, "working_overhead", None)
             control = overhead(upload_bytes=0, download_bytes=0) if overhead else 0
@@ -340,6 +428,7 @@ class Manager:
                 metadata_files=metadata_files, cache_bytes=cache_bytes, capacity_path=capacity_path)
             if not nested:
                 self._working_reservation = ident
+                self._working_migration = migration
             self._working_depth += 1
             failed = False
             try:
@@ -350,13 +439,13 @@ class Manager:
             finally:
                 try:
                     cache = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
-                    records = self._metadata_records()
+                    records = self._metadata_records(include_checkpoints=False)
                     allocations = {"metadata_key": "local-journals-receipts", "actual_metadata_bytes": self._existing_bytes(p for p in records),
                         "actual_metadata_files": len(records)}
                     if nested and additional_peak and not (metadata_bytes or metadata_files):
                         allocations = {}  # The enclosing operation owns persistent control metadata.
                     if not nested:
-                        allocations.update(local_key="manager-working", actual_bytes=max(0, self._usage(include_ledger=False) - cache),
+                        allocations.update(local_key="manager-working", actual_bytes=max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache),
                             kind="staging", cache_key="cache", actual_cache_bytes=cache)
                     result = ledger.finish_working(ident, **allocations)
                     violations = [v for v in result["violations"] if not
@@ -368,8 +457,16 @@ class Manager:
                     self._working_depth -= 1
                     if not nested:
                         self._working_reservation = None
+                        self._working_migration = False
 
     def _transport_call(self, method, *args, **kwargs):
+        """Reserve durable transfer checkpoints separately from host queue peaks."""
+        if method == "put" and self._checkpoint_root() is not None:
+            with self._checkpoint_working(Path(args[1]).stat().st_size):
+                return self._transport_host_call(method, *args, **kwargs)
+        return self._transport_host_call(method, *args, **kwargs)
+
+    def _transport_host_call(self, method, *args, **kwargs):
         """Reserve private host queues and materialized originals outside this state."""
         overhead = getattr(self.transport, "working_overhead", None)
         if overhead is None:
@@ -576,11 +673,12 @@ class Manager:
         for ident in existing - active:
             ledger.remove_object(ident)
         ledger.reconcile_metadata("remote-catalog", catalog["metadata_bytes"], catalog["metadata_files"])
-        records = self._metadata_records()
+        records = self._metadata_records(include_checkpoints=False)
         ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
+        self._checkpoint_allocations(ledger)
         cache_bytes = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
         ledger.reconcile_local("cache", cache_bytes, "cache")
-        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False) - cache_bytes), "staging")
+        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache_bytes), "staging")
         ledger.reconcile_generation(catalog["generation"])
 
     @staticmethod

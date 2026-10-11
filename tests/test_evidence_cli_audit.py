@@ -11,6 +11,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 import unittest
+import uuid
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,8 @@ sys.path.insert(0, str(SCRIPT.parent))
 spec = importlib.util.spec_from_file_location("evidence_cli_audit", SCRIPT)
 cli = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cli)
+
+from test_evidence_transports import ConnectedFixture
 
 
 class EvidenceCliAuditTests(unittest.TestCase):
@@ -196,11 +199,107 @@ class EvidenceCliAuditTests(unittest.TestCase):
             report = json.loads(output.getvalue())
             if expected == 0:
                 manager.transport.acknowledge_missing_upload.assert_called_once_with(key)
+                manager.assert_generation_authority.assert_not_called()
                 self.assertEqual(key, report["acknowledged_missing_upload"])
                 self.assertTrue(report["verified_absent"])
             else:
                 manager.transport.acknowledge_missing_upload.assert_not_called()
                 self.assertIn("project's namespace", report["error"])
+
+    def connected_manager(self):
+        policy = cli.load_defaults()
+        policy.update(project_id=str(uuid.uuid4()), store_id=str(uuid.uuid4()), provider="google-drive")
+        policy["limits"]["free_space_reserve_bytes"] = 0
+        fixture = ConnectedFixture()
+        transport = cli.ConnectedDriveTransport(fixture, "synthetic-selected-folder",
+            state_dir=self.home / "projects" / policy["project_id"] / "transfers", attempts=1)
+        return cli.Manager(transport, self.home, policy), fixture
+
+    def acknowledge_fixture(self, manager, key, *, expected=0):
+        policy_path, config_path = self.base / "candidate-policy.json", self.base / "candidate-config.json"
+        policy_path.write_text(json.dumps(manager.policy), encoding="utf-8")
+        config_path.write_text(json.dumps({"version": 1, "provider": "google-drive",
+            "store_id": manager.policy["store_id"], "destination": "synthetic-selected-folder",
+            "transport": "connected", "evidence_home": str(self.home)}), encoding="utf-8")
+        output = io.StringIO()
+        # Keep the real CLI parser, binding loader, Manager and connected
+        # transport; substitute only the account with its byte-level fixture.
+        with patch.object(sys, "argv", [str(SCRIPT), "acknowledge-missing-upload", "--key", key,
+             "--home", str(self.home), "--policy", str(policy_path), "--config", str(config_path)]), \
+             patch.object(cli, "transport", return_value=manager.transport), redirect_stdout(output):
+            self.assertEqual(expected, cli.main(), output.getvalue())
+        return json.loads(output.getvalue())
+
+    def fail_fixture_upload(self, manager, fixture, key):
+        source = self.base / "synthetic-pending-pack"
+        source.write_bytes(b"synthetic original bytes")
+        fixture.upload_failure = "before"
+        with self.assertRaisesRegex(cli.EvidenceError, "unknown upload outcome"):
+            manager.transport.put(key, source)
+        fixture.upload_failure = None
+        checkpoint = manager.transport._checkpoint(key)
+        self.assertEqual("pending", json.loads(checkpoint.read_text())["state"])
+        return checkpoint
+
+    def test_connected_ack_recovers_failed_initial_authority_without_established_authority(self):
+        manager, fixture = self.connected_manager()
+        fixture.upload_failure = "before"
+        with self.assertRaisesRegex(cli.EvidenceError, "unknown upload outcome"):
+            manager.initialize_generation_authority()
+        fixture.upload_failure = None
+        key = manager.prefix + "authority/coordinator.json"
+        checkpoint = manager.transport._checkpoint(key)
+        self.assertTrue(checkpoint.is_file())
+        self.assertEqual({}, fixture.objects)
+        first_request = len(fixture.requests)
+        result = self.acknowledge_fixture(manager, key)
+        self.assertTrue(result["verified_absent"])
+        self.assertEqual(key, result["acknowledged_missing_upload"])
+        self.assertFalse(checkpoint.exists())
+        self.assertEqual({}, fixture.objects)
+        self.assertEqual(["lookup"], [request["operation"] for request in fixture.requests[first_request:]])
+
+    def test_connected_ack_does_not_require_or_recreate_lost_accounting(self):
+        manager, fixture = self.connected_manager()
+        manager.initialize_generation_authority()
+        database = manager.state / "accounting.sqlite"
+        with cli.Accounting(database, manager.policy["project_id"], manager.policy) as ledger:
+            hold = ledger.reserve("original-run", "U-1", 5, 1)
+            ledger.settle(hold, 3, 1)
+        database.unlink()
+        key = manager.prefix + "packs/failed-upload.zip"
+        checkpoint = self.fail_fixture_upload(manager, fixture, key)
+        before = dict(fixture.objects)
+        first_request = len(fixture.requests)
+        self.assertTrue(self.acknowledge_fixture(manager, key)["verified_absent"])
+        self.assertFalse(checkpoint.exists())
+        self.assertFalse(database.exists())
+        self.assertEqual(before, fixture.objects)
+        self.assertEqual(["lookup"], [request["operation"] for request in fixture.requests[first_request:]])
+
+    def test_connected_ack_retains_checkpoint_when_remote_object_appears(self):
+        manager, fixture = self.connected_manager()
+        key = manager.prefix + "packs/late-upload.zip"
+        checkpoint = self.fail_fixture_upload(manager, fixture, key)
+        before = checkpoint.read_bytes()
+        fixture.objects["late-object"] = {"key": key, "bytes": b"synthetic original bytes"}
+        first_request = len(fixture.requests)
+        report = self.acknowledge_fixture(manager, key, expected=1)
+        self.assertIn("object exists", report["error"])
+        self.assertEqual(before, checkpoint.read_bytes())
+        self.assertEqual({"late-object": {"key": key, "bytes": b"synthetic original bytes"}}, fixture.objects)
+        self.assertEqual(["lookup"], [request["operation"] for request in fixture.requests[first_request:]])
+
+    def test_connected_ack_rejects_foreign_namespace_without_touching_its_checkpoint(self):
+        manager, fixture = self.connected_manager()
+        key = "projects/other-project/packs/failed-upload.zip"
+        checkpoint = self.fail_fixture_upload(manager, fixture, key)
+        before = checkpoint.read_bytes()
+        first_request = len(fixture.requests)
+        report = self.acknowledge_fixture(manager, key, expected=1)
+        self.assertIn("project's namespace", report["error"])
+        self.assertEqual(before, checkpoint.read_bytes())
+        self.assertEqual([], fixture.requests[first_request:])
 
     def test_cold_receipt_cannot_invent_original_policy_byte_binding(self):
         output = io.StringIO()

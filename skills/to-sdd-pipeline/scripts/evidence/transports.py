@@ -420,6 +420,23 @@ class JsonCommandAdapter:
 
 
 class _CheckpointedDrive(Transport):
+    # Atomic replacement can coexist with the old checkpoint. Managers reserve
+    # this peak before every put, including immutable-object retry readbacks.
+    checkpoint_peak_bytes = 128 * 1024
+    checkpoint_metadata_bytes = 64 * 1024
+    checkpoint_metadata_files = 1
+
+    def _write_checkpoint(self, path, record):
+        try:
+            # Match atomic_json's on-disk representation, including escaping,
+            # indentation and the trailing newline; compact JSON undercounts.
+            encoded = (json.dumps(record, sort_keys=True, ensure_ascii=True, allow_nan=False, indent=2) + "\n").encode("utf-8")
+        except (TypeError, ValueError, UnicodeError, RecursionError) as error:
+            raise EvidenceError("upload checkpoint is not valid bounded JSON") from error
+        if len(encoded) > self.checkpoint_metadata_bytes:
+            raise EvidenceError("upload checkpoint exceeds the reserved metadata byte bound")
+        atomic_json(path, record)
+
     def _initialize(self, identity, state_dir, attempts, max_metadata_bytes, max_objects):
         self.attempts = _positive(attempts, "attempts")
         self.max_metadata_bytes = _positive(max_metadata_bytes, "max_metadata_bytes")
@@ -451,53 +468,74 @@ class _CheckpointedDrive(Transport):
                 raise EvidenceError("immutable storage key has different original bytes")
         return metadata
 
+    def _unknown_upload(self, key):
+        return ("unknown upload outcome for immutable key " + json.dumps(key) +
+                ": pending checkpoint retained; resume lookup without reupload, or explicitly acknowledge this key "
+                "with evidence_store.py acknowledge-missing-upload --key / evidence_setup.py configure "
+                "--acknowledge-missing-upload after checking the selected destination")
+
     def put(self, key, source_path):
         key = _transport_key(key)
         digest, size = hash_file(source_path)
         checkpoint = self._checkpoint(key)
         if checkpoint.exists():
-            record = read_json(checkpoint, 64 * 1024)
-            if record.get("version") != 1 or record.get("key") != key or record.get("sha256") != digest or record.get("size") != size:
+            record = read_json(checkpoint, self.checkpoint_metadata_bytes)
+            if (not isinstance(record, dict) or record.get("version") != 1 or record.get("key") != key
+                    or record.get("sha256") != digest or record.get("size") != size):
                 raise EvidenceError("upload checkpoint conflicts with immutable input")
         else:
             record = None
         existing = self._find_retry(key) if record is not None else self._lookup(key)
         if existing:
             verified = self._same(existing, digest, size)
-            atomic_json(checkpoint, {"version": 1, "key": key, "sha256": digest, "size": size,
+            self._write_checkpoint(checkpoint, {"version": 1, "key": key, "sha256": digest, "size": size,
                                      "state": "located", "locator": verified})
             return verified
         if record is not None:
-            raise EvidenceError("unknown upload outcome: pending checkpoint retained; resume lookup without reupload or use evidence_store.py acknowledge-missing-upload --key after checking the selected destination")
+            raise EvidenceError(self._unknown_upload(key))
         self._pre_upload(key)
-        atomic_json(checkpoint, {"version": 1, "key": key, "sha256": digest, "size": size, "state": "pending"})
+        self._write_checkpoint(checkpoint, {"version": 1, "key": key, "sha256": digest, "size": size, "state": "pending"})
         try:
             self._upload(key, Path(source_path), digest, size)
         except Exception as exc:
             existing = self._find_retry(key)
             if existing:
                 verified = self._same(existing, digest, size)
-                atomic_json(checkpoint, {"version": 1, "key": key, "sha256": digest, "size": size,
+                self._write_checkpoint(checkpoint, {"version": 1, "key": key, "sha256": digest, "size": size,
                                          "state": "located", "locator": verified})
                 return verified
-            raise EvidenceError("unknown upload outcome: pending checkpoint retained; resume lookup without reupload") from exc
+            raise EvidenceError(self._unknown_upload(key)) from exc
         if hash_file(source_path) != (digest, size):
             raise EvidenceError("upload source changed; pending checkpoint retained")
         existing = self._find_retry(key)
         if existing is None:
-            raise EvidenceError("unknown upload outcome: completed response but object lookup missing; pending checkpoint retained")
+            raise EvidenceError(self._unknown_upload(key) + "; completed response but object lookup missing")
         if existing["size"] != size:
             raise EvidenceError("uploaded object size mismatch; pending checkpoint retained")
-        atomic_json(checkpoint, {"version": 1, "key": key, "sha256": digest, "size": size,
+        self._write_checkpoint(checkpoint, {"version": 1, "key": key, "sha256": digest, "size": size,
                                  "state": "located", "locator": existing})
         return existing
 
     def acknowledge_missing_upload(self, key):
         """Explicit recovery action after checking the selected remote destination."""
         key = _transport_key(key)
+        checkpoint = self._checkpoint(key)
+        if not checkpoint.exists():
+            raise EvidenceError("no owned local upload checkpoint exists for immutable key " + json.dumps(key))
+        fingerprint = hash_file(checkpoint)
+        record = read_json(checkpoint, self.checkpoint_metadata_bytes)
+        if (not isinstance(record, dict) or record.get("version") != 1 or record.get("key") != key
+                or not isinstance(record.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", record["sha256"])
+                or isinstance(record.get("size"), bool) or not isinstance(record.get("size"), int) or record["size"] < 0
+                or record.get("state") not in ("pending", "located")):
+            raise EvidenceError("owned local upload checkpoint is invalid or belongs to another immutable key")
         if self._find_retry(key) is not None:
             raise EvidenceError("upload object exists; resume the verified object instead")
-        self._checkpoint(key).unlink(missing_ok=True)
+        if record["state"] != "pending":
+            raise EvidenceError("only a pending unknown-outcome upload can be acknowledged; previously located objects need recovery")
+        if hash_file(checkpoint) != fingerprint:
+            raise EvidenceError("upload checkpoint changed during acknowledgement; retained for reconciliation")
+        checkpoint.unlink()
 
     def _pre_upload(self, key):
         return None

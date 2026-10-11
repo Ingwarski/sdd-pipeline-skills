@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import test_evidence_manager as fixtures
+import test_evidence_transports as transport_fixtures
 from evidence.accounting import Accounting, BudgetExceeded
 from evidence.archive import build_pack
 from evidence.io import EvidenceError, hash_file, atomic_json
@@ -141,6 +142,24 @@ class ManagerAuditTests(unittest.TestCase):
                 if previous:
                     self.assertEqual(previous, recovered.coordinator)
                 self.assertEqual(recovered.coordinator, Manager(self.fixture.transport, home, self.policy).coordinator)
+
+    def test_catalog_owner_release_waits_for_windows_stable_readers(self):
+        original = Path.unlink
+        attempts = []
+        def release(path, *args, **kwargs):
+            if path == self.manager.state / "catalog.lock/owner.json" and len(attempts) < 3:
+                attempts.append(path)
+                error = PermissionError("synthetic Windows stable reader")
+                error.winerror = 32
+                raise error
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "unlink", release):
+            with self.manager.locked():
+                pass
+        self.assertEqual(3, len(attempts))
+        self.assertFalse((self.manager.state / "catalog.lock").exists())
+        with self.manager.locked(timeout=0.01):
+            pass
 
     def test_unsettled_remote_generation_reports_unknown_after_loss_of_home(self):
         self.manager.initialize_generation_authority()
@@ -305,6 +324,41 @@ class ManagerAuditTests(unittest.TestCase):
         self.assertTrue(hosted.download_holds)
         self.assertTrue(all(held >= hosted.control_peak_bytes + size * 2 for size, held in hosted.download_holds))
         self.assertGreaterEqual(self.manager.status()["local_working_bytes"], 3000)
+
+    def test_connected_and_rclone_checkpoints_have_their_own_exact_allocation(self):
+        for provider, external in (("connected", False), ("connected", True), ("rclone", False)):
+            with self.subTest(provider=provider, external=external):
+                policy = deepcopy(self.policy)
+                policy["provider"] = "google-drive"
+                home = self.base / (provider + ("-external" if external else "-internal"))
+                state = home / "projects" / policy["project_id"]
+                transfer_dir = self.base / "external-transfers" if external else state / "transfers"
+                if provider == "connected":
+                    transport = transport_fixtures.ConnectedDriveTransport(transport_fixtures.ConnectedFixture(),
+                        "synthetic-folder", state_dir=transfer_dir, attempts=1)
+                else:
+                    fixture = transport_fixtures.RcloneDriveTransportTests(methodName="runTest")
+                    fixture.setUp()
+                    self.addCleanup(fixture.doCleanups)
+                    transport = transport_fixtures.RcloneDriveTransport("fixture:objects", config=fixture.config,
+                        executable=str(fixture.executable), state_dir=transfer_dir, attempts=1)
+                manager = Manager(transport, home, policy)
+                self.assertTrue(manager.initialize_generation_authority()["coordinator_authorized"])
+                value = {"version": 1, "synthetic": "checkpoint retry"}
+                manager._put_json(manager.prefix + "synthetic/", value)
+                manager._put_json(manager.prefix + "synthetic/", value)
+                checkpoint_files = list(transfer_dir.glob("*.json"))
+                self.assertEqual(2, len(checkpoint_files))
+                checkpoint_bytes = sum(path.stat().st_size for path in checkpoint_files)
+                with Accounting(state / "accounting.sqlite", policy["project_id"], policy) as ledger:
+                    manager._local_records(ledger)
+                    actual = ledger.connection.execute("SELECT bytes FROM local_usage WHERE key='transport-checkpoints'").fetchone()[0]
+                    metadata = ledger.connection.execute("SELECT bytes,files FROM metadata_usage WHERE key='transport-checkpoints'").fetchone()
+                    self.assertEqual(checkpoint_bytes, actual)
+                    self.assertEqual((checkpoint_bytes, 2), tuple(metadata))
+                    self.assertFalse(ledger.connection.execute("SELECT 1 FROM working_reservations WHERE state='pending'").fetchone())
+                self.assertTrue(all(path not in manager._metadata_records(include_checkpoints=False) for path in checkpoint_files))
+                self.assertEqual(checkpoint_bytes, manager._usage(include_ledger=False) - manager._usage(include_ledger=False, include_checkpoints=False))
 
     def test_host_overhead_is_reserved_before_calling_transport(self):
         class OversizedHost(fixtures.ObservedTransport):

@@ -223,6 +223,29 @@ def _initialize_authority(config, policy, project, *, host_session=None):
             raise SetupError("generation authority initialization failed: " + str(receipt.get("error") or receipt.get("reason") or "project setup remains incomplete"))
 
 
+def _acknowledge_setup_upload(config, policy, project, key, *, host_session=None):
+    """Resolve one known pending upload before initial authority is available."""
+    if not isinstance(key, str) or not key.startswith("projects/" + policy["project_id"] + "/"):
+        raise SetupError("upload acknowledgement must name an exact key in this pending project's namespace")
+    home = evidence_home(config["evidence_home"])
+    with tempfile.TemporaryDirectory(prefix="setup-upload-recovery-", dir=home) as temporary:
+        candidate = Path(temporary) / "candidate.json"
+        candidate_policy = Path(temporary) / "policy.json"
+        _write(candidate, config)
+        _write(candidate_policy, policy)
+        command = [sys.executable, str(ENGINE_ROOT / "evidence_store.py"), "acknowledge-missing-upload",
+                   "--project", str(Path(project).resolve()), "--config", str(candidate), "--policy", str(candidate_policy), "--key", key]
+        if host_session is not None:
+            command += ["--host-session", str(host_session)]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=600)
+        try:
+            receipt = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise SetupError("pending-upload recovery returned no absence receipt; preserve the setup checkpoint and retry") from exc
+        if result.returncode or receipt.get("verified_absent") is not True or receipt.get("acknowledged_missing_upload") != key:
+            raise SetupError("pending-upload recovery failed: " + str(receipt.get("error") or receipt.get("reason") or "exact upload absence was not verified"))
+
+
 @contextmanager
 def _checkpoint_setup(config, policy, project, *, fixed_project=False, fixed_store=False, reconfigure=False):
     home = evidence_home(config["evidence_home"])
@@ -319,7 +342,8 @@ def _claim_setup_checkpoint(config, policy, project, *, fixed_project, fixed_sto
 
 def configure(project=None, *, provider, destination=None, transport=None, bridge_command=None,
               rclone_config=None, rclone_executable=None, home=None, limits=None, retention_days=None,
-              drive_retention_days="unset", adopt=None, reconfigure=False, probe=None, host_session=None):
+              drive_retention_days="unset", adopt=None, reconfigure=False, probe=None, host_session=None,
+              acknowledge_missing_upload=None):
     """An explicit selected provider authorizes its bounded verification upload."""
     home = evidence_home(home)
     _outside(home, project)
@@ -338,6 +362,8 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
         raise SetupError("provider must be local, folder, or google-drive")
     if adopt and not project:
         raise SetupError("archive adoption requires --project and its declarative mapping")
+    if acknowledge_missing_upload and not project:
+        raise SetupError("pending-upload acknowledgement during setup requires --project")
     if provider == "google-drive" and drive_retention_days == "unset" and not (old_config and old_config.get("provider") == "google-drive" and previous_policy):
         raise SetupError("choose --drive-retention-days DAYS or never explicitly; local retention never sets Drive archive expiry")
     destination = destination or None
@@ -392,6 +418,8 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
     with _checkpoint_setup(config, policy, project, fixed_project=existing_policy is not None,
                            fixed_store=bool(same_store or existing_policy and not old_config), reconfigure=reconfigure) as pending_path:
         project_id, store_id = policy["project_id"], policy["store_id"]
+        if acknowledge_missing_upload is not None:
+            _acknowledge_setup_upload(config, policy, project, acknowledge_missing_upload, host_session=host_session)
         receipt = probe(config, project) if probe else _probe(config, project, **({"host_session": host_session} if host_session is not None else {}))
         if not isinstance(receipt, dict) or receipt.get("verified") is not True:
             raise SetupError("storage probe did not independently verify bytes")
@@ -556,6 +584,7 @@ def main(argv=None):
             sub.add_argument("--retention-days", type=int, help="local expiry eligibility; first setup defaults to 30, reconfiguration preserves saved days")
             sub.add_argument("--drive-retention-days", default="unset", help="explicit DAYS or never for Google Drive")
             sub.add_argument("--adopt", type=Path)
+            sub.add_argument("--acknowledge-missing-upload", metavar="KEY", help="verify absence and acknowledge this exact pending project upload before retrying initial setup")
             sub.add_argument("--reconfigure", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -588,7 +617,8 @@ def main(argv=None):
                                bridge_command=parse_bridge_command(args.bridge_command) if args.bridge_command else None,
                                rclone_config=args.rclone_config, rclone_executable=args.rclone_executable,
                                home=args.evidence_home, limits=limits, retention_days=args.retention_days,
-                               drive_retention_days=args.drive_retention_days, adopt=args.adopt, reconfigure=args.reconfigure, host_session=args.host_session)
+                               drive_retention_days=args.drive_retention_days, adopt=args.adopt, reconfigure=args.reconfigure, host_session=args.host_session,
+                               acknowledge_missing_upload=args.acknowledge_missing_upload)
         print(json.dumps(status, indent=2))
         return 0 if status["result"] == "configured" else 2
     except (OSError, SetupError, EvidenceError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:

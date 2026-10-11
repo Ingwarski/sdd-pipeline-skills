@@ -224,7 +224,6 @@ def main():
             elif args.command == "initialize-generation-authority":
                 result = manager.initialize_generation_authority()
             elif args.command == "acknowledge-missing-upload":
-                manager.assert_generation_authority()
                 acknowledge = getattr(manager.transport, "acknowledge_missing_upload", None)
                 if acknowledge is None:
                     raise EvidenceError("selected transport has no pending cloud-upload checkpoints")
