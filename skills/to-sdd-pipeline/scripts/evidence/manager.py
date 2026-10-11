@@ -152,7 +152,13 @@ class Manager:
                 try:
                     owner = read_json(lock / "owner.json", 4096)
                 except (FileNotFoundError, EvidenceError) as read_error:
-                    transient = isinstance(getattr(read_error, "__cause__", None), FileNotFoundError) or str(read_error).startswith(("file changed while opening:", "input changed while reading:"))
+                    cause = getattr(read_error, "__cause__", None)
+                    # Opening a Windows owner record can briefly conflict with
+                    # its publisher/remover, just as releasing it can conflict
+                    # with a stable reader. Retry only this lock handshake.
+                    transient = (isinstance(cause, FileNotFoundError)
+                        or getattr(cause, "winerror", None) in (32, 33)
+                        or str(read_error).startswith(("file changed while opening:", "input changed while reading:")))
                     if not transient and ((lock / "owner.json").exists() or (lock / "owner.json").is_symlink()):
                         raise
                     owner = None  # Another same-home process is creating/removing its lock.

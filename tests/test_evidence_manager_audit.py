@@ -17,7 +17,7 @@ import test_evidence_manager as fixtures
 import test_evidence_transports as transport_fixtures
 from evidence.accounting import Accounting, BudgetExceeded
 from evidence.archive import build_pack
-from evidence.io import EvidenceError, hash_file, atomic_json
+from evidence.io import EvidenceError, hash_file, atomic_json, read_json
 from evidence.manager import Manager
 from evidence.producer import run_producer
 from evidence.resolver import EvidenceResolver
@@ -160,6 +160,32 @@ class ManagerAuditTests(unittest.TestCase):
         self.assertFalse((self.manager.state / "catalog.lock").exists())
         with self.manager.locked(timeout=0.01):
             pass
+
+    def test_catalog_waiter_retries_windows_owner_open_sharing_violations(self):
+        waiting = Manager(self.fixture.transport, self.fixture.home, self.policy)
+        retried = threading.Event()
+        attempts = []
+        owner = self.manager.state / "catalog.lock/owner.json"
+        def transient_read(path, limit):
+            if Path(path) == owner and len(attempts) < 3:
+                attempts.append(path)
+                if len(attempts) == 3:
+                    retried.set()
+                cause = PermissionError("synthetic Windows publisher/remover")
+                cause.winerror = 32
+                raise EvidenceError("cannot safely open " + str(path)) from cause
+            return read_json(path, limit)
+        def acquire():
+            with waiting.locked(timeout=5):
+                return True
+        with patch("evidence.manager.read_json", side_effect=transient_read), ThreadPoolExecutor(max_workers=1) as pool:
+            with self.manager.locked():
+                result = pool.submit(acquire)
+                self.assertTrue(retried.wait(3), "waiter did not retry transient owner-open failures")
+                self.assertFalse(result.done())
+            self.assertTrue(result.result(timeout=5))
+        self.assertEqual(3, len(attempts))
+        self.assertFalse((self.manager.state / "catalog.lock").exists())
 
     def test_unsettled_remote_generation_reports_unknown_after_loss_of_home(self):
         self.manager.initialize_generation_authority()
