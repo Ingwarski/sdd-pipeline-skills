@@ -46,8 +46,12 @@ uploads immutable objects, and downloads original binary bytes with
 or treats a cached synchronization directory as verification. Command timeout,
 retries, metadata bytes, object counts, and transfer byte bounds are finite;
 [rclone's hard transfer cutoff](https://rclone.org/docs/#max-transfer-sizesuffix)
-and manager reservations bound readback. Output is suppressed on failures because
-third-party diagnostics can contain credentials.
+and manager reservations bound readback. Payload commands use foreground
+`rc --loopback` with numeric per-call `MaxTransfer` configuration to preserve exact
+byte limits; rclone 1.75.2 rounds some command-line size values. This starts no
+server. Existing upload keys are skipped and independently read back to verify
+their original bytes before accepting success. Output is suppressed on failures
+because third-party diagnostics can contain credentials.
 
 ## Connected host bridge
 

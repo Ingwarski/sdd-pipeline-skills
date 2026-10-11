@@ -97,7 +97,7 @@ state = json.loads(state_path.read_text()) if state_path.exists() else {"command
 args = sys.argv[1:]
 state["commands"].append(args)
 state_path.write_text(json.dumps(state))
-position = next((i for i, x in enumerate(args) if x in ("lsjson", "copyto", "backend", "deletefile", "listremotes")), None)
+position = next((i for i, x in enumerate(args) if x in ("lsjson", "copyto", "backend", "deletefile", "listremotes", "rc")), None)
 if position is None:
     raise SystemExit(2)
 operation = args[position]
@@ -115,6 +115,20 @@ def positional(values):
             result.append(item)
     return result
 items = positional(tail)
+if operation == "rc":
+    assert "--loopback" in args and "--rc=false" in args
+    request = json.loads(args[args.index("--json") + 1])
+    assert type(request["_config"]["MaxTransfer"]) is int
+    assert request["_config"]["CutoffMode"] == "HARD"
+    if "operations/copyfile" in args:
+        operation = "copyto"
+        items = [str(pathlib.Path(request["srcFs"]) / request["srcRemote"]),
+                 request["dstFs"] + "/" + request["dstRemote"]]
+    elif "backend/command" in args:
+        operation = "backend"
+        items = [request["command"], request["fs"], *request["arg"]]
+    else:
+        raise SystemExit(2)
 def remote_key(value):
     return value.split(":", 1)[1].strip("/")
 def metadata(key, prefix=""):
@@ -140,7 +154,11 @@ elif operation == "copyto":
             raise SystemExit(7)
         key = remote_key(destination)
         (root / key).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, root / key)
+        if state["mode"] == "race-before":
+            payload = pathlib.Path(source).read_bytes()
+            (root / key).write_bytes(bytes([payload[0] ^ 1]) + payload[1:])
+        if not ((root / key).exists() and request["_config"]["IgnoreExisting"]):
+            shutil.copyfile(source, root / key)
         state["objects"][key] = "id-" + hashlib.sha256(key.encode()).hexdigest()[:20]
         state_path.write_text(json.dumps(state))
         if state["mode"] == "fail-after":
@@ -155,6 +173,8 @@ elif operation == "backend":
     if state["mode"] == "corrupt-readback":
         payload = (root / key).read_bytes()
         pathlib.Path(destination).write_bytes(bytes([payload[0] ^ 1]) + payload[1:] if payload else b"unexpected")
+    elif state["mode"] == "oversize-readback":
+        pathlib.Path(destination).write_bytes((root / key).read_bytes() + b"!")
     else:
         shutil.copyfile(root / key, destination)
 elif operation == "deletefile":
@@ -636,12 +656,65 @@ class RcloneDriveTransportTests(TransportTestCase):
         (self.root / "shim-state.json").write_text(json.dumps(state))
 
     def uploads(self):
-        return [args for args in self.shim_state()["commands"] if "copyto" in args and any(x.startswith("fixture:") for x in args)]
+        return [args for args in self.shim_state()["commands"] if "operations/copyfile" in args]
 
     def test_roundtrip_uses_stable_id_and_independent_original_download(self):
         locator = self.assert_roundtrip(self.rclone())
         self.assertTrue(locator["object_id"].startswith("id-"))
-        self.assertTrue(any("copyid" in args for args in self.shim_state()["commands"]))
+        downloads = [args for args in self.shim_state()["commands"] if "backend/command" in args]
+        self.assertTrue(downloads)
+        self.assertEqual("copyid", json.loads(downloads[0][downloads[0].index("--json") + 1])["command"])
+
+    def test_transfer_limits_remain_exact_numeric_hard_bounds(self):
+        transport = self.rclone()
+        for size in (0, 65535, 1024 * 1024 - 1, 1024 * 1024 + 1, 8 * 1024 * 1024 + 1):
+            with self.subTest(size=size):
+                previous = len(self.shim_state()["commands"])
+                self.source.write_bytes(b"x" * size)
+                locator = transport.put("packs/exact-" + str(size), self.source)
+                destination = self.root / ("exact-" + str(size))
+                transport.get(locator, destination, max_bytes=size)
+                self.assertEqual(hash_file(self.source), hash_file(destination))
+                commands = [args for args in self.shim_state()["commands"][previous:] if "--json" in args]
+                self.assertEqual(3, len(commands))
+                for args in commands:
+                    request = json.loads(args[args.index("--json") + 1])
+                    self.assertEqual(max(1, size), request["_config"]["MaxTransfer"])
+                    self.assertEqual("HARD", request["_config"]["CutoffMode"])
+                    self.assertTrue(request["_config"]["CheckSum"])
+                    self.assertEqual("operations/copyfile" in args, request["_config"]["Immutable"])
+                    self.assertEqual("operations/copyfile" in args, request["_config"]["IgnoreExisting"])
+                    self.assertNotIn("--max-transfer", args)
+                    self.assertIn("--loopback", args)
+                    self.assertIn("--rc=false", args)
+
+    def test_transfer_rejects_inexact_json_integer_bound_before_subprocess(self):
+        transport = self.rclone()
+        with self.assertRaisesRegex(EvidenceError, "exact JSON integer"):
+            transport._transfer("operations/copyfile", {}, 2 ** 53)
+        self.assertEqual([], self.shim_state()["commands"])
+
+    def test_oversized_readback_preserves_destination_and_removes_partial(self):
+        transport = self.rclone()
+        locator = transport.put("packs/p.pack", self.source)
+        target = self.root / "preserved.bin"
+        target.write_bytes(b"previous verified bytes")
+        self.mode("oversize-readback")
+        with self.assertRaisesRegex(EvidenceError, "bound"):
+            transport.get(locator, target, locator["size"])
+        self.assertEqual(b"previous verified bytes", target.read_bytes())
+        self.assertEqual([], list(self.root.glob(".rclone-readback-*")))
+
+    def test_raced_immutable_upload_preserves_conflicting_bytes_and_pending_checkpoint(self):
+        transport = self.rclone()
+        expected = self.source.read_bytes()
+        self.mode("race-before")
+        with self.assertRaisesRegex(EvidenceError, "immutable|original bytes"):
+            transport.put("packs/p.pack", self.source)
+        self.assertEqual(bytes([expected[0] ^ 1]) + expected[1:],
+                         (self.root / "remote/objects/packs/p.pack").read_bytes())
+        self.assertEqual("pending", json.loads(transport._checkpoint("packs/p.pack").read_text())["state"])
+        self.assertEqual(1, len(self.uploads()))
 
     def test_cold_restore_without_original_state_database(self):
         locator = self.rclone().put("packs/p.pack", self.source)

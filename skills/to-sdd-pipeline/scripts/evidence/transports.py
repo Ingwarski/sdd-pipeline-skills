@@ -754,8 +754,32 @@ class RcloneDriveTransport(_CheckpointedDrive):
         return _metadata({"object_id": value.get("ID"), "key": key, "size": value.get("Size")})
 
     def _upload(self, key, source, digest, size):
-        self._command("copyto", str(source.absolute()), self._remote_path(key), "--immutable", "--checksum",
-                      "--max-transfer", str(max(1, size)) + "B", "--cutoff-mode", "HARD")
+        source = source.absolute()
+        self._transfer("operations/copyfile", {"srcFs": str(source.parent), "srcRemote": source.name,
+                                             "dstFs": self.remote, "dstRemote": key}, size,
+                       immutable=True)
+        # copyfile/copyto do not enforce Immutable on every transfer path.
+        # IgnoreExisting preserves a raced existing object, while readback
+        # proves that a skipped or newly uploaded object has the expected bytes.
+        existing = self._find_retry(key)
+        if existing is None:
+            raise EvidenceError("uploaded object lookup missing; pending checkpoint retained")
+        self._same(existing, digest, size)
+
+    def _transfer(self, operation, parameters, max_bytes, *, immutable=False, output_path=None):
+        # rclone v1.75.2 rounds SizeSuffix CLI flags to three decimal places:
+        # 1048577B becomes 1Mi and rejects a valid exact-bound transfer. Numeric
+        # per-call config preserves the integer. --loopback executes in this
+        # foreground process; it neither starts nor contacts an RC HTTP server.
+        # RC JSON numbers pass through float64, so reject inexact huge integers.
+        if max_bytes > 2 ** 53 - 1:
+            raise EvidenceError("rclone transfer byte bound exceeds exact JSON integer range")
+        parameters = dict(parameters, _config={"MaxTransfer": max(1, max_bytes), "CutoffMode": "HARD",
+                                               "CheckSum": True, "Immutable": immutable,
+                                               "IgnoreExisting": immutable})
+        return self._command("rc", "--loopback", operation, "--json", json.dumps(parameters),
+                             "--rc=false", "--local-no-preallocate", output_path=output_path,
+                             max_bytes=max_bytes if output_path is not None else None)
 
     def stat(self, locator_or_key):
         key = _key(locator_or_key)
@@ -775,9 +799,9 @@ class RcloneDriveTransport(_CheckpointedDrive):
         descriptor, temporary = tempfile.mkstemp(prefix=".rclone-readback-", dir=target.parent)
         os.close(descriptor)
         try:
-            self._command("backend", "copyid", self.backend, info["object_id"], temporary,
-                          "--max-transfer", str(max(1, max_bytes)) + "B", "--cutoff-mode", "HARD",
-                          "--local-no-preallocate", output_path=temporary, max_bytes=max_bytes)
+            self._transfer("backend/command", {"command": "copyid", "fs": self.backend,
+                                                "arg": [info["object_id"], temporary]},
+                           max_bytes, output_path=temporary)
             actual_size = hash_file(temporary)[1]
             if actual_size > max_bytes or actual_size != info["size"]:
                 raise EvidenceError("rclone original download size mismatch or byte bound exceeded")
