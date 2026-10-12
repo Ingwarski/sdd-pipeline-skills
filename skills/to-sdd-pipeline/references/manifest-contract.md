@@ -1,6 +1,6 @@
 # Manifest and Checker Contract
 
-The orchestrator alone writes `forge/sdd-manifest.json`. It tracks provenance and progress, not a second source of product decisions. Preserve existing keys, IDs, history, adapter data and original receipts. Never store secrets.
+Only the orchestrator writes `forge/sdd-manifest.json`, tracking provenance/progress rather than product decisions. Preserve keys, IDs, history, adapter data and original receipts. Never store secrets.
 
 ## Stable records
 
@@ -26,7 +26,7 @@ Design states remain `not_started | awaiting_executor_choice | preflighting_sour
 
 ## Checker metadata: version 1
 
-Add `checker_contract_version: 1`. [pipeline-contract.json](pipeline-contract.json) defines artifact paths, owners and required-before edges once. Each artifact ID is also an owner node; named reconciliation nodes inherit through `owner_artifact`. Aggregate nodes specify their own inputs. `consulted_later` never creates a scheduling edge.
+Add `checker_contract_version: 1`. [pipeline-contract.json](pipeline-contract.json) defines paths, owners and required-before edges. Artifact IDs are owner nodes; reconciliation nodes inherit through `owner_artifact`; aggregate nodes specify inputs. `consulted_later` is never a scheduling edge.
 
 Also use `traceability_version: 1` and the [typed owner indexes](traceability-contract.md). The [scope/execution contract](scope-and-execution.md) defines source-bound `product_scope`, headless exclusions and direct-host intake persistence. Optional `dispatches` maps owner artifact IDs to `{invocation_id, outputs, source_hashes, consumed_source_fragments}`; returned invocation/output identities and consumed bytes must still match. A stale return is rejected, not silently integrated.
 
@@ -40,7 +40,7 @@ A validated artifact needs:
 - optional `consumed_source_fragments`: path → list of `{heading, content_hash}`. Use the exact unique Markdown ATX heading and hash its section through the next equal/higher heading; do not also snapshot that whole file;
 - after approval, architecture/DoD/QA/plan also need `validated_baseline_id`. No-change revalidation updates metadata without rewriting valid document bytes.
 
-Both context artifacts use one invocation and the same two-path `declared_output_set`, with independent hashes/results. Used sources need full hashes or all declared fragments; bindings without a usage decision fail. Unused context needs an explicit reason and no binding; both required context artifacts must still be current. Consumption records do not add scheduling edges.
+Context artifacts share one invocation/two-path `declared_output_set`, with independent hashes/results. Used sources require full hashes or all declared fragments and a usage decision. Unused context needs a reason, no binding; both artifacts remain current. Consumption adds no scheduling edges.
 
 Repository observations cover only inspected paths and commands. `paths` maps files to hashes, or `null` for observed absence; include commands and timezone-aware observation time. Recheck those paths on reuse. Unobserved claims are invalid; unrelated files never justify a whole-repository invalidation.
 
@@ -75,7 +75,7 @@ Follow [candidate requirements](prototype-contract.md) and, for Claude, [handoff
 
 The active candidate index adds `candidate_id`, `version`, source root/tree hash/algorithm, target path/hash, `preview_url`, `route`, input `source_hashes`, and hash-bound `browser_receipt` / `visual_qa_evidence`. Superseded entries stay in history. If multiple sets exist, record `design_execution.active_candidate_set_id` and each entry's `candidate_set_id`.
 
-Normalized browser/visual receipts bind candidate ID/version, target/tree hashes and preview URL, with timezone-aware `observed_at`, actual `result` and findings. Browser evidence needs `browser_kind` matching the selected `design_execution.review_surface` (`external_default` when unset). Headless capture alone is not a visible review. Failed observations or open blocking findings prevent approval readiness. Retain original evidence; normalization never manufactures a run.
+Browser/visual receipts bind candidate ID/version, target/tree hashes and preview URL, timezone-aware `observed_at`, actual `result` and findings. `browser_kind` matches `design_execution.review_surface` (default `external_default`). Headless capture is not visible review. Failed observations/open blockers prevent readiness; normalization retains original evidence, never creates execution.
 
 Codex requires three current candidates. Claude requires three unique tool-native reference strings, `selected_candidate_version` matching one, and one normalized candidate with that exact `origin_reference`. No local hashes/receipts are invented for unexported alternatives.
 
@@ -89,9 +89,9 @@ External payloads use `source_manifest_ref`, `codex_access_receipt_ref` and `cla
 
 ## Verification index
 
-At plan validation and implementation handoff, add the separately versioned [unit execution records](unit-execution-contract.md): `unit_contract_version: 1`, canonical `unit_plan`, QA check `acceptance`, actual `unit_runs` and optional user `unit_sequence_exceptions`. Missing records require owner-reviewed migration, never inferred completion. The checker enforces them after plan authoring, for implementation/release and plan audits; `--start-unit ID` / `--complete-unit ID` additionally validate transitions under current implementation authorization.
+For plan validation/handoff, add [unit records](unit-execution-contract.md): `unit_contract_version: 1`, canonical `unit_plan`, QA `acceptance`, actual `unit_runs`, optional user `unit_sequence_exceptions`. Missing records need owner-reviewed migration, never inferred completion. Validate after plan authoring, during implementation/release and plan audits. `--start-unit ID` / `--complete-unit ID` enforce authorized transitions.
 
-Optional `revalidation_ref` on an original completed unit and all its required passed checks points to one reviewed acceptance-reuse receipt under the unit contract. Preserve original plan/source/time/evidence fields and immutable original context; index current review separately. Changed work needs actual execution. Unchanged records remain valid without this extension. Revalidation grants no implementation authorization.
+Optional `revalidation_ref` on a completed unit and its required passed checks follows the unit contract: retain original plan/source/time/evidence/context, index current review separately. Changed work needs execution. Unchanged records need no extension; review grants no authorization.
 
 The [security traceability contract](security-contract.md) defines `artifacts.prd.security_review`, downstream `security_coverage`, and the required `product_security_requirements` gate/check mappings. Record only actual owner returns bound to current document hashes. Missing records require assessment/reconciliation through those owners, not a fabricated historical review or a new approval step.
 
@@ -107,9 +107,7 @@ The [security traceability contract](security-contract.md) defines `artifacts.pr
 
 References contain the declared IDs. H1–H10 coverage combines applicable checks' `heuristic_ids` and `not_applicable_heuristics: {Hn: reason}`, without overlap. The three UI gate IDs from [verification rules](verification-contract.md) must be present or explicitly inapplicable. Evidence kinds are `visual`, `heuristic` and `representative_user`; none substitutes for another.
 
-Keep full required finding/evidence fields from the verification rules, including severity, release effect and status. New checks are prepared/not-run. Deferred/unrun required checks may remain during planning, not release. Gate/check applicability must agree. Saved release-pass claims are rechecked, including open blocking findings. Advisory failures remain failed, not relabeled passed. Superseded definitions/runs stay in history, not the active index.
-
-Apply the verification contract's membership and applicable-coverage rules.
+Apply verification membership/coverage rules and retain required finding/evidence fields, including severity, release effect and status. New checks are prepared/not-run. Deferred/unrun required checks cannot permit release. Gate/check applicability agrees. Recheck saved release passes and open blockers; advisory failures remain failed. Superseded definitions/runs belong in history.
 
 ## Implementation and promotion
 
@@ -125,12 +123,10 @@ For declared reuse, `prototype_promotions` indexes unit ID, planned `path_mappin
 4. Run `--before NODE`; dispatch only on exit 0. Record owner results, then run `--after NODE`. Exit 1 means blocked/invalid input; exit 2 means otherwise-valid legacy data still needs checker metadata. Inspect all issues when migration and defects coexist.
 5. Use `--before development-plan` after approved architecture/DoD/QA reconciliation; `--before implementation` after the separate prompt; `--before release` only for an actual release evaluation. Candidate evidence is checked after generation and before approval, not required before candidates exist.
 
-The CLI lists nodes on an invalid name. `--audit` checks recorded artifacts without dispatching, writing or approving. `--snapshot NODE` proposes unvalidated metadata; context starts as `{"review_required":true}`, never presumed unused. Repeat `--consume 'PATH#EXACT HEADING'` for each consumed section (including shared definitions), or `--consume PATH` for a full file; `--unused 'PATH=reason'` records a reviewed exclusion. These flags compute the existing hashes/fragments without writing or validating. Resolve pending decisions from actual reading before accepting an owner return. `--hash-render RECORD` hashes declared rendering inputs. Use `--evidence-cache PATH` for prepared bytes outside the project. Preparation is a separate storage command; the checker performs no network/cache writes. Python 3.12+, standard library only; no product-test execution.
+Invalid node names list choices. `--audit` reads artifacts without dispatch/write/approval. `--snapshot NODE` proposes unvalidated metadata with context `{"review_required":true}`. Repeat `--consume 'PATH#EXACT HEADING'` for consumed/shared sections or `--consume PATH` for full files; `--unused 'PATH=reason'` records reviewed exclusions. These compute hashes/fragments only; resolve pending decisions through actual reading before owner acceptance. `--hash-render RECORD` hashes render inputs. `--evidence-cache PATH` reads externally prepared bytes; storage performs preparation. The checker needs Python 3.12+, standard library only, and performs no network/cache writes or product tests.
 
 Validation reports include `toolchain`: checker SHA-256 and `sdd-toolchain-sha256-v1` skillset digest (byte-sorted skill-relative paths plus content hashes, each newline-delimited; excludes Python caches and `.DS_Store`). This identifies actual installed source bytes, including uncommitted edits, without requiring Git. Retain reports with source/plan bindings; rerun after toolchain changes. Hashes establish identity, not semantic correctness or independent review.
 
 ## External runner boundary
 
-External runners must call the installed checker at node/unit boundaries and enforce exits, persisted completion, active-unit continuation and the implementation pause. Report capability/evidence/validation failures without extra approvals.
-
-This collection supplies no production runner. The checker validates records/bindings/integrity, not semantics, inventory completeness, research authenticity or host compliance.
+No production runner is supplied. External runners enforce installed-checker exits at node/unit boundaries, persisted completion, active-unit continuation and the implementation pause. Report capability/evidence/validation failures without extra approvals. Validation covers records/bindings/integrity, not semantics, inventory completeness, research authenticity or host compliance.

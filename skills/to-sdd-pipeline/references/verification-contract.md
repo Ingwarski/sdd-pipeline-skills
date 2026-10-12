@@ -12,20 +12,20 @@
 | Running checks and producing observations/receipts | Authorized reviewer, user-test facilitator, test harness or Phase 3 runner |
 | Hash-bound operational index and scheduling | `to-sdd-pipeline` / `forge/sdd-manifest.json` |
 
-DoD defines gates; QA defines checks/interprets inspected evidence. Executors produce observations; storage persists them; the orchestrator indexes them. Authoring is not execution. Name the actual executor. The checker validates records, never runs tests or substitutes for research.
+QA interprets inspected evidence; executors produce observations; storage persists them; the orchestrator indexes them. Name the actual executor. Authoring/checker validation neither executes tests nor substitutes for research.
 
 ## Two independent statuses
 
-The required `product_security_requirements` gate maps every PRD security obligation to implementation-level QA evidence under the [security traceability contract](security-contract.md). It is distinct from visual, heuristic and representative-user gates. A mockup cannot satisfy it; unrun, failed, deferred or silently excluded applicable checks cannot support a security release claim.
+Required `product_security_requirements` maps every PRD protection to implementation QA under the [security contract](security-contract.md). Visual, heuristic, participant or mockup evidence cannot substitute. Unrun, failed, deferred or silently excluded applicable checks block security release claims.
 
 - `Definition Status: prepared | blocked`: can this check be executed as specified?
 - `Execution Status: not_run | passed | failed | blocked | deferred | not_applicable`: what actually happened?
 
-New checks start `prepared` / `not_run`, with evidence requirements but no invented result, finding, participant, or timestamp. `covered` in a design plan means planned coverage, never a test pass. `deferred` is not a pass. `not_applicable` requires a source-backed rationale. A failed test may be advisory; do not relabel it passed to permit release.
+New checks start `prepared` / `not_run`, with evidence requirements; invent no result, finding, participant or timestamp. `covered` means planned, not passed. Deferred work is nonpassing; `not_applicable` needs source-backed rationale. Advisory failures remain failed.
 
-At planning time report **checks prepared; tests not run**. Keep release readiness `not_evaluated`, not `passed` or a fabricated product failure. When release is explicitly evaluated, readiness is binary: `passed` only when all applicable required gates and blocking findings are closed, otherwise `blocked`. An advisory finding may remain with evidence and a follow-up.
+Report **checks prepared; tests not run** during planning, with release readiness `not_evaluated`. Explicit release evaluation is binary: `passed` only with all applicable required gates and blockers closed; otherwise `blocked`. Advisory findings may remain with evidence/follow-up. Invent no product failure.
 
-Bounded unit acceptance proves only its declared contribution. Full requirement acceptance stays with required integration/release checks and accountable units; mocks or fixtures cannot substitute for required real-consumer evidence. Deferred checks remain required/pending. At unit planning/evaluation use the [unit execution contract](unit-execution-contract.md) for acceptance ownership, combined dependencies, current evidence and start/completion boundaries. DoD defines these rules before QA/plan exist; their later bindings add no artifact dependency cycle.
+Bounded acceptance proves contributions only. Accountable integration/release units retain full requirements and required real-consumer checks; mocks cannot substitute, and deferred checks remain required/pending. Apply the [unit contract](unit-execution-contract.md) for ownership, dependencies, evidence and transitions. DoD defines rules before QA/planning; later bindings create no artifact cycle.
 
 ## Bind only existing references
 
@@ -33,7 +33,7 @@ Gate/check membership is bidirectional: every indexed check belongs to its named
 
 Before approval, visual gates are parameterized definitions: `Binding Status: pending_baseline`; QA check references remain pending until QA creates real IDs. No invented Baseline ID, target hash, check ID, or user-test result.
 
-After approval: `to-design-brief` records the baseline; `to-architecture` rechecks affected technical consequences; `to-dod-evals` revalidates affected gate definitions; `to-qa-checklist` creates/binds concrete checks; the orchestrator records the QA-ID bindings; `to-development-plan` maps them to units. DoD references QA **at evaluation**, not as an authoring prerequisite. Unchanged documents can be revalidated without rewriting their bytes. This order is not a second approval or a dependency loop.
+After approval: `to-design-brief` records the baseline → `to-architecture` reviews affected mechanisms → `to-dod-evals` revalidates gates → `to-qa-checklist` binds checks → orchestrator indexes QA IDs → `to-development-plan` allocates units. DoD consults QA **at evaluation**, never as an authoring prerequisite. Revalidate unchanged documents without rewriting bytes or repeating approval.
 
 ## Three separate UI gates
 
@@ -43,7 +43,7 @@ After approval: `to-design-brief` records the baseline; `to-architecture` rechec
 | `heuristic_usability_review` | Applicable H1-H10, primary journey, JOB/UC, screen/state/route/viewport, desktop/mobile when supported, error/recovery and accessible critical actions, QA IDs, reviewer/evidence/findings. Every applicable heuristic and scope needs review; unexplained omissions or deferred critical review block the gate. |
 | `representative_user_task_validation` | Applicable critical/consequential/new or changed flow, JOB/UC, representative user group, task, success criterion, device/viewport, observed session evidence and findings. Only observed representative-user task completion can pass. |
 
-Visual fidelity, heuristic review, representative-user research, accessibility verification, and functional/runtime checks are separate evidence classes. None proves another. A prototype with simulated interactions does not prove production auth, persistence, integrations, security, or real data/actions. Screenshots alone do not prove WCAG conformance.
+Visual, heuristic, participant, accessibility and runtime evidence remain separate. Simulations prove no production auth, persistence, integration, security or actual data/actions. Screenshots alone cannot establish WCAG conformance.
 
 For high-risk, regulated, safety- or accessibility-critical flows, plan representative-user validation before approval when feasible. If unavailable, record assumption, risk, owner, timing and follow-up; do not claim user validation. A deferred applicable required release check stays blocking. No extra human approval is created.
 
@@ -53,9 +53,9 @@ Every gate definition: ID, purpose, source, applicability, required evidence, pa
 
 Every QA item: stable check ID, source obligation, task, expected behavior, scope, applicability/rationale, gate ID, definition status, execution status, evidence requirements and actual evidence. UI/heuristic items also resolve H1-H10, JOB/UC, user group, route, state, viewport, finding, severity, release effect, and recommendation. Visual items additionally resolve Baseline ID, target hash and variance after approval. User-validation items add task success criterion and timing (`pre-approval | post-implementation | both`). Error items use the shared recovery sequence.
 
-Every executed result retains check/gate ID, evaluated artifact/baseline/revision, executor, original time, environment/fixture, evidence identity/hash, result, findings and rerun rule. QA keeps compact current records; verified references preserve detailed observations and superseded history. Use [storage procedures](evidence-storage-contract.md) when recording/resolving generated payloads. `passed` needs fresh readable evidence for its claim; migration and access never create a new execution.
+Results retain check/gate ID, evaluated artifact/baseline/revision, executor, original time, environment/fixture, evidence identity/hash, outcome, findings and rerun rule. QA keeps compact current records and verified detailed/history references. Apply [storage procedures](evidence-storage-contract.md); passing needs fresh readable evidence. Migration/access never executes checks.
 
-For unchanged completed work, use the unit contract's explicit `revalidation_ref` rather than replacing old hashes/times. A named current review preserves original observation bindings and validates unchanged claims, complete current source inventory and prerequisites. Changed behavior, definition, scope or required new tests need execution. Reviewer/time belong to the review; original executor/time remain with observations. Revalidation never authorizes implementation.
+Reuse unchanged completed work only through the unit contract's `revalidation_ref`: retain original observation bindings/executor/time and record current reviewer/time separately. Review verifies unchanged claims, complete current sources and prerequisites. Changed behavior/definitions/scope or required new tests need execution; review grants no implementation authorization.
 
 ## Severity and release effect
 
