@@ -91,6 +91,8 @@ External payloads use `source_manifest_ref`, `codex_access_receipt_ref` and `cla
 
 At plan validation and implementation handoff, add the separately versioned [unit execution records](unit-execution-contract.md): `unit_contract_version: 1`, canonical `unit_plan`, QA check `acceptance`, actual `unit_runs` and optional user `unit_sequence_exceptions`. Missing records require owner-reviewed migration, never inferred completion. The checker enforces them after plan authoring, for implementation/release and plan audits; `--start-unit ID` / `--complete-unit ID` additionally validate transitions under current implementation authorization.
 
+Optional `revalidation_ref` on an original completed unit and all its required passed checks points to one reviewed acceptance-reuse receipt under the unit contract. Preserve original plan/source/time/evidence fields and immutable original context; index current review separately. Changed work needs actual execution. Unchanged records remain valid without this extension. Revalidation grants no implementation authorization.
+
 The [security traceability contract](security-contract.md) defines `artifacts.prd.security_review`, downstream `security_coverage`, and the required `product_security_requirements` gate/check mappings. Record only actual owner returns bound to current document hashes. Missing records require assessment/reconciliation through those owners, not a fabricated historical review or a new approval step.
 
 `verification` is a compact projection from QA/DoD owner returns, bound by `source_hashes` to both current documents. Definitions and compact current results stay canonical there; verified references preserve detailed payloads and superseded history.

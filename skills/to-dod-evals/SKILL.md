@@ -10,7 +10,7 @@ Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.
 
 Required before authoring: PRD, guardrails, user journey, screen map, wireframes, design brief and architecture under `docs/`; in pipeline mode also the validated context/terms bundle.
 
-Optional grounding: README, authoritative product idea when named by the PRD, explicit decisions and current package/test/CI/build/lint/typecheck/deployment evidence.
+Optional grounding: README, authoritative product idea when named by the PRD, explicit decisions and current engineering or deployment evidence.
 
 Consulted **later at evaluation**, not required for authoring: concrete QA check IDs/evidence and, after implementation begins, development-plan destinations/promotion receipts. Never add QA or the plan as a DoD creation dependency.
 
@@ -18,33 +18,32 @@ For user-visible scope read the [H1-H10 contract](../to-sdd-pipeline/references/
 
 ## Output and ownership
 
-Write only `docs/dod-evals.md`. Own the standing Definition of Done, acceptance-vs-completion distinction, verification profile, reusable gates/eval format, failure classification, evidence needed for completion, rerun/recovery and source-backed PR/merge/release rules.
+Write only `docs/dod-evals.md`. Own the standing Definition of Done, acceptance and completion distinction, verification profile, gates, eval format, failures, evidence, rerun rules and source-backed delivery conditions.
 
-Guardrails owns evidence policy; QA owns concrete checks and per-check results; authorized reviewers/runners execute checks. This skill **defines gates; it does not run them**. Do not create scope, architecture, UX decisions, checklist details, implementation units, issues or automation.
+Guardrails owns evidence policy; QA owns checks/results; authorized executors run checks. This skill **defines gates; it does not run them**. Create no product scope, architecture, checks, units or external effects.
 
 ## Workflow
 
-Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Define the required `product_security_requirements` gate for all PRD security obligations, with implementation evidence, failure and rerun rules. Source-confirmed exceptions must be resolved in the PRD, not silently downgraded by a gate. Reassess affected controls after security-relevant changes; return `security_coverage` and the gate's `security_requirement_ids`.
+Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Define required `product_security_requirements` for every PRD security obligation, with implementation evidence and failure/rerun rules. Exceptions return to the PRD. Reassess affected controls; return `security_coverage` and the gate's `security_requirement_ids`.
 
-1. Extract source acceptance outcomes and architecture-driven verification concerns; inspect existing executable verification surfaces without running gates.
-2. Separate bounded unit acceptance, contributions to requirements, full integration/release acceptance, standing DoD and QA checks. Define fresh evidence and no-open-blocker conditions for unit completion. Component/mocked checks cannot pass real-consumer system obligations; deferred integration remains required/pending with an accountable owner at planning handoff.
-3. Define only source-supported profile tiers: hard gates, unit/system checks, UX/UI, evidence limits and release checks. Do not invent CI, tests, commands, comparison thresholds or merge policies.
+1. Extract source acceptance outcomes and architectural risks; inspect verification surfaces without running gates.
+2. Separate mechanism construction, bounded contributions, device qualification and full integration/release acceptance. Construction needs its own checks; later qualification cannot supply missing construction. Define fresh evidence and no-open-blocker completion conditions. Component or mocked evidence cannot pass required real-consumer obligations; deferred integration retains an accountable owner.
+3. Define source-supported profiles, evidence limits and release conditions. Never invent commands, CI, thresholds or merge policies. Required uncertain capabilities need source-defined feasibility evidence before dependent construction, or an explicit blocker.
 4. For UI scope define separate parameterized gates: `approved_visual_baseline_fidelity`, `heuristic_usability_review`, and applicable `representative_user_task_validation`. Use the shared verification contract; never substitute one evidence class for another.
-5. Before approval, leave baseline parameters pending. Before QA exists, leave concrete check bindings pending. A prepared gate is not executed or passed.
-6. After approval, consume the reconciled architecture and current baseline, revalidate affected gate definitions and bind available baseline parameters. The orchestrator later indexes real QA IDs; this does not require reading QA back into the definition.
+5. Leave baseline parameters pending before approval and check bindings pending before QA exists. Prepared does not mean executed or passed.
+6. After approval, consume reconciled architecture and current baseline; revalidate affected definitions. The orchestrator indexes available parameters/QA IDs without making QA an authoring dependency.
 7. Define engineering lane/state promotion gates only when sources establish such a workflow. Ordinary UI states do not create delivery gates.
-8. Specify result/evidence/executor/timestamp/revision, failure classification and rerun rules. An inactive gate cannot remain load-bearing in requirement mappings.
-9. Map every distinct FR/NFR obligation to an active gate or explicit blocker. Parent-ID coverage is insufficient; unavailable comparison values remain named blockers.
-   Apply the [lifecycle checklist](../to-sdd-pipeline/references/lifecycle-contract.md) to relevant operational readiness conditions. An applicable gate needs applicable checks; bind every check back to its gate. Excluded-only checks cannot satisfy an active applicable gate.
-10. Validate source grounding, ownership and evidence limits; write only the DoD artifact. Keep `Definition Status: prepared` separate from any execution result.
+8. Define provenance, failure and rerun rules through the [unit contract](../to-sdd-pipeline/references/unit-execution-contract.md). Changed-source or changed-plan reuse needs explicit reviewed revalidation of unchanged claims, unit records, and necessary owner/prerequisite sources. Preserve original observations/times; unresolved impact or affected claims need new evidence. Revalidation never renews authority.
+9. Map each FR/NFR clause to an active applicable gate or blocker; inactive/excluded checks and parent IDs cannot supply coverage. Use the [lifecycle checklist](../to-sdd-pipeline/references/lifecycle-contract.md) for supported environments, retention, recovery, migration and feasibility. Define actual platform-policy qualification separately from simulated deletion recovery; unreproduced required conditions remain pending. Each check must bind back to its applicable gate.
+10. Validate sources, ownership and evidence limits. Keep definitions `prepared`, execution separate, and unexecuted release readiness `not_evaluated`.
 
-Completion claims require fresh executed evidence. A mockup, static surface, plan or screenshot is not proof of real functionality, WCAG/security/compliance, heuristic coverage or user validation.
+Define action-sequence evidence for consequential decisions, retained recovery data, reachable controls, focus and long-content variants. Follow the shared evidence classes; a final screenshot cannot establish these outcomes.
 
 ## Artifact coverage
 
 Required semantic sections: Source References; Definition Of Done Model; Verification Profile; Gate Matrix; Eval Result Format; Evidence Requirements; Failure And Blocker Classification; PR Merge And Completion Rules; Out Of Scope; Open Questions.
 
-Add feature/unit levels, lane promotions, evidence limits and rerun/recovery sections only where useful. Every gate includes ID/purpose/source/applicability, evidence, pass/block condition, rerun rule and automation status. Shared gate-specific parameter fields are defined once in the verification reference; resolve them without duplicating full criteria.
+Add feature/unit levels, promotions and recovery sections only where useful. Each gate resolves the shared verification fields and parameters; do not duplicate full criteria.
 
 ## Return
 

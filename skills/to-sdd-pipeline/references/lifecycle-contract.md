@@ -4,15 +4,16 @@ Use this checklist within existing documents, only for applicable product risks.
 
 | Concern | Resolve where applicable |
 |---|---|
-| Delivery | Target environment, deployment verification, rollout/rollback criteria, compatible data migrations and irreversible-step authority. |
-| Continuity | Availability/recovery objectives, backups, a restore test, degraded operation and data-integrity checks. |
+| Delivery | Exact supported environment/version/use mode and required test combinations, deployment verification, rollout/rollback, compatible migrations and irreversible-step authority. |
+| Continuity | Recovery, backup/restore, degraded operation and integrity. For local persistent data, distinguish application guarantees from platform inactivity/quota/eviction rules; use dated primary sources, actual environment and retention-mode outcomes. Qualify material limits and retained-backup recovery; simulated deletion proves recovery, not real platform retention. |
 | Operations | Useful telemetry without secrets, alert/incident owner, escalation, runbook and verification after recovery. |
 | Maintenance | Supported runtime/dependency policy, vulnerability response, updates and end-of-life/data export/deletion. |
 | Performance and cost | Source-backed latency/load/resource budgets, external-service limits and cost owner. Do not invent thresholds. |
 | Product outcomes | Observable success signals, privacy-aware measurement, user-feedback/incident routing into changed requirements. |
 | Content and reach | Content owner, localization, discoverability/SEO for public searchable surfaces, accessibility and retention obligations. |
+| Feasibility | Investigate uncertain required native/provider capabilities with a disposable non-production experiment before dependent construction. Record scope/authority, owner, exact environment, required outcome and evidence; selection/download-start is not retained-file proof. Unavailable evidence remains an explicit prerequisite, not a presumed pass. |
 
-Product idea establishes material goals/constraints; PRD owns required observable outcomes and FR/NFR clause IDs. Architecture resolves mechanisms, tradeoffs and operational owners. DoD defines readiness conditions; QA defines executable or named manual checks; the development plan allocates work, owners and those check IDs. Each owner references existing decisions rather than copying this table.
+Product idea/PRD own goals and clauses; architecture owns mechanisms, tradeoffs and operational roles. DoD defines readiness; QA owns checks. Planning gives each tested mechanism a construction owner, production paths, prerequisites, interface and construction checks, distinct from later qualification. Reference owned decisions rather than copying this table.
 
 Record source-backed non-applicability or unresolved material targets at the appropriate owner. A local disposable tool does not need a production incident organization; a sensitive persistent service cannot silently omit restore or deletion planning. No extra approval gate or product document is added.
 

@@ -1,5 +1,11 @@
 # Reliability, Audit Remediation and Maintenance
 
+The [QuietQueue review corrections](review-corrections.md) add construction
+allocation checks, reviewed acceptance reuse, recovery observations and metadata
+corrections. They preserve the existing owners and implementation gate. The
+dated results below describe earlier revisions; rerun the verification commands
+for the current checkout.
+
 The September 2026 audit remediation builds on the earlier seven-point update. The 13 names, document owners, Jobs To Be Done, use cases, H1–H10, error recovery and approved-design model remain intact. Private next-version planning is not part of this release.
 
 ## What changed

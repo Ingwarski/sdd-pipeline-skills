@@ -55,6 +55,8 @@ Every QA item: stable check ID, source obligation, task, expected behavior, scop
 
 Every executed result retains check/gate ID, evaluated artifact/baseline/revision, executor, original time, environment/fixture, evidence identity/hash, result, findings and rerun rule. QA keeps compact current records; verified references preserve detailed observations and superseded history. Use [storage procedures](evidence-storage-contract.md) when recording/resolving generated payloads. `passed` needs fresh readable evidence for its claim; migration and access never create a new execution.
 
+For unchanged completed work, use the unit contract's explicit `revalidation_ref` rather than replacing old hashes/times. A named current review preserves original observation bindings and validates unchanged claims, complete current source inventory and prerequisites. Changed behavior, definition, scope or required new tests need execution. Reviewer/time belong to the review; original executor/time remain with observations. Revalidation never authorizes implementation.
+
 ## Severity and release effect
 
 Use the PRD's canonical glossary; do not create a competing scale:

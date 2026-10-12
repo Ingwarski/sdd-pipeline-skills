@@ -29,4 +29,12 @@ The checker validates owner/type, canonical ID existence, resolvable relationshi
 
 Missing legacy indexes require owner-reviewed migration. Keep document bytes, IDs, valid approvals and history; never invent old coverage. Mechanical checks cannot establish that an ID's description is adequate, all needed requirements were discovered, or a human observation is authentic. Review those separately.
 
-An `implements` link records contribution, not requirement completion. At plan validation the [unit execution contract](unit-execution-contract.md) also requires accountable integration/release acceptance for each required clause/state, linked through actual QA IDs. Every implementation check has one owner; prerequisite-check owners join the construction/acceptance graph. Existing artifact edges remain unchanged.
+An `implements` link records contribution, not completion. The [unit contract](unit-execution-contract.md) also requires full integration/release acceptance for each required clause/state through actual QA IDs. Check owners and prerequisites join the existing construction/acceptance graph.
+
+## Construction mechanisms
+
+Architecture owns a canonical mechanism section, for example `## Construction Mechanisms`, with JSON `{"version":1,"mechanisms":{"MECH-ID":{"required":true,"obligation_ids":["NFR-01.a"],"source_paths":["src/store.py"]}}}`. Use required clause/state IDs and unique canonical project-relative POSIX production paths; files may be planned. Describe duties, owned interfaces and bounded verification seams without inventing future units/QA IDs. Split mechanisms when construction owners differ.
+
+Planning references that exact owner section with `unit_plan.construction_ref: {path, heading}` and maps each required mechanism in `unit_plan.construction` to `{owner_unit, check_ids}`. Its owner must include the paths in `implementation_paths` and have `implements` links for its duties; required same-unit construction checks collectively cover those paths/obligations. Keep prerequisite authority in the existing unit/check dependency graph, not inferred from this mapping. Component checks prove bounded construction only; final real-consumer acceptance remains required.
+
+Reconcile mechanism prose, unit scope, file ownership, clause contributions, typed links and QA ownership. The checker checks declared agreement; owner review must discover duties omitted from every projection. Existing full acceptance coverage does not establish complete construction allocation. Missing legacy records require current owner review, not fabricated history or weakened acceptance. Localized headings remain valid when the exact reference resolves.

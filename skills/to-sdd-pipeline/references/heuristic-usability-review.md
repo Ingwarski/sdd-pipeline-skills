@@ -51,3 +51,5 @@ For every applicable error/recovery state:
 > cause → what was preserved → next action → retry/undo option → condition for successful completion
 
 Make the cause understandable, preservation explicit where relevant, the next action actionable, retry/undo safe and meaningful, and success observable. Record a source-backed reason for any inapplicable element; do not omit it silently.
+
+For each reviewed failure path, activate the named recovery control and observe its result; text promising retry is insufficient. Preserve valid unchanged decisions, and renew review when their bound work or state changes. Keep recovery reachable near its result/context in long or maximum-content layouts. Record actual scope and remaining limits; a fixture walkthrough is not a product or participant test.

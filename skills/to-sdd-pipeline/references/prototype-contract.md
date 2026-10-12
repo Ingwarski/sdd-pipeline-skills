@@ -21,6 +21,8 @@ For every Codex candidate and the selected normalized Claude Design import requi
 
 Candidate comparison must preserve the applicable H1-H10 heuristic coverage and the representative-user validation plan. Internal visual-QA evidence and browser receipts may prove visual or runtime observations within their scope, but they do not replace `heuristic_usability_review` evidence or representative-user task validation.
 
+Review critical action sequences and recovery through their controls, not only selected state fixtures. Apply the [recovery walkthrough](heuristic-usability-review.md#error-and-recovery-contract) and [focus checks](accessibility-policy.md). Record the observed state/transition accurately; a pending or completed filename alone does not establish that outcome.
+
 For regulated, accessibility-critical, safety-sensitive, or otherwise high-risk flows, the candidate review must surface whether representative-user task validation was run before whole-design approval. If it was not feasible, preserve the explicit assumption/open risk and validation timing in the design brief; this does not create a second approval gate, but it prevents the pipeline from claiming that the design is user-validated.
 
 Apply the [freeze contract](freeze-contract.md) to all candidate inputs, including shared rendering assets. Recompute its hashes on reuse.

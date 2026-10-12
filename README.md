@@ -40,7 +40,7 @@ The updater defaults to `main` for compatibility; explicitly choose `stable` for
 
 Retirement permanently removes exactly the two names in [retired-skills.txt](retired-skills.txt), including edited copies/links and matching old backups in selected roots. Additional roots require explicit `--cleanup-dir`/`-CleanupDir`. There is no disk-wide scan, backup, Trash move or link-target traversal. Retirement may finish before a separate Git/link conflict blocks update; failures and remaining paths must be reported.
 
-Former repository: `Ingwarski/codex-skills`. The manifest maps old SDD `to-prd` to `to-sdd-prd` without another confirmation; preserve unrelated third-party `to-prd`. The 13 names, outputs, collection identity and source receipt remain stable. Private business skills are separate and are not installed.
+Legacy names and old-clone migration are documented in [installation](docs/installation.md). The manifest resolves SDD `to-prd` to `to-sdd-prd`; unrelated third-party skills remain unchanged.
 
 ## Workflow and ownership
 
@@ -75,22 +75,17 @@ Each artifact has one owner. Context outputs share an invocation, with independe
 
 Codex shows three separate live pages on the selected visible review surface, defaulting to the external browser. Claude Design compares three tool-native candidates after source-access checks; only the selected export is imported and reviewed. Selection/export is not approval. [Claude handoff](skills/to-sdd-pipeline/references/claude-design-handoff.md).
 
-Frozen rendering inputs include shared fonts, images, CSS and scripts; mutable remote assets must be packaged. Browser inspection still verifies dynamic dependencies. Revisions preserve original approved files/receipts and revalidate affected owners. [Freeze contract](skills/to-sdd-pipeline/references/freeze-contract.md). [Accessibility policy](skills/to-sdd-pipeline/references/accessibility-policy.md) separates WCAG criteria from source-overridable house style. High-risk user-validation deferrals remain named risks, never invented research.
+Frozen rendering inputs include shared fonts, images, CSS and scripts; mutable remote assets must be packaged. Browser inspection still verifies dynamic dependencies. Revisions preserve original approved files/receipts and revalidate affected owners. Scoped repairs use a new immutable candidate version and the existing accepted-override process. [Freeze contract](skills/to-sdd-pipeline/references/freeze-contract.md). [Accessibility policy](skills/to-sdd-pipeline/references/accessibility-policy.md) separates WCAG criteria from source-overridable house style. High-risk user-validation deferrals remain named risks, never invented research. Review recovery through visible actions, including retained work, Retry/Undo, final focus and the next Tab destination. Use realistic long lists where size affects recovery; a displayed failure fixture alone is insufficient.
 
 ## Evidence storage
 
 Select managed local storage outside Git, a chosen folder/disk/mount, or **Google Drive**. Setup records destination, aggregate/local limits, retention and adoption choice. Machine paths/credentials stay outside Git; `forge/evidence-policy.json` holds portable IDs and policy. Moving to another folder on the same disk reduces Git clutter without freeing disk space.
 
-**Google Drive prerequisites:** install and connect your agent's Google Drive integration before selecting connected Drive storage. These integrations are separate from the 13 SDD skills:
-
-- **Codex:** open **Plugins**, find **Google Drive**, install it with the plus button and connect your Google account. Start a new chat and ask Codex to use Google Drive. In Codex CLI, use `/plugins`, then start a new session. [Official plugin instructions](https://learn.chatgpt.com/docs/plugins).
-- **Claude Code:** connect **Google Drive** in Claude's **Customize → Connectors** and authorize your Google account. Sign into Claude Code with the same Claude subscription account, then run `/mcp` to verify the connector is available. API-key/provider login does not inherit Claude.ai connectors; use a supported Google Drive MCP integration for that setup. [Connector setup](https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities) · [Claude Code MCP instructions](https://code.claude.com/docs/en/mcp#use-mcp-servers-from-claudeai).
-
-With the plugin/connector connected, choose the Drive folder and retention policy. The agent checks the exposed tool interface and uses the [bundled connected-tool adapter](docs/drive-transport.md#connected-host-bridge); compatible tools need no custom bridge program. Claude Code's `/mcp` confirms availability; actual tool compatibility and original-byte verification are checked during setup. The agent must remain active for Drive operations. The bundled adapter supports at most 999 direct folder items and refuses incomplete listings; larger folders need a compatible paginated adapter or **optional standalone rclone**. Setup verifies synthetic bytes before succeeding and reports missing capabilities precisely. Managed local and selected-folder storage require neither integration. [Complete storage setup and commands](docs/evidence-storage.md).
+**Google Drive prerequisites:** connect the agent's Google Drive integration before choosing connected storage. Codex uses the Google Drive plugin; Claude Code needs an available compatible Drive connector or MCP integration. These integrations are separate from the 13 skills. A connected account alone does not prove byte-transfer compatibility. Setup verifies original synthetic bytes and reports missing capabilities. [Connection and transport setup](docs/drive-transport.md) covers host availability, connector limits, and optional standalone rclone. Local and selected-folder storage need no Drive connection.
 
 Keep authored sources/fixtures, canonical SDD, necessary approved design inputs, compact current results/receipts and evidence references in Git. Generated captures, recordings, large logs, detailed observations and superseded history use immutable verified archive packs. Adoption registers existing objects without payload reupload and preserves original catalogs, times and protections. Never blanket-ignore `forge/` or `output/`; classify actual contents. Ignoring files does not remove their committed history.
 
-Storage prepares active bytes outside the checkout. The read-only checker verifies actual bytes, reference closure, source/plan/baseline/toolchain/execution bindings and original receipt semantics; it performs no network/cache writes. Missing/corrupt evidence blocks its claim. Storage never reruns checks or makes stale observations current. [Storage contract](skills/to-sdd-pipeline/references/evidence-storage-contract.md).
+Storage prepares active bytes outside the checkout. The read-only checker verifies actual bytes, reference closure, source/plan/baseline/toolchain/execution bindings and original receipt semantics; it performs no network/cache writes. Missing/corrupt evidence blocks its claim. Storage never reruns checks or makes stale observations current. Preservation copies retain original bytes and observation times; corrected labels create a traceable metadata revision. [Storage contract](skills/to-sdd-pipeline/references/evidence-storage-contract.md).
 
 Versioned defaults cover cumulative run/unit/project generation and file counts, retained unique content/objects, combined metadata/index size, local capture/cache/staging/restoration reservations, retries and free-space reserve. Workers/resumes/worktrees share stable IDs and charges; deduplication/cleanup do not refund generation. Managed producers stop truthfully on exhaustion. External writers can bypass physical enforcement, so registered outputs must reconcile before completion. [Numeric policy and sizing rationale](docs/evidence-storage.md#defaults-and-sizing).
 
@@ -104,15 +99,29 @@ A prepared checklist means **checks prepared; tests not run**. QA interprets ins
 
 PRD applies the [OWASP procedure](skills/to-sdd-prd/references/security-authoring.md) using pinned offline ASVS 5.0.0; architecture/DoD/QA/plan retain those requirement IDs and required security acceptance. This adds no skill, approval, scanner, paid service or certification claim. Security-impacting changes return upstream; styling alone preserves unaffected requirements.
 
+The architecture declares required construction mechanisms. The plan assigns each mechanism to a unit that owns its production files and construction checks. Clause links, security duties and QA allocations must agree. Qualification units must receive implemented mechanisms; a planned future test is not a construction owner.
+
 The checker validates owner/dependency integrity, typed traceability, contained sources, frozen design, current evidence, promotions and authorization. Consulted-later information creates no false prerequisite loop. Older projects preserve valid documents, IDs, receipts and history; owners review missing metadata without inventing observations. [Manifest and migration](skills/to-sdd-pipeline/references/manifest-contract.md).
 
 ```bash
 python3 skills/to-sdd-pipeline/scripts/sdd_check.py --project /path/to/product --before development-plan
 ```
 
+A source or plan change makes affected acceptance stale. Reuse of unchanged completed work requires an explicit reviewed revalidation record: old/current identities, unchanged claims, complete source inventories and original evidence. Version 1 requires the same unit contract, non-plan specifications and baseline. Changed behavior requires new tests. Revalidation preserves original execution times and never supplies implementation permission. A changed plan still needs a fresh explicit implementation prompt. [Revalidation contract](skills/to-sdd-pipeline/references/unit-execution-contract.md).
+
 Resolve scripts from the installed skill directory. Direct hosts can execute owner roles inline. External production runners must enforce checker results; this repository contains no production runner and cannot authenticate research or guarantee undeclared source completeness.
 
 After authorization, **finish the full active unit** including integration, tests, fixes and evidence. Pause only for a genuine blocker, required input/permission or explicit stop/change. Parallel tasks stay within the active unit, with exclusive writes and shared reservations. Unit numbers follow dependency order; Unit 8 cannot require Unit 9. Plans embed the continuation rule and retain required real-consumer acceptance. [Unit contract](skills/to-sdd-pipeline/references/unit-execution-contract.md).
+
+## Specification quality and platform limits
+
+The [review corrections](docs/review-corrections.md) describe the construction, evidence and recovery rules, their compatibility limits, and required verification.
+
+Consequential actions must account for recoverable data outside the visible screen, including pending Undo records and other live sessions where applicable. Cancellation and confirmed replacement need explicit outcomes.
+
+Architecture states exact interface inputs/results/errors, supported browser/OS/use-mode combinations, and platform storage-retention limits. Persistence requests do not replace a retention policy or backup guidance. Test uncertain required native capabilities with a bounded non-production experiment before dependent construction. Record the exact environment and untested limits; keep prototype simulations separate from actual device qualification.
+
+A successful pipeline run proves its recorded planning contract. It does not establish error-free specifications, actual reader needs, product operation or general pipeline reliability. Keep product checks `prepared` / `not_run` and readiness `not_evaluated` until actual execution. Review mechanisms and action sequences as well as IDs and hashes.
 
 ## Maintenance
 

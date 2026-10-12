@@ -10,7 +10,7 @@ Return reviewed `source_usage`: path → `"full"`, exact consumed headings, or `
 
 `working_language`: explicit instruction > saved preference > latest substantive message. Localize prose/questions/adapters/labels; product locales stay separate. Ukrainian is idiomatic; retain paths/code/commands/identifiers/names/quotes and approved English IT terms with meanings in `canonical-terms.md`.
 
-State decisions once, cite IDs/sections with local consequences. Use compact shared records/equivalent localized headings; retain obligations/assumptions/sources/evidence/risks/authority, justify exclusions. No filler/empty sections. Report changes/evidence/risks/next action.
+State decisions once; cite IDs/sections with local consequences. Lead substantial artifacts with a short decision/risk summary. Use plain prose, not slash compounds outside literal identifiers, paths or code. Keep compact shared records/localized headings, obligations, assumptions, sources, evidence, risks, authority and justified exclusions. No filler/empty sections. Report changes, evidence, risks and next action.
 
 ## Security and authority
 
