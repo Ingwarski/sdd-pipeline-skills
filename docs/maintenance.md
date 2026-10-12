@@ -6,6 +6,32 @@ corrections. They preserve the existing owners and implementation gate. The
 dated results below describe earlier revisions; rerun the verification commands
 for the current checkout.
 
+## Review correction verification — 2026-10-12
+
+The local Python 3.12 run completed 649 tests with six skips: five need native
+Windows APIs, and one needs the optional CI YAML parser. All applicable tests
+passed. Unix installer, retirement and updater suites also passed. Independent
+review found and verified repairs for historical-plan parsing, prerequisite
+review order and malformed revalidation containers. See [PR #7 checks](https://github.com/Ingwarski/sdd-pipeline-skills/pull/7/checks)
+for the exact Linux/macOS/Windows and Python 3.12/3.14 results.
+
+The first instruction measurement exceeded all three scenario ceilings. Removing
+537 whitespace words of repeated contract prose reduced the loads below. The
+new record contracts still require a measured budget increase. The reviewed
+policy keeps baseline `8bad1f6`, identical scenarios, complete resource loading
+and the entrypoint/README limits. No input or retry was removed to obtain a pass.
+
+| Scope | Initial correction | After condensation | Reviewed ceiling |
+|---|---:|---:|---:|
+| Skill entrypoints | 15,837 | 15,837 | 16,000 |
+| README | 3,075 | 3,075 | 3,950 |
+| First setup with retry | 117,534 | 114,625 | 115,000 |
+| Approved-design revision | 69,143 | 67,114 | 67,500 |
+| Interrupted Claude resume | 80,296 | 77,950 | 78,250 |
+
+These are `tiktoken 0.14.0` / `o200k_base` static instruction counts. They do not
+measure generated documents, model billing, cache savings or user outcomes.
+
 The September 2026 audit remediation builds on the earlier seven-point update. The 13 names, document owners, Jobs To Be Done, use cases, H1–H10, error recovery and approved-design model remain intact. Private next-version planning is not part of this release.
 
 ## What changed
