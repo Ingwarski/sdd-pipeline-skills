@@ -26,20 +26,53 @@ def _unique_object(pairs):
     return result
 
 
+def _has_structured_declaration(checker):
+    """Recognize reserved JSON declarations, not prose or localized headings."""
+    path = checker.path("docs/architecture.md", no_links=True)
+    before = checker.file_hash(path)
+    text = path.read_text(encoding="utf-8")
+    _require(checker.file_hash(path) == before, "architecture changed during validation")
+    fence, language, contents = None, None, []
+    for line in text.splitlines():
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence is None:
+            if marker:
+                fence, language, contents = marker[1], marker[2].strip(), []
+        elif marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+            if language == "json":
+                try:
+                    value = json.loads("\n".join(contents))
+                except ValueError:
+                    value = None
+                if isinstance(value, dict) and {"version", "mechanisms"} <= set(value):
+                    return True
+            fence, language, contents = None, None, []
+        else:
+            contents.append(line)
+    return False
+
+
 def validate_construction(checker, plan, obligations, contributions, checks):
     """Check optional v1 declarations after the existing unit/QA contract checks.
 
     Architecture owns canonical mechanism definitions. The plan owns allocations.
-    Missing declarations remain compatible with legacy plans. No production files
-    must exist during planning, and this validator does not add dependency edges.
+    Only legacy sources without a declaration can omit the plan allocation. No
+    production files must exist during planning; no dependency edges are added.
     """
     present = {key for key in ("construction_ref", "construction") if key in plan}
-    if not present:
+    architecture = checker.artifacts.get("architecture", {})
+    declared = "construction_ref" in architecture
+    if not declared:
+        _require(not _has_structured_declaration(checker),
+                 "declared architecture mechanisms require the owner's construction_ref")
+        _require(not present, "plan construction requires the architecture owner's construction_ref")
         return
-    _require(len(present) == 2, "construction_ref and construction must occur together")
-    reference = plan["construction_ref"]
+    reference = architecture["construction_ref"]
     _require(isinstance(reference, dict) and reference.get("path") == "docs/architecture.md",
              "mechanism definitions belong to docs/architecture.md")
+    _require(len(present) == 2, "declared architecture requires construction_ref and construction together")
+    _require(plan["construction_ref"] == reference,
+             "plan construction_ref differs from the architecture owner's reference")
     text = checker.section(reference["path"], reference.get("heading")).decode("utf-8")
     blocks = re.findall(r"```json\s*\n(.*?)\n```", text, re.S)
     _require(len(blocks) == 1, "architecture section needs one canonical JSON block")

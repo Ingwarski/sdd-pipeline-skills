@@ -159,7 +159,7 @@ The 2026-09-15 unit-contract review advances the recent comparison to pre-change
 | Approved-design revision, including one retry | 54,855 | 62,993 | 63,309 | 63,500 | 8,500 |
 | Interrupted Claude resume, including one retry | 64,522 | 72,894 | 73,210 | 73,500 | 8,800 |
 
-Those historical ceilings accepted the measured correctness cost for dependency/ownership validation, evidence-backed completion, migration and host boundaries. The [current reviewed policy](../tests/fixtures/instruction-budget.json) compares the numeric-order correction against `8bad1f6`:
+Those historical ceilings accepted the measured correctness cost for dependency/ownership validation, evidence-backed completion, migration and host boundaries. The following historical numeric-order policy compared against `8bad1f6`; the October review table above and [budget fixture](../tests/fixtures/instruction-budget.json) give the current limits:
 
 | Scope | Before numeric-order correction | After | Absolute ceiling | Allowed growth |
 |---|---:|---:|---:|---:|

@@ -44,6 +44,7 @@ class ConstructionAllocationTests(unittest.TestCase):
         self.definition = {"version": 1, "mechanisms": {"M-STORE": {
             "required": True, "obligation_ids": ["FR-01"], "source_paths": ["src/model.txt"]}}}
         self.plan["construction_ref"] = {"path": "docs/architecture.md", "heading": self.heading}
+        self.m["artifacts"]["architecture"]["construction_ref"] = copy.deepcopy(self.plan["construction_ref"])
         self.plan["construction"] = {"M-STORE": {"owner_unit": "U-1", "check_ids": ["QA-02"]}}
         self.architecture = (self.p.root / "docs/architecture.md").read_text()
 
@@ -51,8 +52,8 @@ class ConstructionAllocationTests(unittest.TestCase):
         return next(item for item in self.m["verification"]["checks"] if item["check_id"] == key)
 
     def sync(self):
-        self.p.write("docs/architecture.md", self.architecture + "\n" + self.heading +
-                     "\n\n```json\n" + json.dumps(self.definition, ensure_ascii=False, indent=2) + "\n```\n")
+        definition = "" if self.definition is None else "\n" + self.heading + "\n\n```json\n" + json.dumps(self.definition, ensure_ascii=False, indent=2) + "\n```\n"
+        self.p.write("docs/architecture.md", self.architecture + definition)
         self.p.sync_unit_contract()
 
     def report(self):
@@ -112,15 +113,46 @@ class ConstructionAllocationTests(unittest.TestCase):
 
     def test_legacy_plan_without_new_fields_remains_compatible(self):
         del self.plan["construction_ref"], self.plan["construction"]
+        del self.m["artifacts"]["architecture"]["construction_ref"]
+        self.definition = None
+        self.assertEqual("passed", self.report()["result"])
+
+    def test_dropping_plan_fields_cannot_hide_declared_architecture_mechanisms(self):
+        del self.plan["construction_ref"], self.plan["construction"]
+        self.blocked("declared architecture requires")
+
+    def test_dropping_all_metadata_cannot_hide_structured_architecture_declaration(self):
+        del self.plan["construction_ref"], self.plan["construction"]
+        del self.m["artifacts"]["architecture"]["construction_ref"]
+        self.blocked("declared architecture mechanisms require")
+
+    def test_plan_cannot_replace_the_architecture_owner_pointer(self):
+        self.plan["construction_ref"]["heading"] = "## Other mechanisms"
+        self.blocked("differs from the architecture owner's reference")
+
+    def test_unrelated_legacy_json_and_prose_are_not_mechanism_declarations(self):
+        del self.plan["construction_ref"], self.plan["construction"]
+        del self.m["artifacts"]["architecture"]["construction_ref"]
+        self.definition = None
+        self.architecture += '\n## Design prose\nConstruction mechanisms remain prose.\n```json\n{"version": 1, "examples": []}\n```\n'
+        self.assertEqual("passed", self.report()["result"])
+
+    def test_quoted_nested_json_is_not_a_top_level_declaration(self):
+        del self.plan["construction_ref"], self.plan["construction"]
+        del self.m["artifacts"]["architecture"]["construction_ref"]
+        quoted = json.dumps(self.definition)
+        self.definition = None
+        self.architecture += '\n````markdown\n```json\n' + quoted + '\n```\n````\n'
         self.assertEqual("passed", self.report()["result"])
 
     def test_partial_declaration_is_rejected(self):
         del self.plan["construction_ref"]
-        self.blocked("must occur together")
+        self.blocked("requires construction_ref and construction together")
 
     def test_localized_owner_heading_is_resolved(self):
         self.heading = "## Механізми побудови"
         self.plan["construction_ref"]["heading"] = self.heading
+        self.m["artifacts"]["architecture"]["construction_ref"]["heading"] = self.heading
         self.assertEqual("passed", self.report()["result"])
 
     def test_unknown_or_duplicate_mechanism_inventory_is_rejected(self):
@@ -138,6 +170,7 @@ class ConstructionAllocationTests(unittest.TestCase):
 
     def test_architecture_must_be_canonical_owner(self):
         self.plan["construction_ref"]["path"] = "docs/prd.md"
+        self.m["artifacts"]["architecture"]["construction_ref"]["path"] = "docs/prd.md"
         self.blocked("definitions belong to docs/architecture.md")
 
     def test_source_paths_cannot_escape_project_or_use_noncanonical_aliases(self):

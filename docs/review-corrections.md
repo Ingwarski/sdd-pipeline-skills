@@ -17,12 +17,13 @@ These changes preserve the 13 skills, document owners and implementation boundar
 
 ## Construction records
 
-Architecture owns the canonical mechanism section. The plan owns
-`construction_ref` and `construction`. The checker compares required mechanisms,
+Architecture owns the canonical mechanism section and its `construction_ref`.
+The plan copies that pointer and owns `construction`. The checker compares required mechanisms,
 production-path ownership, clause contributions and construction-check coverage.
 Files may be planned before implementation; they need not exist during planning.
 
-The extension is compatible with older records that lack both fields. Reconcile
+Only older sources without a mechanism declaration can omit these records.
+A structured declaration requires owner metadata and complete plan allocation. Reconcile
 an affected older plan through its owners. Do not add guessed allocations or
 treat legacy structural compatibility as a completed semantic review.
 
