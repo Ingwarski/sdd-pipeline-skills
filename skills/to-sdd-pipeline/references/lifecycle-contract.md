@@ -11,7 +11,7 @@ Use this checklist within existing documents, only for applicable product risks.
 | Performance and cost | Source-backed latency/load/resource budgets, external-service limits and cost owner. Do not invent thresholds. |
 | Product outcomes | Observable success signals, privacy-aware measurement, user-feedback/incident routing into changed requirements. |
 | Content and reach | Content owner, localization, discoverability/SEO for public searchable surfaces, accessibility and retention obligations. |
-| Feasibility | Investigate uncertain required native/provider capabilities with a disposable non-production experiment before dependent construction. Record scope/authority, owner, exact environment, required outcome and evidence; selection/download-start is not retained-file proof. Unavailable evidence remains an explicit prerequisite, not a presumed pass. |
+| Feasibility | Investigate uncertain required native/provider capabilities with a disposable non-production experiment before dependent construction. Record scope/authority, owner, exact environment, required outcome and evidence; starting an operation does not prove its outcome. Unavailable evidence remains an explicit prerequisite, not a presumed pass. |
 
 Product idea/PRD own goals and clauses; architecture owns mechanisms, tradeoffs and operational roles. DoD defines readiness; QA owns checks. Planning gives each tested mechanism a construction owner, production paths, prerequisites, interface and construction checks, distinct from later qualification. Reference owned decisions rather than copying this table.
 

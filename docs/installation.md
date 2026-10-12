@@ -1,8 +1,8 @@
 # Installation, Updating and Cleanup
 
-Run commands from the durable SDD clone. Mutating installer/update work requires Python 3.12+; Python 3.14 is the recommended stable series under [runtime policy](../runtime-policy.json). Both installers and the checker use the standard library, with no student packages or Node dependency. Missing Python or invalid sources/references stop before cleanup or link changes.
+Run commands from the durable SDD clone. Mutating installer/update work requires Python 3.12+; Python 3.14 is the recommended stable series under [runtime policy](../runtime-policy.json). Both installers and the checker use the standard library, with no additional Python packages or Node dependency. Missing Python or invalid sources/references stop before cleanup or link changes.
 
-For new student clones, use `git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git`, then inside the clone `git switch -c main`. The local branch remains `main`; its selected remote channel is `stable`. Run the installer below. It creates links, never skill copies. Later use the updater: plain `git pull` does not perform retirement cleanup.
+For new clones, use `git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git`, then inside the clone `git switch -c main`. The local branch remains `main`; its selected remote channel is `stable`. Run the installer below. It creates links, never skill copies. Later use the updater: plain `git pull` does not perform retirement cleanup.
 
 ### Agent-assisted installation or update
 
@@ -48,7 +48,7 @@ Moving or deleting the clone breaks its links. Re-run the installer from the new
 
 ## Updating and cleanup
 
-From local `main`, select the tested student channel:
+From local `main`, select the tested channel:
 
 ```bash
 ./update.sh --channel stable --all
@@ -121,7 +121,7 @@ network check. Pushing to GitHub does not update other machines by itself.
 
 Automatic updates are possible after each user opts in once to a local scheduled
 task that runs the updater. A daily or between-session check is preferable to
-changing skills during a running task. Use the tested `stable` channel and preserve an opt-out. Repository CI publication is not an automatic download or a scheduler on student machines.
+changing skills during a running task. Use the tested `stable` channel and preserve an opt-out. Repository CI publication is not an automatic download or a scheduler on user machines.
 
 After files arrive locally, Codex detects local skill changes and follows skill
 links; restart it if the update is not visible. That local reloading is different

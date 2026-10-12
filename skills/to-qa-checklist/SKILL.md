@@ -8,7 +8,7 @@ Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.
 
 ## Inputs by phase
 
-Required before authoring: PRD, guardrails, journey, screen map, wireframes, design brief, architecture and DoD/evals under `docs/`; in pipeline mode also the validated context/terms bundle.
+Required: PRD, guardrails, journey, architecture and DoD/evals under `docs/`; UI scope also needs screen map, wireframes and design brief. Pipeline mode adds validated context/terms.
 
 Optional grounding: README, source-backed environments, roles, locales and risks, current code, tests or runtime configuration. Read the [H1-H10 and recovery contract](../to-sdd-pipeline/references/heuristic-usability-review.md) for UI checks.
 
@@ -40,7 +40,7 @@ Read the [security traceability contract](../to-sdd-pipeline/references/security
 6. H7: simple novice flow, source-justified shortcuts, bulk/repeated work, keyboard/touch and useful customization. H10: contextual help, searchable docs when needed, actionable empty states, inline instructions and recovery links.
 7. Specify each applicable failure sequence: cause → what was preserved → next action → retry/undo → observable success. Require activation of the actual recovery control and its resulting state. Cover retained candidates, changed decisions, Cancel, pending recovery records and other live pages where the PRD requires them.
 8. Give applicable critical/consequential flows separate representative-user checks with the shared task/group/success/timing fields. Expert or visual evidence cannot substitute for participants.
-9. Cover applicable interaction/display states, repeated actions and realistic maximum content. After navigation or rebuilding controls, require active-element and next-Tab observations. In long queues, check recovery-control distance, focus/scroll behavior, keyboard and touch access without traversing the remaining list; screenshots alone are insufficient.
+9. Cover applicable states, repeated actions and realistic maximum content. For keyboard-capable UI, observe focus and the next keyboard-focus target after navigation or control changes. Check recovery access in long or maximum-content views through each supported input mode; screenshots alone are insufficient.
 10. Cite architecture/DoD gates and guardrail policy. Inventory necessary claim-relevant sources with honest owner/prerequisite closure when allocated, never to avoid reruns. Name actual consumers; retain full integration/release checks. Return acceptance through the [unit contract](../to-sdd-pipeline/references/unit-execution-contract.md); planning assigns units.
 11. After implementation begins, inspect declared prototype-promotion receipts when applicable; absent/mismatched receipts block fidelity. Never fabricate a receipt or make the plan an upstream dependency.
 12. Validate coverage and boundaries; write only the checklist and return its hash-bound check/gate index to the caller.
@@ -49,13 +49,13 @@ Changed baselines, targets, overrides or obligations invalidate affected results
 
 ## Source-overridable UI defaults
 
-Use the [accessibility policy](../to-sdd-pipeline/references/accessibility-policy.md) for 320 CSS px reflow, text/viewport zoom, input/focus, motion and assistive technology. Additional comparison: 390/430/768/1280/1440px unless sources differ. House defaults: 44×44px targets, 8px separation, 16px mobile inputs, usually 14–16px body, no emoji-as-icons. These source-overridable preferences do not replace WCAG's 24px AA criterion/exceptions. Check supported-theme contrast and state communication.
+Apply [platform-appropriate accessibility](../to-sdd-pipeline/references/accessibility-policy.md). Web UI uses 320 CSS px reflow and text/viewport zoom; compare 390/430/768/1280/1440px unless sources differ. Web house defaults: 44×44px targets, 8px separation, 16px mobile inputs, 14–16px body, no emoji-as-icons. These do not replace WCAG criteria/exceptions. Native UI uses platform guidance. Check supported input modes, focus, motion, contrast and assistive technology.
 
-Use the [lifecycle checklist](../to-sdd-pipeline/references/lifecycle-contract.md) for source-defined operational and early native feasibility checks. Bind exact supported browser/OS/version/use-mode combinations. Cover local-data inactivity/eviction, actual retention-mode outcomes and retained-backup recovery. Dated policy/device qualification is distinct from simulated deletion; unreproduced required conditions stay pending.
+Use [lifecycle guidance](../to-sdd-pipeline/references/lifecycle-contract.md) for source-defined operations and early feasibility. Bind supported environments, versions and use modes. Where persistence/recovery applies, cover its platform limits and required outcomes. Actual platform qualification differs from simulated recovery; unreproduced required conditions stay pending.
 
 ## Artifact coverage
 
-Required semantic sections: Source References; Execution Status; Product Acceptance; Screen And State Checks; Heuristic Usability Checks; UX/UI Checks; Evidence Requirements; Evidence Limits; Release Readiness; Open Questions. Include Usability Validation Checks when applicable.
+Required sections: Source References; Execution Status; Product Acceptance; Evidence Requirements; Evidence Limits; Release Readiness; Open Questions. For UI scope add Screen And State Checks, Heuristic Usability Checks and UX/UI Checks. Include Usability Validation Checks when applicable.
 
 Resolve shared verification fields through scope IDs where useful. Keep findings, severity, release effect and recommendation unassessed until actual findings exist.
 

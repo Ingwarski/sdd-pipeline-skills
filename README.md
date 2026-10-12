@@ -2,12 +2,29 @@
 
 13 skills for Codex and Claude Code turn product intent into specifications, reviewed design and a development plan. **Specification-Driven Development** agrees what to build first; tests verify those decisions.
 
+## Skillset and project outputs
+
+This repository contains reusable workflow rules, checkers, adapters and isolated
+synthetic test fixtures. It contains no selected product design. Bundled examples
+and fixtures supply no product requirements, stack, platform or unit order unless
+explicitly adopted as project intent.
+
+Generated specifications belong in the product repository's `docs/`. UI prototypes
+and their selection records belong in that project's `forge/design/`; bulk evidence
+uses its configured evidence store. A selected prototype is an output of one project
+run, never a design bundled with these skills.
+
+The product's sources determine its users, components, interfaces, platforms,
+capabilities and acceptance requirements. Apply conditional rules only to that scope.
+Browser review is a prototype presentation method; it does not require a web product.
+Confirmed headless scope omits visual design and visual-material questions.
+
 ## Quick start
 
 1. [Install the complete collection](#installation) and [select evidence storage](docs/evidence-storage.md).
 2. Open your product project: `Use to-sdd-pipeline for this project.`
 3. Answer focused questions and share existing design references once.
-4. Choose Codex or Claude Design when prototyping begins; compare three interactive whole-product candidates and approve one complete version.
+4. For UI scope, choose Codex or Claude Design; compare three interactive whole-product candidates and approve one complete version.
 5. The pipeline records that baseline, reconciles architecture, completion rules and QA, creates `docs/development-plan.md`, then pauses.
 6. Send a **new explicit implementation prompt after that pause** to start production work.
 
@@ -17,7 +34,7 @@ Existing changes reuse valid documents/baselines and reconcile affected owners. 
 
 ## Installation
 
-Requires **Python 3.12+**; local installer/checker/storage tools use its standard library. Python 3.14 is recommended under [runtime policy](runtime-policy.json); no student Node dependency is added. If necessary, use the [official Python installers](https://www.python.org/downloads/) and [platform instructions](docs/installation.md). Already-current setups preserve a supported runtime; never replace the OS interpreter.
+Requires **Python 3.12+**; local installer/checker/storage tools use its standard library. Python 3.14 is recommended under [runtime policy](runtime-policy.json); no Node installation is required. If necessary, use the [official Python installers](https://www.python.org/downloads/) and [platform instructions](docs/installation.md). Already-current setups preserve a supported runtime; never replace the OS interpreter.
 
 Paste the complete [install-or-update prompt](INSTALL-OR-UPDATE-PROMPT.md) into a local agent. It checks repository revision, exact installed links/resources, Python and evidence setup before deciding what needs work. A current skill installation can still need storage setup; existing choices are preserved. Opening a repository does not install skills, choose a cloud account or upload evidence.
 
@@ -117,11 +134,11 @@ After authorization, **finish the full active unit** including integration, test
 
 The [review corrections](docs/review-corrections.md) describe the construction, evidence and recovery rules, their compatibility limits, and required verification.
 
-Consequential actions must account for recoverable data outside the visible screen, including pending Undo records and other live sessions where applicable. Cancellation and confirmed replacement need explicit outcomes.
+Consequential operations must account for recoverable data and pending work across affected contexts. Where applicable, define cancellation, recovery and confirmed replacement outcomes. This does not require every product to add Undo, backup or replacement features.
 
-Architecture states exact interface inputs/results/errors, supported browser/OS/use-mode combinations, and platform storage-retention limits. Persistence requests do not replace a retention policy or backup guidance. Test uncertain required native capabilities with a bounded non-production experiment before dependent construction. Record the exact environment and untested limits; keep prototype simulations separate from actual device qualification.
+Architecture states interface inputs/results/errors and source-defined environments, versions and use modes. For persistent data, state applicable retention limits and recovery requirements. Test uncertain required capabilities with a bounded non-production experiment before dependent construction. Record the environment and untested limits; keep prototype simulations separate from actual platform qualification.
 
-A successful pipeline run proves its recorded planning contract. It does not establish error-free specifications, actual reader needs, product operation or general pipeline reliability. Keep product checks `prepared` / `not_run` and readiness `not_evaluated` until actual execution. Review mechanisms and action sequences as well as IDs and hashes.
+A successful pipeline run proves its recorded planning contract. It does not establish error-free specifications, actual user needs, product operation or general pipeline reliability. Keep product checks `prepared` / `not_run` and readiness `not_evaluated` until actual execution. Review mechanisms and action sequences as well as IDs and hashes.
 
 ## Maintenance
 

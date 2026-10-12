@@ -33,7 +33,7 @@ Rank/recommend with rationale, never auto-select. Claude selection selects only 
 
 Each revision needs a new candidate version, immutable target and hash. Preserve and explicitly supersede prior versions; never overwrite them.
 
-Vendor Work Mode, `terminal.local`, Sites and browser requirements are adapter transport. Keep internal `VisualQAEvidence` separate from the visible-browser receipt. Apply DAS Forge release-effect policy; vendor P2 does not automatically block.
+Vendor Work Mode, `terminal.local`, Sites and browser requirements are adapter transport, not the product's runtime platform. Keep `VisualQAEvidence` separate from visible-browser receipts. Apply [verification severity/release rules](verification-contract.md#severity-and-release-effect); vendor P2 does not automatically block.
 
 Keep separate heuristic and user records with JOB/UC, journey, state, route, viewport, evidence, findings, severity and release effect. AI review and prototype interaction cannot manufacture either coverage or research.
 

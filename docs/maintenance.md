@@ -1,10 +1,30 @@
 # Reliability, Audit Remediation and Maintenance
 
-The [QuietQueue review corrections](review-corrections.md) add construction
+The [specification review corrections](review-corrections.md) add construction
 allocation checks, reviewed acceptance reuse, recovery observations and metadata
 corrections. They preserve the existing owners and implementation gate. The
 dated results below describe earlier revisions; rerun the verification commands
-for the current checkout.
+for the current checkout. Project specifications and selected prototypes remain
+separate outputs; named test cases supply provenance, not reusable product scope.
+
+## Generic scope audit — 2026-10-12
+
+The follow-up audit covered all 13 entrypoints, shared contracts, owner references,
+checker modules, examples and installation guidance. It found no fixed test-product
+identity or unit/check/state count in the validator. It did find education-specific
+ordering, browser/local-storage assumptions, web-only component labels, unconditional
+visual intake and an optional-host policy in portable instructions.
+
+The corrected rules use project-defined dependencies, capabilities, environments
+and workflows. Web accessibility and browser storage remain required where applicable;
+native and headless products use their declared scope. Examples become product intent
+only through explicit adoption. No owner, artifact path, schema, approval boundary or
+runtime implementation changed. See [generic scope rules](review-corrections.md#generic-scope-audit).
+
+The local suite completed 654 tests: 648 passed and six were skipped for the same
+platform/dependency reasons below. Unix installation, retirement and update suites
+passed. Current CI results belong to the exact PR revision, not the earlier counts
+or source identities in the historical verification sections.
 
 ## Review correction verification — 2026-10-12
 
@@ -87,7 +107,7 @@ Keep the catalog, its license and attribution together. To update the standard, 
 
 ## Requirements and adoption
 
-Install **Python 3.12+** for installer/checker execution; **3.14** is the current recommended stable series. Python has maintenance phases, not an LTS designation: [official support table](https://devguide.python.org/versions/), [official downloads](https://www.python.org/downloads/). The dated [runtime policy](../runtime-policy.json) requires another review before 2026-11-01. No student Node or third-party Python package is added. Keep helper files with the complete collection.
+Install **Python 3.12+** for installer/checker execution; **3.14** is the current recommended stable series. Python has maintenance phases, not an LTS designation: [official support table](https://devguide.python.org/versions/), [official downloads](https://www.python.org/downloads/). The dated [runtime policy](../runtime-policy.json) requires another review before 2026-11-01. No Node installation or third-party Python package is required. Keep helper files with the complete collection.
 
 For older projects, preserve documents, IDs, approved versions and history. Add only metadata verified from current sources and original receipts; revalidate affected owner outputs. Do not manufacture evidence, rewrite valid documents just for concision, or repeat approval to populate fields. Follow the [manifest migration contract](../skills/to-sdd-pipeline/references/manifest-contract.md).
 
@@ -125,7 +145,7 @@ Coverage includes first entry, owner stages, approved-design reconciliation, res
 
 Security regressions also cover the offline catalog and exact IDs, adapted/non-web scopes, missing or stale assessments, supplemental requirements, coverage across all four downstream owners, mandatory gates, negative checks, and rejection of mockup-only or not-applicable substitutes. Run the complete suite after changing security instructions or records; it does not audit a product or run vulnerability scanners.
 
-CI runs runtime/installer suites on Linux, macOS and Windows with Python **3.12 and 3.14**. The content job uses 3.14 and pinned test-only YAML/token tools. Without PyYAML, its optional local parser test is skipped. Pinned supported Actions supply their own runtime; no student Node installation is needed. CI advances `stable` only after all required jobs pass for current `main`; it never force-pushes or updates student machines.
+CI runs runtime/installer suites on Linux, macOS and Windows with Python **3.12 and 3.14**. The content job uses 3.14 and pinned test-only YAML/token tools. Without PyYAML, its optional local parser test is skipped. Pinned supported Actions supply their own runtime; no user Node installation is needed. CI advances `stable` only after all required jobs pass for current `main`; it never force-pushes or updates user machines.
 
 See [agent evaluations](agent-evaluations.md) for fresh-context runs and review. Do not present these fixtures, deterministic receipts or the authoring agent's own review as completed independent model/user validation.
 

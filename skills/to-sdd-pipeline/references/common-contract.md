@@ -4,7 +4,7 @@ Read before work. All 13 skills ship together; resolve resources from SKILL.md's
 
 ## Sources, ownership and writing
 
-Sources/explicit decisions determine truth. Inspect facts, retain terms/IDs, label assumptions. Context cannot override PRD/design/architecture/quality. Write declared outputs: orchestrator owns `forge/sdd-manifest.json`, operators receipts. Owners reconcile changes, preserving history/progress/approvals/immutable candidates.
+Project sources/decisions define scope; bundled examples/fixtures supply no product requirements unless explicitly adopted. Inspect facts, retain terms/IDs, label assumptions. Context cannot override PRD/design/architecture/quality. Write declared outputs: orchestrator owns `forge/sdd-manifest.json`, operators receipts. Owners reconcile changes, preserving history/progress/approvals/immutable candidates.
 
 Return reviewed `source_usage`: path → `"full"`, exact consumed headings, or `{"unused":"reason"}` for context/optional files. Bind referenced scope/terms/evidence sections; omission is not unused. Exclude later results from planning. Repository claims need time, command, scoped paths/hashes/absence; recheck on reuse.
 

@@ -8,7 +8,7 @@ Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.
 
 ## Inputs
 
-Required before starting: current validated PRD, guardrails, journey, screen map, wireframes, design brief, architecture, DoD/evals and QA checklist under `docs/`. For a UI product, require the engineer-approved integrated baseline and durable referenced prototype.
+Required: current validated PRD, guardrails, journey, architecture, DoD/evals and QA under `docs/`. UI scope also needs screen map, wireframes, design brief, the approved integrated baseline and durable referenced prototype.
 
 Pipeline mode also requires the validated context/terms bundle. Standalone, missing context files need not block when required SDD already supplies every relevant fact/term. Inspect README and current codebase evidence where useful.
 
@@ -35,7 +35,7 @@ Read the [security traceability contract](../to-sdd-pipeline/references/security
 6. For each user-visible unit preserve JOB → UC → journey → screen/state trace and bind baseline/target/scope/variance, visual fidelity, applicable H1-H10/QA IDs and representative-user task validation.
 7. Reference gate definitions and concrete QA checks; bind all consumed QA sections, including shared scope/evidence conventions and terms they rely on, not later execution results. Return their `source_usage` and hashes/fragments. Never invent participants, findings or research outcomes. Pending execution stays not-run, not passed.
 8. For independently developed or cross-layer units define interfaces produced/consumed, API/data-contract references, owner, compatibility and integration verification.
-9. If prototype code exists, declare no reuse or the bounded promotion contract. Keep frontend/backend/integration responsibilities and missing production capabilities explicit.
+9. If prototype code exists, declare no reuse or the bounded promotion contract. Keep component/integration responsibilities and missing production capabilities explicit.
 10. If implementation already began, inspect declared destinations and required promotion receipts/strategies. Report absence/mismatch for QA/DoD; never synthesize historical receipts.
 11. Reconcile mechanism duties and unit prose with production paths, contribution IDs, typed `implements` links, [construction allocations](../to-sdd-pipeline/references/traceability-contract.md), and QA owners. Full acceptance coverage cannot conceal construction omissions. Preserve clauses/states, gate coverage and canonical terms; unresolved upstream mismatches return to their owner.
 12. Write only the plan, return provenance and stop at `awaiting-implementation-prompt`. Do not write production code, run promotion or dispatch implementation.
@@ -51,9 +51,9 @@ Add Codebase Map, Visual/UX Verification, Risks/Sequencing or Prototype Promotio
 Each unit resolves:
 
 - ID/scope/owner; mechanism and clause contributions; construction dependencies/checks; acceptance prerequisites; authorized production paths; integration ownership; work and evidence. Return canonical `unit_plan`, its architecture `construction_ref` and complete `construction` allocation, with typed traceability.
-- Delivery layer: frontend, backend, full-stack, integration or infrastructure.
+- Component/layer: use architecture-defined names, not a fixed web-layer taxonomy.
 - For user-visible units: JOB/UC/journey/state, Baseline ID/target hash, scope, permitted variance/overrides, `approved_visual_baseline_fidelity`, applicable `heuristic_usability_review`/H1-H10/QA IDs and `representative_user_task_validation` task/success/evidence references.
-- For backend-only units: whether it enables user-visible states/data/actions.
+- For nonvisual components: whether they enable user-visible states/data/actions.
 - For parallel tasks inside the active unit: interfaces, exclusive write ownership, shared evidence reservations and coordinator integration. Later units remain sequential.
 - For traced prototype reuse: the fields in the promotion reference.
 

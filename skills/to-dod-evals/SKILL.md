@@ -8,7 +8,7 @@ Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.
 
 ## Inputs by phase
 
-Required before authoring: PRD, guardrails, user journey, screen map, wireframes, design brief and architecture under `docs/`; in pipeline mode also the validated context/terms bundle.
+Required: PRD, guardrails, journey and architecture under `docs/`; UI scope also needs screen map, wireframes and design brief. Pipeline mode adds validated context/terms.
 
 Optional grounding: README, authoritative product idea when named by the PRD, explicit decisions and current engineering or deployment evidence.
 
@@ -37,11 +37,11 @@ Read the [security traceability contract](../to-sdd-pipeline/references/security
 9. Map each FR/NFR clause to an active applicable gate or blocker; inactive/excluded checks and parent IDs cannot supply coverage. Use the [lifecycle checklist](../to-sdd-pipeline/references/lifecycle-contract.md) for supported environments, retention, recovery, migration and feasibility. Define actual platform-policy qualification separately from simulated deletion recovery; unreproduced required conditions remain pending. Each check must bind back to its applicable gate.
 10. Validate sources, ownership and evidence limits. Keep definitions `prepared`, execution separate, and unexecuted release readiness `not_evaluated`.
 
-Define action-sequence evidence for consequential decisions, retained recovery data, reachable controls, focus and long-content variants. Follow the shared evidence classes; a final screenshot cannot establish these outcomes.
+Define evidence for consequential decisions, preserved data and recovery. Add control, focus and long-content observations for applicable interfaces; a final screenshot cannot establish these outcomes.
 
 ## Artifact coverage
 
-Required semantic sections: Source References; Definition Of Done Model; Verification Profile; Gate Matrix; Eval Result Format; Evidence Requirements; Failure And Blocker Classification; PR Merge And Completion Rules; Out Of Scope; Open Questions.
+Required semantic sections: Source References; Definition Of Done Model; Verification Profile; Gate Matrix; Eval Result Format; Evidence Requirements; Failure And Blocker Classification; Completion And Delivery Rules; Out Of Scope; Open Questions. Include PR merge rules only when the project uses them.
 
 Add feature/unit levels, promotions and recovery sections only where useful. Each gate resolves the shared verification fields and parameters; do not duplicate full criteria.
 

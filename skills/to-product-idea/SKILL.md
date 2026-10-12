@@ -45,7 +45,7 @@ The runtime persists it as `Input needed`, displays it in the foreground intake,
 
 ## Design materials intake
 
-During initial intake, inspect supplied attachments/links and relevant repository materials. If neither materials nor a prior answer is available, ask once in `working_language`, before finalizing:
+Inspect supplied materials first. For confirmed headless scope, record visual materials as not applicable without this question. Otherwise, if neither materials nor a prior answer exists, ask once in `working_language`:
 
 > Which design materials can you share—sample websites/apps, screenshots, brand guides, colors, fonts, or HTML prototype mockups with their CSS/JS/assets? Paste links, attach files to this prompt, or place them in `<project-root>/docs/design-inputs/` and share their paths. “None yet” or “later” is fine.
 
@@ -88,7 +88,7 @@ Jobs explain why users act. Do not duplicate user stories, system paths or the j
 ## Completion, change and handoff
 
 1. Check that every load-bearing statement has a named source or explicit answer, all answers retain their meaning, and no material contradiction or scope ambiguity remains.
-2. Verify primary user/problem/outcome, V1 boundary and all material JOBs. Each primary job maps to a core workflow/use-case candidate or an explicit unresolved relationship. Record the design-materials disposition: supplied, none yet or deferred; availability itself is not required.
+2. Verify primary user/problem/outcome, V1 boundary and material JOBs. Each maps to a core workflow/use-case candidate or explicit unresolved relationship. Record materials as supplied, none yet, deferred or source-backed not applicable; availability is not required.
 3. Present the complete draft. An explicit creation/start request authorizes finalization once material gaps are resolved, including the original request to run the pipeline. No magic phrase or repeated start confirmation is required; this is not design approval.
 4. Within that authorization, atomically create/version the final file only when absent or confirmed intent/source notes changed; otherwise keep its bytes. Validate and hash the final content.
 5. Return the hash, source mode, language/selection source, separate product locales, intake/session ID, answered decision IDs, assumptions, non-blocking questions and submission time. The runtime writes the handoff receipt and dispatches `to-sdd-pipeline`.
