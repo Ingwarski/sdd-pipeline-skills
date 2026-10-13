@@ -1,10 +1,9 @@
 # Specification review corrections
 
-The QuietQueue synthetic planning review supplied the original findings. Its
-generated specifications, selected prototype and observations belong to a separate
-test project. They are not skillset components or default product requirements.
-This document describes the reusable rules derived from that review. They preserve
-the 13 skills, document owners and implementation boundary.
+This document defines reusable rules for specification quality, construction
+ownership, acceptance evidence and recovery. Apply them to each project's
+requirements. They preserve the 13 skills, document owners and implementation
+boundary.
 
 | Review scope | Required result |
 |---|---|
