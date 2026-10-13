@@ -23,9 +23,9 @@ Confirmed headless scope omits visual design and visual-material questions.
 
 1. [Install the complete collection](#installation) and [select evidence storage](docs/evidence-storage.md).
 2. Open your product project: `Use to-sdd-pipeline for this project.`
-3. Answer focused questions and share existing design references once.
+3. Answer focused questions. For UI scope, share existing design references once.
 4. For UI scope, choose Codex or Claude Design; compare three interactive whole-product candidates and approve one complete version.
-5. The pipeline records that baseline, reconciles architecture, completion rules and QA, creates `docs/development-plan.md`, then pauses.
+5. The pipeline records the UI baseline when applicable, reconciles architecture, completion rules and QA, creates `docs/development-plan.md`, then pauses.
 6. Send a **new explicit implementation prompt after that pause** to start production work.
 
 A rough description or existing `docs/product-idea.md` is enough to enter. Intake shows its understanding and gaps before one question; coherent intent needs no redundant interview. Share links, screenshots, brand materials or HTML/assets through the prompt or `docs/design-inputs/` in your product repository. “None yet” or “later” is valid. References supply design grounding, never approval.
@@ -61,6 +61,8 @@ Legacy names and old-clone migration are documented in [installation](docs/insta
 
 ## Workflow and ownership
 
+For UI scope:
+
 ```text
 Product idea → PRD → context + vocabulary → guardrails
 → journey → screen map → wireframes → design brief
@@ -69,6 +71,11 @@ Product idea → PRD → context + vocabulary → guardrails
 → baseline → reconcile architecture → completion rules → QA
 → development plan → await implementation prompt
 ```
+
+Confirmed headless scope follows product idea → PRD → context + vocabulary →
+guardrails → system/operator journey → architecture → completion rules → QA →
+development plan → await implementation prompt. It omits visual stages while
+retaining source-defined task, security and acceptance checks.
 
 | Skill | Owned output |
 |---|---|
@@ -88,11 +95,11 @@ Product idea → PRD → context + vocabulary → guardrails
 
 Each artifact has one owner. Context outputs share an invocation, with independent hashes/results. Owners declare consumed files/sections or explain unused context; the orchestrator records their metadata without editing domain meaning. Standalone owners validate inputs without needing a manifest. [Shared rules](skills/to-sdd-pipeline/references/common-contract.md).
 
-`JOB-*` describes user progress and situation; `UC-*` describes product responses and recovery. Screen map owns state inventory; wireframes own structure; design brief owns appearance/behavior and the approved baseline. [H1–H10](skills/to-sdd-pipeline/references/heuristic-usability-review.md) covers novice/expert efficiency, contextual help and recovery: cause → preserved work → next action → retry/undo → observable success.
+`JOB-*` describes user progress and situation; `UC-*` describes product responses and recovery. For UI scope, screen map owns state inventory, wireframes own structure, and design brief owns appearance/behavior and the approved baseline. [Usability guidance](skills/to-sdd-pipeline/references/heuristic-usability-review.md) covers applicable efficiency, help and recovery: cause → preserved work → required action or automatic trigger → observable success.
 
 Codex shows three separate live pages on the selected visible review surface, defaulting to the external browser. Claude Design compares three tool-native candidates after source-access checks; only the selected export is imported and reviewed. Selection/export is not approval. [Claude handoff](skills/to-sdd-pipeline/references/claude-design-handoff.md).
 
-Frozen rendering inputs include shared fonts, images, CSS and scripts; mutable remote assets must be packaged. Browser inspection still verifies dynamic dependencies. Revisions preserve original approved files/receipts and revalidate affected owners. Scoped repairs use a new immutable candidate version and the existing accepted-override process. [Freeze contract](skills/to-sdd-pipeline/references/freeze-contract.md). [Accessibility policy](skills/to-sdd-pipeline/references/accessibility-policy.md) separates WCAG criteria from source-overridable house style. High-risk user-validation deferrals remain named risks, never invented research. Review recovery through visible actions, including retained work, Retry/Undo, final focus and the next Tab destination. Use realistic long lists where size affects recovery; a displayed failure fixture alone is insufficient.
+Frozen rendering inputs include shared fonts, images, CSS and scripts; mutable remote assets must be packaged. Browser inspection still verifies dynamic dependencies. Revisions preserve original approved files/receipts and revalidate affected owners. Scoped repairs use a new immutable candidate version and the existing accepted-override process. [Freeze contract](skills/to-sdd-pipeline/references/freeze-contract.md). [Accessibility policy](skills/to-sdd-pipeline/references/accessibility-policy.md) separates platform requirements from source-overridable house style. High-risk user-validation deferrals remain named risks, never invented research. Exercise each required recovery action or automatic/external trigger and observe retained work and completion. Check focus for supported navigation modes and realistic maximum content where relevant; a displayed failure fixture alone is insufficient.
 
 ## Evidence storage
 
@@ -108,7 +115,7 @@ Versioned defaults cover cumulative run/unit/project generation and file counts,
 
 Local generated-artifact expiry defaults to **30 days** from original sealing. Protection checks preserve current acceptance/prerequisites, baselines, approvals/authorization, unresolved failures, explicit retention and imported recovery archives. Cache eviction differs from permanent expiry; a sole durable local store is not disposable cache. Cleanup runs at managed boundaries or explicit command, with dry-run and verified deletion; no default daemon. Drive expiry is explicitly selected.
 
-GitHub artifact uploads, when needed, use `retention-days: 30`; the repository artifact/log setting is configured separately. Workflow YAML does not configure log retention, and local protections cannot prevent GitHub expiry. Preserve required bytes in the durable store first. [GitHub retention guidance](https://docs.github.com/en/actions/tutorials/store-and-share-data).
+For projects using GitHub Actions, configure artifact and log retention under the project's policy. This skillset repository uses 30 days when uploads are needed. Workflow YAML does not configure log retention, and local protections cannot prevent GitHub expiry. Preserve required bytes in the durable store first. [GitHub retention guidance](https://docs.github.com/en/actions/tutorials/store-and-share-data).
 
 ## Validation and safe continuation
 
@@ -132,7 +139,7 @@ After authorization, **finish the full active unit** including integration, test
 
 ## Specification quality and platform limits
 
-The [review corrections](docs/review-corrections.md) describe the construction, evidence and recovery rules, their compatibility limits, and required verification.
+The [specification quality rules](docs/specification-quality.md) define construction, evidence, recovery and compatibility requirements.
 
 Consequential operations must account for recoverable data and pending work across affected contexts. Where applicable, define cancellation, recovery and confirmed replacement outcomes. This does not require every product to add Undo, backup or replacement features.
 
@@ -145,3 +152,5 @@ A successful pipeline run proves its recorded planning contract. It does not est
 [Lifecycle guidance](skills/to-sdd-pipeline/references/lifecycle-contract.md) allocates applicable delivery, rollback/restore, maintenance and outcome feedback to existing owners without authorizing deployment. [Agent evaluations](docs/agent-evaluations.md) separate independent behavior evidence from deterministic synthetic tests and author self-review.
 
 Instructions state decisions once and load detailed procedures conditionally. Working language follows explicit instruction, recorded preference, then the latest substantive message; product locales remain separate. [Maintenance checks](docs/maintenance.md) measure complete instruction/resource/retry loads under fixed recent-growth and absolute budgets. These are static measurements, not model-billing or live-run savings claims.
+
+Keep audit history, test-project details and measured run results in separate reports. Reusable documentation defines current behavior and how to verify it.

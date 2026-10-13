@@ -29,8 +29,8 @@ Read the [security traceability contract](../to-sdd-pipeline/references/security
 1. Extract source acceptance outcomes and architectural risks; inspect verification surfaces without running gates.
 2. Separate mechanism construction, bounded contributions, device qualification and full integration/release acceptance. Construction needs its own checks; later qualification cannot supply missing construction. Define fresh evidence and no-open-blocker completion conditions. Component or mocked evidence cannot pass required real-consumer obligations; deferred integration retains an accountable owner.
 3. Define source-supported profiles, evidence limits and release conditions. Never invent commands, CI, thresholds or merge policies. Required uncertain capabilities need source-defined feasibility evidence before dependent construction, or an explicit blocker.
-4. For UI scope define separate parameterized gates: `approved_visual_baseline_fidelity`, `heuristic_usability_review`, and applicable `representative_user_task_validation`. Use the shared verification contract; never substitute one evidence class for another.
-5. Leave baseline parameters pending before approval and check bindings pending before QA exists. Prepared does not mean executed or passed.
+4. Define `approved_visual_baseline_fidelity` for UI scope. Define `heuristic_usability_review` and `representative_user_task_validation` where source-backed task scope requires them, including nonvisual tasks under the shared verification contract. Never substitute evidence classes.
+5. Leave UI baseline parameters pending before approval and check bindings pending before QA exists. Prepared does not mean executed or passed.
 6. After approval, consume reconciled architecture and current baseline; revalidate affected definitions. The orchestrator indexes available parameters/QA IDs without making QA an authoring dependency.
 7. Define engineering lane/state promotion gates only when sources establish such a workflow. Ordinary UI states do not create delivery gates.
 8. Define provenance, failure and rerun rules through the [unit contract](../to-sdd-pipeline/references/unit-execution-contract.md). Changed-source or changed-plan reuse needs explicit reviewed revalidation of unchanged claims, unit records, and necessary owner/prerequisite sources. Preserve original observations/times; unresolved impact or affected claims need new evidence. Revalidation never renews authority.
@@ -47,4 +47,4 @@ Add feature/unit levels, promotions and recovery sections only where useful. Eac
 
 ## Return
 
-Report the file, prepared/revalidated gates, pending bindings, evidence limits and open blockers. Explicitly say tests were not run. Follow shared provenance and return to the orchestrator. [Authoring provenance](../to-sdd-pipeline/references/authoring-sources.md) is historical, not a mandatory input.
+Report the file, prepared/revalidated gates, pending bindings, evidence limits and open blockers. Explicitly say tests were not run. Follow shared provenance and return to the orchestrator.

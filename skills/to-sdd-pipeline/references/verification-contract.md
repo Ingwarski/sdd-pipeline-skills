@@ -35,13 +35,15 @@ Before approval, visual gates are parameterized definitions: `Binding Status: pe
 
 After approval: `to-design-brief` records the baseline → `to-architecture` reviews affected mechanisms → `to-dod-evals` revalidates gates → `to-qa-checklist` binds checks → orchestrator indexes QA IDs → `to-development-plan` allocates units. DoD consults QA **at evaluation**, never as an authoring prerequisite. Revalidate unchanged documents without rewriting bytes or repeating approval.
 
-## Three separate UI gates
+## Separate visual and interaction gates
 
 | Gate | Parameters and pass evidence |
 |---|---|
 | `approved_visual_baseline_fidelity` | Active Baseline ID, immutable target hash, route/state/viewport, permitted variance, concrete QA IDs, `VisualQAEvidence`; promotion receipt when reuse is declared. Reject stale baselines, missing coverage, unexplained drift, or blocking findings. |
-| `heuristic_usability_review` | Applicable H1-H10, primary journey, JOB/UC, screen/state/route/viewport, desktop/mobile when supported, error/recovery and accessible critical actions, QA IDs, reviewer/evidence/findings. Every applicable heuristic and scope needs review; unexplained omissions or deferred critical review block the gate. |
-| `representative_user_task_validation` | Applicable critical/consequential/new or changed flow, JOB/UC, representative user group, task, success criterion, device/viewport, observed session evidence and findings. Only observed representative-user task completion can pass. |
+| `heuristic_usability_review` | Applicable H1-H10, primary journey, JOB/UC, interface context, supported inputs, error/recovery and accessible critical actions, QA IDs, reviewer/evidence/findings. Visual checks include screen/state/route/viewport. Every applicable heuristic and scope needs review; unexplained omissions or deferred critical review block the gate. |
+| `representative_user_task_validation` | Applicable critical/consequential/new or changed flow, JOB/UC, representative user group, task, success criterion, actual interaction context, observed session evidence and findings. Visual checks include device/viewport. Only observed representative-user task completion can pass. |
+
+Headless scope excludes visual fidelity, not source-required operator/task research or heuristic review. Declare each interaction gate applicable or give its source-backed exclusion; neither is automatically required for every headless product. Applicable nonvisual checks use the scope record below. Required evidence classes remain distinct.
 
 Visual, heuristic, participant, accessibility and runtime evidence remain separate. Simulations prove no production auth, persistence, integration, security or actual data/actions. Screenshots alone cannot establish WCAG conformance.
 
@@ -51,7 +53,9 @@ For high-risk, regulated, safety- or accessibility-critical flows, plan represen
 
 Every gate definition: ID, purpose, source, applicability, required evidence, pass/block condition, rerun rule, and automation status (`automated`, `manual`, `not available yet` with a named condition, or `open question`). Do not invent runnable commands, CI, tests, thresholds, or merge policies. A missing comparison value is a named blocker, not a measurable gate.
 
-Every QA item: stable check ID, source obligation, task, expected behavior, scope, applicability/rationale, gate ID, definition status, execution status, evidence requirements and actual evidence. UI/heuristic items also resolve H1-H10, JOB/UC, user group, route, state, viewport, finding, severity, release effect, and recommendation. Visual items additionally resolve Baseline ID, target hash and variance after approval. User-validation items add task success criterion and timing (`pre-approval | post-implementation | both`). Error items use the shared recovery sequence.
+Every QA item: stable check ID, source obligation, task, expected behavior, scope, applicability/rationale, gate ID, definition status, execution status, evidence requirements and actual evidence. Interaction items resolve applicable H1-H10, JOB/UC, user group, finding, severity, release effect and recommendation. Visual checks require route, state and viewport plus Baseline ID, target hash and variance after approval. User-validation items add task success criterion and timing (`pre-approval | post-implementation | both`). Error items use the shared recovery sequence.
+
+Optional `interaction_scope: {kind: "nonvisual", context, rationale}` applies only to heuristic/user-task checks. `context` identifies the actual interface/workflow and supported conditions; `rationale` explains its source-backed applicability. Both must be nonempty strings present in the check's canonical QA section. Task and user group remain required. This scope substitutes for visual route/state/viewport and baseline/target bindings, not source, execution, evidence-class or release rules. Headless interaction checks require it; UI products can use it for genuinely nonvisual checks. Without it, existing UI checks retain visual requirements. Visual fidelity cannot use this scope. Inapplicable checks retain their existing rationale and status rules; authoring creates no executed result.
 
 Results retain check/gate ID, evaluated artifact/baseline/revision, executor, original time, environment/fixture, evidence identity/hash, outcome, findings and rerun rule. QA keeps compact current records and verified detailed/history references. Apply [storage procedures](evidence-storage-contract.md); passing needs fresh readable evidence. Migration/access never executes checks.
 

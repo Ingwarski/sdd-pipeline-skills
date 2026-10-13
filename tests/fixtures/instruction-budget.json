@@ -1,6 +1,6 @@
 {
   "recent_base": "8bad1f6ea6aa439bee6e76ab4f24585c0ba29aac",
-  "reason": "2026-10-12 reviewed specification corrections: construction allocations, retained-acceptance source/authorization/chronology rules and observation corrections add required shared instructions. Initial condensation removed 537 whitespace words; further condensation accommodates the final construction omission guard. CI with unchanged scenarios and complete resources measured 114760 / 67162 / 77998 tokens. Keep the fixed 8bad1f6 baseline, entrypoint/README ceilings and all resource loads; allow only measured feature growth plus a small bounded margin. See docs/maintenance.md. These are static loads, not live-run or billing claims.",
+  "reason": "Fixed comparison revision, complete resource loads and unchanged scenario/retry sequences constrain instruction growth. Enforce both absolute ceilings and permitted growth. Record measurements and policy-change justification in separate reports. Static loads do not establish live-run cost or quality. See docs/maintenance.md.",
   "absolute": {
     "entrypoints": 16000,
     "readme": 3950,

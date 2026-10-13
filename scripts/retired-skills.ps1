@@ -1,4 +1,4 @@
-# Permanent retirement of the two accidentally distributed business skills.
+# Permanent retirement is restricted to these two names in known skill roots.
 # Dot-sourcing alone performs no cleanup.
 $script:RetiredNames = @('communications-audit', 'issue-happypro-certificate')
 $script:RetiredRoots = @()
@@ -44,7 +44,7 @@ function Initialize-RetiredCleanup {
     }
     $Policy = @(Get-Content -LiteralPath $PolicyPath)
     if (($Policy -join '|') -cne ($script:RetiredNames -join '|')) {
-        throw 'Invalid retirement policy: only the two retired business skills are allowed.'
+        throw 'Invalid retirement policy: only the two retired skills are allowed.'
     }
     foreach ($Name in $script:RetiredNames) {
         if (@($Manifest.skills | Where-Object { $_.name -eq $Name }).Count -gt 0) { throw "Retired skill is still active: $Name" }

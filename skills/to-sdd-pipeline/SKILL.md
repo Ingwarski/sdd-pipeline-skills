@@ -79,7 +79,7 @@ For older manifests, preserve all documents/history/IDs and add only metadata ve
 
 Record owner-reviewed `source_usage`, exact consumed hashes/fragments and repository observations; never turn missing bindings into an unused-source decision. An unrelated context paragraph or repository file must not invalidate unrelated work. A PRD/intent change revalidates the context bundle together. Language changes revalidate affected human-readable artifacts, not immutable identifiers or distinct product locales.
 
-The skill requires the check; a separate DAS Forge runner must invoke the same checker and enforce its exit code for hard runtime enforcement. Updating this repository does not modify that external runner.
+The selected execution host or runner must invoke the checker and enforce its exit code. This requirement applies to direct hosts and optional adapters. Updating this repository does not modify an external runner.
 
 ## Design and evidence
 

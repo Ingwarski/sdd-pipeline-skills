@@ -10,7 +10,7 @@ Read the [shared operating rules](../to-sdd-pipeline/references/common-contract.
 
 Required: PRD, guardrails, journey, architecture and DoD/evals under `docs/`; UI scope also needs screen map, wireframes and design brief. Pipeline mode adds validated context/terms.
 
-Optional grounding: README, source-backed environments, roles, locales and risks, current code, tests or runtime configuration. Read the [H1-H10 and recovery contract](../to-sdd-pipeline/references/heuristic-usability-review.md) for UI checks.
+Optional grounding: README, source-backed environments, roles, locales and risks, current code, tests or runtime configuration. Read the [H1-H10 and recovery contract](../to-sdd-pipeline/references/heuristic-usability-review.md) for applicable human-task checks.
 
 Consulted **later**, only when it exists and implementation began: `docs/development-plan.md` to locate declared destinations, interface seams and promotion receipts. It is never a QA-authoring prerequisite or source of QA rules.
 
@@ -33,12 +33,12 @@ Planning output uses `Release Readiness: not_evaluated`. An explicitly requested
 Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Define allowed and denied/adversarial checks for each PRD security obligation at its real enforcement seam. Bind `product_security_requirements`; return `security_coverage` and per-check `security_requirement_ids`. Simulation cannot verify production controls; authoring runs no tests or scanners.
 
 1. Inspect current sources and recheck any repository observations; source truth defines behavior, not discovered implementation drift.
-2. Before approval, use proposed visual expectations with `Binding Status: pending_baseline`. After architecture/DoD reconciliation, bind the active Baseline ID, immutable target hash and permitted variance.
+2. For UI scope, use proposed visual expectations with `Binding Status: pending_baseline` before approval. After architecture/DoD reconciliation, bind the active Baseline ID, immutable target hash and permitted variance.
 3. Map each requirement clause, journey and state to stable checks or blockers. Separate scenarios when their claims, failure diagnosis or rerun conditions differ; parent IDs are insufficient.
 4. Separate bounded mechanism construction checks from native/device qualification and full integration/release checks. Use architecture's mechanism duties, owned interfaces and declared success/failure outcomes; later qualification cannot hide missing construction checks.
-5. Resolve shared H1-H10 scope/evidence fields for supported desktop/mobile, errors/recovery and accessible critical actions.
-6. H7: simple novice flow, source-justified shortcuts, bulk/repeated work, keyboard/touch and useful customization. H10: contextual help, searchable docs when needed, actionable empty states, inline instructions and recovery links.
-7. Specify each applicable failure sequence: cause → what was preserved → next action → retry/undo → observable success. Require activation of the actual recovery control and its resulting state. Cover retained candidates, changed decisions, Cancel, pending recovery records and other live pages where the PRD requires them.
+5. Resolve H1-H10 and user-task scope/evidence through the shared verification contract for applicable UI or nonvisual tasks; include supported input modes, errors/recovery and accessible critical actions.
+6. H7: source-backed novice flow and applicable shortcuts, bulk/repeated work and customization using supported input modes/platforms. H10: contextual help, searchable docs when needed, actionable empty states, inline instructions and recovery links.
+7. Specify each applicable failure sequence: cause → preserved work → required action or recovery trigger → observable completion. Exercise specified recovery controls or observe the defined automatic/external transition and its result. Cover retained candidates, changed decisions, Cancel, pending recovery records and other live pages where the PRD requires them.
 8. Give applicable critical/consequential flows separate representative-user checks with the shared task/group/success/timing fields. Expert or visual evidence cannot substitute for participants.
 9. Cover applicable states, repeated actions and realistic maximum content. For keyboard-capable UI, observe focus and the next keyboard-focus target after navigation or control changes. Check recovery access in long or maximum-content views through each supported input mode; screenshots alone are insufficient.
 10. Cite architecture/DoD gates and guardrail policy. Inventory necessary claim-relevant sources with honest owner/prerequisite closure when allocated, never to avoid reruns. Name actual consumers; retain full integration/release checks. Return acceptance through the [unit contract](../to-sdd-pipeline/references/unit-execution-contract.md); planning assigns units.

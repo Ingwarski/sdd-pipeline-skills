@@ -14,9 +14,11 @@ Use actual capabilities, not this example. The orchestrator mirrors this object 
 |---|---|
 | `new_product` | Existing full workflow; three equivalent-scope candidates and one integrated-design approval for UI products. |
 | `existing_change` | Identify changed obligations and consumed inputs. Reuse current artifacts and approved baseline; reconcile affected owners only. If the approved design must change, use the existing candidate/revision process. |
-| `headless` | `ui: false`; omit screen-map, wireframes, design-brief, prototypes and visual approval. Keep jobs, use cases, system/operator journey, architecture, security, DoD, QA and plan. Declare UI gates inapplicable with the source reference. |
+| `headless` | `ui: false`; omit screen-map, wireframes, design-brief, prototypes and visual approval. Keep jobs, use cases, system/operator journey, architecture, security, DoD, QA and plan. Visual fidelity is inapplicable; source-backed nonvisual task review or user validation may apply. |
 
 Profiles change applicability, not authority. Headless delivery still requires the later implementation prompt, with an explicitly null baseline. When scope is declared, both that receipt and gate bind `product_scope_hash`: SHA-256 of `{profile, capabilities}` serialized with sorted JSON keys, separators `(',', ':')`, UTF-8. Changed scope invalidates prior authorization. Capabilities select security/lifecycle concerns, never waive them. Unknown or contradictory scope blocks affected work.
+
+For source-backed nonvisual heuristic or representative-user checks, declare `interaction_scope` with `kind: nonvisual` and nonempty `context`/`rationale` in the canonical QA definition under the [verification contract](verification-contract.md). Retain task, user group, JOB/UC, applicable heuristics and actual evidence requirements. Nonvisual context replaces visual route/state/viewport and baseline bindings. Human-task checks remain conditional; visual checks in mixed products keep their bindings.
 
 Early sketches and bounded feasibility experiments may resolve uncertainty before all documents exist. Keep them in `forge/exploration/`, label them unapproved/non-production and return findings to the owning specification. Do not connect live services, process real sensitive data, deploy or promote code without the necessary authority. Formal candidates still require their normal prerequisites.
 

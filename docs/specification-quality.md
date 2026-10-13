@@ -1,4 +1,4 @@
-# Specification review corrections
+# Specification quality rules
 
 This document defines reusable rules for specification quality, construction
 ownership, acceptance evidence and recovery. Apply them to each project's
@@ -12,8 +12,8 @@ boundary.
 | Platform limits | Specify source-defined environments, versions and use modes. For persistent data, state applicable retention and recovery limits. Separate simulated recovery from actual platform-policy qualification. |
 | Feasibility | Where a required capability is uncertain, use a disposable experiment before dependent construction. Observe its required outcome; starting an operation does not prove completion. |
 | Interfaces | Specify inputs, outputs, errors and recovery ownership at each material boundary. |
-| Recovery controls | Observe each required failure-to-recovery action sequence. Provide the recovery actions required by the product and preserve valid work/decision bindings where applicable. |
-| Focus and large views | For keyboard-capable UI, record focus and subsequent navigation after controls change. Keep recovery reachable through supported input modes with realistic maximum content. |
+| Recovery | Observe each required action or specified automatic/external recovery trigger. Preserve valid work/decision bindings where applicable. |
+| Focus and large views | For supported focus-based navigation, record focus and the next destination after controls change. Keep recovery reachable through supported input modes with realistic maximum content. |
 | Evidence labels | Separate the action name from the observed state. A metadata correction preserves original bytes and observation times. |
 
 ## Construction records
@@ -55,27 +55,21 @@ for exact fields and rejection rules.
 
 ## Verification scope
 
-Focused regressions cover missing construction owners/clauses, false or stale
-reuse, changed prerequisites, unreadable evidence and corrected receipt labels.
-The regular suites also cover stage interruption, stale owner returns and
-evidence storage. Run the complete checks in [maintenance](maintenance.md).
+Verify missing construction owners/clauses, false or stale reuse, changed
+prerequisites, unreadable evidence and corrected receipt labels. Include stage
+interruption, stale owner returns and evidence storage. Run the complete checks
+in [maintenance](maintenance.md); record results in a separate report.
 
 Fresh-context authoring cases remain separate from deterministic tests. A single
 synthetic planning result does not establish reliability for human intake,
 server authority, multiple roles, product execution or release.
 
-## Generic scope audit
+## Product scope
 
-The follow-up audit found assumptions that name searches did not detect. Reusable
-rules now derive unit order and component labels from the project's architecture.
-They no longer prescribe an education workflow or a web-layer taxonomy. Browser
-storage, web accessibility, input modes and visual intake use explicit applicability.
-Completion rules require a pull request only when the project uses that workflow.
-Portable prototype review uses the shared verification policy, with optional host
-adapters kept separate from product runtime choices.
+Derive unit order and component names from project requirements and architecture.
+Apply platform, storage, accessibility, input and delivery rules only to supported
+capabilities. Optional adapters do not determine the product's runtime platform.
 
-Workflow artifact names, schema fields and the three-candidate UI process remain
-intentional pipeline contracts. Headless scope still omits visual stages. Synthetic
-fixtures may use concrete products and expected outcomes; they must not supply
-product truth to unrelated authoring. Historical examples and the two retired skill
-identifiers remain provenance or compatibility data, not product requirements.
+Workflow artifact names, schema fields and the three-candidate UI process are
+pipeline contracts. Confirmed headless scope omits visual stages. Keep product
+examples and executable fixtures separate from requirements for another project.

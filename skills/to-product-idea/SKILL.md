@@ -41,7 +41,7 @@ target_decision: intent field or boundary
 affected_artifact: docs/product-idea.md
 ```
 
-The runtime persists it as `Input needed`, displays it in the foreground intake, routes the external default browser to the request when needed, and resumes the same session automatically after the answer. Standalone, ask in the conversation and wait.
+The runtime persists it as `Input needed`, displays it in the foreground intake, opens the selected supported surface when needed, and resumes the same session automatically after the answer. Honor explicit host/browser preferences; otherwise use the external default browser. Standalone, ask in the conversation and wait.
 
 ## Design materials intake
 
@@ -91,7 +91,7 @@ Jobs explain why users act. Do not duplicate user stories, system paths or the j
 2. Verify primary user/problem/outcome, V1 boundary and material JOBs. Each maps to a core workflow/use-case candidate or explicit unresolved relationship. Record materials as supplied, none yet, deferred or source-backed not applicable; availability is not required.
 3. Present the complete draft. An explicit creation/start request authorizes finalization once material gaps are resolved, including the original request to run the pipeline. No magic phrase or repeated start confirmation is required; this is not design approval.
 4. Within that authorization, atomically create/version the final file only when absent or confirmed intent/source notes changed; otherwise keep its bytes. Validate and hash the final content.
-5. Return the hash, source mode, language/selection source, separate product locales, intake/session ID, answered decision IDs, assumptions, non-blocking questions and submission time. The runtime writes the handoff receipt and dispatches `to-sdd-pipeline`.
+5. Return hash, source mode, language/selection source, product locales, available intake/session IDs, answered decision IDs, assumptions, questions and actual submission time. In pipeline mode, the caller continues; active adapters record required handoff receipts.
 
 Use `source_mode: existing-file | imported | seed | interview` accurately. Restore the exact pending question, answers, branch, draft and assumptions after interruption. Detect user edits by content hash. Preserve earlier answer provenance when intent changes.
 
@@ -101,4 +101,4 @@ A downstream material gap returns through the same intake, updates this artifact
 
 Use the smallest coherent structure covering positioning, target user/problem, outcome, Jobs To Be Done, core workflow, V1 scope, exclusions, principles/authority, success, assumptions/open questions and source notes, including the design-materials disposition and locations. Preserve an existing equivalent structure; no empty ceremony.
 
-Return file/hash, source mode, working language/product locales, confirmed JOBs and changed decisions, assumptions/questions and handoff to `to-sdd-pipeline`. While waiting, return the brief interpretation/coverage plus one typed question and required persisted request/run IDs; the caller displays both together. Do not add a confirmation question or approval step.
+Return file/hash, source mode, working language/product locales, confirmed JOBs, changed decisions, assumptions/questions and handoff to `to-sdd-pipeline`. While waiting, return interpretation/coverage and one typed question with available request/run IDs; the caller displays both. Disclose unavailable persistence; never invent events or IDs. Add no confirmation or approval step.

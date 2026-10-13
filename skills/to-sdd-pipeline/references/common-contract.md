@@ -6,6 +6,8 @@ Read before work. All 13 skills ship together; resolve resources from SKILL.md's
 
 Project sources/decisions define scope; bundled examples/fixtures supply no product requirements unless explicitly adopted. Inspect facts, retain terms/IDs, label assumptions. Context cannot override PRD/design/architecture/quality. Write declared outputs: orchestrator owns `forge/sdd-manifest.json`, operators receipts. Owners reconcile changes, preserving history/progress/approvals/immutable candidates.
 
+Keep test-project details, run results and audit/authoring history in separate reports, outside reusable instructions. Executable fixtures remain isolated test inputs, not product requirements.
+
 Return reviewed `source_usage`: path → `"full"`, exact consumed headings, or `{"unused":"reason"}` for context/optional files. Bind referenced scope/terms/evidence sections; omission is not unused. Exclude later results from planning. Repository claims need time, command, scoped paths/hashes/absence; recheck on reuse.
 
 `working_language`: explicit instruction > saved preference > latest substantive message. Localize prose/questions/adapters/labels; product locales stay separate. Ukrainian is idiomatic; retain paths/code/commands/identifiers/names/quotes and approved English IT terms with meanings in `canonical-terms.md`.

@@ -72,7 +72,7 @@ retired_prepare() {
   }
   policy=$(sed 's/\r$//' "$retired_policy")
   [[ "$policy" == "$(printf '%s\n' "${retired_names[@]}")" ]] || {
-    printf 'Invalid retirement policy: only the two retired business skills are allowed.\n' >&2; return 1;
+    printf 'Invalid retirement policy: only the two retired skills are allowed.\n' >&2; return 1;
   }
   for name in "${retired_names[@]}"; do
     if manifest_entries | awk -F '|' -v name="$name" '$1==name {found=1} END {exit !found}'; then

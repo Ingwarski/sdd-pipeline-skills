@@ -8,7 +8,7 @@ Read [shared operating rules](../to-sdd-pipeline/references/common-contract.md) 
 
 ## Inputs
 
-Required before starting: `docs/prd.md`, `docs/guardrails.md`, `docs/user-journey.md`, `docs/screen-map.md`, `docs/wireframes.md`, `docs/design-brief.md`; in pipeline mode also the validated context/terms bundle.
+Required: PRD, guardrails and journey under `docs/`; UI scope also needs screen map, wireframes and design brief. Pipeline mode adds validated context/terms.
 
 Optional grounding: README, explicit decisions, authoritative product idea when named by the PRD, and current code/routes/schemas/config/tests/build/deployment evidence. Inspect secret names, never expose secret values.
 
@@ -46,4 +46,4 @@ Add runtime/automation, security/access, performance/observability, stack constr
 
 ## Return
 
-Report file, changed or revalidated decisions, clause/configuration coverage, observations, baseline binding when applicable, unresolved risks and `security_coverage`. No commits, README edits or repository synchronization inside this owner. [Authoring provenance](../to-sdd-pipeline/references/authoring-sources.md) is optional historical background, not a runtime input.
+Report file, changed or revalidated decisions, clause/configuration coverage, observations, baseline binding when applicable, unresolved risks and `security_coverage`. No commits, README edits or repository synchronization inside this owner.

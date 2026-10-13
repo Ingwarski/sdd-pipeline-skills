@@ -39,6 +39,7 @@ GATE_KINDS = {
     "heuristic_usability_review": "heuristic",
     "representative_user_task_validation": "representative_user",
 }
+VISUAL_GATE = "approved_visual_baseline_fidelity"
 
 
 def unique_object(pairs):
@@ -1245,9 +1246,24 @@ class Checker:
             if status in ("blocked", "deferred", "not_applicable") and not check.get("rationale"):
                 self.issue("missing_rationale", "qa-checklist", key)
             if check.get("gate_id") in GATE_KINDS and status != "not_applicable":
-                if baseline_required and (check.get("baseline_id") != baseline_id or check.get("target_hash") != self.manifest.get("active_baseline", {}).get("visual_target_hash")):
-                    self.issue("stale_check_binding", "qa-checklist", key)
-                if not all(check.get(field) for field in ("task", "user_group", "route", "state", "viewport")):
+                scope = check.get("interaction_scope")
+                nonvisual = isinstance(scope, dict) and scope.get("kind") == "nonvisual"
+                if scope is not None and not nonvisual:
+                    self.issue("invalid_check_scope", "qa-checklist", key + ": explicit scope must be nonvisual")
+                if nonvisual:
+                    if check.get("gate_id") == VISUAL_GATE:
+                        self.issue("invalid_check_scope", "qa-checklist", key + ": visual fidelity cannot use nonvisual scope")
+                    if not all(isinstance(scope.get(field), str) and scope[field].strip() and scope[field] in text
+                               for field in ("context", "rationale")):
+                        self.issue("invalid_check_scope", "qa-checklist", key + ": canonical nonvisual context and applicability rationale required")
+                else:
+                    if not self.ui:
+                        self.issue("contradictory_applicability", "qa-checklist", key + ": headless interaction checks need explicit nonvisual scope")
+                    if baseline_required and (check.get("baseline_id") != baseline_id or check.get("target_hash") != self.manifest.get("active_baseline", {}).get("visual_target_hash")):
+                        self.issue("stale_check_binding", "qa-checklist", key)
+                    if not all(check.get(field) for field in ("route", "state", "viewport")):
+                        self.issue("missing_check_scope", "qa-checklist", key)
+                if not all(check.get(field) for field in ("task", "user_group")):
                     self.issue("missing_check_scope", "qa-checklist", key)
             if status in ("passed", "failed"):
                 evidence = check.get("evidence", [])
@@ -1301,7 +1317,7 @@ class Checker:
                 self.issue("gate_id", "dod-evals", "missing or duplicate gate ID")
                 continue
             gate_ids.add(key)
-            if not self.ui and key in GATE_KINDS and gate.get("applicability") != "not_applicable":
+            if not self.ui and key == VISUAL_GATE and gate.get("applicability") != "not_applicable":
                 self.issue("contradictory_applicability", "dod-evals", "UI gate in headless scope: " + key)
             text = self.reference(gate.get("definition_ref"), "dod-evals")
             if key not in text or self.reference_path(gate.get("definition_ref")) != "docs/dod-evals.md":

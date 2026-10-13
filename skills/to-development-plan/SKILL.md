@@ -27,12 +27,12 @@ Do not redefine product behavior, journeys/screens, layouts/style, architecture,
 Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Include control implementation, negative tests and applicable dependency/operational maintenance work in existing units, tracing every PRD security obligation to real QA IDs and the required security gate. Return `security_coverage`; unresolved security design goes to its owner first. Never silently remove security work to fit a revised design or imply that planning ran a scan.
 
 1. Read current sources; classify context/terms as applied, reference-only, irrelevant or conflicting. Cite only relevant fragments and local implementation consequences; no copied personas, summaries or glossaries.
-2. Verify the approved Baseline ID, candidate/version, target hash, frozen source hash/algorithm, approval receipt, scope and permitted variance. For UI scope, stop before production-unit planning if approval is missing. Do not reinterpret or re-approve the design.
-3. Verify architecture/DoD/QA are current for that baseline. Changed approval/target/override invalidates affected units and authorization; return to the appropriate owner.
+2. For UI scope, verify approved Baseline ID, candidate/version, target hash, frozen source hash/algorithm, approval receipt, scope and permitted variance. Stop before production-unit planning if approval is missing. Do not reinterpret or re-approve the design.
+3. Verify architecture/DoD/QA match current sources and the applicable baseline. Changed approval/target/override invalidates affected units and authorization; return to the appropriate owner.
 4. Inspect existing modules/files/routes/components/services/tests and dated observations; follow established architecture.
 5. Apply the [unit execution contract](../to-sdd-pipeline/references/unit-execution-contract.md): review full construction/acceptance with later units absent; resolve cycles through source-backed splits/merges, assign integration owners, then number dependency order. Preserve every clause/check and reconciliation/authorization rule. Each unit finishes using itself and completed lower-numbered units; partial work is not completion.
    Allocate [lifecycle mechanisms](../to-sdd-pipeline/references/lifecycle-contract.md) and early feasibility prerequisites before dependent construction. Every required mechanism needs authorized production paths, construction owner/checks, interfaces and prerequisites. A qualification-only unit cannot supply omitted production work. This handoff does not authorize deployment.
-6. For each user-visible unit preserve JOB → UC → journey → screen/state trace and bind baseline/target/scope/variance, visual fidelity, applicable H1-H10/QA IDs and representative-user task validation.
+6. Preserve applicable JOB → UC → task traces and heuristic/user-task verification through the shared verification contract, including nonvisual tasks. UI units also bind journey/screen/state, baseline/target/scope/variance and visual fidelity.
 7. Reference gate definitions and concrete QA checks; bind all consumed QA sections, including shared scope/evidence conventions and terms they rely on, not later execution results. Return their `source_usage` and hashes/fragments. Never invent participants, findings or research outcomes. Pending execution stays not-run, not passed.
 8. For independently developed or cross-layer units define interfaces produced/consumed, API/data-contract references, owner, compatibility and integration verification.
 9. If prototype code exists, declare no reuse or the bounded promotion contract. Keep component/integration responsibilities and missing production capabilities explicit.
@@ -52,8 +52,9 @@ Each unit resolves:
 
 - ID/scope/owner; mechanism and clause contributions; construction dependencies/checks; acceptance prerequisites; authorized production paths; integration ownership; work and evidence. Return canonical `unit_plan`, its architecture `construction_ref` and complete `construction` allocation, with typed traceability.
 - Component/layer: use architecture-defined names, not a fixed web-layer taxonomy.
-- For user-visible units: JOB/UC/journey/state, Baseline ID/target hash, scope, permitted variance/overrides, `approved_visual_baseline_fidelity`, applicable `heuristic_usability_review`/H1-H10/QA IDs and `representative_user_task_validation` task/success/evidence references.
-- For nonvisual components: whether they enable user-visible states/data/actions.
+- For UI units: JOB/UC/journey/state, Baseline ID/target hash, scope, permitted variance/overrides and `approved_visual_baseline_fidelity`.
+- Applicable `heuristic_usability_review`/H1-H10/QA IDs and `representative_user_task_validation` references follow shared scope rules for visual or nonvisual tasks.
+- For nonvisual components: source-defined tasks and whether they enable user-visible states/data/actions.
 - For parallel tasks inside the active unit: interfaces, exclusive write ownership, shared evidence reservations and coordinator integration. Later units remain sequential.
 - For traced prototype reuse: the fields in the promotion reference.
 

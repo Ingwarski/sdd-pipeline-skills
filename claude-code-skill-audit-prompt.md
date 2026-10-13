@@ -7,19 +7,20 @@ Audit the repository containing this prompt. **Read-only:** do not edit files, i
 1. Read README, `skills-manifest.json`, all 13 `skills/*/SKILL.md` files, their required references, the checker and installer tests. Read conditional references for scenarios you assess.
 2. Use the machine contract for required-before edges and the README ownership table for orientation; verify both against actual skill instructions. Do not copy the old workflow from memory.
 3. Resolve installed skills and shared resources through their real paths, including symlinks/junctions. Test from an unrelated product directory and after clone relocation.
-4. Record the revision, inspected paths and unavailable sources. Distinguish this repository, installed copies, synthetic fixtures, actual agent runs and external DAS Forge runtime evidence.
+4. Record the revision, inspected paths and unavailable sources. Distinguish this repository, installed copies, synthetic fixtures, actual agent runs and evidence from the selected execution host.
 
 ## What to verify
 
 - **SDD, not mandatory TDD:** product requirements, approved design and architecture define what to build; QA supplies verification. A checklist does not become the product specification.
-- **Entry/intake:** both rough intent without a file and an existing/imported idea work. Ask one visible material question at a time, with recommendation, rationale and consequences; persist explicit answers. No silent assumptions, timeouts as consent, redundant interview, or hidden log-only question.
-- **Language:** explicit instruction > recorded preference > latest substantive message; propagate working language through owners/adapters. Keep UI locales separate. Ukrainian prose/headings/statuses are idiomatic; preserve only documented identifier/term exceptions.
+- **Entry/intake:** both rough intent without a file and an existing/imported idea work. Ask one visible material question at a time; persist explicit answers. Give operator choices a recommendation, rationale and consequences; keep behavioral research neutral. No silent assumptions, timeouts as consent, redundant interview, or hidden log-only question.
+- **Language:** explicit instruction > recorded preference > latest substantive message; propagate working language through owners/adapters. Keep product locales separate. Use natural prose/headings/statuses in the selected language; preserve documented identifier/term exceptions.
 - **Ownership:** one owner per artifact; context + vocabulary is one two-output invocation with independent validation/hashes. Orchestrator writes only the manifest, adapters only authorized operational paths. No parallel product-truth documents.
 - **Traceability:** JOBs belong to product idea, use cases to PRD; downstream documents cite them. Cover distinct observable requirement clauses, not merely parent IDs. Context clarifies but never overrides behavior/design/architecture.
-- **Design quality:** realistic user sessions, friction and value moments; navigation/surface closure; structural wireframes; design/experience spines; explicit conflict rules; distinctive product-specific visuals; existing systems; accessibility, responsive behavior, motion, error prevention/recovery and H1–H10, including H7/H10.
+- **Applicability:** derive users, roles, platforms, persistence, input modes, components and delivery from project sources. Inspect meaning, not only names. Check visual and nonvisual, native and web, local and shared-service examples without adding their features to unrelated projects.
+- **Design quality:** for UI scope, review realistic sessions, navigation/surface closure, wireframes, design/experience spines, conflict rules, product-specific visuals, existing systems, platform accessibility, responsive behavior and motion. Apply source-required task, error/recovery and heuristic checks to visual or nonvisual interactions.
 - **Evidence:** definitions, execution and release readiness are separate. Prepared/not-run is not passed. Visual fidelity, heuristic review, representative-user research, accessibility and functionality remain distinct. Deferred required checks cannot pass release; advisory failures remain visible.
-- **Order:** pre-design architecture/DoD/QA → prototypes → one whole-design approval → canonical baseline → affected architecture → DoD → QA → development plan. DoD's later QA bindings and QA's later plan lookup are not authoring prerequisites.
-- **Candidates:** three equivalent-scope interactive options, immutable versions/hashes, scoped visual QA and actual external-browser receipts. Codex opens three; Claude compares three tool-native candidates and imports only the selected version. Selection/export is not approval.
+- **Order:** UI scope uses pre-design architecture/DoD/QA → prototypes → one whole-design approval → baseline → affected architecture → DoD → QA → plan. Confirmed headless scope omits visual stages and retains applicable task/acceptance duties. Later QA bindings and plan lookups are not authoring prerequisites.
+- **Candidates:** for UI scope, three equivalent-scope interactive options, immutable versions/hashes, scoped visual QA and receipts for the selected supported review surface. Codex opens three; Claude compares three tool-native candidates and imports only the selected version. Selection/export is not approval.
 - **Claude/source access:** inventory covers every required design source, not only convenient SDD files. Verify both access/read receipts against actual source IDs/hashes before generation. Fail closed on missing required access; use authorized transfer fallbacks without silently switching executors.
 - **Approved baseline:** sole authority is the design brief. Recompute target/tree hashes; retain prior versions and scoped overrides. No implementation-agent self-approval or silent in-place edit.
 - **Continuation:** validate affected sources/fragments/scoped repository observations. Unrelated changes must not invalidate everything. Preserve old projects/history through metadata migration.
@@ -33,13 +34,7 @@ Audit the repository containing this prompt. **Read-only:** do not edit files, i
 
 Discover available local skills by name from the current catalog; do not assume a username, plugin-cache version or installed capability. Read full entrypoints and their required references. Mark unavailable sources honestly.
 
-Inspect relevant mechanisms from `grill-me`, `skill-creator` / authoring equivalents, `writing-skills`, `modern-ux-ui-2026`, current Product Design and Figma skills, `verification-before-completion`, `writing-plans`, `executing-plans`, and QA/design-QA equivalents. Read TDD guidance only to identify mechanisms that should not become mandatory in SDD.
-
-The architecture/DoD [authoring provenance](skills/to-sdd-pipeline/references/authoring-sources.md) lists previously considered public sources. Reopen any source used for a current finding; historical provenance is not current verification.
-
-For BMAD UX, inspect the available [skill](https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/web-bundles/ux-coach/SKILL.md), [instructions](https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/web-bundles/ux-coach/INSTRUCTIONS.md) and [validation rubric](https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/web-bundles/ux-coach/ux-validation.md). Compare spines, decisions, named-protagonist journeys, concern scans, surface closure, conflict resolution, handoff prompts, visual capture, accessibility and anti-patterns.
-
-Search exact previously suggested names where relevant: `site-architecture`, `frontend-design`, `design-an-interface`, `ui-ux-pro-max`, `qa`, `webapp-testing`, `domain-modeling`, `ubiquitous-language`, `implement`, `request-refactor-plan`. These are unverified candidates, not assumed capabilities; report unavailable after search and continue.
+Choose external comparisons only when relevant to the requested audit. Inspect their current primary sources and actual mechanisms; do not require a fixed vendor, technology stack or previously suggested skill list. Keep past comparisons and authoring history in the separate report.
 
 For each inspected mechanism decide **reuse, adapt, reject, or negative example**, with evidence and security/dependency/scope tradeoffs. Do not recommend wholesale import merely because a skill sounds useful.
 
@@ -60,4 +55,4 @@ Lead with a short, nontechnical verdict and the highest-impact recommendations. 
 5. What is correct, what is wrong or overstated, and what remains unverified.
 6. Prioritized actions and a final decision: usable as-is, patch first, or redesign.
 
-Prefer improving the existing 13 skills over adding documents/skills. No vague praise, name-based source claims, guessed runtime enforcement or hidden assumptions. Keep the report concise without dropping distinct findings.
+Prefer improving the existing 13 skills over adding documents/skills. No vague praise, name-based source claims, guessed runtime enforcement or hidden assumptions. Keep findings, test-project details and audit history in the separate report, outside reusable instructions. Keep the report concise without dropping distinct findings.

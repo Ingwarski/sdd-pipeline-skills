@@ -25,7 +25,7 @@ For an explicit install, update, repair, or uninstall request:
 4. Use `--cleanup-dir` / `-CleanupDir` for additional confirmed project skill
    folders and old SDD clones' `skills/` folders. Do not scan or delete arbitrary
    repositories across the disk. Links are removed without following their targets.
-5. Do not install the private business collection. Keep unrelated skills,
+5. Install only skills listed in the selected manifest. Keep unrelated skills,
    including third-party `to-prd`, unchanged. SDD uses `to-sdd-prd`.
 6. Report deletion errors and remaining paths as failures, never completed cleanup.
    Retirement may finish even if a separate conflict blocks SDD link installation.
