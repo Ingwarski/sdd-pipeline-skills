@@ -64,7 +64,7 @@ while IFS='|' read -r skill_name relative_path legacy_name; do
   grep -Fq 'common-contract.md' "$repo_root/$relative_path/SKILL.md"
 done < <(python3 "$repo_root/scripts/install_manifest.py" --root "$repo_root" --metadata-only)
 
-grep -Fq 'Ukrainian is idiomatic' "$repo_root/skills/to-sdd-pipeline/references/common-contract.md"
+grep -Fq 'explicit instruction > saved preference > latest substantive message' "$repo_root/skills/to-sdd-pipeline/references/common-contract.md"
 grep -q 'working_language' "$repo_root/skills/to-sdd-pipeline/references/common-contract.md"
 
 grep -q 'working_language' "$repo_root/skills/to-sdd-pipeline/references/claude-design-handoff.md"

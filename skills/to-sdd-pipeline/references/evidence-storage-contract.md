@@ -27,6 +27,10 @@ Placeholders are not evidence. Preserve applicable source/plan/baseline/environm
 
 Evidence arrays and approval/browser/visual/promotion/prompt/sequencing receipts accept references with original JSON semantics. `visual_target_ref` replaces the path; retain `visual_target_hash` for semantic approval bindings. Source-manifest/access/read refs replace path/hash pairs. `source_inventory_ref` expands `{version:1, source_hashes, consumed_source_fragments?}` into identical contained maps; inline conflicts fail. Source containment and test reuse stay strict.
 
+New structured `interactions_checked` rows separate `action_name`, `observed_state_id`, `fixture_id`, `observed_result` and original `observed_at`. Optional `observation_source_index` selects an existing `original_observation_refs` entry; `observation_pointer` selects its JSON object. Compare available structured state/fixture/result/time fields, never infer observed state from an action tag, expected state or DOM prose. Legacy receipts remain valid; structural agreement does not authenticate an observation or prove coverage.
+
+Label corrections use a separate version-1 `observation_metadata_correction` receipt with the unchanged hash-bound `original_receipt`, its original `observed_at`, named `reviewer`/`reason`, separate `corrected_at`, and `new_execution: false`. Its `corrections` target original `interaction_index` values and retain their observation times; only the label/source-pointer fields above may change. Refer to the original receipt, not another correction; preserve originals/history and separate evidence for other states. The checker validates declared agreement; an owner reviews semantic accuracy. No new capture, authority or acceptance is created.
+
 ## Preparation and resources
 
 Storage performs network/cache writes: capture stable regular bytes → immutable pack → upload → independent retrieval → verify archive/original members → recoverable catalog → eligible local removal. Deduplicate content, retain logical associations, checkpoint transfers and journal deletion; reconcile unknown outcomes before retries.

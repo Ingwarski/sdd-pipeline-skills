@@ -29,7 +29,7 @@ python3 /resolved/to-sdd-prd/scripts/asvs.py --ids v5.0.0-8.2.2
 
 Consider all 17 chapters for applicability; read the actual controls at the selected level and below for each applicable chapter, plus justified escalations. Work in small chapter groups instead of loading the whole catalog into every skill. For adapted scopes, inspect relevant controls across levels without claiming a level. Missing/corrupt references block the affected review; do not reconstruct control text or IDs from memory.
 
-Use the catalog's chapter names: authentication is **V6**, sessions **V7**, authorization **V8**, and configuration **V13**. Do not reuse the original procedure's inconsistent chapter/example mappings. Cite exact existing IDs as `v5.0.0-8.2.2`; chapter references alone are not requirement mappings.
+Use the catalog's chapter names: authentication is **V6**, sessions **V7**, authorization **V8**, and configuration **V13**. Cite exact existing IDs as `v5.0.0-8.2.2`; chapter references alone are not requirement mappings.
 
 ## 3. Turn gaps into product obligations
 

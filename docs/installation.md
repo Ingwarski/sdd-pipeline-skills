@@ -1,8 +1,8 @@
 # Installation, Updating and Cleanup
 
-Run commands from the durable SDD clone. Mutating installer/update work requires Python 3.12+; Python 3.14 is the recommended stable series under [runtime policy](../runtime-policy.json). Both installers and the checker use the standard library, with no student packages or Node dependency. Missing Python or invalid sources/references stop before cleanup or link changes.
+Run commands from the durable SDD clone. Mutating installer/update work requires Python 3.12+; Python 3.14 is the recommended stable series under [runtime policy](../runtime-policy.json). Both installers and the checker use the standard library, with no additional Python packages or Node dependency. Missing Python or invalid sources/references stop before cleanup or link changes.
 
-For new student clones, use `git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git`, then inside the clone `git switch -c main`. The local branch remains `main`; its selected remote channel is `stable`. Run the installer below. It creates links, never skill copies. Later use the updater: plain `git pull` does not perform retirement cleanup.
+For new clones, use `git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git`, then inside the clone `git switch -c main`. The local branch remains `main`; its selected remote channel is `stable`. Run the installer below. It creates links, never skill copies. Later use the updater: plain `git pull` does not perform retirement cleanup.
 
 ### Agent-assisted installation or update
 
@@ -26,7 +26,7 @@ The source of every link is always this repository clone. For example, if Window
 
 Windows first attempts a true directory symbolic link. When local policy blocks that operation, it creates an NTFS directory junction instead. Both remain links to the clone; neither copies skill contents.
 
-The installers validate the 13 sources, permanently remove the retired business skills, then preflight active SDD destinations before changing SDD links. A real directory, file, or foreign link occupying an active SDD name is a conflict and is not overwritten. Retirement can therefore complete even if a separate SDD conflict blocks installation. `--repair`/`-Repair` replaces only previously recorded SDD links. `--uninstall`/`-Uninstall` removes only active SDD links owned by this clone; retirement applies to install, repair, and update.
+The installers validate the 13 sources, permanently remove the retired skills, then preflight active SDD destinations before changing SDD links. A real directory, file, or foreign link occupying an active SDD name is a conflict and is not overwritten. Retirement can therefore complete even if a separate SDD conflict blocks installation. `--repair`/`-Repair` replaces only previously recorded SDD links. `--uninstall`/`-Uninstall` removes only active SDD links owned by this clone; retirement applies to install, repair, and update.
 
 Use `skills-manifest.json` from the selected revision for current installation names and paths. Its `legacy_name: "to-prd"` maps the old SDD request name to `name: "to-sdd-prd"`: the same PRD owner, not a different skill or a fourteenth entry. Agents must normalize an old SDD list before checking availability and continue without rename confirmation, even if no old `to-prd` is installed. Clarify genuinely unknown names or explicit no-renaming constraints; do not invent aliases.
 
@@ -48,7 +48,7 @@ Moving or deleting the clone breaks its links. Re-run the installer from the new
 
 ## Updating and cleanup
 
-From local `main`, select the tested student channel:
+From local `main`, select the tested channel:
 
 ```bash
 ./update.sh --channel stable --all
@@ -75,11 +75,10 @@ Read-only local validation: run `python3 scripts/installation_status.py --root C
 
 For old clones missing the helper/updater/channel option, a clean `git merge --ff-only FETCH_HEAD` after fetching `stable` bootstraps current tooling. If retired copies block that merge, use a full temporary checkout of the fetched revision only for its `--retire-only` / `-RetireOnly` installer, with explicit managed roots and the old clone's `skills/` as a cleanup root. Never install links from that temporary checkout or recreate deletion logic by hand. Unrelated changes still block updating; cleanup already performed is irreversible and must be reported.
 
-### Retired business skills
+### Retired skills
 
-`communications-audit` and `issue-happypro-certificate` were accidentally included
-in the old SDD repository. Every install, repair, and update permanently deletes
-both names from the managed skill folders.
+Every install, repair, and update permanently deletes `communications-audit` and
+`issue-happypro-certificate` from the managed skill folders.
 
 - Delete entire copied directories, including local edits and extra files.
 - Delete links and broken links regardless of their source or ownership receipt.
@@ -121,7 +120,7 @@ network check. Pushing to GitHub does not update other machines by itself.
 
 Automatic updates are possible after each user opts in once to a local scheduled
 task that runs the updater. A daily or between-session check is preferable to
-changing skills during a running task. Use the tested `stable` channel and preserve an opt-out. Repository CI publication is not an automatic download or a scheduler on student machines.
+changing skills during a running task. Use the tested `stable` channel and preserve an opt-out. Repository CI publication is not an automatic download or a scheduler on user machines.
 
 After files arrive locally, Codex detects local skill changes and follows skill
 links; restart it if the update is not visible. That local reloading is different

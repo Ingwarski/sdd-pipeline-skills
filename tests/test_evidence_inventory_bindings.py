@@ -141,3 +141,47 @@ class InventoryBindingTests(unittest.TestCase):
         self.assertNotIn("evaluated_source_hashes", compact)
         # Authoring compact metadata cannot turn the synthetic absent live paths into acceptance.
         self.blocked("source-inventory dependency")
+
+    def retained_review(self, *, change_source=False):
+        from revalidation_fixture import preserve_context, fresh_plan_authorization, record_review
+        context = preserve_context(self.p, "U-1", self.fixture.checker())
+        self.p.write("docs/development-plan.md", (self.p.root / "docs/development-plan.md").read_text() + "\nSynthetic editorial clarification.\n")
+        if change_source:
+            self.p.write("src/app.txt", "Synthetic implementation fixture.\n# reviewed inert comment\n")
+        fresh_plan_authorization(self.p)
+        event = record_review(self.p, "U-1", context, self.fixture.checker())
+        return context, event
+
+    def test_reviewed_plan_reuse_keeps_original_compact_inventory_and_observation_bindings(self):
+        context, event = self.retained_review()
+        self.assertEqual("passed", self.report()["result"])
+        for check in self.checks:
+            bindings = self.fixture.checker().check_bindings(check, evidence=check["evidence"][0])
+            self.assertEqual(context["unit_run"]["development_plan_hash"], bindings["evaluated_plan_hash"])
+            self.assertEqual("2026-08-20T10:05:00Z", bindings["executed_at"])
+            self.assertEqual(self.inventory["sha256"], bindings["evaluated_source_inventory_sha256"])
+        self.assertEqual("2026-08-20T10:22:00Z", event["reviewed_at"])
+
+    def test_source_impact_review_uses_current_hashes_without_rebinding_original_inventory(self):
+        context, event = self.retained_review(change_source=True)
+        self.assertEqual("passed", self.report()["result"])
+        original = self.fixture.checker().source_inventory(self.checks[0], "evaluated_source_hashes")[0]
+        self.assertEqual(self.hashes, original)
+        self.assertNotEqual(original["src/app.txt"], event["current_source_hashes"]["src/app.txt"])
+        self.assertEqual(context["checks"][self.checks[0]["check_id"]]["evidence"], self.checks[0]["evidence"])
+        self.p.write("src/app.txt", "Changed after the review.")
+        self.blocked("changed/missing current source")
+
+    def test_external_review_requires_distinct_current_review_provenance_and_bindings(self):
+        context, event = self.retained_review()
+        bindings = {key: event[key] for key in ("unit_id", "original_plan_hash", "current_plan_hash", "reviewer", "reviewed_at")}
+        ref = self.fixture.prepare(event, "current-acceptance-review", "receipt", "sdd-receipt-v1", bindings)
+        ref["provenance"].update(executor=event["reviewer"], executed_at=event["reviewed_at"])
+        self.fixture.receipt(ref)
+        self.m["unit_runs"]["U-1"]["revalidation_ref"] = ref
+        for check in self.checks:
+            check["revalidation_ref"] = ref
+        self.assertEqual("passed", self.report()["result"])
+        ref["provenance"]["executed_at"] = "2026-08-20T10:05:00Z"
+        self.fixture.receipt(ref)
+        self.blocked("review provenance")

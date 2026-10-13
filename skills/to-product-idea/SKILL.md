@@ -34,18 +34,18 @@ question_id: stable-id
 working_language: BCP-47 language tag
 question: one intake question
 why_material: affected product intent or design grounding
-recommendation: preferred answer and rationale
+recommendation: operator choice and rationale; omit for behavioral research
 answer_type: choice|multi_choice|free_text|confirmation
 options: []
 target_decision: intent field or boundary
 affected_artifact: docs/product-idea.md
 ```
 
-The runtime persists it as `Input needed`, displays it in the foreground intake, routes the external default browser to the request when needed, and resumes the same session automatically after the answer. Standalone, ask in the conversation and wait.
+The runtime persists it as `Input needed`, displays it in the foreground intake, opens the selected supported surface when needed, and resumes the same session automatically after the answer. Honor explicit host/browser preferences; otherwise use the external default browser. Standalone, ask in the conversation and wait.
 
 ## Design materials intake
 
-During initial intake, inspect supplied attachments/links and relevant repository materials. If neither materials nor a prior answer is available, ask once in `working_language`, before finalizing:
+Inspect supplied materials first. For confirmed headless scope, record visual materials as not applicable without this question. Otherwise, if neither materials nor a prior answer exists, ask once in `working_language`:
 
 > Which design materials can you share—sample websites/apps, screenshots, brand guides, colors, fonts, or HTML prototype mockups with their CSS/JS/assets? Paste links, attach files to this prompt, or place them in `<project-root>/docs/design-inputs/` and share their paths. “None yet” or “later” is fine.
 
@@ -88,10 +88,10 @@ Jobs explain why users act. Do not duplicate user stories, system paths or the j
 ## Completion, change and handoff
 
 1. Check that every load-bearing statement has a named source or explicit answer, all answers retain their meaning, and no material contradiction or scope ambiguity remains.
-2. Verify primary user/problem/outcome, V1 boundary and all material JOBs. Each primary job maps to a core workflow/use-case candidate or an explicit unresolved relationship. Record the design-materials disposition: supplied, none yet or deferred; availability itself is not required.
+2. Verify primary user/problem/outcome, V1 boundary and material JOBs. Each maps to a core workflow/use-case candidate or explicit unresolved relationship. Record materials as supplied, none yet, deferred or source-backed not applicable; availability is not required.
 3. Present the complete draft. An explicit creation/start request authorizes finalization once material gaps are resolved, including the original request to run the pipeline. No magic phrase or repeated start confirmation is required; this is not design approval.
 4. Within that authorization, atomically create/version the final file only when absent or confirmed intent/source notes changed; otherwise keep its bytes. Validate and hash the final content.
-5. Return the hash, source mode, language/selection source, separate product locales, intake/session ID, answered decision IDs, assumptions, non-blocking questions and submission time. The runtime writes the handoff receipt and dispatches `to-sdd-pipeline`.
+5. Return hash, source mode, language/selection source, product locales, available intake/session IDs, answered decision IDs, assumptions, questions and actual submission time. In pipeline mode, the caller continues; active adapters record required handoff receipts.
 
 Use `source_mode: existing-file | imported | seed | interview` accurately. Restore the exact pending question, answers, branch, draft and assumptions after interruption. Detect user edits by content hash. Preserve earlier answer provenance when intent changes.
 
@@ -101,4 +101,4 @@ A downstream material gap returns through the same intake, updates this artifact
 
 Use the smallest coherent structure covering positioning, target user/problem, outcome, Jobs To Be Done, core workflow, V1 scope, exclusions, principles/authority, success, assumptions/open questions and source notes, including the design-materials disposition and locations. Preserve an existing equivalent structure; no empty ceremony.
 
-Return file/hash, source mode, working language/product locales, confirmed JOBs and changed decisions, assumptions/questions and handoff to `to-sdd-pipeline`. While waiting, return the brief interpretation/coverage plus one typed question and required persisted request/run IDs; the caller displays both together. Do not add a confirmation question or approval step.
+Return file/hash, source mode, working language/product locales, confirmed JOBs, changed decisions, assumptions/questions and handoff to `to-sdd-pipeline`. While waiting, return interpretation/coverage and one typed question with available request/run IDs; the caller displays both. Disclose unavailable persistence; never invent events or IDs. Add no confirmation or approval step.

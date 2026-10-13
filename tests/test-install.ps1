@@ -98,7 +98,7 @@ try {
 
     $CommonContract = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills/to-sdd-pipeline/references/common-contract.md') -Raw
     if (-not $CommonContract.Contains('working_language')) { throw 'Shared working-language contract is missing.' }
-    if (-not $CommonContract.Contains('Ukrainian is idiomatic')) { throw 'Shared Ukrainian language contract is missing.' }
+    if (-not $CommonContract.Contains('explicit instruction > saved preference > latest substantive message')) { throw 'Shared language-selection contract is missing.' }
     $ClaudeHandoff = Get-Content -LiteralPath (Join-Path $RepoRoot 'skills/to-sdd-pipeline/references/claude-design-handoff.md') -Raw
     if (-not $ClaudeHandoff.Contains('working_language') -or -not $ClaudeHandoff.Contains('preserved_english_terms')) {
         throw 'Claude Design handoff is missing the working-language contract.'

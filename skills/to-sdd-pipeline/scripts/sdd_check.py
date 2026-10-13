@@ -21,6 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evidence.io import hash_file, read_json as safe_read_json
 from evidence.resolver import EvidenceResolver, evidence_reference, _regular
 from evidence.policy import validate_policy
+from acceptance_revalidation import validate_revalidation
+from construction import validate_construction
+from observation_receipts import validate_observation_receipt
 
 
 CONTRACT = Path(__file__).resolve().parent.parent / "references/pipeline-contract.json"
@@ -36,6 +39,7 @@ GATE_KINDS = {
     "heuristic_usability_review": "heuristic",
     "representative_user_task_validation": "representative_user",
 }
+VISUAL_GATE = "approved_visual_baseline_fidelity"
 
 
 def unique_object(pairs):
@@ -223,9 +227,14 @@ def validate_render_files(root, files):
 
 def section_bytes(path, heading):
     """Exact unique Markdown ATX heading, through the next equal/higher heading."""
+    return section_from_bytes(Path(path).read_bytes(), heading)
+
+
+def section_from_bytes(data, heading):
+    """The same exact section rules for a verified immutable archived source."""
     if not isinstance(heading, str) or not re.match(r"^#{1,6} \S", heading):
         raise ValueError("fragment requires an exact Markdown heading, including #")
-    lines = Path(path).read_bytes().splitlines(keepends=True)
+    lines = data.splitlines(keepends=True)
     headings, fence = [], None
     for index, line in enumerate(lines):
         text = line.decode("utf-8").rstrip("\r\n").lstrip("\ufeff")
@@ -533,6 +542,20 @@ class Checker:
             dependency = self.evidence_resolver.references[next(iter(self.evidence_resolver.visited))]
             self.evidence_accounting(dependency)
         return value
+
+    @staticmethod
+    def bytes_hash(data):
+        return digest(data)
+
+    def evidence_bytes(self, record):
+        """Read verified original bytes without assigning a new execution context."""
+        ref = evidence_reference(record)
+        path = self.evidence_resolver.resolve(ref) if ref is not None else self.path(record["path"], no_links=True)
+        before = self.file_hash(path)
+        data = path.read_bytes()
+        if digest(data) != before or self.file_hash(path) != before:
+            raise ValueError("evidence changed while reading original bytes")
+        return data
 
     @staticmethod
     def capture_record(record, stem):
@@ -1181,6 +1204,7 @@ class Checker:
                         if not record.get(key) or actual.get(key) != record[key]:
                             raise ValueError("receipt does not match current " + key)
                     timestamp(actual.get("observed_at"))
+                    validate_observation_receipt(self, actual)
                     if actual.get("result") != "passed":
                         raise ValueError("candidate observation has not passed")
                     surface = self.manifest.get("design_execution", {}).get("review_surface", "external_default")
@@ -1222,9 +1246,24 @@ class Checker:
             if status in ("blocked", "deferred", "not_applicable") and not check.get("rationale"):
                 self.issue("missing_rationale", "qa-checklist", key)
             if check.get("gate_id") in GATE_KINDS and status != "not_applicable":
-                if baseline_required and (check.get("baseline_id") != baseline_id or check.get("target_hash") != self.manifest.get("active_baseline", {}).get("visual_target_hash")):
-                    self.issue("stale_check_binding", "qa-checklist", key)
-                if not all(check.get(field) for field in ("task", "user_group", "route", "state", "viewport")):
+                scope = check.get("interaction_scope")
+                nonvisual = isinstance(scope, dict) and scope.get("kind") == "nonvisual"
+                if scope is not None and not nonvisual:
+                    self.issue("invalid_check_scope", "qa-checklist", key + ": explicit scope must be nonvisual")
+                if nonvisual:
+                    if check.get("gate_id") == VISUAL_GATE:
+                        self.issue("invalid_check_scope", "qa-checklist", key + ": visual fidelity cannot use nonvisual scope")
+                    if not all(isinstance(scope.get(field), str) and scope[field].strip() and scope[field] in text
+                               for field in ("context", "rationale")):
+                        self.issue("invalid_check_scope", "qa-checklist", key + ": canonical nonvisual context and applicability rationale required")
+                else:
+                    if not self.ui:
+                        self.issue("contradictory_applicability", "qa-checklist", key + ": headless interaction checks need explicit nonvisual scope")
+                    if baseline_required and (check.get("baseline_id") != baseline_id or check.get("target_hash") != self.manifest.get("active_baseline", {}).get("visual_target_hash")):
+                        self.issue("stale_check_binding", "qa-checklist", key)
+                    if not all(check.get(field) for field in ("route", "state", "viewport")):
+                        self.issue("missing_check_scope", "qa-checklist", key)
+                if not all(check.get(field) for field in ("task", "user_group")):
                     self.issue("missing_check_scope", "qa-checklist", key)
             if status in ("passed", "failed"):
                 evidence = check.get("evidence", [])
@@ -1253,7 +1292,12 @@ class Checker:
                     evaluated = {}
                 if check.get("phase") in ("implementation", "both") and not evaluated:
                     self.issue("missing_evaluated_revision", "qa-checklist", key)
-                self.sources({"source_hashes": evaluated}, "qa-checklist")
+                try:
+                    review = validate_revalidation(self, check=check)
+                    current = review["current_source_hashes"] if review is not None else evaluated
+                    self.sources({"source_hashes": current}, "qa-checklist")
+                except (ValueError, OSError, KeyError, TypeError) as error:
+                    self.issue("invalid_revalidation", "qa-checklist", str(error))
             elif status == "not_run" and check.get("evidence"):
                 self.issue("ambiguous_execution", "qa-checklist", key + ": not_run cannot claim executed evidence")
             for finding in check.get("findings", []):
@@ -1273,7 +1317,7 @@ class Checker:
                 self.issue("gate_id", "dod-evals", "missing or duplicate gate ID")
                 continue
             gate_ids.add(key)
-            if not self.ui and key in GATE_KINDS and gate.get("applicability") != "not_applicable":
+            if not self.ui and key == VISUAL_GATE and gate.get("applicability") != "not_applicable":
                 self.issue("contradictory_applicability", "dod-evals", "UI gate in headless scope: " + key)
             text = self.reference(gate.get("definition_ref"), "dod-evals")
             if key not in text or self.reference_path(gate.get("definition_ref")) != "docs/dod-evals.md":
@@ -1431,12 +1475,19 @@ class Checker:
     def authorization(self):
         gate = self.manifest.get("implementation_gate", {})
         plan = self.artifacts.get("development-plan", {})
-        if gate.get("state") != "authorized_for_phase3" or gate.get("development_plan_hash") != plan.get("content_hash") or gate.get("approved_baseline_id") != self.manifest.get("approved_baseline_id"):
+        return self.authorization_record(gate, plan.get("content_hash"), self.manifest.get("approved_baseline_id"))
+
+    def authorization_record(self, gate, plan_hash, baseline):
+        """Check current or preserved original authorization; review grants none."""
+        if not isinstance(gate, dict):
+            self.issue("implementation_not_authorized", "implementation", "implementation_gate must be an object")
+            return False
+        if gate.get("state") != "authorized_for_phase3" or gate.get("development_plan_hash") != plan_hash or gate.get("approved_baseline_id") != baseline:
             self.issue("implementation_not_authorized", "implementation", "separate prompt must match current plan and baseline")
-            return
+            return False
         receipt = gate.get("prompt_receipt", {})
         if not self.evidence_snapshot(receipt, "implementation", "prompt_receipt", {key: gate.get(key) for key in ("prompt_id", "development_plan_hash", "approved_baseline_id")}):
-            return
+            return False
         try:
             prompt = self.evidence_json(receipt)
             if prompt.get("event") != "implementation_prompt" or prompt.get("intent") != "start_production_implementation" or prompt.get("role") != "user":
@@ -1458,14 +1509,23 @@ class Checker:
                 raise ValueError("future implementation authorization cannot permit execution")
             if timestamp(prompt.get("received_at")) != timestamp(gate.get("prompt_received_at")):
                 raise ValueError("prompt timestamp mismatch")
+            return True
         except (ValueError, OSError, KeyError) as error:
             self.issue("prompt_receipt", "implementation", str(error))
+            return False
 
     def canonical_json(self, path, heading, expected):
         text = self.reference({"path": path, "heading": heading}, "development-plan")
         blocks = re.findall(r"```json\s*\n(.*?)\n```", text, re.S)
         if len(blocks) != 1 or json.loads(blocks[0], object_pairs_hook=unique_object) != expected:
             raise ValueError(path + ": canonical JSON and projection differ")
+
+    @staticmethod
+    def canonical_json_bytes(data, heading, expected):
+        text = section_from_bytes(data, heading).decode("utf-8")
+        blocks = re.findall(r"```json\s*\n(.*?)\n```", text, re.S)
+        if len(blocks) != 1 or json.loads(blocks[0], object_pairs_hook=unique_object) != expected:
+            raise ValueError("original plan canonical JSON and projection differ")
 
     def units(self, action=None, unit_id=None, release=False):
         """Validate planning separately from recorded runs and requested transitions."""
@@ -1567,6 +1627,7 @@ class Checker:
         # No required product clause/state may disappear into mere contribution coverage.
         covered = {obligation for key, record in acceptance.items() if qa_contract[key]["required"] and qa_contract[key]["level"] in ("integration", "release") for obligation in record["obligation_ids"]}
         require(obligations <= covered, "required obligation lacks full integration/release acceptance ownership; component contribution is insufficient")
+        validate_construction(self, plan, obligations, contributions, checks)
 
         def acyclic(graph, label):
             pending = {key: set(value) for key, value in graph.items()}
@@ -1590,6 +1651,7 @@ class Checker:
         plan_hash = self.artifacts["development-plan"]["content_hash"]
         baseline = self.manifest.get("approved_baseline_id")
         now = datetime.now().astimezone()
+        reviews = {key: validate_revalidation(self, unit_id=key) for key, run in runs.items() if run.get("revalidation_ref") is not None}
         waivers = []
         for receipt in exceptions:
             require(self.evidence_snapshot(receipt, "implementation", "unit_exception"), "invalid sequencing receipt")
@@ -1617,8 +1679,9 @@ class Checker:
                 return
             seen.add(check_id)
             check, record, qa = checks[check_id], acceptance[check_id], qa_contract[check_id]
+            review = reviews.get(record["owner_unit"])
             require(check.get("execution_status") == "passed" and check.get("definition_status") == "prepared", check_id + ": required acceptance is not passed")
-            require(check.get("evaluated_plan_hash") == plan_hash, check_id + ": evidence belongs to another plan")
+            require(review is not None or check.get("evaluated_plan_hash") == plan_hash, check_id + ": evidence belongs to another plan")
             executed = timestamp(check.get("executed_at"))
             require(started <= executed <= finished, check_id + ": evidence outside current unit run")
             require(check.get("executor") and check.get("evidence"), check_id + ": missing executed evidence")
@@ -1629,7 +1692,8 @@ class Checker:
             hashes, _ = self.source_inventory(check, "evaluated_source_hashes")
             require(isinstance(hashes, dict) and paths <= set(hashes), check_id + ": evidence does not cover required implementation/consumer paths")
             for path, value in hashes.items():
-                require(self.snapshot(path, value, "implementation", "unit_stale_evidence"), check_id + ": stale implementation evidence")
+                current_value = review["current_source_hashes"][path] if review is not None else value
+                require(self.snapshot(path, current_value, "implementation", "unit_stale_evidence"), check_id + ": stale implementation evidence")
             for evidence in check["evidence"]:
                 ref = evidence_reference(evidence)
                 if ref is not None:
@@ -1642,11 +1706,16 @@ class Checker:
             for prerequisite in check_edges[check_id]:
                 prior_owner = acceptance[prerequisite]["owner_unit"]
                 prior_run = runs.get(prior_owner, {})
+                prior_review = reviews.get(prior_owner)
+                current_acceptance = review["reviewed_at"] if review is not None else executed
+                prior_acceptance = prior_review["reviewed_at"] if prior_review is not None else timestamp(checks[prerequisite].get("executed_at"))
+                if review is not None or prior_review is not None:
+                    require(prior_acceptance <= current_acceptance, check_id + ": prerequisite acceptance/review is later than consumer")
                 prior_started = timestamp(prior_run.get("started_at"))
                 prior_finished = min(executed, timestamp(prior_run.get("completed_at"))) if prior_owner != record["owner_unit"] else executed
                 passed(prerequisite, prior_started, prior_finished, seen)
 
-        completed = {}
+        completed, original_completed = {}, {}
         def clear_unit_findings(key, run):
             require(not blocking(run.get("findings", [])), key + ": unresolved blocking finding")
             for check_id, allocation in acceptance.items():
@@ -1658,9 +1727,11 @@ class Checker:
             if run["status"] == "pending":
                 require(not run.get("started_at") and not run.get("completed_at"), key + ": pending run cannot claim execution")
                 continue
-            require(run.get("development_plan_hash") == plan_hash and "approved_baseline_id" in run and run["approved_baseline_id"] == baseline, key + ": stale run binding")
+            review = reviews.get(key)
+            require((review is not None or run.get("development_plan_hash") == plan_hash) and "approved_baseline_id" in run and run["approved_baseline_id"] == baseline, key + ": stale run binding")
             started = timestamp(run.get("started_at"))
-            require(timestamp(self.manifest["implementation_gate"]["released_at"]) <= started <= now, key + ": invalid start time")
+            original_gate = review["original_gate"] if review is not None else self.manifest["implementation_gate"]
+            require(timestamp(original_gate["released_at"]) <= started <= now, key + ": invalid start time")
             if run["status"] == "blocked":
                 require(run.get("reason"), key + ": blocked run needs a reason")
             if run["status"] == "completed":
@@ -1671,18 +1742,24 @@ class Checker:
                 clear_unit_findings(key, run)
                 for check_id in units[key]["required_check_ids"]:
                     passed(check_id, started, finished)
-                completed[key] = finished
+                original_completed[key] = finished
+                completed[key] = review["reviewed_at"] if review is not None else finished
             else:
                 require(not run.get("completed_at"), key + ": unfinished run cannot claim completion time")
 
-        def can_start(key, at):
+        for key, review in reviews.items():
+            for prior in edges[key]:
+                require(prior in completed and completed[prior] <= review["reviewed_at"], key + ": construction/acceptance prerequisite review is later or incomplete")
+
+        def can_start(key, at, original=False):
+            accepted = original_completed if original else completed
             for prior in order[:positions[key]]:
-                if prior in completed and completed[prior] <= at:
+                if prior in accepted and accepted[prior] <= at:
                     continue
                 require(prior not in edges[key] and any(target == key and prior in skipped and received <= at for target, skipped, received in waivers), key + ": prior unit " + prior + " incomplete at start without explicit exception")
         for key, run in runs.items():
             if run["status"] != "pending":
-                can_start(key, timestamp(run["started_at"]))
+                can_start(key, timestamp(run["started_at"]), original=key in reviews)
         if action:
             require(unit_id in units, "unknown boundary unit")
             run = runs.get(unit_id, {"status": "pending"})

@@ -14,7 +14,7 @@ Reduce coordination while preserving one owner per artifact. Accept a rough desc
 
 If intent is missing/materially incomplete, dispatch or resume `to-product-idea`, display its brief interpretation/coverage with the one foreground question, set `awaiting-product-idea-intake` and do not start PRD. Validate a coherent existing file without a redundant interview. In DAS Forge require its current matching `ProductIdeaHandoffReceipt`; direct use may record the validated file's source mode/hash without a runtime receipt.
 
-At first entry, use `to-product-idea` for any unrecorded design-materials intake even with coherent existing intent. Reuse supplied materials and recorded responses; do not reopen intake merely on resume.
+At entry, use `to-product-idea` for unrecorded materials disposition: UI intake or source-backed headless non-applicability. Reuse supplied materials and answers; do not reopen intake on resume.
 
 Resolve language before intake: explicit instruction > recorded preference > latest substantive message. Pass it to every owner/adapter; keep UI/content locales separate. Read [intake adapter](references/intake-adapter.md) only for DAS Forge Phase 0.
 
@@ -79,7 +79,7 @@ For older manifests, preserve all documents/history/IDs and add only metadata ve
 
 Record owner-reviewed `source_usage`, exact consumed hashes/fragments and repository observations; never turn missing bindings into an unused-source decision. An unrelated context paragraph or repository file must not invalidate unrelated work. A PRD/intent change revalidates the context bundle together. Language changes revalidate affected human-readable artifacts, not immutable identifiers or distinct product locales.
 
-The skill requires the check; a separate DAS Forge runner must invoke the same checker and enforce its exit code for hard runtime enforcement. Updating this repository does not modify that external runner.
+The selected execution host or runner must invoke the checker and enforce its exit code. This requirement applies to direct hosts and optional adapters. Updating this repository does not modify an external runner.
 
 ## Design and evidence
 

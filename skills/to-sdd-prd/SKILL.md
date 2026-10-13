@@ -23,7 +23,7 @@ Do not create detailed journeys, screens/states, layouts, visual systems/baselin
 ## Workflow
 
 1. Read the complete product idea and relevant current evidence. Map sources to requirements before drafting.
-2. Define the user problem, solution/workflow, actors, product boundary and observable success.
+2. Define problem, workflow, actors, boundary and success. For consequential changes, classify visible data, recoverable/temporary records, pending work and affected sessions. Define required decisions and cancel/replacement effects when visible data is empty but recoverable data remains.
 3. Map every material `JOB-*` to one or more `UC-*` product use cases; record unresolved relationships explicitly.
 4. Add user stories only when they clarify an actor/value distinction not already expressed by use cases. Keep their IDs stable; omit duplicate narrative.
 5. Keep FR/NFR IDs stable. Split each compound requirement into independently observable sub-obligations; a parent ID alone is not complete coverage. Apply the [OWASP security-authoring procedure](references/security-authoring.md) to the confirmed scope before completing requirements and acceptance criteria. Its pinned offline ASVS reference supplies security controls; it does not run scans or add another stage.
@@ -31,7 +31,7 @@ Do not create detailed journeys, screens/states, layouts, visual systems/baselin
 7. Define observable test seams and minimum end-to-end acceptance scenarios. Prefer the highest practical external seam; tests verify the specification, not redefine it.
 8. Preserve source-backed design-first, autonomy, single whole-design approval, high-risk authorization and prototype-to-production trace rules. Static docs/prototypes do not prove runtime functionality.
 9. Resolve contradictions through the product-idea owner. In pipeline mode return one visible `ProductIntentQuestion` for material gaps; after an answer, upstream intent is versioned before this owner resumes.
-10. Validate every requirement, clause and use-case path against sources; write only the PRD and return control without asking whether to continue.
+10. Validate clauses and success/denial/recovery paths against sources, including hidden recoverable state; write only the PRD and return control.
 
 When relevant, carry the source P0–P3 glossary and separate severity from release effect. Preserve visual intent while applying the [accessibility policy](../to-sdd-pipeline/references/accessibility-policy.md) to UI requirements. Use schema/state examples only when more useful than prose. Resolve applicable operational outcomes through the [lifecycle checklist](../to-sdd-pipeline/references/lifecycle-contract.md), not invented thresholds.
 

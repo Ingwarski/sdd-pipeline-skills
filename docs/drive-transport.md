@@ -16,9 +16,8 @@ actual SHA-256 and provenance. Pack verification belongs to the evidence manager
 
 Install rclone separately when choosing this option; the installer does not add
 it for ordinary local users. Follow [rclone's current Google Drive authentication
-instructions](https://rclone.org/drive/#making-your-own-client-id). Checked on
-2026-10-11: rclone's shared OAuth client is retiring in 2026, so create your own
-Google OAuth client or use an appropriately authorized service account. Configure
+instructions](https://rclone.org/drive/#making-your-own-client-id). Create your own
+Google OAuth client for user OAuth, or use an appropriately authorized service account. Configure
 the selected remote interactively, with secrets in an external file:
 
 ```text
@@ -181,8 +180,8 @@ production pagination capability.
 Adapters must enforce `max_bytes` while writing, propagate operation failure, and
 keep tokens and account details out of responses. The command bridge additionally
 supervises timeout, output size, and downloaded size; injected callables depend on
-the host honoring that advertised bound. Tests use a synthetic host and actual
-subprocess bridge fixtures; those tests do not establish live connector capability.
+the host honoring that advertised bound. Synthetic or mock transport checks do
+not establish live connector capability.
 Request writes share the command deadline even if the bridge never reads stdin.
 Cleanup signals only the owned child or its verified original process group,
 falls back to direct child termination if a group signal is denied, and waits for

@@ -2,7 +2,7 @@
 
 Use only when `design_executor: claude_design` is explicit. Claude Design selection is not approval. The later whole-design decision in the active host makes the validated imported version authoritative.
 
-Carry the language record unchanged. Use `working_language` for prompts/instructions, failures, selection/export and return; keep product locales separate. Apply shared Ukrainian language/English-exception rules and `preserved_english_terms`.
+Carry the language record unchanged. Use `working_language` for prompts/instructions, failures, selection/export and return; keep product locales separate. Apply shared language/English-exception rules and `preserved_english_terms`.
 
 ## Required Design Source Access Gate
 

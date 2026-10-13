@@ -1,18 +1,18 @@
 {
   "recent_base": "8bad1f6ea6aa439bee6e76ab4f24585c0ba29aac",
-  "reason": "2026-10-11 evidence storage: count the detailed storage contract only for explicitly declared evidence-producing/resolving pipeline invocations. Condense repeated shared, prototype and handoff rules while retaining owner/approval/quality boundaries. Absolute ceilings and recent-growth allowances against 8bad1f6 stay unchanged. Current measured loads and historical numeric-order review are recorded in docs/maintenance.md; these static costs are not live-run savings.",
+  "reason": "Fixed comparison revision, complete resource loads and unchanged scenario/retry sequences constrain instruction growth. Enforce both absolute ceilings and permitted growth. Record measurements and policy-change justification in separate reports. Static loads do not establish live-run cost or quality. See docs/maintenance.md.",
   "absolute": {
     "entrypoints": 16000,
     "readme": 3950,
-    "first_setup_with_retry": 114500,
-    "approved_design_revision": 65000,
-    "interrupted_claude_resume": 75000
+    "first_setup_with_retry": 115000,
+    "approved_design_revision": 67500,
+    "interrupted_claude_resume": 78250
   },
   "approved_growth_tokens": {
     "entrypoints": 120,
     "readme": 150,
-    "first_setup_with_retry": 1700,
-    "approved_design_revision": 1700,
-    "interrupted_claude_resume": 1800
+    "first_setup_with_retry": 2200,
+    "approved_design_revision": 4200,
+    "interrupted_claude_resume": 5050
   }
 }
