@@ -34,11 +34,11 @@ These are examples, not automatic severity assignments. Apply the source glossar
 
 ## Required review record
 
-Each scope resolves: heuristic IDs; owner skill; artifact section; validation stage; JOB/UC; primary journey/task/user group; visual screen/route/state/viewport or explicit nonvisual context; expected behavior; applicability/rationale; required and actual evidence; findings/recommendations; severity/release effect; coverage or execution status; actual reviewer/time when executed.
+Resolve the [verification contract's](verification-contract.md) canonical scope, check, result and status fields. Add owner skill, artifact section, validation stage, primary journey and planned coverage. Shared scope IDs are allowed only when every applicable field resolves.
 
-For nonvisual tasks, use the [verification contract's](verification-contract.md) `interaction_scope` with `kind: nonvisual`, context and source-backed rationale in the canonical QA definition. Task/user group and applicable H1–H10/JOB/UC/evidence rules remain. Do not invent visual fields or waive applicable native/platform requirements. Human-task review remains conditional on product scope, including for headless products.
+For nonvisual tasks, use its canonical QA `interaction_scope` (`kind: nonvisual`, context and source-backed rationale). Retain task/user group, applicable H1–H10/JOB/UC/evidence and native/platform duties; invent no visual fields. Human-task review remains conditional, including for headless products.
 
-Use shared scope IDs where helpful, but every applicable field must resolve. Include supported environments/input modes, applicable normal/loading/empty/error/success/permission/offline/long-content/recovery states and accessibility-critical actions. Mark planned coverage `covered | deferred | not applicable`; use the separate execution statuses from the verification contract. Never translate `covered` into passed.
+Cover supported environments/input modes, applicable normal/loading/empty/error/success/permission/offline/long-content/recovery states and accessibility-critical actions. Planned coverage is `covered | deferred | not applicable`, never a passed execution result.
 
 ## Explicit H7 and H10 decisions
 

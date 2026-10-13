@@ -34,7 +34,7 @@ question_id: stable-id
 working_language: BCP-47 language tag
 question: one intake question
 why_material: affected product intent or design grounding
-recommendation: preferred answer and rationale
+recommendation: operator choice and rationale; omit for behavioral research
 answer_type: choice|multi_choice|free_text|confirmation
 options: []
 target_decision: intent field or boundary

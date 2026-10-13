@@ -4,62 +4,62 @@
 
 | Responsibility | Owner |
 |---|---|
-| When evidence is necessary and what claims it supports | `to-guardrails` / `docs/guardrails.md` |
-| Reusable gates, pass/block conditions, rerun and release rules | `to-dod-evals` / `docs/dod-evals.md` |
-| Product-specific check definitions, findings, and per-check evidence | `to-qa-checklist` / `docs/qa-checklist.md` |
-| Design-time coverage, task-validation plan and open risks | `to-design-brief` / `docs/design-brief.md` |
-| Unit-to-gate/check mapping and implementation sequence | `to-development-plan` / `docs/development-plan.md` |
-| Running checks and producing observations/receipts | Authorized reviewer, user-test facilitator, test harness or Phase 3 runner |
-| Hash-bound operational index and scheduling | `to-sdd-pipeline` / `forge/sdd-manifest.json` |
+| Evidence need and claim scope | `to-guardrails` / `docs/guardrails.md` |
+| Gates, pass/block conditions, reruns and release | `to-dod-evals` / `docs/dod-evals.md` |
+| Product check definitions, findings and evidence | `to-qa-checklist` / `docs/qa-checklist.md` |
+| Design coverage, task-validation plan and risks | `to-design-brief` / `docs/design-brief.md` |
+| Unit allocation to gates/checks and sequence | `to-development-plan` / `docs/development-plan.md` |
+| Executed checks and observations/receipts | Authorized reviewer, user-test facilitator, test harness or Phase 3 runner |
+| Hash-bound index and scheduling | `to-sdd-pipeline` / `forge/sdd-manifest.json` |
 
-QA interprets inspected evidence; executors produce observations; storage persists them; the orchestrator indexes them. Name the actual executor. Authoring/checker validation neither executes tests nor substitutes for research.
+QA interprets evidence; named actual executors produce observations; storage persists them; the orchestrator indexes them. Authoring/checker validation neither executes tests nor replaces research.
 
 ## Two independent statuses
 
-Required `product_security_requirements` maps every PRD protection to implementation QA under the [security contract](security-contract.md). Visual, heuristic, participant or mockup evidence cannot substitute. Unrun, failed, deferred or silently excluded applicable checks block security release claims.
+Required `product_security_requirements` maps every PRD protection to implementation QA and security evidence under the [security contract](security-contract.md). Other evidence cannot substitute. Unrun, failed, deferred or excluded applicable checks block security release.
 
-- `Definition Status: prepared | blocked`: can this check be executed as specified?
-- `Execution Status: not_run | passed | failed | blocked | deferred | not_applicable`: what actually happened?
+- `Definition Status: prepared | blocked`: executability.
+- `Execution Status: not_run | passed | failed | blocked | deferred | not_applicable`: actual outcome.
 
 New checks start `prepared` / `not_run`, with evidence requirements; invent no result, finding, participant or timestamp. `covered` means planned, not passed. Deferred work is nonpassing; `not_applicable` needs source-backed rationale. Advisory failures remain failed.
 
-Report **checks prepared; tests not run** during planning, with release readiness `not_evaluated`. Explicit release evaluation is binary: `passed` only with all applicable required gates and blockers closed; otherwise `blocked`. Advisory findings may remain with evidence/follow-up. Invent no product failure.
+Report **checks prepared; tests not run**, release readiness `not_evaluated`, during planning. Explicit release evaluation is `passed` only with all applicable required gates and blockers closed; otherwise `blocked`. Advisory findings need evidence/follow-up. Invent no product failure.
 
-Bounded acceptance proves contributions only. Accountable integration/release units retain full requirements and required real-consumer checks; mocks cannot substitute, and deferred checks remain required/pending. Apply the [unit contract](unit-execution-contract.md) for ownership, dependencies, evidence and transitions. DoD defines rules before QA/planning; later bindings create no artifact cycle.
+Bounded acceptance proves contributions only. Integration/release owners retain full requirements and required real-consumer checks; mocks cannot substitute and deferred checks stay required/pending. The [unit contract](unit-execution-contract.md) defines ownership, dependencies, evidence and transitions. DoD precedes QA/planning; later bindings create no artifact cycle.
 
 ## Bind only existing references
 
-Gate/check membership is bidirectional: every indexed check belongs to its named gate and every gate ID resolves to that check, without duplicates. An applicable gate needs at least one applicable check. Excluded checks never satisfy required clauses or H1–H10 coverage; exclusions need reasons. Trace and verification check IDs must agree; JOB/UC references resolve to canonical definitions.
+Gate/check membership must agree bidirectionally, without duplicates. Each applicable gate needs an applicable check. Excluded checks need reasons and cannot cover required clauses or H1–H10. Trace/verification check IDs agree; JOB/UC references resolve to canonical definitions.
 
-Before approval, visual gates are parameterized definitions: `Binding Status: pending_baseline`; QA check references remain pending until QA creates real IDs. No invented Baseline ID, target hash, check ID, or user-test result.
+Before approval, visual gates use `Binding Status: pending_baseline`; check references await actual QA IDs. Invent no Baseline ID, target hash, check ID or user-test result.
 
-After approval: `to-design-brief` records the baseline → `to-architecture` reviews affected mechanisms → `to-dod-evals` revalidates gates → `to-qa-checklist` binds checks → orchestrator indexes QA IDs → `to-development-plan` allocates units. DoD consults QA **at evaluation**, never as an authoring prerequisite. Revalidate unchanged documents without rewriting bytes or repeating approval.
+After approval: `to-design-brief` records baseline → `to-architecture` reviews affected mechanisms → `to-dod-evals` revalidates gates → `to-qa-checklist` binds checks → orchestrator indexes QA IDs → `to-development-plan` allocates units. DoD consults QA **at evaluation**, never as an authoring prerequisite. Revalidate unchanged documents without byte changes or repeat approval.
 
 ## Separate visual and interaction gates
 
 | Gate | Parameters and pass evidence |
 |---|---|
 | `approved_visual_baseline_fidelity` | Active Baseline ID, immutable target hash, route/state/viewport, permitted variance, concrete QA IDs, `VisualQAEvidence`; promotion receipt when reuse is declared. Reject stale baselines, missing coverage, unexplained drift, or blocking findings. |
-| `heuristic_usability_review` | Applicable H1-H10, primary journey, JOB/UC, interface context, supported inputs, error/recovery and accessible critical actions, QA IDs, reviewer/evidence/findings. Visual checks include screen/state/route/viewport. Every applicable heuristic and scope needs review; unexplained omissions or deferred critical review block the gate. |
-| `representative_user_task_validation` | Applicable critical/consequential/new or changed flow, JOB/UC, representative user group, task, success criterion, actual interaction context, observed session evidence and findings. Visual checks include device/viewport. Only observed representative-user task completion can pass. |
+| `heuristic_usability_review` | Applicable H1-H10, primary journey, JOB/UC, interface context, supported inputs, error/recovery, accessible critical actions, QA IDs, reviewer/evidence/findings; screen for visual checks. Review every applicable heuristic/scope; unexplained omissions or deferred critical review block. |
+| `representative_user_task_validation` | Applicable critical/consequential/new or changed flow, JOB/UC, representative user group, task, success criterion, interaction context, observed session evidence/findings; device for visual checks. Only observed representative-user task completion can pass. |
 
-Headless scope excludes visual fidelity, not source-required operator/task research or heuristic review. Declare each interaction gate applicable or give its source-backed exclusion; neither is automatically required for every headless product. Applicable nonvisual checks use the scope record below. Required evidence classes remain distinct.
+Headless scope excludes visual fidelity. Interaction gates require source-backed applicability or exclusion; headless scope alone mandates neither. Use the nonvisual record below when applicable.
 
 Visual, heuristic, participant, accessibility and runtime evidence remain separate. Simulations prove no production auth, persistence, integration, security or actual data/actions. Screenshots alone cannot establish WCAG conformance.
 
-For high-risk, regulated, safety- or accessibility-critical flows, plan representative-user validation before approval when feasible. If unavailable, record assumption, risk, owner, timing and follow-up; do not claim user validation. A deferred applicable required release check stays blocking. No extra human approval is created.
+For high-risk, regulated, safety- or accessibility-critical flows, plan representative-user validation before approval when feasible. Otherwise record assumption, risk, owner, timing and follow-up; claim no validation. Deferred required release checks still block. No extra approval is created.
 
 ## Record shapes
 
-Every gate definition: ID, purpose, source, applicability, required evidence, pass/block condition, rerun rule, and automation status (`automated`, `manual`, `not available yet` with a named condition, or `open question`). Do not invent runnable commands, CI, tests, thresholds, or merge policies. A missing comparison value is a named blocker, not a measurable gate.
+Every gate: ID, purpose, source, applicability, required evidence, pass/block condition, rerun rule, automation status (`automated`, `manual`, `not available yet` with a named condition, or `open question`). Invent no commands, CI, tests, thresholds or merge policies. A missing comparison value is a named blocker.
 
-Every QA item: stable check ID, source obligation, task, expected behavior, scope, applicability/rationale, gate ID, definition status, execution status, evidence requirements and actual evidence. Interaction items resolve applicable H1-H10, JOB/UC, user group, finding, severity, release effect and recommendation. Visual checks require route, state and viewport plus Baseline ID, target hash and variance after approval. User-validation items add task success criterion and timing (`pre-approval | post-implementation | both`). Error items use the shared recovery sequence.
+Every QA item: stable check ID, source obligation, task, expected behavior, scope, applicability/rationale, gate ID, definition/execution statuses, evidence requirements and actual evidence. Interaction items add applicable H1-H10, JOB/UC, user group, finding, severity, release effect and recommendation. Visual checks need route/state/viewport plus Baseline ID, target hash and variance after approval. User-validation adds task success criterion and timing (`pre-approval | post-implementation | both`). Error items use the shared recovery sequence.
 
-Optional `interaction_scope: {kind: "nonvisual", context, rationale}` applies only to heuristic/user-task checks. `context` identifies the actual interface/workflow and supported conditions; `rationale` explains its source-backed applicability. Both must be nonempty strings present in the check's canonical QA section. Task and user group remain required. This scope substitutes for visual route/state/viewport and baseline/target bindings, not source, execution, evidence-class or release rules. Headless interaction checks require it; UI products can use it for genuinely nonvisual checks. Without it, existing UI checks retain visual requirements. Visual fidelity cannot use this scope. Inapplicable checks retain their existing rationale and status rules; authoring creates no executed result.
+Heuristic/user-task checks may declare `interaction_scope: {kind: "nonvisual", context, rationale}`. Both strings must be nonempty and present in canonical QA: `context` identifies the actual interface/workflow and supported conditions; `rationale` explains source-backed applicability. It replaces visual context/baseline bindings only; retain task/user group and all source/execution/evidence/release rules. Applicable headless interaction checks require it; mixed UI products may use it for genuinely nonvisual checks. Otherwise UI checks retain visual requirements. Visual fidelity cannot use it. Existing inapplicability/status rules remain.
 
-Results retain check/gate ID, evaluated artifact/baseline/revision, executor, original time, environment/fixture, evidence identity/hash, outcome, findings and rerun rule. QA keeps compact current records and verified detailed/history references. Apply [storage procedures](evidence-storage-contract.md); passing needs fresh readable evidence. Migration/access never executes checks.
+Results retain check/gate ID, evaluated artifact/baseline/revision, executor, original time, environment/fixture, evidence identity/hash, outcome, findings and rerun rule. QA keeps compact current records and verified detail/history references under [storage rules](evidence-storage-contract.md). Passing needs fresh readable evidence; migration/access never executes checks.
 
-Reuse unchanged completed work only through the unit contract's `revalidation_ref`: retain original observation bindings/executor/time and record current reviewer/time separately. Review verifies unchanged claims, complete current sources and prerequisites. Changed behavior/definitions/scope or required new tests need execution; review grants no implementation authorization.
+Reuse completed work only through the unit contract's `revalidation_ref`: preserve original observation bindings/executor/time; record current reviewer/time separately. Review requires unchanged claims and complete current sources/prerequisites. Changed behavior/definitions/scope or required new tests need execution; review grants no implementation authorization.
 
 ## Severity and release effect
 
