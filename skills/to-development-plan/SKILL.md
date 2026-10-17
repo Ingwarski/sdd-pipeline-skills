@@ -44,7 +44,7 @@ Unresolved upstream decisions return to their owner first. Ask only for material
 
 ## Artifact coverage
 
-Required semantic sections: Source References; Implementation Strategy; Implementation Units; Dependency Order; Verification Plan; Out Of Scope; Open Questions. Embed the unit contract's mandatory full-unit execution rule in the strategy, not just a link: implementation agents must receive it with the plan.
+Required semantic sections: Source References; Implementation Strategy; Implementation Units; Dependency Order; Verification Plan; Out Of Scope; Open Questions. State the unit completion condition once in Implementation Strategy: a unit remains incomplete until its scoped work, integration, required checks and acceptance evidence meet the referenced DoD and QA requirements. Reference project `AGENTS.md` for execution behaviour; do not copy its continuation or pause policy. Record missing project instruction setup as a prerequisite before implementation, not a blocker to plan authoring. The plan owner must not create project instruction files.
 
 Add Codebase Map, Visual/UX Verification, Risks/Sequencing or Prototype Promotion Plan only when applicable. The latter is required for traced reuse.
 
@@ -55,6 +55,7 @@ Each unit resolves:
 - For user-visible units: JOB/UC/journey/state, Baseline ID/target hash, scope, permitted variance/overrides, `approved_visual_baseline_fidelity`, applicable `heuristic_usability_review`/H1-H10/QA IDs and `representative_user_task_validation` task/success/evidence references.
 - For backend-only units: whether it enables user-visible states/data/actions.
 - For cross-layer/parallel units: interface producer/consumer, contract, owner, compatibility and integration checks.
+- For planned parallel tasks inside the active unit: concrete interfaces, proposed ownership boundaries, resource conflicts and integration responsibilities. Actual worker assignments and progress belong in execution records; generic coordination rules belong in project `AGENTS.md`.
 - For traced prototype reuse: the fields in the promotion reference.
 
 Shared records may carry repeated scope/contract data if each unit's references resolve. Do not add a context field to every unit; use its existing Source References only where relevant.

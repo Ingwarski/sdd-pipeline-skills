@@ -42,6 +42,9 @@ Completion claims require fresh executed evidence. A mockup, static surface, pla
 
 ## Artifact coverage
 
+Define completion predicates and delivery conditions here, not generic agent working rules. A failed gate prevents the affected completion claim; it does not by itself require stopping the whole unit. The main agent applies project execution instructions to investigation, authorized correction, independent work and any pause. Project `AGENTS.md` is not a prerequisite for authoring gates.
+
+
 Required semantic sections: Source References; Definition Of Done Model; Verification Profile; Gate Matrix; Eval Result Format; Evidence Requirements; Failure And Blocker Classification; PR Merge And Completion Rules; Out Of Scope; Open Questions.
 
 Add feature/unit levels, lane promotions, evidence limits and rerun/recovery sections only where useful. Every gate includes ID/purpose/source/applicability, evidence, pass/block condition, rerun rule and automation status. Shared gate-specific parameter fields are defined once in the verification reference; resolve them without duplicating full criteria.

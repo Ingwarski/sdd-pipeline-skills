@@ -10,6 +10,8 @@ Read [shared operating rules](references/common-contract.md) before work. Resolv
 
 Apply the [scope and portable execution contract](references/scope-and-execution.md): default full workflow, affected-only existing changes, or source-confirmed headless scope. Direct Codex/Claude Code can run owner roles inline and persist intake in the manifest; external runtime adapters are optional.
 
+When invoked for authorized project work, perform [project instruction setup](references/project-instructions.md) in the actual product-project root. Advice, review or a plan request alone does not authorize setup. Read the resulting instructions; do not copy this skillset repository's maintainer rules.
+
 Reduce coordination while preserving one owner per artifact. Accept a rough description, existing/imported product idea, saved intake or explicit corrections. A product-idea file is optional **at entry**, required only before PRD generation.
 
 If intent is missing/materially incomplete, dispatch or resume `to-product-idea`, display its brief interpretation/coverage with the one foreground question, set `awaiting-product-idea-intake` and do not start PRD. Validate a coherent existing file without a redundant interview. In DAS Forge require its current matching `ProductIdeaHandoffReceipt`; direct use may record the validated file's source mode/hash without a runtime receipt.
@@ -20,7 +22,7 @@ Resolve language before intake: explicit instruction > recorded preference > lat
 
 ## Ownership
 
-Directly create/update only `forge/sdd-manifest.json`. Domain owners write only their declared outputs:
+The main agent owns `forge/sdd-manifest.json` and project execution instruction setup under the [setup contract](references/project-instructions.md). It may reconcile root `AGENTS.md` and the minimum project-local host instruction-file reference needed to load it, preserving unrelated rules. Domain owners write only their declared outputs:
 
 | Owner | Artifact under `docs/` |
 |---|---|
@@ -112,12 +114,12 @@ When the current plan validates, record its hash, active Baseline ID/source vers
 
 Release requires a **new user message after that pause** explicitly starting production implementation from the current plan. Prior pipeline requests, design approval, generic “continue”, automatic resume or owner output do not suffice.
 
-On that later message, revalidate sources, baseline and plan. If changed, reconcile through owners and wait for a new prompt for the new plan. Otherwise record the exact prompt receipt/hash, intent, IDs/timestamps and current plan/baseline binding; run `--before implementation`. Only success permits handoff to the separately authorized Phase 3 runner. No new scope/authority is implied.
+On that later message, revalidate sources, baseline and plan. If changed, reconcile through owners and wait for a new prompt for the new plan. Otherwise record the exact prompt receipt/hash, intent, IDs/timestamps and current plan/baseline binding; run `--before implementation`. Only success permits the main Codex or Claude Code agent, or an explicitly selected executor, to implement the authorized plan. An external runner is optional. No new scope/authority is implied.
 
-At planning/handoff, read the [unit execution contract](references/unit-execution-contract.md); return plans missing its full-unit rule, completion-prerequisite walkthrough or increasing numeric order to their owner. Index canonical plan/QA records. Require `--start-unit ID` before start/resume and `--complete-unit ID` before and after recording completion. The executing assistant must finish the FULL active unit unless blocked, needing user input or explicitly stopped/redirected; no routine partial handoff. Enforce the contract's sequencing and resumption rules.
+At planning/handoff, read the [unit execution contract](references/unit-execution-contract.md); return plans missing the unit completion condition, completion-prerequisite walkthrough or increasing numeric order to their owner. Before implementation, confirm project instruction setup, effective host loading, resolved references and actual reading by the main agent under the [setup contract](references/project-instructions.md). Preserve the instruction basis and recoverable checkpoints in existing execution records; distinguish these manual duties from checker-enforced transitions. Index canonical plan/QA records. Require `--start-unit ID` before start/resume and `--complete-unit ID` before and after recording completion. Project `AGENTS.md` owns continuation, coordination, permitted pauses and resumption; apply its rules without copying them into the plan.
 
 ## Stops and return
 
-Pause only for material non-inferable intent, the one whole-design approval, required source access/capability/evidence, just-in-time high-risk authorization, or the separate implementation prompt. Advisory findings, playback and ordinary reversible work are not approval gates.
+During SDD authoring, pause only for material non-inferable intent, the one whole-design approval, required source access/capability/evidence, just-in-time high-risk authorization, or the separate implementation prompt. Advisory findings, playback and ordinary reversible work are not approval gates.
 
 Return a concise state/evidence summary: changed/validated/invalidated artifacts, language/locales, candidate/browser or handoff/source-access evidence when relevant, Baseline ID/integrity, checker result, check execution versus definition status, implementation gate/prompt receipt, named blockers and next action. Localize displayed labels; keep machine enum values unchanged.

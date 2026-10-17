@@ -2,11 +2,13 @@
 
 For planning, migration and implementation. Artifact dependencies stay in `pipeline-contract.json`; unit dependencies use these records.
 
-## Mandatory full-unit execution
+## Project instructions and unit completion
 
-The plan owner must embed this rule in every generated/reconciled `docs/development-plan.md`, in `working_language`; a link or JSON alone is insufficient:
+Project `AGENTS.md` owns coding execution behaviour: full-unit continuation, coordination, permitted pauses and resumption. This contract owns unit dependencies, completion data, authorization bindings and validation transitions. Before implementation or resumption, the main agent must verify the effective instruction sources under the [setup contract](project-instructions.md), read them and provide relevant instructions to delegated workers. Preserve the instruction basis and recoverable checkpoints in existing execution records; changed policy requires review of affected execution.
 
-> Once implementation is authorized, ALWAYS finish the FULL active unit: all scoped work, required integration, tests, defect fixes and acceptance evidence. Continue without asking "shall I continue?"; a subtask, code edit, commit or progress report is not a stopping point. Pause only for a genuine blocker, required user input/permission, or an explicit user stop/change. Investigate failures and attempt safe in-scope fixes before declaring a blocker; never bypass safeguards, weaken acceptance or expand authority. At a pause report the unit ID, completed/remaining work, evidence, exact blocker/question and next action; keep unfinished work incomplete. Resume that unit when unblocked, revalidating changed sources. Later units require completion or a recorded explicit user sequencing exception, never waived prerequisites or acceptance.
+The plan states the completion condition once: a unit remains incomplete until its scoped work, integration, required checks and acceptance evidence meet the referenced DoD and QA requirements. Reference project `AGENTS.md` for execution behaviour; do not copy its continuation or pause policy.
+
+Plan authoring does not require project `AGENTS.md` to exist. If absent, record [project instruction setup](project-instructions.md) as a handoff prerequisite before implementation. The plan owner must not create it or duplicate its behavioural rules in the plan.
 
 ## Planning and reconciliation
 
@@ -55,8 +57,8 @@ Each completed record is revalidated, including on resume; stale evidence or an 
 
 ## Host boundary
 
-After the fresh implementation prompt, run `--before implementation`. Immediately before each start/resume run `--start-unit UNIT-ID`; on success the host records the actual start and executes only authorized scope. After actual checks and findings are recorded, run `--complete-unit UNIT-ID` while the unit is running, then record its actual completion and rerun the same command to validate the persisted record. Revalidate before every later start. Nonzero exits block the transition; missing records must never default to success. All commands take `--project PATH` and are read-only.
+After the fresh implementation prompt, run `--before implementation`. Immediately before each start/resume run `--start-unit UNIT-ID`; on success the main agent or explicitly selected executor records the actual start and executes only authorized scope. After actual checks and findings are recorded, run `--complete-unit UNIT-ID` while the unit is running, then record its actual completion and rerun the same command to validate the persisted record. Revalidate before every later start. Nonzero exits block the transition; missing records must never default to success. All commands take `--project PATH` and are read-only.
 
-The checker also validates unit records after the development-plan owner returns and during implementation/release checks and plan audits. It does not create runs, execute tests or grant authorization.
+The checker also validates unit records after the development-plan owner returns and during implementation/release checks and plan audits. It does not create runs, execute tests, verify host instruction loading or grant authorization. The current schema/checker has no project-policy/checkpoint enforcement added by this instruction revision. Supporting validation and any record migration require separate implementation; do not invent version 1 fields or relabel a manual preflight as checker enforcement.
 
-The executing assistant/host must enforce this rule and checker exits and persist progress. Forced context/session interruptions preserve the unfinished active unit. No production runner is included: Markdown/checker cannot mechanically prevent a turn ending or schedule a restart.
+The main agent or explicitly selected executor applies project `AGENTS.md` for worker coordination, continuation, permitted pauses and resumption. Keep shared evidence reservations and operational record mutations serialized. Enforce checker exits and record actual progress; missing or failed required evidence keeps completion blocked. Instructions and checker commands cannot restart an ended session.

@@ -4,8 +4,11 @@ Read before owner work. All 13 skills ship together. Resolve resources from SKIL
 
 ## Sources and ownership
 
+
+Keep coding behaviour in project `AGENTS.md`; keep project-specific authority in guardrails, completion conditions in DoD, check procedures/results in QA, and unit work/dependencies in the plan. Follow the [ownership map](project-instructions.md#one-source-for-each-rule). Do not copy the continuation or pause policy into SDD documents. Missing project instructions do not block standalone document authoring; effective setup and recoverable execution records are required before implementation; use the setup contract for host verification and code-enforcement limits.
+
 - Product truth comes from sources and explicit user decisions, not AI recommendations. Inspect discoverable facts; preserve terms/IDs and label assumptions or unresolved questions.
-- Write only declared owner outputs. Only the orchestrator writes `forge/sdd-manifest.json`; tool operators/adapters own receipts. Return provenance to the caller.
+- Write only declared owner outputs. The orchestrator owns `forge/sdd-manifest.json` and the narrow project instruction setup exception in the [setup contract](project-instructions.md); tool operators/adapters own receipts. Return provenance to the caller.
 - Context clarifies; it cannot override PRD, design, architecture or quality rules. Read relevant confirmed sections without copying them.
 - Return `source_usage`: path → `"full"`, consumed heading list, or `{"unused":"reason"}` for context/optional files. Include referenced scope, terms and evidence sections. Bind consumption with file/section hashes; omission never means unused. Exclude later results from planning inputs.
 - Repository claims need observation date, command, exact paths/hashes, including the command supporting absence. Recheck scoped inputs on reuse, not a whole-repository fingerprint.
@@ -48,3 +51,5 @@ Validate distinct observable obligations, owner, terminology, applicable states,
 Return paths, invocation ID, independent content hashes/results, consumed hashes, scoped observations, changed decisions and risks. The caller records them; the two context outputs share an invocation, not hashes/results.
 
 Standalone owners check canonical inputs directly: do not require/create a manifest, dispatch others or claim pipeline readiness. Report affected downstream artifacts. With a manifest, the caller runs the checker before dispatch and after recording results; without one, perform equivalent checks and disclose unavailable automatic orchestration validation.
+
+Follow applicable project instructions for task-owned browser/profile cleanup.

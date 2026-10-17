@@ -24,6 +24,8 @@ Guardrails owns evidence policy; DoD owns reusable gate definitions, result form
 
 Default to **authoring checks**, not executing tests. New items are `Definition Status: prepared` / `Execution Status: not_run`; no invented evidence, finding, participant, timestamp or pass.
 
+Project execution instructions govern agent behaviour while running checks. This document defines check actions, expected results, findings and evidence. Do not copy the execution continuation or pause policy here. Project `AGENTS.md` is not a prerequisite for authoring QA definitions.
+
 Keep stable check definitions separate from execution results/run history within this same file, joined by check ID. Record executed results only from inspected supplied evidence or a separately authorized review, with actual executor/time, evaluated revision, scope and evidence. Keep previous runs; mark stale results superseded. Writing the checklist never means the product is verified.
 
 Planning output uses `Release Readiness: not_evaluated`. An explicitly requested release evaluation uses `passed | blocked` under the DoD rules. A required unrun/deferred check cannot pass.

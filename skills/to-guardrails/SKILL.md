@@ -18,7 +18,7 @@ Never import downstream UX, architecture, DoD, QA or planning decisions into gua
 
 ## Output and ownership
 
-Write only `docs/guardrails.md`. Own source priority, AI autonomy, allowed/forbidden changes, scope, conflict resolution, questions/stops, artifact separation and behavioral evidence policy.
+Write only `docs/guardrails.md`. Own project-specific source priority, authority, autonomy boundaries, allowed/forbidden changes, scope, conflict routing, artifact separation and evidence policy.
 
 DoD owns reusable completion gates; QA owns concrete checks/results. Do not write journeys, screens, layouts, visual direction, gate definitions, QA items or implementation tasks.
 
@@ -41,6 +41,8 @@ Re-run only when a named upstream decision or consumed source fragment changes a
 ## Artifact coverage
 
 Required semantic sections: Source References; Source Of Truth Order; AI Autonomy Boundaries; Forbidden Changes; When To Ask; When To Stop; Artifact Separation Rules; Verification Rules; Open Questions.
+
+“When To Ask” and “When To Stop” identify this project's material decisions, approval boundaries and unavailable evidence. During implementation, reference the project instruction policy for permitted whole-unit pauses. Do not repeat generic continuation rules or invent additional pause reasons. A blocked claim or action does not automatically block all independent authorized work. Missing project `AGENTS.md` does not prevent guardrails authoring; project instruction setup belongs to the main pipeline agent.
 
 Add Allowed Changes, Scope Boundaries, Design Authority, Conflict Resolution, Evidence Requirements or Source Access Failures only when they add decisions. Cite shared evidence definitions; do not copy them.
 
