@@ -1,18 +1,18 @@
 {
-  "recent_base": "8bad1f6ea6aa439bee6e76ab4f24585c0ba29aac",
-  "reason": "2026-10-02 numeric-order review: add completion-prerequisite walkthroughs before numbering, precise QA scope, safe ID migration and actual checker/skill provenance. Against 8bad1f6, entrypoints add 62 tokens, README 83, scenarios 1478-1587 (1.31-2.33%). Retain prior measurements in docs/maintenance.md. This is a bounded correctness cost, not a savings claim; absolute and recent-growth caps remain enforced.",
+  "recent_base": "4ef1479d6596b57075ef020f059e75f3d63a654b",
+  "reason": "2026-10-17 approved instruction-policy application: compare against the last released main 4ef1479. CI at 07ddd3f measured entrypoints 16414, README 3962, first setup 120944, design revision 68500 and interrupted resume 78319. Relative to 4ef1479 these add 469, 52, 6649, 3713 and 3522 tokens. Review accepts this bounded static instruction growth for effective policy setup, concrete pause/continuation rules, ownership reconciliation and operational responsibilities. Retain the existing scenarios, retries and accounting implementation. The current estimator still omits generated project policies and new conditional setup resources; complete accounting remains separately planned code work. These ceilings make no live usage, caching, behavioural improvement or billed-cost claim. Detailed measurements and original failed CI are retained outside the repository; see docs/maintenance.md.",
   "absolute": {
-    "entrypoints": 16000,
-    "readme": 3950,
-    "first_setup_with_retry": 114500,
-    "approved_design_revision": 65000,
-    "interrupted_claude_resume": 75000
+    "entrypoints": 16450,
+    "readme": 4000,
+    "first_setup_with_retry": 121000,
+    "approved_design_revision": 68550,
+    "interrupted_claude_resume": 78400
   },
   "approved_growth_tokens": {
-    "entrypoints": 120,
-    "readme": 150,
-    "first_setup_with_retry": 1700,
-    "approved_design_revision": 1700,
-    "interrupted_claude_resume": 1800
+    "entrypoints": 500,
+    "readme": 90,
+    "first_setup_with_retry": 6700,
+    "approved_design_revision": 3760,
+    "interrupted_claude_resume": 3600
   }
 }

@@ -150,3 +150,17 @@ Security procedure and record instructions are counted for their consumers. Sele
 ## Future edits
 
 Keep names, artifact paths, owners and authorization boundaries stable. Change required-before edges only in the machine artifact map; reconciliation nodes inherit them. Update shared rules at their owner, resolve every linked reference, rerun applicable tests and token scenarios, then review semantic coverage—not only word counts. Update this measurement table when counted instructions change. Keep historical version notes historical.
+
+## Current instruction policy budget
+
+The approved project execution policy replaces duplicated continuation paragraphs with project instruction setup, host-specific loading checks, recoverable checkpoints and defined lifecycle responsibility. The current comparison uses the prior released `main` revision `4ef1479`. Existing scenarios, retries and tokenizer/accounting code remain unchanged.
+
+| Scope | Before this instruction revision | Measured current load | Absolute ceiling | Allowed growth |
+|---|---:|---:|---:|---:|
+| Entrypoints | 15,945 | 16,414 | 16,450 | 500 |
+| README | 3,910 | 3,962 | 4,000 | 90 |
+| First setup including retry | 114,295 | 120,944 | 121,000 | 6,700 |
+| Approved design revision including retry | 64,787 | 68,500 | 68,550 | 3,760 |
+| Interrupted Claude resume including retry | 74,797 | 78,319 | 78,400 | 3,600 |
+
+This review accepts bounded static growth to carry the approved instruction obligations; it does not waive behavioural, security or release checks. New generated project policies and conditional setup resources are not yet included by the existing estimator. Correcting that accounting remains separately planned code work; a passing current budget is not complete end-to-end instruction accounting, live usage or billed-cost evidence. Preserve original measurements and failed runs in separate reports. Further growth requires another recorded policy review.
