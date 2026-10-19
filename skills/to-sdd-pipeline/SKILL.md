@@ -14,11 +14,13 @@ When invoked for authorized project work, perform [project instruction setup](re
 
 Reduce coordination while preserving one owner per artifact. Accept a rough description, existing/imported product idea, saved intake or explicit corrections. A product-idea file is optional **at entry**, required only before PRD generation.
 
-If intent is missing/materially incomplete, dispatch or resume `to-product-idea`, display its brief interpretation/coverage with the one foreground question, set `awaiting-product-idea-intake` and do not start PRD. Validate a coherent existing file without a redundant interview. In DAS Forge require its current matching `ProductIdeaHandoffReceipt`; direct use may record the validated file's source mode/hash without a runtime receipt.
+Resolve language before intake: explicit instruction > recorded preference > latest substantive message. Pass it to every owner/adapter; keep UI/content locales separate. Read [intake adapter](references/intake-adapter.md) only for DAS Forge Phase 0.
+
+Before any owner dispatch on an authorized start/resume, complete the [startup storage check](references/evidence-storage-contract.md#pipeline-entry). Ask its missing storage question before the design-materials request, one question at a time; headless scope still checks storage.
 
 At entry, use `to-product-idea` for unrecorded materials disposition: UI intake or source-backed headless non-applicability. Reuse supplied materials and answers; do not reopen intake on resume.
 
-Resolve language before intake: explicit instruction > recorded preference > latest substantive message. Pass it to every owner/adapter; keep UI/content locales separate. Read [intake adapter](references/intake-adapter.md) only for DAS Forge Phase 0.
+If intent is missing/materially incomplete, dispatch or resume `to-product-idea`, display its brief interpretation/coverage with the one foreground question, set `awaiting-product-idea-intake` and do not start PRD. Validate a coherent existing file without a redundant interview. In DAS Forge require its current matching `ProductIdeaHandoffReceipt`; direct use may record the validated file's source mode/hash without a runtime receipt.
 
 ## Ownership
 

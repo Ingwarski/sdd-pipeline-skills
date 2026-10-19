@@ -2,6 +2,8 @@
 
 Choose where generated evidence lives before producing it. Canonical SDD, compact current results, approvals/authorization receipts and references remain in Git; large captures, detailed results and superseded history use a durable store. The store differs from disposable capture/cache/staging/readback/restoration space, even when both are on the same disk.
 
+On an authorized first pipeline start, the orchestrator checks storage before the design-materials question and asks in chat if no saved choice applies. Later starts reuse the choice; headless projects also check storage. See the [pipeline-entry procedure](../skills/to-sdd-pipeline/references/evidence-storage-contract.md#pipeline-entry).
+
 ## Select and save a destination
 
 From the durable SDD clone, with supported Python 3.12+:

@@ -1,6 +1,26 @@
 # Evidence storage, version 1
 
-Read for production/resolution/import/cleanup only. Storage preserves owners, source authority, baselines, acceptance and the separate implementation prompt. Detailed user setup is in the collection's storage guide.
+Read at authorized pipeline entry and for evidence production/resolution/import/cleanup. Storage preserves owners, source authority, baselines, acceptance and the separate implementation prompt. Detailed user setup is in the collection's storage guide.
+
+## Pipeline entry
+
+The orchestrator checks storage before the first owner dispatch or design-materials question, including for headless projects. This applies to an authorized pipeline start/resume, not merely opening a repository or requesting advice/read-only review.
+
+Resolve `../../scripts/evidence_setup.py` from the real `to-sdd-pipeline` skill directory. With supported Python, run `ensure --project ACTUAL_PRODUCT_ROOT --non-interactive`. Reuse configured project bindings or saved defaults without another selection question. For connected Drive setup/default adoption, require a compatible authenticated host. Use the bundled `scripts/evidence_host.py` CLI help to start, service and close its session; pass `--host-session` to setup. Missing access/capability is a setup blocker, not permission to select another store.
+
+If `setup_required` means no saved choice applies, ask one foreground question in `working_language`:
+
+> Where should this project's test results, screenshots and logs be saved?
+
+Offer these choices, including their prerequisites in the option descriptions before the user answers:
+
+- **Managed local:** outside the project checkout; no cloud account, connector or rclone required.
+- **Selected folder/disk:** a user-selected available folder outside Git; no cloud account, connector or rclone required.
+- **Google Drive:** Codex requires installing/connecting the Google Drive plugin. Claude Code requires an authenticated Drive connector/MCP, the same Claude account and `/mcp` verification. The agent verifies original-byte upload/readback; authenticated rclone is an optional alternative.
+
+A noninteractive JSON result or terminal command is not the chat question. Wait for the answer before owner dispatch; never infer consent from a recommendation or silence. Reuse an explicit choice already supplied in the conversation. Use the helper’s `configure --help` for supported options. Collect only missing destination/account and policy choices; explain applicable defaults and require explicit Drive retention. Save through `configure --project ACTUAL_PRODUCT_ROOT` with the confirmed choices, then verify setup reports `configured`. Machine paths/credentials stay outside Git. Setup does not upload/adopt existing project evidence without that authorization.
+
+A saved but unavailable, malformed or mismatched choice requires restoration or explicit reconfiguration; preserve it and surface the actual issue instead of choosing another provider. `configured` establishes saved setup, not a fresh proof of remote reachability. If the user explicitly postpones setup, continue planning with setup incomplete and produce no evidence until storage is configured. Then resolve design materials through `to-product-idea`, reusing supplied materials/answers or headless non-applicability.
 
 ## Records and references
 

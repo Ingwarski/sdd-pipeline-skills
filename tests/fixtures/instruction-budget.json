@@ -8,23 +8,23 @@
     "path": "instruction-baseline.json",
     "sha256": "b9aa3ae4416890799774b00466dde9d16c84b18d11e61c94417873a1991529ce"
   },
-  "reason": "The original numerical consolidation baseline remains unchanged. Reviewed allowances add exactly 98 tokens per project-policy load for mandatory unit-loop progress reporting: total current-plan units, completed unit and next unit, including incomplete and blocked outcomes. All five scenarios, seeds, invocation order, retries, conditional reads, tokenizer and measurement method remain unchanged. Entry points and README retain zero growth. The ceilings equal the baseline plus this bounded allowance; further growth requires independent review of instructions, complete resource loads, measurements and rationale. Static estimates do not establish live-run cost or behavior. See docs/maintenance.md.",
+  "reason": "The original numerical consolidation baseline remains unchanged. Independently reviewed allowances retain 98 tokens per project-policy load for unit-loop reporting and add 53 entrypoint tokens plus 526 storage-contract tokens per orchestrator load for first-entry storage selection and saved-choice recovery. All five scenarios, resources, seeds, invocation order, retries, tokenizer and measurement method remain unchanged. README retains zero growth. Ceilings equal the baseline plus these exact cumulative allowances; further growth requires independent review of instructions, complete resource loads, measurements and rationale. Static estimates exclude tool output and do not establish live-run cost or behavior. See docs/maintenance.md.",
   "absolute": {
-    "entrypoints": 16592,
+    "entrypoints": 16645,
     "readme": 3555,
-    "first_setup_with_retry": 148108,
-    "approved_design_revision": 92119,
-    "interrupted_claude_resume": 107110,
-    "approved_decision_correction": 106901,
-    "completion_preservation": 187110
+    "first_setup_with_retry": 148687,
+    "approved_design_revision": 92698,
+    "interrupted_claude_resume": 108268,
+    "approved_decision_correction": 108059,
+    "completion_preservation": 189426
   },
   "approved_growth_tokens": {
-    "entrypoints": 0,
+    "entrypoints": 53,
     "readme": 0,
-    "first_setup_with_retry": 98,
-    "approved_design_revision": 98,
-    "interrupted_claude_resume": 196,
-    "approved_decision_correction": 196,
-    "completion_preservation": 392
+    "first_setup_with_retry": 677,
+    "approved_design_revision": 677,
+    "interrupted_claude_resume": 1354,
+    "approved_decision_correction": 1354,
+    "completion_preservation": 2708
   }
 }
