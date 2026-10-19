@@ -13,7 +13,7 @@ python3 scripts/evidence_setup.py wizard --project /path/to/product
 python3 scripts/evidence_setup.py status --project /path/to/product
 ```
 
-Use `python` on Windows when it is the detected supported executable. When a new choice or explicit reconfiguration is needed, an agent's storage-choice popup/dialog must include the following prerequisites **in the option descriptions before the user answers**. A separate notice or README link is insufficient; reuse saved choices without repeating the question. The wizard offers:
+Use `python` on Windows when it is the detected supported executable. For a new choice or explicit reconfiguration, use the plain-language question and option descriptions in the [pipeline entry contract](../skills/to-sdd-pipeline/references/evidence-storage-contract.md#pipeline-entry), including the low-storage note and Drive connection prerequisite before the user answers. Reuse saved choices without repeating the question. The table below describes setup requirements for the agent and terminal wizard; technical verification steps follow the user's selection.
 
 | Choice | Durable destination | Requirements |
 |---|---|---|

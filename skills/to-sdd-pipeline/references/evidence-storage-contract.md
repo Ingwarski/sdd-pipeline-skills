@@ -10,13 +10,17 @@ Resolve `../../scripts/evidence_setup.py` from the real `to-sdd-pipeline` skill 
 
 If `setup_required` means no saved choice applies, ask one foreground question in `working_language`:
 
-> Where should this project's test results, screenshots and logs be saved?
+> Where should I save this project’s test results, screenshots and other testing files?
 
-Offer these choices, including their prerequisites in the option descriptions before the user answers:
+Offer these plain-language choices with their descriptions before the user answers:
 
-- **Managed local:** outside the project checkout; no cloud account, connector or rclone required.
-- **Selected folder/disk:** a user-selected available folder outside Git; no cloud account, connector or rclone required.
-- **Google Drive:** Codex requires installing/connecting the Google Drive plugin. Claude Code requires an authenticated Drive connector/MCP, the same Claude account and `/mcp` verification. The agent verifies original-byte upload/readback; authenticated rclone is an optional alternative.
+- **On this computer (recommended)** — I’ll create a separate folder and organize the files for you. No extra account or app is needed. (If your computer is running low on storage space, Google Drive, an external drive or a shared drive may be a better choice.)
+- **In a folder I choose** — Use a folder on your computer, an external drive or a shared drive.
+- **Google Drive** — Use a Google Drive folder. Connect Google Drive first through **Plugins** in Codex, or **Connectors** in Claude using the same Claude account as Claude Code. I’ll check that saving and opening files works.
+
+> You can also say **“Decide later.”**
+
+Map these choices to managed local, selected folder/disk, and Google Drive respectively. Keep local destinations outside the project checkout. For Claude Code, verify the authenticated connector/MCP with `/mcp`; authenticated rclone remains an optional alternative. Verify original-byte upload/readback for Drive. Keep these technical checks out of the opening question; explain only relevant setup steps after selection. Remote or external storage still needs local working/cache space.
 
 A noninteractive JSON result or terminal command is not the chat question. Wait for the answer before owner dispatch; never infer consent from a recommendation or silence. Reuse an explicit choice already supplied in the conversation. Use the helper’s `configure --help` for supported options. Collect only missing destination/account and policy choices; explain applicable defaults and require explicit Drive retention. Save through `configure --project ACTUAL_PRODUCT_ROOT` with the confirmed choices, then verify setup reports `configured`. Machine paths/credentials stay outside Git. Setup does not upload/adopt existing project evidence without that authorization.
 
