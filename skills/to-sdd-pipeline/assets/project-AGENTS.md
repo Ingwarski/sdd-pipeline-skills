@@ -1,4 +1,4 @@
-<!-- BEGIN sdd-project-execution revision=2 -->
+<!-- BEGIN sdd-project-execution revision=3 -->
 # Project coding instructions
 
 ## Authority and active unit
@@ -72,5 +72,5 @@ Check live usage before substantial work, resuming long-running work or launchin
 
 Commit and push only when authorized or required by applicable instructions. Implementation authority does not itself authorize deployment, infrastructure changes or spending.
 
-Report completion, actual tests, unverified claims, blockers and next action in plain language. Keep technical tracking in execution records. Claim unit completion only after its requirements pass; identify its evidence and next planned unit. Keep implementation success separate from release success.
+Report completion, actual tests, unverified claims, blockers and next action in plain language. Every user-facing reply after a unit implementation loop must include: **Total units:** the count in the current canonical development plan; **Completed this loop:** the unit ID and name, or none if incomplete; **Next unit:** its ID and name, or none when all units are complete. If the active unit is incomplete, identify it as the next unit to resume; if the next unit cannot start, state its blocker. Derive progress from current execution records and the approved unit order, dependencies and authorization. Claim unit completion only after its requirements pass and identify its evidence; keep implementation success separate from release success. Keep technical tracking in execution records.
 <!-- END sdd-project-execution -->
