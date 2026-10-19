@@ -1,0 +1,105 @@
+name: SDD and installer validation
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '20 8 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  content:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Install test-only content tools
+        run: python -m pip install -r tests/requirements.txt
+      - name: Validate ownership, resources and skill YAML
+        run: python -m unittest discover -s tests -p 'test_skill_contracts.py' -v
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+      - name: Compare full instruction loads, including references and retries
+        run: python scripts/measure_tokens.py --summary --check
+
+  unix:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.12', '3.14']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Test stage checker and installer input contract
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+      - name: Test symlink installer
+        run: bash tests/test-install.sh
+      - name: Test retirement cleanup
+        run: bash tests/test-retirement.sh
+      - name: Test safe updater
+        run: bash tests/test-update.sh
+
+  windows:
+    strategy:
+      matrix:
+        python: ['3.12', '3.14']
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Test stage checker and installer input contract
+        shell: powershell
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+      - name: Test symbolic-link and junction installer
+        shell: powershell
+        run: .\tests\test-install.ps1
+      - name: Test retirement cleanup
+        shell: powershell
+        run: .\tests\test-retirement.ps1
+      - name: Test safe updater
+        shell: powershell
+        run: .\tests\test-update.ps1
+
+  publish-tested-channel:
+    needs: [content, unix, windows]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: sdd-tested-channel
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Advance stable only to the current fully tested main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [[ "$current_main" != "$GITHUB_SHA" ]]; then
+            printf 'Newer main exists; its checks must pass before stable advances.\n'
+            exit 0
+          fi
+          git push origin "$GITHUB_SHA:refs/heads/stable"

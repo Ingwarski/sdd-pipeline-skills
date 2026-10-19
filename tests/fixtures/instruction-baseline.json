@@ -1,0 +1,965 @@
+{
+  "schema_version": 1,
+  "method_version": "sdd-static-instruction-loads-v1",
+  "method": "Fresh instruction loads per invocation, including each shared/conditional reference and the scenario seed on every invocation, including every listed retry. No cache discount; UTF-8 text uses normalized newlines. Fixed scenario definitions are checksum-bound to the baseline.",
+  "limits": "Static instruction budget only; no live agent execution, generated-document savings, automatic host/worker loads, cache pricing, tool-output or runtime retry claims. Checksums detect accidental baseline drift, not edits by an authorized policy maintainer.",
+  "encoding": "o200k_base",
+  "tokenizer": {
+    "package": "tiktoken",
+    "version": "0.14.0"
+  },
+  "scenarios_sha256": "5b8f1ea143ce99b6c297236c3c486044df0968913ff7c31568555bd6d4d60f16",
+  "entrypoint_paths": [
+    "skills/to-architecture/SKILL.md",
+    "skills/to-design-brief/SKILL.md",
+    "skills/to-development-plan/SKILL.md",
+    "skills/to-dod-evals/SKILL.md",
+    "skills/to-guardrails/SKILL.md",
+    "skills/to-product-idea/SKILL.md",
+    "skills/to-project-context/SKILL.md",
+    "skills/to-qa-checklist/SKILL.md",
+    "skills/to-screen-map/SKILL.md",
+    "skills/to-sdd-pipeline/SKILL.md",
+    "skills/to-sdd-prd/SKILL.md",
+    "skills/to-user-journey/SKILL.md",
+    "skills/to-wireframes/SKILL.md"
+  ],
+  "totals": {
+    "entrypoints": 16592,
+    "readme": 3555,
+    "first_setup_with_retry": 148010,
+    "approved_design_revision": 92021,
+    "interrupted_claude_resume": 106914,
+    "approved_decision_correction": 106705,
+    "completion_preservation": 186718
+  },
+  "scenario_loads": {
+    "first_setup_with_retry": {
+      "seed_tokens": 32,
+      "retries_included": 1,
+      "invocations": 18,
+      "loads": [
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 27957,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-sdd-pipeline/references/intake-adapter.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        },
+        {
+          "skill": "to-product-idea",
+          "tokens": 5012,
+          "resources": [
+            "skills/to-product-idea/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md"
+          ]
+        },
+        {
+          "skill": "to-sdd-prd",
+          "tokens": 6766,
+          "resources": [
+            "skills/to-sdd-prd/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-prd/references/security-authoring.md"
+          ]
+        },
+        {
+          "skill": "to-project-context",
+          "tokens": 2028,
+          "resources": [
+            "skills/to-project-context/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md"
+          ]
+        },
+        {
+          "skill": "to-guardrails",
+          "tokens": 5087,
+          "resources": [
+            "skills/to-guardrails/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md"
+          ]
+        },
+        {
+          "skill": "to-user-journey",
+          "tokens": 1754,
+          "resources": [
+            "skills/to-user-journey/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md"
+          ]
+        },
+        {
+          "skill": "to-screen-map",
+          "tokens": 3872,
+          "resources": [
+            "skills/to-screen-map/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md"
+          ]
+        },
+        {
+          "skill": "to-wireframes",
+          "tokens": 4946,
+          "resources": [
+            "skills/to-wireframes/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md"
+          ]
+        },
+        {
+          "skill": "to-design-brief",
+          "tokens": 6807,
+          "resources": [
+            "skills/to-design-brief/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md"
+          ]
+        },
+        {
+          "skill": "to-design-brief",
+          "tokens": 6807,
+          "resources": [
+            "skills/to-design-brief/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md"
+          ]
+        },
+        {
+          "skill": "to-architecture",
+          "tokens": 3648,
+          "resources": [
+            "skills/to-architecture/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md"
+          ]
+        },
+        {
+          "skill": "to-dod-evals",
+          "tokens": 10130,
+          "resources": [
+            "skills/to-dod-evals/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-qa-checklist",
+          "tokens": 14369,
+          "resources": [
+            "skills/to-qa-checklist/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-design-brief",
+          "tokens": 6807,
+          "resources": [
+            "skills/to-design-brief/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md"
+          ]
+        },
+        {
+          "skill": "to-architecture",
+          "tokens": 3648,
+          "resources": [
+            "skills/to-architecture/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md"
+          ]
+        },
+        {
+          "skill": "to-dod-evals",
+          "tokens": 10130,
+          "resources": [
+            "skills/to-dod-evals/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-qa-checklist",
+          "tokens": 14369,
+          "resources": [
+            "skills/to-qa-checklist/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-development-plan",
+          "tokens": 13873,
+          "resources": [
+            "skills/to-development-plan/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        }
+      ]
+    },
+    "approved_design_revision": {
+      "seed_tokens": 34,
+      "retries_included": 1,
+      "invocations": 7,
+      "loads": [
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 28099,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-development-plan/references/prototype-promotion.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        },
+        {
+          "skill": "to-design-brief",
+          "tokens": 6809,
+          "resources": [
+            "skills/to-design-brief/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md"
+          ]
+        },
+        {
+          "skill": "to-architecture",
+          "tokens": 3650,
+          "resources": [
+            "skills/to-architecture/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md"
+          ]
+        },
+        {
+          "skill": "to-dod-evals",
+          "tokens": 10132,
+          "resources": [
+            "skills/to-dod-evals/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-qa-checklist",
+          "tokens": 14371,
+          "resources": [
+            "skills/to-qa-checklist/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-qa-checklist",
+          "tokens": 14371,
+          "resources": [
+            "skills/to-qa-checklist/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-development-plan",
+          "tokens": 14589,
+          "resources": [
+            "skills/to-development-plan/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-development-plan/references/prototype-promotion.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        }
+      ]
+    },
+    "interrupted_claude_resume": {
+      "seed_tokens": 31,
+      "retries_included": 1,
+      "invocations": 7,
+      "loads": [
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 29046,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-sdd-pipeline/references/claude-design-handoff.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        },
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 29046,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-sdd-pipeline/references/claude-design-handoff.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        },
+        {
+          "skill": "to-design-brief",
+          "tokens": 6806,
+          "resources": [
+            "skills/to-design-brief/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md"
+          ]
+        },
+        {
+          "skill": "to-architecture",
+          "tokens": 3647,
+          "resources": [
+            "skills/to-architecture/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md"
+          ]
+        },
+        {
+          "skill": "to-dod-evals",
+          "tokens": 10129,
+          "resources": [
+            "skills/to-dod-evals/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-qa-checklist",
+          "tokens": 14368,
+          "resources": [
+            "skills/to-qa-checklist/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-development-plan",
+          "tokens": 13872,
+          "resources": [
+            "skills/to-development-plan/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        }
+      ]
+    },
+    "approved_decision_correction": {
+      "seed_tokens": 30,
+      "retries_included": 0,
+      "invocations": 7,
+      "loads": [
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 28423,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/authorization-corrections.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        },
+        {
+          "skill": "to-design-brief",
+          "tokens": 6805,
+          "resources": [
+            "skills/to-design-brief/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md"
+          ]
+        },
+        {
+          "skill": "to-architecture",
+          "tokens": 3646,
+          "resources": [
+            "skills/to-architecture/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md"
+          ]
+        },
+        {
+          "skill": "to-dod-evals",
+          "tokens": 10128,
+          "resources": [
+            "skills/to-dod-evals/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-qa-checklist",
+          "tokens": 14367,
+          "resources": [
+            "skills/to-qa-checklist/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-development-plan",
+          "tokens": 14913,
+          "resources": [
+            "skills/to-development-plan/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/authorization-corrections.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 28423,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/authorization-corrections.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        }
+      ]
+    },
+    "completion_preservation": {
+      "seed_tokens": 36,
+      "retries_included": 1,
+      "invocations": 9,
+      "loads": [
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 29143,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-development-plan/references/prototype-promotion.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/authorization-corrections.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        },
+        {
+          "skill": "to-dod-evals",
+          "tokens": 10134,
+          "resources": [
+            "skills/to-dod-evals/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-qa-checklist",
+          "tokens": 14373,
+          "resources": [
+            "skills/to-qa-checklist/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-development-plan",
+          "tokens": 15633,
+          "resources": [
+            "skills/to-development-plan/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-development-plan/references/prototype-promotion.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/authorization-corrections.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 29143,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-development-plan/references/prototype-promotion.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/authorization-corrections.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        },
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 29143,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-development-plan/references/prototype-promotion.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/authorization-corrections.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        },
+        {
+          "skill": "to-qa-checklist",
+          "tokens": 14373,
+          "resources": [
+            "skills/to-qa-checklist/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/accessibility-policy.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-development-plan",
+          "tokens": 15633,
+          "resources": [
+            "skills/to-development-plan/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/lifecycle-contract.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-development-plan/references/prototype-promotion.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/authorization-corrections.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md"
+          ]
+        },
+        {
+          "skill": "to-sdd-pipeline",
+          "tokens": 29143,
+          "resources": [
+            "skills/to-sdd-pipeline/SKILL.md",
+            "skills/to-sdd-pipeline/references/common-contract.md",
+            "skills/to-sdd-pipeline/references/traceability-contract.md",
+            "skills/to-sdd-pipeline/references/scope-and-execution.md",
+            "skills/to-sdd-pipeline/references/security-contract.md",
+            "skills/to-sdd-pipeline/references/heuristic-usability-review.md",
+            "skills/to-sdd-pipeline/references/verification-contract.md",
+            "skills/to-sdd-pipeline/references/manifest-contract.md",
+            "skills/to-sdd-pipeline/references/prototype-contract.md",
+            "skills/to-sdd-pipeline/references/freeze-contract.md",
+            "skills/to-sdd-pipeline/references/pipeline-contract.json",
+            "skills/to-sdd-pipeline/references/project-instructions.md",
+            "skills/to-sdd-pipeline/references/host-instruction-loading.md",
+            "skills/to-sdd-pipeline/assets/project-AGENTS.md",
+            "skills/to-development-plan/references/prototype-promotion.md",
+            "skills/to-sdd-pipeline/references/unit-execution-contract.md",
+            "skills/to-sdd-pipeline/references/authorization-corrections.md",
+            "skills/to-sdd-pipeline/references/completion-preservation.md",
+            "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+          ]
+        }
+      ]
+    }
+  },
+  "resources": {
+    "skills/to-architecture/SKILL.md": {
+      "tokens": 928,
+      "sha256": "0b65f7528adde5172db6428c074bbd71eb9571f5a96443244e932cdbbd420d79"
+    },
+    "skills/to-design-brief/SKILL.md": {
+      "tokens": 1813,
+      "sha256": "4cb6cd8d60bfdcc42c9bb58d2ff91f69de8fc67fb62560de9d8c9cac70b0cbd1"
+    },
+    "skills/to-development-plan/SKILL.md": {
+      "tokens": 1628,
+      "sha256": "855d03f12f6871abe4fbe1bfce25db139350d2f02209f9f6d8d8827ef5e3894c"
+    },
+    "skills/to-dod-evals/SKILL.md": {
+      "tokens": 1147,
+      "sha256": "5108c542401087b53a6293c912b8e0ad97bfff58d365a5bc12cf4ed3a1778370"
+    },
+    "skills/to-guardrails/SKILL.md": {
+      "tokens": 949,
+      "sha256": "c07f1684215201405a4469b8933b6563150eed3bf540674986b6941ab324aaa4"
+    },
+    "skills/to-product-idea/SKILL.md": {
+      "tokens": 1779,
+      "sha256": "c13c5615e1b47ea91b3676dbf6ee772d4c44d837623389ea54e4a5716ef75112"
+    },
+    "skills/to-project-context/SKILL.md": {
+      "tokens": 906,
+      "sha256": "03fa6266f986dfab2e19a3373de565a287d4af87dbf07e9a1f2b7b3b5a19a33b"
+    },
+    "skills/to-qa-checklist/SKILL.md": {
+      "tokens": 1584,
+      "sha256": "6fd2694f4aa8bec7151110532d27218583b86b451bdec8d017d8ff7fac69d5f7"
+    },
+    "skills/to-screen-map/SKILL.md": {
+      "tokens": 639,
+      "sha256": "553afd97f52c8e03e0f444eac3f124b7fa47b7c4954ff51f96c9546a42902621"
+    },
+    "skills/to-sdd-pipeline/SKILL.md": {
+      "tokens": 2788,
+      "sha256": "f51f12eb8c64c46e9c359e3e8f53ef75ac9d7938cbeeb0bae8a4530081ac199f"
+    },
+    "skills/to-sdd-prd/SKILL.md": {
+      "tokens": 991,
+      "sha256": "e45cab5be64fb091c461574e74e51f48beedcbf31e46bc33aa1579f24efa7de3"
+    },
+    "skills/to-user-journey/SKILL.md": {
+      "tokens": 632,
+      "sha256": "cdf04b688126d48a3212605effbe8ef2ce9a3f30b2c9d214335e38156f762c41"
+    },
+    "skills/to-wireframes/SKILL.md": {
+      "tokens": 808,
+      "sha256": "c1cbd70c2a04621a9af4dd15b9e867acd8f471b3cad2f92568426dedf6fea40f"
+    },
+    "README.md": {
+      "tokens": 3555,
+      "sha256": "c5fd348133a099bdf074b3a01b24074640a783e558c1867fbc22aa2e63484b05"
+    },
+    "skills/to-sdd-pipeline/references/common-contract.md": {
+      "tokens": 1090,
+      "sha256": "f884218becee160fb550b314b8efa636b88d0114b537a3b676d805bd3261edb4"
+    },
+    "skills/to-sdd-pipeline/references/traceability-contract.md": {
+      "tokens": 895,
+      "sha256": "9f87dd61f84574b63829dd71aebc035f753fe3d6e3740c0cc91472f329baa68e"
+    },
+    "skills/to-sdd-pipeline/references/scope-and-execution.md": {
+      "tokens": 1216,
+      "sha256": "b96721d560ffd79f9732795a7839f9102fb74fedd62510949f6d5f68b9cf9585"
+    },
+    "skills/to-sdd-pipeline/references/security-contract.md": {
+      "tokens": 715,
+      "sha256": "610fdafe910f29488ffc112f8bb2abebdd0cb426c02f23ddbbaca2937462ad82"
+    },
+    "skills/to-sdd-pipeline/references/heuristic-usability-review.md": {
+      "tokens": 1525,
+      "sha256": "0b9c13b2f7eb386b795133688314ac19d99a92d52507ffa74f1dc2ef7830ab42"
+    },
+    "skills/to-sdd-pipeline/references/verification-contract.md": {
+      "tokens": 1491,
+      "sha256": "835c6ddc7332017c7ba2792485a34460653fe8d1851ef0e465c71fb8f36e0b34"
+    },
+    "skills/to-sdd-pipeline/references/manifest-contract.md": {
+      "tokens": 3851,
+      "sha256": "8d6063815185e6eadf25789ac7cb21b48ebcb6ec99651ee19ca45968e1bef51f"
+    },
+    "skills/to-sdd-pipeline/references/prototype-contract.md": {
+      "tokens": 1059,
+      "sha256": "321a243b825d6d759ad733f8c4a4a54e10759e6effcdc81c38a4ce7a4c342bd7"
+    },
+    "skills/to-sdd-pipeline/references/freeze-contract.md": {
+      "tokens": 316,
+      "sha256": "2a6b8123122d6abef72b7759013dddb6bb6dcc2eed3115a8662c81574dbc6f6c"
+    },
+    "skills/to-sdd-pipeline/references/pipeline-contract.json": {
+      "tokens": 1680,
+      "sha256": "4515dd5f26655e74a15571af42dc290eb9c967fc4df719aaa70dbf320db05fa8"
+    },
+    "skills/to-sdd-pipeline/references/project-instructions.md": {
+      "tokens": 1029,
+      "sha256": "87303bf62c09b0d50d7c7bbd01e29517c03f892ec4e2690c247efb27ad4db098"
+    },
+    "skills/to-sdd-pipeline/references/host-instruction-loading.md": {
+      "tokens": 955,
+      "sha256": "fc3836ccfe6c1388b74f4502bb36c28cb0b32d05a10ab5990b7b157915dd8565"
+    },
+    "skills/to-sdd-pipeline/assets/project-AGENTS.md": {
+      "tokens": 1870,
+      "sha256": "b2c3fecc815b24aafd10e4c5c374446179106a131137aead176a588b5ae10ee7"
+    },
+    "skills/to-sdd-pipeline/references/intake-adapter.md": {
+      "tokens": 574,
+      "sha256": "83b3b318b665edc411a05a8f49de07d84a09af82e148e741f4e1c644909610be"
+    },
+    "skills/to-sdd-pipeline/references/unit-execution-contract.md": {
+      "tokens": 2367,
+      "sha256": "bfffd5a0a66145d33a1bf3b606c6288228dbfd57fa34ec5195c549f9f0a364e4"
+    },
+    "skills/to-sdd-pipeline/references/completion-preservation.md": {
+      "tokens": 3247,
+      "sha256": "5b1375200071142e313edb00eeac5a311c1afd54ecd0ce5f85d5292f94890afb"
+    },
+    "skills/to-sdd-pipeline/references/evidence-storage-contract.md": {
+      "tokens": 1257,
+      "sha256": "6bfa0fa0943c8e9aaac501a973ac52418781091fe4aba1d14f601cb5f4dab64e"
+    },
+    "skills/to-sdd-pipeline/references/lifecycle-contract.md": {
+      "tokens": 883,
+      "sha256": "6c8ade30c51a244aaf2786f5c5bd77b5065fa39ae429ac2099ca8b8c682129a5"
+    },
+    "skills/to-sdd-pipeline/references/accessibility-policy.md": {
+      "tokens": 540,
+      "sha256": "3d8c15fe3bf6a81af782afe52a7fda8f2e5f9636ae4c92567a22e22bb6be377e"
+    },
+    "skills/to-sdd-prd/references/security-authoring.md": {
+      "tokens": 1620,
+      "sha256": "1e3609e5480e50584767e0b031801499aa15e2893e4c25d6364788590c66e32e"
+    },
+    "skills/to-development-plan/references/prototype-promotion.md": {
+      "tokens": 714,
+      "sha256": "f57ac4fc3b1c80265bff134b610e943fae967e87b5ee23a199d20477c6a31150"
+    },
+    "skills/to-sdd-pipeline/references/claude-design-handoff.md": {
+      "tokens": 1664,
+      "sha256": "897da546f81236892abe578ba205d57d2cb174e167a5a34c8fd483ccd43bd128"
+    },
+    "skills/to-sdd-pipeline/references/authorization-corrections.md": {
+      "tokens": 1042,
+      "sha256": "85e43e4543cbc2e4bb13c13d8f6d346101976dd0bfd262409296de2295e24bf1"
+    }
+  },
+  "provenance": {
+    "source": "Current consolidated skillset; numerical metadata only, no historical source copies",
+    "recorded_at": "2026-10-19T14:49:37.545220+00:00",
+    "measurement_script_sha256": "f668a4969c21086727247a489e99342d3c36800b77f5e010ecfc0d354e9686da"
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "first_setup_with_retry": {
+    "description": "New comparison product, Ukrainian working language and English UI; one design-brief retry, then approval reconciliation. The orchestrator resolves generated evidence storage; QA invocations author/reconcile definitions, not payloads.",
+    "seed": "Create a comparison tool for people deciding between options on mobile and desktop. Preserve their selections after an error. Use Ukrainian for SDD and English for the interface.",
+    "invocations": [
+      "to-sdd-pipeline",
+      "to-product-idea",
+      "to-sdd-prd",
+      "to-project-context",
+      "to-guardrails",
+      "to-user-journey",
+      "to-screen-map",
+      "to-wireframes",
+      "to-design-brief",
+      "to-design-brief",
+      "to-architecture",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-design-brief",
+      "to-architecture",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-development-plan"
+    ],
+    "retries": 1,
+    "intake": true,
+    "prototype_reuse": false,
+    "claude_design": false,
+    "evidence_storage_consumers": [
+      "to-sdd-pipeline"
+    ]
+  },
+  "approved_design_revision": {
+    "description": "Existing operational product changes an approved interaction; revalidate affected owners, including one QA retry. The orchestrator resolves generated evidence storage; QA invocations author/reconcile definitions, not payloads.",
+    "seed": "Use the accepted revision of our operational dashboard. Preserve the existing approved version and history; update only affected architecture, checks and units, then wait for a new implementation prompt.",
+    "invocations": [
+      "to-sdd-pipeline",
+      "to-design-brief",
+      "to-architecture",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-qa-checklist",
+      "to-development-plan"
+    ],
+    "retries": 1,
+    "intake": false,
+    "prototype_reuse": true,
+    "claude_design": false,
+    "evidence_storage_consumers": [
+      "to-sdd-pipeline"
+    ]
+  },
+  "interrupted_claude_resume": {
+    "description": "Resume an interrupted Claude Design handoff without another intake; verify current references and one retry after an incomplete receipt. The orchestrator resolves generated evidence storage; QA invocations author/reconcile definitions, not payloads.",
+    "seed": "Resume the selected Claude Design export after an interrupted session. Recheck source receipts and keep my saved answers and earlier approval history. Do not implement production code.",
+    "invocations": [
+      "to-sdd-pipeline",
+      "to-sdd-pipeline",
+      "to-design-brief",
+      "to-architecture",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-development-plan"
+    ],
+    "retries": 1,
+    "intake": false,
+    "prototype_reuse": false,
+    "claude_design": true,
+    "evidence_storage_consumers": [
+      "to-sdd-pipeline"
+    ]
+  },
+  "approved_decision_correction": {
+    "description": "Record an earlier approved decision in authorized SDD without new scope; include owner reconciliation, independent review contract and authorization continuity. The orchestrator resolves generated evidence storage; QA invocations author/reconcile definitions, not payloads.",
+    "seed": "Correct the existing plan to record the previously approved menu decision. Preserve scope, the original authorization and actual QA evidence; do not ask for approval again.",
+    "invocations": [
+      "to-sdd-pipeline",
+      "to-design-brief",
+      "to-architecture",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-development-plan",
+      "to-sdd-pipeline"
+    ],
+    "retries": 0,
+    "intake": false,
+    "prototype_reuse": false,
+    "claude_design": false,
+    "approved_decision_correction": true,
+    "evidence_storage_consumers": [
+      "to-sdd-pipeline"
+    ]
+  },
+  "completion_preservation": {
+    "description": "Completion history, two corrections of pending work and a split, including owner review and one interrupted capture retry; count mandatory setup and history reads on every invocation without cache discount. The orchestrator resolves generated evidence storage; QA invocations author/reconcile definitions, not payloads.",
+    "seed": "Preserve the genuinely completed Login unit while revising pending Profile twice and splitting Notifications. Retain original evidence and all obligations. Validate the revised plan and wait for its implementation authorization.",
+    "invocations": [
+      "to-sdd-pipeline",
+      "to-dod-evals",
+      "to-qa-checklist",
+      "to-development-plan",
+      "to-sdd-pipeline",
+      "to-sdd-pipeline",
+      "to-qa-checklist",
+      "to-development-plan",
+      "to-sdd-pipeline"
+    ],
+    "retries": 1,
+    "intake": false,
+    "prototype_reuse": true,
+    "claude_design": false,
+    "completion_preservation": true,
+    "approved_decision_correction": true,
+    "evidence_storage_consumers": [
+      "to-sdd-pipeline"
+    ]
+  }
+}

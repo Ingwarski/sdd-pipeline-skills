@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "baseline": {
+    "path": "instruction-baseline.json",
+    "sha256": "b9aa3ae4416890799774b00466dde9d16c84b18d11e61c94417873a1991529ce"
+  },
+  "recent_baseline": {
+    "path": "instruction-baseline.json",
+    "sha256": "b9aa3ae4416890799774b00466dde9d16c84b18d11e61c94417873a1991529ce"
+  },
+  "reason": "Fresh repository baseline for the authorized consolidation of the current SDD skillset. All five scenarios, seeds, invocation order, retries, setup and conditional reads are preserved; evidence-storage reads are counted wherever these workflows resolve generated evidence. Independent consolidation review found no removed resource reads. Numerical snapshots preserve tokenizer, method, scenario checksum, resource hashes and per-invocation totals without any historical source text or Git dependency. Exact measured totals are the initial ceilings; no unreviewed growth is allowed. Future baseline or limit changes require independent review of the instructions, complete resource loads, measurements and rationale. Static estimates do not establish live-run cost or behavior. See docs/maintenance.md.",
+  "absolute": {
+    "entrypoints": 16592,
+    "readme": 3555,
+    "first_setup_with_retry": 148010,
+    "approved_design_revision": 92021,
+    "interrupted_claude_resume": 106914,
+    "approved_decision_correction": 106705,
+    "completion_preservation": 186718
+  },
+  "approved_growth_tokens": {
+    "entrypoints": 0,
+    "readme": 0,
+    "first_setup_with_retry": 0,
+    "approved_design_revision": 0,
+    "interrupted_claude_resume": 0,
+    "approved_decision_correction": 0,
+    "completion_preservation": 0
+  }
+}

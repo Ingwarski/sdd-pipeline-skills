@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Product Idea"
+  short_description: "Validate or create product intent visibly"
+  default_prompt: "Use $to-product-idea to create docs/product-idea.md from my rough concept or validate an existing/imported file through a visible, one-question-at-a-time intake."

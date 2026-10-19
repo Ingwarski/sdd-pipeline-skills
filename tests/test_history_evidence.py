@@ -1,0 +1,171 @@
+"""History plus prepared external evidence; isolated synthetic records only."""
+import copy
+import json
+from pathlib import Path
+import subprocess
+import sys
+import unittest
+
+import test_evidence_checker as external_fixture
+import test_unit_history as history_fixture
+from test_sdd_check import SCRIPT, sdd
+
+
+class HistoryEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.history = history_fixture.UnitHistoryTests(methodName="runTest")
+        self.history.setUp()
+        self.addCleanup(self.history.doCleanups)
+        self.p, self.m = self.history.p, self.history.m
+        self.external = external_fixture.EvidenceCheckerTests(methodName="runTest")
+        self.external.setUp()
+        self.addCleanup(self.external.doCleanups)
+        self.external.p, self.external.m = self.p, self.m
+        self.p.write("forge/evidence-policy.json", json.dumps(self.external.policy))
+        self.m["evidence_accounting"] = {"version": 1, "project_id": self.external.policy["project_id"],
+            "policy_sha256": self.p.hash("forge/evidence-policy.json"), "runs": {}}
+        self.cache = self.external.cache
+        self.helper = self.history.history()
+        self.m.update(checker_contract_version=2, unit_contract_version=2)
+        gate = self.m["implementation_gate"]
+        self.prompt = self.external.replace(gate["prompt_receipt"], "original-prompt", "receipt",
+            {key: gate[key] for key in ("prompt_id", "development_plan_hash", "approved_baseline_id")})
+        gate["prompt_receipt"] = self.prompt
+
+    def checker(self):
+        return sdd.Checker(self.p.root, self.m, evidence_cache=self.cache)
+
+    def capture(self):
+        inventory = self.history.inventory()
+        context = self.helper.capture_context(self.p.root, self.m, "U-1", inventory, evidence_cache=self.cache)
+        self.m.setdefault("execution_contexts", {})["U-1"] = context
+        self.history.fixture.begin("U-1", 3)
+        self.m["unit_runs"]["U-1"]["started_at"] = self.history.now()
+        self.history.fixture.evidence("U-1", 4)
+        self.history.stamp_evidence(self.helper, "U-1", inventory)
+        check = next(item for item in self.m["verification"]["checks"] if item["check_id"] == "QA-02")
+        hashes = check.pop("evaluated_source_hashes")
+        # Include a source visible only through the compact test-time inventory.
+        self.p.write("tests/fixture-support.txt", "Stable synthetic test support.\n")
+        hashes["tests/fixture-support.txt"] = self.p.hash("tests/fixture-support.txt")
+        source_ref = self.external.prepare({"version": 1, "source_hashes": hashes}, "test-inventory", "source_inventory", "source-inventory-v1")
+        check["source_inventory_ref"] = source_ref
+        captures = []
+        legacy = copy.deepcopy(check["evidence"])
+        for index, record in enumerate(legacy):
+            data = (self.p.root / record["path"]).read_bytes()
+            ref = self.external.prepare(data, "capture-" + str(index), record["kind"], "sdd-result-v1", self.checker().check_bindings(check))
+            ref.update(original_path=record["path"], dependencies=[source_ref])
+            self.external.receipt(ref)
+            captures.append(ref)
+        for path in {record["path"] for record in legacy}:
+            (self.p.root / path).unlink()
+        check["evidence"] = captures
+        self.m["unit_runs"]["U-1"].update(status="completed", completed_at=self.history.now())
+        completion = self.helper.capture_completion(self.p.root, self.m, "U-1", context, "synthetic-history-external", evidence_cache=self.cache)
+        self.m["unit_runs"]["U-1"] = {"status": "completed", "completion_ref": completion}
+        self.p.save()
+        return inventory, context, completion, source_ref, captures
+
+    def test_external_prompt_inventory_and_evidence_preserve_history_without_payload_copies(self):
+        inventory, context, completion, source_ref, captures = self.capture()
+        report = self.checker().run("development-plan", after=True)
+        self.assertEqual("passed", report["result"], report)
+        self.assertEqual("authorized", report["execution_authority"]["status"])
+        self.assertEqual("applicable", report["unit_history"]["units"]["U-1"]["current_applicability"])
+        archived = self.history.read(completion)
+        self.assertIn("forge/evidence-policy.json", self.history.read(context)["files"])
+        self.assertIn("tests/fixture-support.txt", archived["files"])
+        self.assertNotIn(captures[0]["original_path"], archived["files"])
+        self.assertEqual(source_ref, archived["checks"][0]["source_inventory_ref"])
+        self.assertEqual(captures, archived["checks"][0]["evidence"])
+        before = {p: p.read_bytes() for p in self.cache.rglob("*") if p.is_file()}
+        self.helper.validate_completion(self.p.root, completion, evidence_cache=self.cache)
+        self.assertEqual(before, {p: p.read_bytes() for p in self.cache.rglob("*") if p.is_file()})
+
+    def test_missing_cache_and_changed_external_dependency_block_history(self):
+        _, _, completion, source_ref, _ = self.capture()
+        with self.assertRaisesRegex(ValueError, "evidence preparation required"):
+            self.helper.validate_completion(self.p.root, completion)
+        (self.cache / "objects" / source_ref["sha256"]).write_bytes(b"changed inventory")
+        report = self.checker().run("development-plan", after=True)
+        self.assertNotEqual("passed", report["result"], report)
+        self.assertFalse(report["unit_history"]["units"]["U-1"]["historical_valid"])
+
+    def test_compact_tested_source_changes_invalidate_current_acceptance_not_history(self):
+        self.capture()
+        self.p.write("tests/fixture-support.txt", "Changed test support.\n")
+        report = self.checker().run("development-plan", after=True)
+        unit = report["unit_history"]["units"]["U-1"]
+        self.assertTrue(unit["historical_valid"], report)
+        self.assertEqual("needs_revalidation", unit["current_applicability"])
+        self.assertIn("tests/fixture-support.txt", str(unit["reasons"]))
+
+    def test_unit_inventory_binds_its_construction_allocations_and_mechanisms(self):
+        plan = self.m["unit_plan"]
+        reference = {"path": "docs/architecture.md", "heading": "## Construction Mechanisms"}
+        definition = {"version": 1, "mechanisms": {"M-ALPHA": {
+            "required": True, "obligation_ids": ["FR-01"], "source_paths": ["src/alpha.txt"]}}}
+        original = (self.p.root / "docs/architecture.md").read_text()
+        self.p.write("docs/architecture.md", original + "\n## Construction Mechanisms\n```json\n" + json.dumps(definition) + "\n```\n")
+        plan.update(construction_ref=reference, construction={"M-ALPHA": {"owner_unit": "U-1", "check_ids": ["QA-02"]}})
+        inventory = self.history.inventory()
+        inventory["sources"]["docs/architecture.md"] = {"mode": "sections", "headings": ["## Definition"]}
+        before = self.helper.prepare_inventory(self.checker(), "U-1", inventory)
+        self.assertEqual(definition["mechanisms"], before["bindings"]["construction"]["mechanisms"])
+        plan["construction"]["M-ALPHA"]["check_ids"] = ["QA-03"]
+        after = self.helper.prepare_inventory(self.checker(), "U-1", inventory)
+        self.assertEqual(before["inputs"], after["inputs"])
+        self.assertNotEqual(before["bindings"], after["bindings"])
+
+    def test_stage_activate_bind_external_closure_without_new_authorization(self):
+        self.capture()
+        original_gate = copy.deepcopy(self.m["implementation_gate"])
+        expected = self.p.hash("forge/sdd-manifest.json")
+        candidate = self.helper.stage_candidate(self.p.root, self.m, expected, evidence_cache=self.cache)
+        staged = self.history.read(candidate)
+        self.assertTrue(any(key.startswith("@evidence/") for key in staged["observed_hashes"]))
+        result = self.helper.activate_candidate(self.p.root, candidate, expected, evidence_cache=self.cache)
+        self.assertEqual("activated", result["status"])
+        self.assertEqual(original_gate, json.loads((self.p.root / "forge/sdd-manifest.json").read_text())["implementation_gate"])
+
+    def test_external_receipt_change_after_staging_prevents_activation(self):
+        self.capture()
+        expected = self.p.hash("forge/sdd-manifest.json")
+        candidate = self.helper.stage_candidate(self.p.root, self.m, expected, evidence_cache=self.cache)
+        path = self.cache / "receipts" / (self.prompt["artifact_id"] + ".json")
+        path.write_text(path.read_text() + "\n")  # Same semantics, changed prepared readback bytes.
+        with self.assertRaisesRegex(ValueError, "candidate source/evidence/history changed"):
+            self.helper.activate_candidate(self.p.root, candidate, expected, evidence_cache=self.cache)
+        self.assertEqual(expected, self.p.hash("forge/sdd-manifest.json"))
+
+    def test_legacy_missing_external_evidence_archives_unverified_without_granting_authority(self):
+        self.m.update(checker_contract_version=1, unit_contract_version=1)
+        self.history.fixture.complete("U-1", 3)
+        check = next(item for item in self.m["verification"]["checks"] if item["check_id"] == "QA-02")
+        check["revalidation_ref"] = {"path": "forge/missing-review.json", "content_hash": "a" * 64}
+        gate = copy.deepcopy(self.m["implementation_gate"])
+        self.p.save()
+        expected = self.p.hash("forge/sdd-manifest.json")
+        candidate = self.helper.adopt_legacy(self.p.root, expected)
+        record = self.history.read(candidate)
+        self.assertEqual("migration_ready", record["report"]["result"])
+        self.assertEqual(gate, record["manifest"]["implementation_gate"])
+        migrated = next(item for item in record["manifest"]["verification"]["checks"] if item["check_id"] == "QA-02")
+        self.assertEqual("not_run", migrated["execution_status"])
+        self.assertNotIn("revalidation_ref", migrated)
+        self.assertEqual("unverified_not_reusable", self.history.read(record["manifest"]["legacy_history"][0])["acceptance"])
+
+    def test_cli_explicit_cache_supports_context_and_rejects_in_project_cache(self):
+        self.p.save()
+        self.p.write("forge/inventory.json", json.dumps(self.history.inventory()))
+        command = [sys.executable, str(SCRIPT.with_name("sdd_history.py")), "--project", str(self.p.root), "--evidence-cache", str(self.cache),
+            "capture-context", "--unit", "U-1", "--inventory", "forge/inventory.json"]
+        result = subprocess.run(command, text=True, capture_output=True)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        with self.assertRaisesRegex(ValueError, "outside the repository"):
+            self.helper.capture_context(self.p.root, self.m, "U-1", self.history.inventory(), evidence_cache=self.p.root / "cache")
+
+
+if __name__ == "__main__":
+    unittest.main()
