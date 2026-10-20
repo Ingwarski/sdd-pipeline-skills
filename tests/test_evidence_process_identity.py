@@ -131,6 +131,7 @@ class LinuxIdentityTests(unittest.TestCase):
              patch.object(processes.os, "pidfd_open", side_effect=lambda *_: events.append("open") or 99, create=True), \
              patch.object(processes, "_read", side_effect=lambda *_: events.append("verify") or item["created"]), \
              patch.object(processes.signal, "pidfd_send_signal", side_effect=lambda *_: events.append("signal"), create=True) as signalled, \
+             patch.object(processes.signal, "SIGKILL", 9, create=True), \
              patch.object(processes.os, "close", side_effect=lambda *_: events.append("close")), \
              patch.object(processes.os, "kill", side_effect=AssertionError("must not signal numeric PID")):
             self.assertEqual(processes.terminate(item, force=True), "signalled")
