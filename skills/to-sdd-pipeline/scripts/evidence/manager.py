@@ -21,6 +21,7 @@ from .archive import build_pack, verify_pack, capture
 from .io import EvidenceError, atomic_json, hash_file, read_json, safe_relative, _open_regular, _verify_stable, _is_link
 from .policy import validate_policy
 from .identity import same_reference, same_imported_original
+from . import process_identity
 
 
 def canonical(value):
@@ -659,13 +660,19 @@ class Manager:
             generation.update(data.get("generation", {}))
             for ident, intent in data.get("generation_intents", {}).items():
                 if (not isinstance(ident, str) or not isinstance(intent, dict)
-                        or set(intent) != {"run_id", "unit_id", "reserve_bytes", "reserve_files", "owner_pid", "owner_host"}
+                        or set(intent) not in ({"run_id", "unit_id", "reserve_bytes", "reserve_files", "owner_pid", "owner_host"},
+                                              {"run_id", "unit_id", "reserve_bytes", "reserve_files", "owner_pid", "owner_host", "owner_identity"})
                         or any(not isinstance(intent[field], str) or not intent[field] for field in ("run_id", "unit_id"))
                         or any(type(intent[field]) is not int or intent[field] < 0 for field in ("reserve_bytes", "reserve_files"))
                         or type(intent["owner_pid"]) is not int or intent["owner_pid"] <= 0
                         or not isinstance(intent["owner_host"], str) or not intent["owner_host"]
                         or ident in generation_intents):
                     raise EvidenceError("invalid or duplicated durable generation intent")
+                if "owner_identity" in intent:
+                    owner = intent["owner_identity"]
+                    if (not process_identity.valid_identity(owner) or owner.get("pid") != intent["owner_pid"]
+                            or owner.get("host") != intent["owner_host"]):
+                        raise EvidenceError("durable generation intent process identity differs from its owner")
                 generation_intents[ident] = intent
             for ident in data.get("settled_generation_intents", []):
                 if ident not in generation_intents:
@@ -1409,8 +1416,22 @@ class Manager:
             return {"coordinator_authorized": True, "coordinator": self.coordinator,
                     "project_id": self.policy["project_id"]}
 
+    def _generation_owner_state(self, intent):
+        """Exact identities resist PID reuse; old records retain conservative checks."""
+        if "owner_identity" in intent:
+            return process_identity.state(intent["owner_identity"])
+        if intent["owner_host"] != socket.gethostname():
+            return "unknown"
+        return "alive" if self._owner_alive(intent["owner_pid"]) else "gone"
+
+    def _recover_managed_producers(self, *, dry_run=True):
+        from .accounting import Accounting
+        from .producer import recover_producers
+        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            return recover_producers(ledger, dry_run=dry_run)
+
     def assert_generation_authority(self):
-        """Read-only clients cannot reserve an independent generation allowance."""
+        """Recover owned local attempts, then require designated generation authority."""
         catalog = self._catalog(mutation=True)
         authority = self._generation_authority()
         if authority is None:
@@ -1421,14 +1442,25 @@ class Manager:
             authority = self._generation_authority()
         if authority["coordinator"] != self.coordinator:
             raise EvidenceError("generation requires the designated coordinator and shared accounting home; cold recovery is read-only")
+        recovery = self._recover_managed_producers(dry_run=False)
+        if recovery["incomplete"]:
+            raise EvidenceError("managed producer recovery remains incomplete; retain its resources and reconcile before generation")
+        for action in recovery["actions"]:
+            intent = catalog.get("generation_intents", {}).get(action.get("intent_id"))
+            if (intent and not intent.get("settled") and action["action"] in ("cleaned", "terminal")
+                    and not action.get("incomplete") and self._generation_owner_state(intent) == "gone"):
+                self.finish_generation(action["intent_id"], reservation_id=action.get("reservation_id"))
+        catalog = self._catalog(mutation=True)
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
             self._reconcile_ledger(catalog, ledger)
             ledger.require_generation_ready()
             for intent in catalog.get("generation_intents", {}).values():
-                if not intent.get("settled") and ledger.connection.execute("SELECT 1 FROM runs WHERE id=?", (intent["run_id"],)).fetchone() is None:
-                    launching = intent["owner_host"] == socket.gethostname() and self._owner_alive(intent["owner_pid"])
-                    if not launching:
+                if not intent.get("settled"):
+                    owner_state = self._generation_owner_state(intent)
+                    run = ledger.connection.execute("SELECT 1 FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
+                    pending = ledger.connection.execute("SELECT 1 FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()
+                    if (run is None or pending) and owner_state != "alive":
                         raise EvidenceError("durable generation intent has unknown local accounting; reconcile before generation")
         return {"coordinator_authorized": True, "coordinator": self.coordinator}
 
@@ -1444,12 +1476,15 @@ class Manager:
         if (any(not isinstance(value, str) or not value for value in (run_id, unit_id))
                 or any(type(value) is not int or value < 0 for value in (reserve_bytes, reserve_files))):
             raise EvidenceError("generation intent requires stable run/unit and nonnegative reservation bounds")
+        owner = process_identity.identity()
+        if owner is None:
+            raise EvidenceError("cannot establish the generation owner process identity")
         intent = str(uuid.uuid4())
         with self.locked():
             catalog = self._catalog(mutation=True)
             self._publish(catalog, {"version": 1, "generation_intents": {intent: {
                 "run_id": run_id, "unit_id": unit_id, "reserve_bytes": reserve_bytes, "reserve_files": reserve_files,
-                "owner_pid": os.getpid(), "owner_host": socket.gethostname()}}})
+                "owner_pid": os.getpid(), "owner_host": socket.gethostname(), "owner_identity": owner}}})
         return intent
 
     def finish_generation(self, intent_id, reservation_id=None):
@@ -1462,8 +1497,26 @@ class Manager:
                 raise EvidenceError("generation settlement requires its original durable intent")
             if intent.get("settled"):
                 return {"settled": True, "intent_id": intent_id}
-            if intent["owner_host"] != socket.gethostname() or (intent["owner_pid"] != os.getpid() and self._owner_alive(intent["owner_pid"])):
+            owner_state = self._generation_owner_state(intent)
+            owns_intent = (intent.get("owner_identity") == process_identity.identity() if "owner_identity" in intent
+                           else intent["owner_host"] == socket.gethostname() and intent["owner_pid"] == os.getpid())
+            if owner_state == "unknown" or owner_state == "alive" and not owns_intent:
                 raise EvidenceError("generation intent owner/helper exit cannot be verified; intent retained")
+            recovery = self._recover_managed_producers(dry_run=True)
+            attempts = [action for action in recovery["actions"] if action.get("intent_id") == intent_id]
+            if recovery["incomplete"]:
+                raise EvidenceError("generation intent has active or unresolved producer recovery; intent retained")
+            if attempts:
+                if (len(attempts) != 1 or attempts[0].get("incomplete")
+                        or attempts[0]["action"] not in ("cleaned", "terminal")):
+                    raise EvidenceError("generation intent still has an active or unresolved producer; intent retained")
+                exact_reservation = attempts[0].get("reservation_id")
+                if (not isinstance(exact_reservation, str) or not exact_reservation
+                        or attempts[0].get("run_id") != intent["run_id"]):
+                    raise EvidenceError("generation producer recovery lacks its original run/reservation binding")
+                if reservation_id is not None and reservation_id != exact_reservation:
+                    raise EvidenceError("generation settlement reservation belongs to another producer intent")
+                reservation_id = exact_reservation
             with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
                 snapshot = ledger.snapshot()
                 run = ledger.connection.execute("SELECT * FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
@@ -1535,10 +1588,15 @@ class Manager:
             return refs
 
     def reconcile(self, *, dry_run=True):
-        """Resume individually registered deletion intents, never discover disposable paths."""
+        """Recover registered producer/deletion intents, never discover disposable paths."""
         actions = self._reconcile_lock(dry_run)
         if dry_run and (self.state / "catalog.lock").exists():
             return actions  # A retained stale lock must be reconciled before catalog work.
+        producer_recovery = self._recover_managed_producers(dry_run=dry_run)
+        actions.extend(producer_recovery["actions"])
+        if producer_recovery["incomplete"] and not any(action.get("incomplete") for action in producer_recovery["actions"]):
+            actions.append({"action": "producer-recovery-retained", "incomplete": True,
+                            "reason": "managed producer recovery remains incomplete"})
         from .accounting import Accounting
         from .transports import LocalTransport
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
@@ -1572,17 +1630,23 @@ class Manager:
             if intent.get("settled"):
                 continue
             own_catalog = catalog["coordinator"] == self.coordinator
-            exited = intent["owner_host"] == socket.gethostname() and not self._owner_alive(intent["owner_pid"])
+            owner_state = self._generation_owner_state(intent)
+            attempts = [item for item in producer_recovery["actions"] if item.get("intent_id") == ident]
+            settled_attempt = (attempts[0] if len(attempts) == 1 and not attempts[0].get("incomplete")
+                               and attempts[0]["action"] in ("terminal", "cleaned") else None)
             action = {"action": "generation-intent-retained", "intent_id": ident, "incomplete": True,
                       "reason": "designated coordinator or owning process exit is not verified"}
-            if own_catalog and exited:
+            if (own_catalog and owner_state == "alive" and len(attempts) == 1
+                    and attempts[0]["action"] == "active" and not attempts[0].get("incomplete")):
+                action = {"action": "generation-intent-active", "intent_id": ident, "incomplete": False}
+            if own_catalog and owner_state == "gone":
                 with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
                     known = ledger.snapshot().get("accounting_complete", True)
                     pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()[0]
-                if known and not pending:
+                if known and (not pending or settled_attempt):
                     action = {"action": "reconcile-exited-generation-intent", "intent_id": ident, "dry_run": dry_run}
                     if not dry_run:
-                        self.finish_generation(ident)
+                        self.finish_generation(ident, reservation_id=(settled_attempt or {}).get("reservation_id"))
                         action["verified"] = True
                 else:
                     action["reason"] = "local accounting or producer reservations remain incomplete"

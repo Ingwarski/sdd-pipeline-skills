@@ -1,6 +1,6 @@
 # Evidence storage, version 1
 
-Read at authorized pipeline entry and for evidence production/resolution/import/cleanup. Storage preserves owners, source authority, baselines, acceptance and the separate implementation prompt. Detailed user setup is in the collection's storage guide.
+Read at authorized pipeline entry and evidence production/resolution/import/cleanup. Storage preserves owners, source authority, baselines, acceptance and the separate implementation prompt. Setup and managed recovery use the collection's storage guide.
 
 ## Pipeline entry
 

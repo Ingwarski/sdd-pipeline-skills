@@ -1,4 +1,4 @@
-"""Bounded managed-producer wrapper; no shell, scheduler, or background daemon.
+"""Bounded managed-producer wrapper with a finite interruption guardian.
 
 The wrapper reserves capacity before launching and stops its own process group
 when observed output exceeds that reservation. It is not an OS sandbox: writes
@@ -9,6 +9,10 @@ incomplete evidence rather than describing this monitor as universal prevention.
 from __future__ import annotations
 
 import os
+import json
+import sys
+import threading
+import uuid
 from pathlib import Path
 import signal
 import shutil
@@ -144,9 +148,9 @@ def _inventory(root):
     return result
 
 
-def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
+def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
                  reserve_bytes: int, reserve_files: int, *, timeout=3600,
-                 poll_interval=0.25, complete_run=True) -> dict:
+                 poll_interval=0.25, complete_run=True, attempt=None, cancelled=None) -> dict:
     """Reserve, launch, monitor, stop, reconcile, and seal one managed attempt.
 
     The byte/file allowance includes ``producer.log``. Logs are never truncated;
@@ -168,15 +172,21 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
         raise EvidenceError("producer needs a registered empty regular output directory")
     if reserve_files < 1:
         raise EvidenceError("producer reservation must include its one log file")
-    reservation = ledger.reserve(run_id, unit_id, reserve_bytes, reserve_files,
-                                 local_bytes=reserve_bytes, capacity_path=root)
-    try:
-        output_id = ledger.register_output(run_id, unit_id, root)
-    except BaseException:
-        ledger.cancel(reservation)
-        raise
+    if attempt is None:
+        reservation = ledger.reserve(run_id, unit_id, reserve_bytes, reserve_files,
+                                     local_bytes=reserve_bytes, capacity_path=root)
+        try:
+            output_id = ledger.register_output(run_id, unit_id, root)
+        except BaseException:
+            ledger.cancel(reservation)
+            raise
+    else:
+        from . import producer_runtime as runtime
+        record = runtime.read(ledger, attempt)
+        reservation, output_id = record['reservation_id'], record['output_id']
     process, job, problem, cleanup_problem, interrupted = None, None, None, None, None
     previous, gross_bytes, gross_files, last_inventory = {}, 0, 0, {}
+    managed, exit_code = None, None
     log = root / "producer.log"
     environment = os.environ.copy()
     environment["SDD_EVIDENCE_OUTPUT_DIR"] = str(root)
@@ -196,44 +206,83 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
                 # logical file again. Changes between polls remain unobservable.
                 gross_bytes += value[2]
                 gross_files += 1
+        changed = current != previous
         previous = last_inventory = current
+        if attempt is not None and changed:
+            runtime.update(ledger, attempt, lambda v: v.update(observed_bytes=gross_bytes, observed_files=gross_files))
         if check_limits and (gross_bytes > reserve_bytes or gross_files > reserve_files):
             raise EvidenceError("producer exceeded its reserved aggregate output allowance")
+        if check_limits and ledger._violations(ledger._totals(run_id, unit_id)):
+            raise EvidenceError("producer cannot preserve aggregate resource/metadata limits")
         if check_limits and shutil.disk_usage(root).free < ledger.policy["limits"]["free_space_reserve_bytes"]:
             raise EvidenceError("producer cannot preserve configured free-space reserve")
 
     try:
-        if os.name == "nt":
+        if cancelled is not None and cancelled.is_set():
+            raise EvidenceError("producer coordinator stopped before launch; attempt incomplete")
+        if os.name == "nt" and attempt is None:
             job = _WindowsJob()
         descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(descriptor, "wb") as handle:
-            process = subprocess.Popen(command, cwd=root, env=environment, stdout=handle, stderr=subprocess.STDOUT,
-                                       start_new_session=os.name == "posix",
-                                       creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0)
-            if job is not None:
-                job.assign(process)
+            if attempt is None:
+                process = subprocess.Popen(command, cwd=root, env=environment, stdout=handle, stderr=subprocess.STDOUT,
+                    start_new_session=os.name == "posix",
+                    creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0)
+                if job is not None:
+                    job.assign(process)
+            else:
+                environment.update(SDD_PRODUCER_LEDGER=str(ledger.path), SDD_PRODUCER_ATTEMPT=attempt)
+                environment['PYTHONPATH'] = str(Path(__file__).resolve().parents[1]) + os.pathsep + environment.get('PYTHONPATH', '')
+                managed = runtime.launch(ledger, attempt, command, cwd=root, env=environment,
+                                         stdout=handle, stderr=subprocess.STDOUT)
+                process, job = managed.process, managed.job
             deadline = time.monotonic() + timeout
-            while process.poll() is None:
+            while (managed.poll() if managed else process.poll()) is None:
+                if cancelled is not None and cancelled.is_set():
+                    raise EvidenceError("producer coordinator stopped; attempt incomplete")
                 observe()
                 if time.monotonic() >= deadline:
                     raise EvidenceError("producer timeout expired")
                 time.sleep(min(poll_interval, max(0.01, deadline - time.monotonic())))
             observe()
-            if process.returncode:
-                problem = "producer exited with code " + str(process.returncode)
+            exit_code = managed.poll() if managed else process.returncode
+            if cancelled is not None and cancelled.is_set():
+                problem = "producer coordinator stopped; attempt incomplete"
+            elif exit_code:
+                problem = "producer exited with code " + str(exit_code)
     except BaseException as exc:
         problem = str(exc) or type(exc).__name__
         if not isinstance(exc, (EvidenceError, OSError, subprocess.SubprocessError)):
             interrupted = exc
     finally:
+        if attempt is not None:
+            try:
+                errors = runtime.stop_registered(ledger, attempt)
+                if errors:
+                    cleanup_problem = "; ".join(errors)
+            except (EvidenceError, OSError) as exc:
+                cleanup_problem = str(exc)
         if process is not None:
             try:
-                _stop_owned(process, job)
+                if attempt is None or os.name == "nt":
+                    _stop_owned(process, job)
+                else:
+                    process.wait(timeout=5)
             except (EvidenceError, OSError, subprocess.SubprocessError) as exc:
                 cleanup_problem = str(exc)
                 problem = problem or cleanup_problem
         if job is not None:
             job.close()
+        if process is not None and process.stdin:
+            process.stdin.close()
+        if attempt is not None:
+            try:
+                errors = runtime.verify_stopped(ledger, attempt)
+                errors += runtime.cleanup_directories(ledger, attempt) if not errors else []
+                if errors:
+                    cleanup_problem = "; ".join(errors)
+            except (EvidenceError, OSError) as exc:
+                cleanup_problem = str(exc)
     # All task-owned writers have stopped before stable-byte accounting. Unsafe
     # outputs are preserved but cannot support completion or byte-hash claims.
     inventory_known = not cleanup_problem
@@ -259,11 +308,14 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
         # Missing/replaced roots and live helper processes cannot be measured
         # completely. Persist the observed lower bound without freeing capacity.
         settlement = ledger.record_uncertain(reservation, gross_bytes, gross_files)
+    if cancelled is not None and cancelled.is_set():
+        problem = problem or "producer coordinator stopped; attempt incomplete"
     incomplete = bool(problem or cleanup_problem or settlement["incomplete"])
     if incomplete:
         ledger.mark_incomplete(run_id)
-    else:
+    if inventory_known:
         ledger.acknowledge_output(output_id)
+    if not incomplete:
         if complete_run:
             ledger.complete_run(run_id)
     if interrupted is not None:
@@ -272,8 +324,210 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
             "accounting_mode": "managed-generation",
             "reservation_id": reservation, "status": "incomplete" if incomplete else "complete",
             "run_completion": "deferred" if not complete_run else "requested",
-            "exit_code": process.returncode if process is not None else None,
+            "exit_code": exit_code if exit_code is not None else (process.returncode if process is not None else None),
             "problem": problem, "cleanup_problem": cleanup_problem,
             "gross_bytes": gross_bytes, "gross_files": gross_files,
             "observations": stable_files, "accounting": settlement,
             "enforcement": "task-owned process group and registered outputs; external writes and unobserved overwrites can bypass the monitor"}
+
+
+def recover_producers(ledger, *, dry_run=True):
+    """Inspect/recover abandoned attempts without granting execution acceptance."""
+    from . import producer_runtime as runtime, process_identity
+    actions = []
+    for row in ledger.connection.execute('SELECT id FROM producer_sessions').fetchall():
+        try:
+            value = runtime.read(ledger, row[0])
+        except (EvidenceError, ValueError, KeyError, TypeError) as exc:
+            actions.append({'attempt_id': row[0], 'action': 'retained', 'incomplete': True,
+                            'problem': str(exc)})
+            continue
+        action = {key: value.get(key) for key in ('attempt_id', 'run_id', 'intent_id', 'reservation_id')}
+        if value['status'] == 'terminal':
+            pending = ledger.connection.execute("SELECT state FROM reservations WHERE id=?", (value['reservation_id'],)).fetchone()
+            action.update(action='terminal', incomplete=pending is None or pending[0] == 'pending')
+        else:
+            owner = value.get('guardian') or value['coordinator']
+            status = process_identity.state(owner)
+            if status == 'alive':
+                action.update(action='active', incomplete=False)
+            elif status == 'unknown':
+                action.update(action='retained', incomplete=True, problem='producer ownership cannot be verified')
+            elif dry_run:
+                action.update(action='retained', incomplete=True, problem='abandoned producer requires applied recovery')
+            else:
+                # Concurrent recovery clients serialize cleanup using a short
+                # SQLite claim bound to exact process identity, not wall time.
+                claim = process_identity.identity()
+                claimed = False
+                def acquire(v):
+                    nonlocal claimed
+                    prior = v.get('recovery_owner')
+                    if prior and process_identity.state(prior) != 'gone':
+                        return
+                    v['recovery_owner'] = claim
+                    claimed = True
+                runtime.update(ledger, value['attempt_id'], acquire)
+                if not claimed:
+                    action.update(action='retained', incomplete=True, problem='producer recovery already active or ownership unknown')
+                else:
+                    try:
+                        problems = runtime.stop_registered(ledger, value['attempt_id'])
+                        problems += runtime.verify_stopped(ledger, value['attempt_id'])
+                        if not problems:
+                            try:
+                                problems += runtime.cleanup_directories(ledger, value['attempt_id'])
+                            except (EvidenceError, OSError) as exc:
+                                problems.append(str(exc))
+                        reservation = ledger.connection.execute('SELECT state FROM reservations WHERE id=?', (value['reservation_id'],)).fetchone()
+                        pending = reservation is None or reservation[0] == 'pending'
+                        if pending:
+                            # No surviving monitor can certify deleted/overwritten
+                            # bytes. Keep the held capacity and durable lower bound.
+                            ledger.record_uncertain(value['reservation_id'], value.get('observed_bytes', 0), value.get('observed_files', 0))
+                        ledger.mark_incomplete(value['run_id'])
+                        runtime.update(ledger, value['attempt_id'], lambda v: v.update(
+                            status='terminal' if not problems else 'stopping', recovery_owner=None,
+                            recovery_problem='; '.join(problems) or None))
+                        action.update(action='retained' if pending or problems else 'cleaned', incomplete=bool(pending or problems), problems=problems)
+                    except (EvidenceError, OSError, ValueError) as exc:
+                        action.update(action='retained', incomplete=True, problem=str(exc))
+                    finally:
+                        def release(v):
+                            if v.get('recovery_owner') == claim:
+                                v['recovery_owner'] = None
+                        runtime.update(ledger, value['attempt_id'], release)
+        actions.append(action)
+    return {'actions': actions, 'incomplete': any(a['incomplete'] for a in actions)}
+
+
+def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
+                 reserve_bytes: int, reserve_files: int, *, timeout=3600,
+                 poll_interval=.25, complete_run=True, intent_id=None):
+    """Monitor in a finite guardian outside the coordinator's process group.
+
+    Coordinator EOF/cancellation stops this attempt, settles measured output and
+    preserves failure. If the guardian dies too, resume keeps unknown charges
+    reserved. No retry or product authorization is inferred from cleanup.
+    """
+    from . import producer_runtime as runtime, process_identity
+    if not isinstance(command, list) or not command or any(not isinstance(x, str) or not x or '\0' in x for x in command):
+        raise EvidenceError('producer command must be a nonempty argv list')
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 86400:
+        raise EvidenceError('producer timeout must be > 0 and <= 86400 seconds')
+    if isinstance(poll_interval, bool) or not isinstance(poll_interval, (int, float)) or not .01 <= poll_interval <= 10:
+        raise EvidenceError('producer poll interval must be between 0.01 and 10 seconds')
+    root = Path(output_dir).absolute()
+    fingerprint = runtime.directory_identity(root)
+    if any(root.iterdir()) or reserve_files < 1:
+        raise EvidenceError('producer needs an empty regular output directory and allowance for its log')
+    recovery = recover_producers(ledger, dry_run=False)
+    if recovery['incomplete']:
+        raise EvidenceError('producer recovery incomplete; held capacity and resources require reconciliation')
+    attempt = str(uuid.uuid4())
+    coordinator = process_identity.identity()
+    # Reserve bounded journal headroom before launch; actual DB bytes are already
+    # included in the ledger's combined metadata/local accounting.
+    value = dict(version=1, attempt_id=attempt, run_id=run_id, unit_id=unit_id,
+        reservation_id=None, output_id=None, intent_id=intent_id,
+        coordinator=coordinator, guardian=None, status='launching', processes={}, resources=[],
+        output_dir=str(root), output_identity=fingerprint, policy=ledger.policy)
+    reservation = ledger.reserve(run_id, unit_id, reserve_bytes, reserve_files,
+        local_bytes=reserve_bytes, metadata_bytes=runtime.MAX_RECORD * 3, capacity_path=root,
+        producer_record=value)
+    try:
+        output_id = ledger.register_output(run_id, unit_id, root)
+        runtime.update(ledger, attempt, lambda v: v.update(output_id=output_id))
+    except BaseException:
+        ledger.cancel(reservation)
+        runtime.update(ledger, attempt, lambda v: v.update(status='terminal'))
+        raise
+    request = dict(ledger=str(ledger.path), attempt=attempt, command=command,
+                   reserve_bytes=reserve_bytes, reserve_files=reserve_files, timeout=timeout,
+                   poll_interval=poll_interval, complete_run=complete_run)
+    process = None
+    interrupted = None
+    try:
+        process = subprocess.Popen([sys.executable, '-B', str(runtime.WORKER), 'guardian'],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=os.name == 'posix',
+            creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) if os.name == 'nt' else 0)
+        process.stdin.write((json.dumps(request) + '\n').encode())
+        process.stdin.flush()
+        while process.poll() is None:
+            time.sleep(.03)
+    except BaseException as exc:
+        interrupted = exc
+    finally:
+        if process is not None:
+            if process.stdin:
+                process.stdin.close()  # Also requests cancellation after interrupt.
+            try:
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                # Never kill the surviving monitor just to shorten cancellation.
+                raise EvidenceError('producer guardian cleanup still active; inspect/reconcile before retry')
+        else:
+            ledger.settle(reservation, 0, 0)
+            ledger.mark_incomplete(run_id)
+            ledger.acknowledge_output(output_id)
+            runtime.update(ledger, attempt, lambda v: v.update(status='terminal'))
+    value = runtime.read(ledger, attempt)
+    if process is not None and value.get('guardian') is None:
+        # The request never reached a claimed guardian. It could not pass a
+        # payload gate. Close the unused hold only with the original empty root.
+        if runtime.directory_identity(root) == fingerprint and not any(root.iterdir()):
+            ledger.settle(reservation, 0, 0)
+            ledger.mark_incomplete(run_id)
+            ledger.acknowledge_output(output_id)
+            runtime.update(ledger, attempt, lambda v: v.update(status='terminal'))
+        else:
+            ledger.record_uncertain(reservation, 0, 0)
+    if interrupted is not None:
+        raise interrupted
+    value = runtime.read(ledger, attempt)
+    if value.get('result') is None:
+        recovered = recover_producers(ledger, dry_run=False)
+        raise EvidenceError('producer guardian stopped without a terminal result; recovery incomplete=' + str(recovered['incomplete']))
+    result = value['result']
+    if result.pop('observations_in_ledger', False):
+        result['observations'] = {row['path']: {'content_hash': row['digest'], 'size': row['bytes']}
+            for row in ledger.connection.execute('SELECT path,digest,bytes FROM observations WHERE output_id=?', (value['output_id'],))}
+    if process.returncode != 0:
+        raise EvidenceError('producer guardian failed after result publication; inspect its recovery record')
+    return result
+
+
+def _guardian():
+    from .accounting import Accounting
+    from . import producer_runtime as runtime, process_identity
+    request = json.loads(sys.stdin.buffer.readline(runtime.MAX_RECORD + 1))
+    cancelled = threading.Event()
+    threading.Thread(target=runtime.watch_input, args=(cancelled,), daemon=True).start()
+    # Read the policy without trusting any environment-specific global defaults.
+    import sqlite3
+    connection = sqlite3.connect(request['ledger'])
+    try:
+        policy = json.loads(connection.execute('SELECT record FROM producer_sessions WHERE id=?', (request['attempt'],)).fetchone()[0])['policy']
+    finally:
+        connection.close()
+    with Accounting(request['ledger'], policy['project_id'], policy) as ledger:
+        attempt = request['attempt']
+        value = runtime.claim_guardian(ledger, attempt)
+        if process_identity.state(value['coordinator']) != 'alive':
+            cancelled.set()
+        try:
+            result = _run_monitored(ledger, value['run_id'], value['unit_id'], value['output_dir'], request['command'],
+                request['reserve_bytes'], request['reserve_files'], timeout=request['timeout'],
+                poll_interval=request['poll_interval'], complete_run=request['complete_run'], attempt=attempt, cancelled=cancelled)
+            result['attempt_id'] = attempt
+            # File bindings already have a bounded, queryable ledger table. Do
+            # not duplicate a potentially large observation map in the journal.
+            result['observations'] = {}
+            result['observations_in_ledger'] = bool(ledger.connection.execute(
+                'SELECT reconciled FROM outputs WHERE id=?', (value['output_id'],)).fetchone()[0])
+            runtime.update(ledger, attempt, lambda v: v.update(status='stopping' if result['cleanup_problem'] else 'terminal', result=result))
+        except BaseException as exc:
+            runtime.update(ledger, attempt, lambda v: v.update(guardian_problem=str(exc) or type(exc).__name__))
+            return 1
+    return 0
