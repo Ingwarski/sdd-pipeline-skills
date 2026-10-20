@@ -17,6 +17,7 @@ SCHEMAS = frozenset({"evidence-bytes-v1", "evidence-json-v1", "source-inventory-
 HASH = re.compile(r"[0-9a-f]{64}")
 IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 JSON_LIMIT = 16 * 1024 * 1024
+INACTIVE_HISTORY_KEYS = frozenset({"history", "run_history", "superseded"})
 
 
 def evidence_reference(record):
@@ -156,7 +157,7 @@ def payload_references(value, schema="evidence-json-v1"):
             for key, child in record.items():
                 # Wrapper siblings can carry required captures. History is loaded
                 # only when a current reference explicitly depends on it.
-                if key not in ("evidence_ref", "history", "run_history", "superseded"):
+                if key != "evidence_ref" and key not in INACTIVE_HISTORY_KEYS:
                     yield from closure(child, depth + 1)
         elif isinstance(record, list):
             for child in record:

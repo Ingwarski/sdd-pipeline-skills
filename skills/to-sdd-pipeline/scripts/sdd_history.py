@@ -17,7 +17,7 @@ import socket
 import sys
 import uuid
 
-from evidence.resolver import EvidenceResolver, evidence_reference, validate_reference
+from evidence.resolver import EvidenceResolver, INACTIVE_HISTORY_KEYS, evidence_reference, validate_reference
 
 VERSION = 2
 CONTRACT = "sdd-unit-history-v2"
@@ -264,6 +264,27 @@ class _ExternalEvidenceError(ValueError):
 def referenced_paths(project, manifest, *, checker=None, external_refs=None):
     """Enumerate declared regular sources/receipts and frozen render trees only."""
     found, seen_json, seen_external, seen_files = set(), set(), set(), set()
+    seen_directories, directory_stamps = set(), {}
+
+    def directory_stamp(path):
+        info = path.stat(follow_symlinks=False)
+        return info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns, info.st_ctime_ns
+
+    def scan_directory(value, path):
+        if value in seen_directories:
+            return
+        directory_stamps[value] = directory_stamp(path)
+        for child in sorted(path.iterdir()):
+            relative = child.relative_to(Path(project).resolve()).as_posix()
+            checked = physical(project, relative)
+            if checked.is_dir():
+                scan_directory(relative, checked)
+            elif checked.is_file():
+                found.add(relative)
+        # A tree scan discovers files without consuming their JSON dependencies.
+        # Only complete scans can be reused, including overlapping subtrees.
+        seen_directories.add(value)
+
     def add(value, *, optional=False):
         try:
             add_path(value)
@@ -277,19 +298,17 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
     def add_path(value):
         if not isinstance(value, str) or not value:
             return
+        if value in seen_directories:
+            require(not value.startswith(HISTORY), "history directories cannot be embedded recursively")
+            return  # Directory membership is checked below.
         if value in seen_files:
-            return  # Consumers recheck containment before reading; directories stay uncached.
+            return  # Consumers recheck containment before reading.
         path = physical(project, value)
         if not path.exists():
             return  # Planned implementation destinations need not exist before start.
         if path.is_dir():
             require(not value.startswith(HISTORY), "history directories cannot be embedded recursively")
-            for child in sorted(path.rglob("*")):
-                relative = child.relative_to(Path(project).resolve()).as_posix()
-                checked = physical(project, relative)
-                require(not checked.is_symlink(), "snapshot link rejected")
-                if checked.is_file():
-                    found.add(relative)
+            scan_directory(value, path)
             return
         require(path.is_file(), "snapshot source must be regular: " + value)
         seen_files.add(value)
@@ -334,6 +353,8 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
                     return
                 value = {key: child for key, child in value.items() if key != "evidence_ref"}
             for key, child in value.items():
+                if key in INACTIVE_HISTORY_KEYS:
+                    continue  # Preserve the containing record's bytes, not inactive dependency closure.
                 if key == "repository_observations" and isinstance(child, dict):
                     for observation in child.values():
                         for path in observation.get("paths", {}):
@@ -356,6 +377,10 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
     # exact original policy, never whatever policy exists when they resume.
     if manifest.get("evidence_accounting") is not None:
         add(manifest.get("evidence_storage", {}).get("policy_path", "forge/evidence-policy.json"))
+    for value, stamp in directory_stamps.items():
+        path = physical(project, value)
+        require(path.is_dir() and directory_stamp(path) == stamp,
+                "snapshot directory changed during discovery; retry: " + value)
     return found
 
 
@@ -837,6 +862,8 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
                     visited.add(path)
                     visit(read_ref(project, value), collect_external)
             for key, child in value.items():
+                if key in INACTIVE_HISTORY_KEYS:
+                    continue
                 if key in ("implementation_paths", "required_source_paths") and isinstance(child, list):
                     paths.update(child)
                 if key == "execution_inputs" and isinstance(child, dict):
@@ -850,7 +877,10 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
             for child in value:
                 visit(child, collect_external)
     visit(manifest)
-    result = {path: sha(physical(project, path).read_bytes()) if physical(project, path).is_file() else "directory" if physical(project, path).is_dir() else None for path in sorted(paths)}
+    result = {}
+    for path in sorted(paths):
+        target = physical(project, path)
+        result[path] = sha(target.read_bytes()) if target.is_file() else "directory" if target.is_dir() else None
     if include_external:
         # Bind prepared originals and readback receipts, including dependency
         # closure, without storing external machine paths or copying payloads.
@@ -906,7 +936,9 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
                 # Migration readiness may tolerate unfinished project checks, but
                 # must never tolerate an incomplete or corrupt original archive.
                 validate_files(project, legacy)
-                require(set(legacy["files"]) == referenced_paths(project, previous),
+                # Older captures can also contain inactive history-only inputs.
+                # Retain and verify every extra byte without requiring inactive payloads.
+                require(referenced_paths(project, previous) <= set(legacy["files"]),
                         "legacy snapshot inventory changed or omitted original files")
                 for logical, ref in legacy["files"].items():
                     require(api().hash_matches(ref["content_hash"], sha(physical(project, logical).read_bytes())),

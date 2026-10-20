@@ -222,6 +222,67 @@ class HistoryEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsafe history path"):
             self.helper.referenced_paths(self.p.root, {"capture": reference}, checker=self.checker())
 
+    def test_inactive_logs_preserve_bytes_without_loading_payloads_or_changing_authority(self):
+        unavailable = self.external.prepare({"synthetic": True}, "inactive-unavailable")
+        (self.cache / "objects" / unavailable["sha256"]).unlink()
+        entries = [{"evidence_ref": value} for value in
+                   ("forge/old-log.json", None, {}, unavailable)]
+        logs = {key: entries for key in ("history", "run_history", "superseded")}
+        path = "forge/legacy-manifest-snapshot.json"
+        self.p.write(path, json.dumps(logs))
+        original = (self.p.root / path).read_bytes()
+        manifest = {**logs, "snapshot": {"path": path, "content_hash": self.p.hash(path)}}
+        checker = self.checker()
+        with mock.patch.object(checker.evidence_resolver, "resolve", side_effect=AssertionError("inactive payload loaded")):
+            self.assertEqual({path}, self.helper.referenced_paths(self.p.root, manifest, checker=checker))
+        self.assertEqual({path: self.p.hash(path)}, self.helper.candidate_hashes(self.p.root, manifest))
+        self.m["history"].extend(entries)
+        self.m["legacy_snapshot"] = manifest["snapshot"]
+        before = copy.deepcopy(self.m)
+        context = self.helper.capture_context(self.p.root, self.m, "U-1", self.history.inventory(), evidence_cache=self.cache)
+        record = self.history.read(context)
+        self.assertEqual(before, record["manifest"])
+        self.assertEqual(before, self.m)
+        self.assertEqual(original, (self.p.root / record["files"][path]["path"]).read_bytes())
+        self.helper.validate_context(self.p.root, context, "U-1", evidence_cache=self.cache)
+
+    def test_inactive_logs_do_not_hide_active_invalid_or_unavailable_references(self):
+        unavailable = self.external.prepare({"synthetic": True}, "active-unavailable")
+        (self.cache / "objects" / unavailable["sha256"]).unlink()
+        for key in ("capture", "completion_history", "legacy_history"):
+            for bad in ({"evidence_ref": "forge/old-log.json"}, {"evidence_ref": None},
+                        {"artifact_id": "missing-fields"}, {**self.prompt, "schema": []}, unavailable):
+                manifest = {"history": [{"evidence_ref": "forge/old-log.json"}], key: [bad]}
+                with self.subTest(key=key, bad=bad):
+                    with self.assertRaises(ValueError):
+                        self.helper.referenced_paths(self.p.root, manifest, checker=self.checker())
+                    with self.assertRaises(ValueError):
+                        self.helper.candidate_hashes(self.p.root, manifest, evidence_cache=self.cache)
+
+    def test_current_path_to_historical_payload_is_validated_and_parent_bytes_remain_bound(self):
+        path = "forge/former-history-payload.json"
+        self.p.write(path, json.dumps({"evidence_ref": "forge/old-log.json"}))
+        inactive = {"history": [{"path": path, "content_hash": self.p.hash(path)}]}
+        self.assertEqual(set(), self.helper.referenced_paths(self.p.root, inactive))
+        with self.assertRaisesRegex(ValueError, "evidence_ref must be an object"):
+            self.helper.referenced_paths(self.p.root, {**inactive, "current": {"path": path}})
+        self.p.write(path, json.dumps(inactive))
+        manifest = {"current": {"path": path}}
+        before = self.helper.candidate_hashes(self.p.root, manifest)
+        self.p.write(path, json.dumps({"history": [{"evidence_ref": "forge/another-old-log.json"}]}))
+        self.assertNotEqual(before, self.helper.candidate_hashes(self.p.root, manifest))
+
+    def test_candidate_hashes_still_validate_explicit_completion_and_legacy_envelopes(self):
+        path = "forge/unit-history/legacy/synthetic/record.json"
+        self.p.write(path, json.dumps({"history": [{"evidence_ref": "forge/old-log.json"}]}))
+        ref = {"path": path, "content_hash": self.p.hash(path)}
+        for key in ("completion_history", "legacy_history"):
+            manifest = {key: [ref]}
+            with self.subTest(key=key):
+                self.assertIn(path, self.helper.candidate_hashes(self.p.root, manifest))
+                with self.assertRaisesRegex(ValueError, "changed history file"):
+                    self.helper.candidate_hashes(self.p.root, {key: [{**ref, "content_hash": "0" * 64}]})
+
     def test_repeated_sources_are_checked_once_per_traversal_and_fresh_calls_recheck_json(self):
         path = "forge/repeated-source.json"
         self.p.write(path, json.dumps({"version": 1, "sha256": "a" * 64}))
@@ -242,6 +303,71 @@ class HistoryEvidenceTests(unittest.TestCase):
         self.p.write(path, json.dumps({"evidence_ref": None}))
         with self.assertRaisesRegex(ValueError, "evidence_ref must be an object"):
             self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_repeated_and_overlapping_trees_are_scanned_once_and_fresh_calls_see_additions(self):
+        path = "forge/discovery/nested/first.txt"
+        self.p.write(path, "First.\n")
+        manifest = {"trees": [{"path": value} for value in
+                    ["forge/discovery", "forge/discovery/nested"] * 100]}
+        scanned = []
+        iterdir = Path.iterdir
+        def observe(directory):
+            scanned.append(directory)
+            return iterdir(directory)
+        with mock.patch.object(Path, "iterdir", observe):
+            self.assertEqual({path}, self.helper.referenced_paths(self.p.root, manifest))
+        self.assertCountEqual([self.p.root.resolve() / "forge/discovery", self.p.root.resolve() / "forge/discovery/nested"], scanned)
+        second = "forge/discovery/nested/second.txt"
+        self.p.write(second, "Second.\n")
+        self.assertEqual({path, second}, self.helper.referenced_paths(self.p.root, manifest))
+
+    def test_nested_directory_change_between_mentions_fails_instead_of_using_stale_membership(self):
+        path = "forge/discovery/nested/first.txt"
+        self.p.write(path, "First.\n")
+        mutation = {"synthetic_mutation": True}
+        manifest = {"first": {"path": "forge/discovery"}, "mutation": mutation,
+                    "again": {"path": "forge/discovery"}}
+        classify = self.helper.evidence_reference
+        def change(value):
+            if value is mutation:
+                self.p.write("forge/discovery/nested/second.txt", "Second.\n")
+            return classify(value)
+        with mock.patch.object(self.helper, "evidence_reference", side_effect=change):
+            with self.assertRaisesRegex(ValueError, "snapshot directory changed during discovery"):
+                self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_cached_history_directory_keeps_recursive_embedding_prohibition(self):
+        self.p.write("forge/unit-history/synthetic.txt", "Synthetic history.\n")
+        manifest = {"ancestor": {"path": "forge"}, "history_tree": {"path": "forge/unit-history"}}
+        with self.assertRaisesRegex(ValueError, "history directories cannot be embedded recursively"):
+            self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_cached_root_or_nested_directory_replaced_by_link_is_rejected(self):
+        for replaced in ("forge/discovery", "forge/discovery/nested"):
+            with self.subTest(replaced=replaced):
+                # Unique roots allow both cases without restoring any symlink.
+                prefix = "root-case" if replaced == "forge/discovery" else "nested-case"
+                base = "forge/" + prefix
+                original = self.p.root / (base if prefix == "root-case" else base + "/nested")
+                (self.p.root / (base + "/nested")).mkdir(parents=True)
+                target = self.p.root / (prefix + "-target")
+                target.mkdir()
+                mutation = {"synthetic_mutation": True}
+                manifest = {"first": {"path": base}, "mutation": mutation, "again": {"path": base}}
+                classify = self.helper.evidence_reference
+                def change(value):
+                    if value is mutation:
+                        original.rename(original.with_name(original.name + "-original"))
+                        try:
+                            original.symlink_to(target, target_is_directory=True)
+                        except OSError as error:
+                            self.skipTest("symlink creation unavailable: " + str(error))
+                    return classify(value)
+                with mock.patch.object(self.helper, "evidence_reference", side_effect=change):
+                    with self.assertRaisesRegex(ValueError, "history cannot follow links|snapshot directory changed"):
+                        self.helper.referenced_paths(self.p.root, manifest)
+                with self.assertRaisesRegex(ValueError, "history cannot follow links"):
+                    self.helper.referenced_paths(self.p.root, {"path": base})
 
     def test_capture_rechecks_containment_after_source_discovery(self):
         path, target = "src/replaceable.txt", "src/link-target.txt"
