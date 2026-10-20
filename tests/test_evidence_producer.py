@@ -33,8 +33,8 @@ class ManagedProducerTests(unittest.TestCase):
         self.ledger.close()
         self.temporary.cleanup()
 
-    def run_script(self, source, bytes=10000, files=10, timeout=10):
-        return run_producer(self.ledger, "run-1", "unit-01", self.output,
+    def run_script(self, source, bytes=10000, files=10, timeout=10, runner=run_producer):
+        return runner(self.ledger, "run-1", "unit-01", self.output,
                             [sys.executable, "-c", source], bytes, files,
                             timeout=timeout, poll_interval=0.02)
 
@@ -129,7 +129,7 @@ class ManagedProducerTests(unittest.TestCase):
                   " sys.stdout.seek(0); sys.stdout.write(str(n).zfill(3)+'x'*97); sys.stdout.flush()\n"
                   " while not (Path(" + repr(str(signals)) + ") / str(n).zfill(3)).exists(): time.sleep(0.01)\n")
         with patch("evidence.producer._inventory", side_effect=observe):
-            result = self.run_script(source, bytes=150, files=100)
+            result = self.run_script(source, bytes=150, files=100, runner=producer._run_monitored)
         self.assertEqual(result["status"], "incomplete")
         self.assertIn("reserved aggregate", result["problem"])
         self.assertGreaterEqual(result["gross_bytes"], 200)
@@ -147,7 +147,7 @@ class ManagedProducerTests(unittest.TestCase):
 
     def test_unavailable_final_inventory_is_incomplete_and_blocks_new_generation(self):
         with patch("evidence.producer._inventory", side_effect=FileNotFoundError("synthetic missing output root")):
-            result = self.run_script("import time; time.sleep(30)", bytes=100, files=2)
+            result = self.run_script("import time; time.sleep(30)", bytes=100, files=2, runner=producer._run_monitored)
         self.assertEqual(result["status"], "incomplete")
         snapshot = self.ledger.snapshot()
         self.assertFalse(snapshot["accounting_complete"])

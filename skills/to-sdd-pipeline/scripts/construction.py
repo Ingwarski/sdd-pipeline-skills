@@ -26,12 +26,9 @@ def _unique_object(pairs):
     return result
 
 
-def _has_structured_declaration(checker):
-    """Recognize reserved JSON declarations, not prose or localized headings."""
-    path = checker.path("docs/architecture.md", no_links=True)
-    before = checker.file_hash(path)
-    text = path.read_text(encoding="utf-8")
-    _require(checker.file_hash(path) == before, "architecture changed during validation")
+def _json_blocks(text):
+    """Read actual fenced JSON, excluding nested examples inside other fences."""
+    blocks = []
     fence, language, contents = None, None, []
     for line in text.splitlines():
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
@@ -40,16 +37,67 @@ def _has_structured_declaration(checker):
                 fence, language, contents = marker[1], marker[2].strip(), []
         elif marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
             if language == "json":
-                try:
-                    value = json.loads("\n".join(contents))
-                except ValueError:
-                    value = None
-                if isinstance(value, dict) and {"version", "mechanisms"} <= set(value):
-                    return True
+                blocks.append("\n".join(contents))
             fence, language, contents = None, None, []
         else:
             contents.append(line)
+    return blocks
+
+
+def _has_structured_declaration(checker):
+    """Recognize reserved JSON declarations, not prose or localized headings."""
+    path = checker.path("docs/architecture.md", no_links=True)
+    before = checker.file_hash(path)
+    text = path.read_text(encoding="utf-8")
+    _require(checker.file_hash(path) == before, "architecture changed during validation")
+    for block in _json_blocks(text):
+        try:
+            value = json.loads(block)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and {"version", "mechanisms"} <= set(value):
+            return True
     return False
+
+
+def validate_architecture_construction(checker, obligations=None):
+    """Validate the owner's declaration without requiring future units/checks."""
+    architecture = checker.artifacts.get("architecture", {})
+    if "construction_ref" not in architecture:
+        _require(not _has_structured_declaration(checker),
+                 "declared architecture mechanisms require the owner's construction_ref")
+        return None
+    reference = architecture["construction_ref"]
+    _require(isinstance(reference, dict) and reference.get("path") == "docs/architecture.md",
+             "mechanism definitions belong to docs/architecture.md")
+    text = checker.section(reference["path"], reference.get("heading")).decode("utf-8")
+    blocks = _json_blocks(text)
+    _require(len(blocks) == 1, "architecture section needs one canonical JSON block")
+    try:
+        definition = json.loads(blocks[0], object_pairs_hook=_unique_object)
+    except ValueError as error:
+        raise ValueError("construction: invalid canonical JSON: " + str(error)) from error
+    _require(isinstance(definition, dict) and type(definition.get("version")) is int and
+             definition["version"] == 1, "unsupported mechanism version")
+    mechanisms = definition.get("mechanisms")
+    _require(isinstance(mechanisms, dict) and mechanisms and
+             all(isinstance(key, str) and key and key == key.strip() for key in mechanisms),
+             "nonempty mechanism definitions required")
+    if obligations is None:
+        obligations = {item["id"] for owner in ("prd", "screen-map")
+                       for item in checker.artifacts.get(owner, {}).get("traceability", {}).get("definitions", [])
+                       if item.get("kind") in ("requirement", "state") and item.get("required")}
+    for key, mechanism in mechanisms.items():
+        _require(isinstance(mechanism, dict) and type(mechanism.get("required")) is bool,
+                 key + ": required flag missing")
+        bound = _strings(mechanism.get("obligation_ids"), key + " obligations")
+        _require(bound <= obligations, key + ": unknown/nonrequired obligation")
+        paths = _strings(mechanism.get("source_paths"), key + " source paths")
+        for path in paths:
+            checker.path(path)  # Planned files need not exist yet.
+            _require(PurePosixPath(path).as_posix() == path,
+                     key + ": use canonical repository-relative source paths")
+    return mechanisms
 
 
 def validate_construction(checker, plan, obligations, contributions, checks):
@@ -61,42 +109,20 @@ def validate_construction(checker, plan, obligations, contributions, checks):
     """
     present = {key for key in ("construction_ref", "construction") if key in plan}
     architecture = checker.artifacts.get("architecture", {})
-    declared = "construction_ref" in architecture
-    if not declared:
-        _require(not _has_structured_declaration(checker),
-                 "declared architecture mechanisms require the owner's construction_ref")
+    mechanisms = validate_architecture_construction(checker, obligations)
+    if mechanisms is None:
         _require(not present, "plan construction requires the architecture owner's construction_ref")
         return
     reference = architecture["construction_ref"]
-    _require(isinstance(reference, dict) and reference.get("path") == "docs/architecture.md",
-             "mechanism definitions belong to docs/architecture.md")
     _require(len(present) == 2, "declared architecture requires construction_ref and construction together")
     _require(plan["construction_ref"] == reference,
              "plan construction_ref differs from the architecture owner's reference")
-    text = checker.section(reference["path"], reference.get("heading")).decode("utf-8")
-    blocks = re.findall(r"```json\s*\n(.*?)\n```", text, re.S)
-    _require(len(blocks) == 1, "architecture section needs one canonical JSON block")
-    definition = json.loads(blocks[0], object_pairs_hook=_unique_object)
-    _require(isinstance(definition, dict) and type(definition.get("version")) is int and
-             definition["version"] == 1, "unsupported mechanism version")
-    mechanisms = definition.get("mechanisms")
-    _require(isinstance(mechanisms, dict) and mechanisms and
-             all(isinstance(key, str) and key and key == key.strip() for key in mechanisms),
-             "nonempty mechanism definitions required")
     allocations = plan["construction"]
     _require(isinstance(allocations, dict), "allocations must be an object")
     _require(set(allocations) <= set(mechanisms), "allocation refers to an unknown mechanism")
 
     for key, mechanism in mechanisms.items():
-        _require(isinstance(mechanism, dict) and type(mechanism.get("required")) is bool,
-                 key + ": required flag missing")
-        bound = _strings(mechanism.get("obligation_ids"), key + " obligations")
-        _require(bound <= obligations, key + ": unknown/nonrequired obligation")
-        paths = _strings(mechanism.get("source_paths"), key + " source paths")
-        for path in paths:
-            checker.path(path)  # Validate confinement without requiring planned files.
-            _require(PurePosixPath(path).as_posix() == path,
-                     key + ": use canonical repository-relative source paths")
+        bound, paths = set(mechanism["obligation_ids"]), set(mechanism["source_paths"])
         if key not in allocations:
             _require(not mechanism["required"], key + ": required mechanism has no allocation")
             continue

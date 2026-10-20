@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 import test_evidence_checker as external_fixture
 import test_unit_history as history_fixture
@@ -108,6 +109,7 @@ class HistoryEvidenceTests(unittest.TestCase):
             "required": True, "obligation_ids": ["FR-01"], "source_paths": ["src/alpha.txt"]}}}
         original = (self.p.root / "docs/architecture.md").read_text()
         self.p.write("docs/architecture.md", original + "\n## Construction Mechanisms\n```json\n" + json.dumps(definition) + "\n```\n")
+        self.m["artifacts"]["architecture"]["construction_ref"] = copy.deepcopy(reference)
         plan.update(construction_ref=reference, construction={"M-ALPHA": {"owner_unit": "U-1", "check_ids": ["QA-02"]}})
         inventory = self.history.inventory()
         inventory["sources"]["docs/architecture.md"] = {"mode": "sections", "headings": ["## Definition"]}
@@ -165,6 +167,279 @@ class HistoryEvidenceTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         with self.assertRaisesRegex(ValueError, "outside the repository"):
             self.helper.capture_context(self.p.root, self.m, "U-1", self.history.inventory(), evidence_cache=self.p.root / "cache")
+
+    def test_context_capture_preserves_ordinary_version_hash_metadata(self):
+        metadata = {"native_runtime": {"path": "/opt/synthetic-browser/metadata.json",
+                    "version": "12.3", "sha256": "a" * 64, "build": "3"}}
+        path = "forge/runtime-observation.json"
+        self.p.write(path, json.dumps(metadata))
+        self.m["runtime_observation"] = {"path": path, "content_hash": self.p.hash(path)}
+        original = (self.p.root / path).read_bytes()
+        context = self.helper.capture_context(self.p.root, self.m, "U-1", self.history.inventory(), evidence_cache=self.cache)
+        record = self.history.read(context)
+        self.assertEqual(original, (self.p.root / record["files"][path]["path"]).read_bytes())
+        self.assertEqual(original, (self.p.root / path).read_bytes())
+        self.assertNotIn("U-1", self.m.get("execution_contexts", {}))
+        self.helper.validate_context(self.p.root, context, "U-1", evidence_cache=self.cache)
+
+    def test_nested_explicit_reference_errors_are_not_swallowed_after_metadata(self):
+        path = "forge/runtime-observation.json"
+        missing_bytes = self.external.prepare({"synthetic": True}, "missing-prepared")
+        (self.cache / "objects" / missing_bytes["sha256"]).unlink()
+        for bad in ({"artifact_id": "missing-fields"}, {"locator": {}},
+                    {"evidence_ref": None}, {"evidence_ref": {}},
+                    {**self.prompt, "schema": []}, missing_bytes):
+            with self.subTest(bad=bad):
+                self.p.write(path, json.dumps({"runtime": {"path": "/opt/synthetic-runtime/info",
+                    "version": "12.3", "sha256": "a" * 64}, "capture": bad}))
+                manifest = {"observation": {"path": path, "content_hash": self.p.hash(path)}}
+                with self.assertRaises(ValueError):
+                    self.helper.referenced_paths(self.p.root, manifest, checker=self.checker())
+
+    def test_history_rejects_malformed_explicit_refs_without_a_checker(self):
+        for bad in ({"locator": {}}, {"artifact_id": "missing-fields"}, {"evidence_ref": None}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.helper.referenced_paths(self.p.root, {"capture": bad}, external_refs=[])
+
+    def test_metadata_paths_do_not_hide_verified_payload_sources_or_siblings(self):
+        source = "tests/only-in-external-payload.txt"
+        sibling = "tests/only-in-observation.txt"
+        self.p.write(source, "Synthetic payload source.\n")
+        self.p.write(sibling, "Synthetic sibling source.\n")
+        reference = self.external.prepare({"source_hashes": {source: self.p.hash(source)}}, "payload-sources")
+        path = "forge/runtime-observation.json"
+        self.p.write(path, json.dumps({"runtime": {"path": "/opt/synthetic-runtime/info",
+            "version": "12.3", "sha256": "a" * 64}, "capture": reference,
+            "sibling": {"path": sibling}}))
+        manifest = {"observation": {"path": path, "content_hash": self.p.hash(path)}}
+        paths = self.helper.referenced_paths(self.p.root, manifest, checker=self.checker())
+        self.assertEqual({source, sibling, path}, paths)
+        with self.assertRaisesRegex(ValueError, "unsafe history path"):
+            self.helper.referenced_paths(self.p.root, {"path": "/opt/synthetic-runtime/info"})
+
+    def test_direct_external_payload_keeps_declared_source_containment_strict(self):
+        reference = self.external.prepare({"source_hashes": {
+            "/opt/synthetic-runtime/info": "a" * 64}}, "unsafe-payload-source")
+        with self.assertRaisesRegex(ValueError, "unsafe history path"):
+            self.helper.referenced_paths(self.p.root, {"capture": reference}, checker=self.checker())
+
+    def test_external_application_paths_preserve_nested_evidence_and_project_sources(self):
+        source = "tests/nested-evidence-source.txt"
+        sibling = "tests/application-sibling.txt"
+        self.p.write(source, "Synthetic nested source.\n")
+        self.p.write(sibling, "Synthetic sibling source.\n")
+        nested = self.external.prepare({"source_hashes": {source: self.p.hash(source)}}, "nested-http-source")
+        payload = {"delivery": [{"path": "/", "status": 200}, {"path": "/../private", "status": 404}],
+            "runtime": {"path": "/opt/synthetic-browser", "version": "1.0"},
+            "capture": nested, "sibling": {"path": sibling, "content_hash": self.p.hash(sibling)}}
+        direct = self.external.prepare(payload, "http-observation")
+        before = {p: p.read_bytes() for p in self.cache.rglob("*") if p.is_file()}
+        checker, references = self.checker(), []
+        self.assertEqual({source, sibling}, self.helper.referenced_paths(
+            self.p.root, {"capture": direct}, checker=checker, external_refs=references))
+        self.assertEqual({direct["artifact_id"], nested["artifact_id"]}, {ref["artifact_id"] for ref in references})
+        self.assertEqual(payload, checker.evidence_resolver.json(direct))
+        self.assertEqual(before, {p: p.read_bytes() for p in self.cache.rglob("*") if p.is_file()})
+
+    def test_application_metadata_never_relaxes_declared_paths_or_legacy_references(self):
+        cases = [
+            {"source_hashes": {"/outside": "a" * 64}},
+            {"evaluated_source_hashes": {"../outside": "a" * 64}},
+            {"implementation_paths": ["/outside"]},
+            {"required_source_paths": ["../outside"]},
+            {"render_dependencies": ["/outside"]},
+            {"repository_observations": {"source": {"paths": {"../outside": "a" * 64}}}},
+            {"receipt": {"path": "/outside", "content_hash": "a" * 64}},
+            {"receipt": {"path": "../outside", "content_hash": "a" * 64}},
+        ]
+        for index, declaration in enumerate(cases):
+            payload = {"request": {"path": "/"}, "declaration": declaration}
+            external = self.external.prepare(payload, "declared-path-" + str(index))
+            path = "forge/declared-path.json"
+            self.p.write(path, json.dumps(payload))
+            # Exercise both a direct external payload and a contained JSON file
+            # reached through optional application metadata in another payload.
+            indirect = self.external.prepare({"observation": {"path": path}}, "indirect-path-" + str(index))
+            for reference in (external, indirect):
+                with self.subTest(index=index, reference=reference["artifact_id"]):
+                    with self.assertRaisesRegex(ValueError, "unsafe history path"):
+                        self.helper.referenced_paths(self.p.root, {"capture": reference}, checker=self.checker())
+
+    def test_external_http_metadata_does_not_hide_invalid_or_missing_nested_evidence(self):
+        missing = self.external.prepare({"synthetic": True}, "missing-http-dependency")
+        (self.cache / "objects" / missing["sha256"]).unlink()
+        for index, bad in enumerate(({"artifact_id": "missing-fields"}, {"locator": {}},
+                {"evidence_ref": None}, {"evidence_ref": {}}, {**self.prompt, "schema": []}, missing)):
+            reference = self.external.prepare({"request": {"path": "/"}, "capture": bad}, "bad-http-" + str(index))
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                self.helper.referenced_paths(self.p.root, {"capture": reference}, checker=self.checker())
+
+    def test_inactive_logs_preserve_bytes_without_loading_payloads_or_changing_authority(self):
+        unavailable = self.external.prepare({"synthetic": True}, "inactive-unavailable")
+        (self.cache / "objects" / unavailable["sha256"]).unlink()
+        entries = [{"evidence_ref": value} for value in
+                   ("forge/old-log.json", None, {}, unavailable)]
+        logs = {key: entries for key in ("history", "run_history", "superseded")}
+        path = "forge/legacy-manifest-snapshot.json"
+        self.p.write(path, json.dumps(logs))
+        original = (self.p.root / path).read_bytes()
+        manifest = {**logs, "snapshot": {"path": path, "content_hash": self.p.hash(path)}}
+        checker = self.checker()
+        with mock.patch.object(checker.evidence_resolver, "resolve", side_effect=AssertionError("inactive payload loaded")):
+            self.assertEqual({path}, self.helper.referenced_paths(self.p.root, manifest, checker=checker))
+        self.assertEqual({path: self.p.hash(path)}, self.helper.candidate_hashes(self.p.root, manifest))
+        self.m["history"].extend(entries)
+        self.m["legacy_snapshot"] = manifest["snapshot"]
+        before = copy.deepcopy(self.m)
+        context = self.helper.capture_context(self.p.root, self.m, "U-1", self.history.inventory(), evidence_cache=self.cache)
+        record = self.history.read(context)
+        self.assertEqual(before, record["manifest"])
+        self.assertEqual(before, self.m)
+        self.assertEqual(original, (self.p.root / record["files"][path]["path"]).read_bytes())
+        self.helper.validate_context(self.p.root, context, "U-1", evidence_cache=self.cache)
+
+    def test_inactive_logs_do_not_hide_active_invalid_or_unavailable_references(self):
+        unavailable = self.external.prepare({"synthetic": True}, "active-unavailable")
+        (self.cache / "objects" / unavailable["sha256"]).unlink()
+        for key in ("capture", "completion_history", "legacy_history"):
+            for bad in ({"evidence_ref": "forge/old-log.json"}, {"evidence_ref": None},
+                        {"artifact_id": "missing-fields"}, {**self.prompt, "schema": []}, unavailable):
+                manifest = {"history": [{"evidence_ref": "forge/old-log.json"}], key: [bad]}
+                with self.subTest(key=key, bad=bad):
+                    with self.assertRaises(ValueError):
+                        self.helper.referenced_paths(self.p.root, manifest, checker=self.checker())
+                    with self.assertRaises(ValueError):
+                        self.helper.candidate_hashes(self.p.root, manifest, evidence_cache=self.cache)
+
+    def test_current_path_to_historical_payload_is_validated_and_parent_bytes_remain_bound(self):
+        path = "forge/former-history-payload.json"
+        self.p.write(path, json.dumps({"evidence_ref": "forge/old-log.json"}))
+        inactive = {"history": [{"path": path, "content_hash": self.p.hash(path)}]}
+        self.assertEqual(set(), self.helper.referenced_paths(self.p.root, inactive))
+        with self.assertRaisesRegex(ValueError, "evidence_ref must be an object"):
+            self.helper.referenced_paths(self.p.root, {**inactive, "current": {"path": path}})
+        self.p.write(path, json.dumps(inactive))
+        manifest = {"current": {"path": path}}
+        before = self.helper.candidate_hashes(self.p.root, manifest)
+        self.p.write(path, json.dumps({"history": [{"evidence_ref": "forge/another-old-log.json"}]}))
+        self.assertNotEqual(before, self.helper.candidate_hashes(self.p.root, manifest))
+
+    def test_candidate_hashes_still_validate_explicit_completion_and_legacy_envelopes(self):
+        path = "forge/unit-history/legacy/synthetic/record.json"
+        self.p.write(path, json.dumps({"history": [{"evidence_ref": "forge/old-log.json"}]}))
+        ref = {"path": path, "content_hash": self.p.hash(path)}
+        for key in ("completion_history", "legacy_history"):
+            manifest = {key: [ref]}
+            with self.subTest(key=key):
+                self.assertIn(path, self.helper.candidate_hashes(self.p.root, manifest))
+                with self.assertRaisesRegex(ValueError, "changed history file"):
+                    self.helper.candidate_hashes(self.p.root, {key: [{**ref, "content_hash": "0" * 64}]})
+
+    def test_repeated_sources_are_checked_once_per_traversal_and_fresh_calls_recheck_json(self):
+        path = "forge/repeated-source.json"
+        self.p.write(path, json.dumps({"version": 1, "sha256": "a" * 64}))
+        manifest = {"observations": [{"path": path}] * 1000}
+        with mock.patch.object(self.helper, "physical", wraps=self.helper.physical) as physical:
+            self.assertEqual({path}, self.helper.referenced_paths(self.p.root, manifest))
+        self.assertEqual(1, physical.call_count)
+        self.p.write(path, json.dumps({"evidence_ref": None}))
+        with self.assertRaisesRegex(ValueError, "evidence_ref must be an object"):
+            self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_directory_discovery_does_not_skip_explicit_json_dependency_validation(self):
+        path, source = "forge/discovery/record.json", "src/only-in-record.txt"
+        self.p.write(source, "Synthetic source.\n")
+        self.p.write(path, json.dumps({"source_hashes": {source: self.p.hash(source)}}))
+        manifest = {"tree": {"path": "forge/discovery"}, "record": {"path": path}}
+        self.assertEqual({path, source}, self.helper.referenced_paths(self.p.root, manifest))
+        self.p.write(path, json.dumps({"evidence_ref": None}))
+        with self.assertRaisesRegex(ValueError, "evidence_ref must be an object"):
+            self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_repeated_and_overlapping_trees_are_scanned_once_and_fresh_calls_see_additions(self):
+        path = "forge/discovery/nested/first.txt"
+        self.p.write(path, "First.\n")
+        manifest = {"trees": [{"path": value} for value in
+                    ["forge/discovery", "forge/discovery/nested"] * 100]}
+        scanned = []
+        iterdir = Path.iterdir
+        def observe(directory):
+            scanned.append(directory)
+            return iterdir(directory)
+        with mock.patch.object(Path, "iterdir", observe):
+            self.assertEqual({path}, self.helper.referenced_paths(self.p.root, manifest))
+        self.assertCountEqual([self.p.root.resolve() / "forge/discovery", self.p.root.resolve() / "forge/discovery/nested"], scanned)
+        second = "forge/discovery/nested/second.txt"
+        self.p.write(second, "Second.\n")
+        self.assertEqual({path, second}, self.helper.referenced_paths(self.p.root, manifest))
+
+    def test_nested_directory_change_between_mentions_fails_instead_of_using_stale_membership(self):
+        path = "forge/discovery/nested/first.txt"
+        self.p.write(path, "First.\n")
+        mutation = {"synthetic_mutation": True}
+        manifest = {"first": {"path": "forge/discovery"}, "mutation": mutation,
+                    "again": {"path": "forge/discovery"}}
+        classify = self.helper.evidence_reference
+        def change(value):
+            if value is mutation:
+                self.p.write("forge/discovery/nested/second.txt", "Second.\n")
+            return classify(value)
+        with mock.patch.object(self.helper, "evidence_reference", side_effect=change):
+            with self.assertRaisesRegex(ValueError, "snapshot directory changed during discovery"):
+                self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_cached_history_directory_keeps_recursive_embedding_prohibition(self):
+        self.p.write("forge/unit-history/synthetic.txt", "Synthetic history.\n")
+        manifest = {"ancestor": {"path": "forge"}, "history_tree": {"path": "forge/unit-history"}}
+        with self.assertRaisesRegex(ValueError, "history directories cannot be embedded recursively"):
+            self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_cached_root_or_nested_directory_replaced_by_link_is_rejected(self):
+        for replaced in ("forge/discovery", "forge/discovery/nested"):
+            with self.subTest(replaced=replaced):
+                # Unique roots allow both cases without restoring any symlink.
+                prefix = "root-case" if replaced == "forge/discovery" else "nested-case"
+                base = "forge/" + prefix
+                original = self.p.root / (base if prefix == "root-case" else base + "/nested")
+                (self.p.root / (base + "/nested")).mkdir(parents=True)
+                target = self.p.root / (prefix + "-target")
+                target.mkdir()
+                mutation = {"synthetic_mutation": True}
+                manifest = {"first": {"path": base}, "mutation": mutation, "again": {"path": base}}
+                classify = self.helper.evidence_reference
+                def change(value):
+                    if value is mutation:
+                        original.rename(original.with_name(original.name + "-original"))
+                        try:
+                            original.symlink_to(target, target_is_directory=True)
+                        except OSError as error:
+                            self.skipTest("symlink creation unavailable: " + str(error))
+                    return classify(value)
+                with mock.patch.object(self.helper, "evidence_reference", side_effect=change):
+                    with self.assertRaisesRegex(ValueError, "history cannot follow links|snapshot directory changed"):
+                        self.helper.referenced_paths(self.p.root, manifest)
+                with self.assertRaisesRegex(ValueError, "history cannot follow links"):
+                    self.helper.referenced_paths(self.p.root, {"path": base})
+
+    def test_capture_rechecks_containment_after_source_discovery(self):
+        path, target = "src/replaceable.txt", "src/link-target.txt"
+        self.p.write(path, "Original.\n")
+        self.p.write(target, "Synthetic replacement.\n")
+        manifest = {"sources": [{"path": path}] * 3}
+        discover = self.helper.referenced_paths
+        def change_after_discovery(*args, **kwargs):
+            paths = discover(*args, **kwargs)
+            (self.p.root / path).unlink()
+            try:
+                (self.p.root / path).symlink_to(self.p.root / target)
+            except OSError as error:
+                self.skipTest("symlink creation unavailable: " + str(error))
+            return paths
+        with mock.patch.object(self.helper, "referenced_paths", side_effect=change_after_discovery):
+            with self.assertRaisesRegex(ValueError, "history cannot follow links"):
+                self.helper.freeze_files(self.p.root, manifest, "forge/unit-history/contexts/synthetic")
+        with self.assertRaisesRegex(ValueError, "history cannot follow links"):
+            self.helper.referenced_paths(self.p.root, manifest)
 
 
 if __name__ == "__main__":

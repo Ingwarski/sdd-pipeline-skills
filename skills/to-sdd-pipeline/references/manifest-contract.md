@@ -24,6 +24,30 @@ Keep machine values; apply shared language rules to displayed labels/prose. Arti
 
 Design states remain `not_started | awaiting_executor_choice | preflighting_source_access | awaiting_design_source_access | generating_candidates | awaiting_claude_design_selection | awaiting_claude_design_export | awaiting_export_transfer | validating_import | awaiting_design_approval | approved_visual_baseline`. Transport is `direct_export | codex_assisted_import | manual_transfer | authorized_url_capture`; follow the handoff reference.
 
+## Current progress
+
+Run `sdd_check.py --project PATH --progress` on resume and after owner handoffs; reconcile
+any saved `next_ready_nodes` with `progress.next_ready_nodes`. The read-only report
+uses bounded current gate checks, returns stale predecessors to their owner and names
+unresolved blockers. Optional absent/null projections remain compatible; a supplied
+stale list is rejected by ordinary checks. Readiness is advisory: dispatch still needs
+the normal node/unit gate, current sources and existing authority.
+
+At product-idea handoff, reconcile actual answers, clear resolved `current_request_id`,
+`pending_question` and `material_gaps`, and update `product_idea_hash` when supplied.
+An explicit pending decision cannot also occur in `answered_decision_ids`. Preserve
+prior draft text in history; display the current canonical product idea after handoff,
+not unresolved statements from that draft. A reopened intake remains pending.
+The checker checks explicit records and hashes; the owner resolves their meaning.
+
+After each implementation loop use `--progress --worked-unit UNIT-ID`, or the
+`implementation_progress` returned by the unit gate. Report total units, the unit
+just worked on and its recorded outcome, accepted-complete count, and next eligible
+unit or blocker. An unrecorded completion gate pass means ready to record completion;
+running, failed/blocked and preserved attempts do not count complete. Counts are null
+when current validation cannot establish them; do not display null as zero. The
+report never invents the last worked unit or a further unit after the final one.
+
 ## Current checker metadata
 
 New manifests use `checker_contract_version: 2` and `unit_contract_version: 2`. Version 1 is readable for audit/import, then migrated on authorized resume under [completion preservation](completion-preservation.md); it is not an alternate execution mode. Mixed pairs and version-2 history hidden in version 1 are rejected. [pipeline-contract.json](pipeline-contract.json) defines artifact paths, owners and required-before edges once. Each artifact ID is also an owner node; named reconciliation nodes inherit through `owner_artifact`. Aggregate nodes specify their own inputs. `consulted_later` never creates a scheduling edge.

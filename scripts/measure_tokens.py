@@ -53,6 +53,8 @@ def resource_loads(skill, scenario, revision=None):
         paths.append(SHARED + "scope-and-execution.md")
     if skill in ("to-sdd-prd", "to-design-brief", "to-qa-checklist"):
         paths.append(SHARED + "accessibility-policy.md")
+    if skill == "to-qa-checklist":
+        paths.append(SHARED + "acceptance-coverage-review.md")
     entry = read_version("skills/" + skill + "/SKILL.md", revision) or ""
     if skill == "to-design-brief" and "references/freeze-contract.md" in entry:
         paths.append(SHARED + "freeze-contract.md")
@@ -80,6 +82,9 @@ def resource_loads(skill, scenario, revision=None):
         paths.append(SHARED + "completion-preservation.md")
     if skill in scenario.get("evidence_storage_consumers", []):
         paths.append(SHARED + "evidence-storage-contract.md")
+        # These fixed scenarios all have visual products. Count the conditional
+        # browser recipe for their evidence consumers, including every retry.
+        paths.append(SHARED + "browser-evidence-workflow.md")
     # A missing required resource is a failure, never an instruction saving.
     resources = []
     for path in paths:

@@ -33,7 +33,26 @@ An `implements` link records contribution, not completion. The [unit contract](u
 
 ## Construction mechanisms
 
-Architecture owns a canonical mechanism section, for example `## Construction Mechanisms`, with JSON `{"version":1,"mechanisms":{"MECH-ID":{"required":true,"obligation_ids":["NFR-01.a"],"source_paths":["src/store.py"]}}}`. Its owner return declares `construction_ref: {path, heading}`, indexed as `artifacts.architecture.construction_ref`. Use required clause/state IDs and unique canonical project-relative POSIX production paths; files may be planned. Describe duties, owned interfaces and bounded verification seams without inventing future units/QA IDs. Split mechanisms when construction owners differ.
+Architecture owns a canonical mechanism section with exactly one fenced JSON block. Replace the example IDs and paths with source-defined obligations and mechanisms:
+
+````markdown
+## Construction Mechanisms
+
+```json
+{
+  "version": 1,
+  "mechanisms": {
+    "MECH-ID": {
+      "required": true,
+      "obligation_ids": ["NFR-01.a"],
+      "source_paths": ["src/store.py"]
+    }
+  }
+}
+```
+````
+
+Its owner return declares `construction_ref: {"path":"docs/architecture.md","heading":"## Construction Mechanisms"}`, indexed as `artifacts.architecture.construction_ref`; localized headings are supported. Use required clause/state IDs and unique canonical project-relative POSIX production paths; files may be planned. `--after architecture` validates the declaration's syntax, schema, pointer, obligations and paths before downstream authoring. Describe duties, owned interfaces and bounded verification seams without inventing future units/QA IDs. Split mechanisms when construction owners differ.
 
 Planning copies the exact owner pointer to `unit_plan.construction_ref` and maps each required mechanism in `unit_plan.construction` to `{owner_unit, check_ids}`. A declared owner pointer requires both plan fields; removing them cannot waive construction. The reserved top-level JSON shape with `version` and `mechanisms` also requires owner metadata, regardless of heading language. Only legacy sources with no declaration can omit these records. Its owner must include the paths in `implementation_paths` and have `implements` links for its duties; required same-unit construction checks collectively cover those paths/obligations. Keep prerequisite authority in the existing unit/check dependency graph, not inferred from this mapping. Component checks prove bounded construction only; final real-consumer acceptance remains required.
 

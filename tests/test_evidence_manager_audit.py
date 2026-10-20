@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import unittest
+import uuid
 from unittest.mock import patch
 
 import test_evidence_manager as fixtures
@@ -285,10 +286,21 @@ class ManagerAuditTests(unittest.TestCase):
             fresh.result(timeout=5)
         self.assertFalse(lock.exists())
 
+    def legacy_exited_intent(self, run_id, reserve_files):
+        # Publish the original v1 intent shape to exercise persisted historical
+        # records; do not spoof the process identity used for new launches.
+        intent = str(uuid.uuid4())
+        with self.manager.locked():
+            self.manager._publish(self.manager._catalog(mutation=True), {
+                "version": 1, "generation_intents": {intent: {
+                    "run_id": run_id, "unit_id": "U-1", "reserve_bytes": 20,
+                    "reserve_files": reserve_files, "owner_pid": 2**30,
+                    "owner_host": socket.gethostname()}}})
+        return intent
+
     def test_unsettled_remote_generation_reports_unknown_after_loss_of_home(self):
         self.manager.initialize_generation_authority()
-        with patch("evidence.manager.os.getpid", return_value=2**30):
-            intent = self.manager.begin_generation("failed-run", "U-1", 20, 2)
+        intent = self.legacy_exited_intent("failed-run", 2)
         cold = self.cold()
         status = cold.status()
         self.assertFalse(status["accounting_complete"])
@@ -345,8 +357,7 @@ class ManagerAuditTests(unittest.TestCase):
         actions = self.manager.reconcile(dry_run=False)
         self.assertTrue(any(action.get("intent_id") == live and action["action"] == "generation-intent-retained" for action in actions))
         self.manager.finish_generation(live)
-        with patch("evidence.manager.os.getpid", return_value=2**30):
-            exited = self.manager.begin_generation("not-launched", "U-1", 20, 1)
+        exited = self.legacy_exited_intent("not-launched", 1)
         self.assertFalse(self.manager.status()["accounting_complete"])
         actions = self.manager.reconcile(dry_run=True)
         self.assertTrue(any(action.get("intent_id") == exited and action["action"] == "reconcile-exited-generation-intent" for action in actions))

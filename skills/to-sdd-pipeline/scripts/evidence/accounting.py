@@ -112,6 +112,7 @@ class Accounting:
                     output_id TEXT NOT NULL REFERENCES outputs(id), path TEXT NOT NULL,
                     digest TEXT NOT NULL, bytes INTEGER NOT NULL,
                     PRIMARY KEY(output_id, path));
+                CREATE TABLE IF NOT EXISTS producer_sessions (id TEXT PRIMARY KEY, record TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS coordinator (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1), owner TEXT NOT NULL,
                     expires REAL NOT NULL, complete_knowledge INTEGER NOT NULL);
@@ -402,21 +403,46 @@ class Accounting:
     def reserve(self, run_id: str, unit_id: str, byte_count: int, file_count: int,
                 *, local_bytes=0, metadata_bytes=0, metadata_files=0,
                 retained_bytes=0, retained_objects=0,
-                retry=False, migration=False, capacity_path=None) -> str:
+                retry=False, migration=False, capacity_path=None, producer_record=None) -> str:
         """Atomically reserve gross generation and peak local capacity before writes.
 
         Every distinct non-migration run in a unit consumes one attempt, even when
         its caller omits ``retry``. Stable run IDs therefore resume without a new
         attempt, while renamed directories/chats cannot reset the unit budget.
         A migration run is one bounded batch; total migration volume is unbounded.
+        An optional managed-producer record is bound to this reservation in the
+        same transaction, so interruption cannot leave an unregistered launch hold.
         """
         _identity(run_id, "run_id"); _identity(unit_id, "unit_id")
         for value, label in ((byte_count, "bytes"), (file_count, "files"), (local_bytes, "local bytes"),
                              (metadata_bytes, "metadata bytes"), (metadata_files, "metadata files"),
                              (retained_bytes, "retained bytes"), (retained_objects, "retained objects")):
             _amount(value, label)
+        session = None
+        identifier = str(uuid.uuid4())
+        if producer_record is not None:
+            if (not isinstance(producer_record, dict)
+                    or producer_record.get("reservation_id") is not None
+                    or producer_record.get("output_id") is not None
+                    or producer_record.get("status") != "launching"
+                    or producer_record.get("run_id") != run_id
+                    or producer_record.get("unit_id") != unit_id):
+                raise EvidenceError("producer record must describe this unlaunched run/unit without existing bindings")
+            attempt_id = _identity(producer_record.get("attempt_id"), "producer attempt_id")
+            try:
+                # Serialize before mutation/transaction: nested caller changes
+                # cannot alter the identity or bytes committed for this attempt.
+                value = json.loads(json.dumps(producer_record, allow_nan=False))
+                value.update(reservation_id=identifier, output_id=None)
+                session = json.dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False)
+            except (ValueError, TypeError) as error:
+                raise EvidenceError("producer record must contain finite JSON data") from error
+            if len(session.encode("utf-8")) > metadata_bytes:
+                raise EvidenceError("producer record exceeds its reserved metadata allowance")
         with self._transaction():
             self.require_generation_ready()
+            if session is not None and self.connection.execute("SELECT 1 FROM producer_sessions WHERE id=?", (attempt_id,)).fetchone():
+                raise EvidenceError("producer attempt identity is already registered")
             run = self.connection.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
             if run is None:
                 ordinal = self.connection.execute("SELECT COUNT(*) FROM runs WHERE unit_id=? AND migration=0", (unit_id,)).fetchone()[0]
@@ -449,9 +475,10 @@ class Accounting:
                 violations.append("accounting journal cannot preserve free-space reserve")
             if violations:
                 raise BudgetExceeded(violations)
-            identifier = str(uuid.uuid4())
             self.connection.execute("INSERT INTO reservations(id,run_id,bytes,files,local_bytes,metadata_bytes,metadata_files,retained_bytes,retained_objects,created) VALUES(?,?,?,?,?,?,?,?,?,?)",
                                     (identifier, run_id, byte_count, file_count, local_bytes, metadata_bytes, metadata_files, retained_bytes, retained_objects, time.time()))
+            if session is not None:
+                self.connection.execute("INSERT INTO producer_sessions(id,record) VALUES(?,?)", (attempt_id, session))
             self._dirty_runs.add(run_id)
             return identifier
 

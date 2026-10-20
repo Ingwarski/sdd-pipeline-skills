@@ -1,6 +1,6 @@
 # Evidence storage, version 1
 
-Read at authorized pipeline entry and for evidence production/resolution/import/cleanup. Storage preserves owners, source authority, baselines, acceptance and the separate implementation prompt. Detailed user setup is in the collection's storage guide.
+Read at authorized pipeline entry and evidence production/resolution/import/cleanup. Storage preserves owners, source authority, baselines, acceptance and the separate implementation prompt. Setup and managed recovery use the collection's storage guide.
 
 ## Pipeline entry
 
@@ -56,6 +56,8 @@ New structured `interactions_checked` rows separate `action_name`, `observed_sta
 Label corrections use a separate version-1 `observation_metadata_correction` receipt with the unchanged hash-bound `original_receipt`, its original `observed_at`, named `reviewer`/`reason`, separate `corrected_at`, and `new_execution: false`. Its `corrections` target original `interaction_index` values and retain their observation times; only the label/source-pointer fields above may change. Refer to the original receipt, not another correction; preserve originals/history and separate evidence for other states. The checker validates declared agreement; an owner reviews semantic accuracy. No new capture, authority or acceptance is created.
 
 ## Preparation and resources
+
+For browser producers, use the optional [browser evidence workflow](browser-evidence-workflow.md) for absolute producer paths, runtime/profile separation, actual prerequisites, settlement and exact owned cleanup. It adds no browser requirement to other product scopes.
 
 Storage performs network/cache writes: capture stable regular bytes → immutable pack → upload → independent retrieval → verify archive/original members → recoverable catalog → eligible local removal. Deduplicate content, retain logical associations, checkpoint transfers and journal deletion; reconcile unknown outcomes before retries.
 

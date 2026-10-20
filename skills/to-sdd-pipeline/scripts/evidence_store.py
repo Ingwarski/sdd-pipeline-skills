@@ -287,7 +287,7 @@ def main():
                     try:
                         result = run_producer(ledger, args.run_id, args.unit_id, selected.resolve(), command,
                                               args.reserve_bytes, args.reserve_files, timeout=args.timeout,
-                                              complete_run=not args.defer_run_completion)
+                                              complete_run=not args.defer_run_completion, intent_id=intent)
                     finally:
                         manager.finish_generation(intent, reservation_id=(result or {}).get("reservation_id"))
             else:
@@ -297,7 +297,7 @@ def main():
             selected.parent.mkdir(parents=True, exist_ok=True)
             atomic_json(selected.parent.resolve() / selected.name, result)
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
-        if result.get("incomplete") or result.get("status") == "incomplete" or any(x.get("action") == "delete-failed" for x in result.get("actions", [])):
+        if result.get("incomplete") or result.get("status") == "incomplete" or any(x.get("incomplete") or x.get("action") == "delete-failed" for x in result.get("actions", [])):
             return 1
         return 0
     except (EvidenceError, ValueError, OSError, KeyError, TypeError) as error:

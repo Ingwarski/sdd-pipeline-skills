@@ -1413,6 +1413,43 @@ class UnitHistoryTests(unittest.TestCase):
                     helper.stage_candidate(self.p.root, candidate, expected)
                 self.assertEqual(expected, self.p.hash("forge/sdd-manifest.json"))
 
+    def test_older_legacy_archive_extra_inputs_are_preserved_and_every_byte_still_validates(self):
+        for mutation in (None, "missing_required", "missing_extra_snapshot", "changed_extra_snapshot", "changed_extra_source"):
+            with self.subTest(mutation=mutation):
+                self.fresh()
+                helper = self.history()
+                extra = "forge/old-history-only.txt"
+                self.p.write(extra, "Original inactive history input.\n")
+                self.m["history"].append({"event": "historical_note", "path": extra})
+                self.p.save()
+                expected = self.p.hash("forge/sdd-manifest.json")
+                staged = helper.adopt_legacy(self.p.root, expected)
+                candidate = self.read(staged)["manifest"]
+                ref = candidate["legacy_history"][-1]
+                archive = self.read(ref)
+                self.assertNotIn(extra, archive["files"])
+                # Emulate a previously captured archive that included inactive inputs.
+                snapshot = helper.write_snapshot(self.p.root, archive["snapshot_root"] + "/" + extra,
+                                                 (self.p.root / extra).read_bytes())
+                archive["files"][extra] = snapshot
+                if mutation == "missing_required":
+                    del archive["files"]["docs/prd.md"]
+                self.rewrite(ref, archive)
+                if mutation == "missing_extra_snapshot":
+                    (self.p.root / snapshot["path"]).unlink()
+                elif mutation == "changed_extra_snapshot":
+                    (self.p.root / snapshot["path"]).write_text("Changed archived bytes.\n")
+                elif mutation == "changed_extra_source":
+                    self.p.write(extra, "Changed original source.\n")
+                if mutation:
+                    with self.assertRaisesRegex(ValueError, "snapshot inventory changed|historical snapshot changed|legacy snapshot source changed"):
+                        helper.stage_candidate(self.p.root, candidate, expected)
+                else:
+                    restaged = helper.stage_candidate(self.p.root, candidate, expected)
+                    self.assertEqual(candidate["legacy_history"], self.read(restaged)["manifest"]["legacy_history"])
+                    self.assertEqual(archive, self.read(ref))
+                self.assertEqual(expected, self.p.hash("forge/sdd-manifest.json"))
+
     def test_adoption_activation_rejects_changed_authority_and_false_execution_modes(self):
         for forgery in ("changed_authority", "fake_execution_mode", "fake_no_execution_mode"):
             with self.subTest(forgery=forgery):

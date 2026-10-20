@@ -62,6 +62,8 @@ Use both `checker_contract_version: 2` and `unit_contract_version: 2`; keep `tra
 | `execution_contexts[unit_id]` | Reference to `unit_execution_context`, captured before start; contains the actual authorized manifest, reviewed inventory, source snapshots and toolchain identity. |
 | `unit_runs[unit_id]` after archival | `{status: "completed", completion_ref, applicability_ref?}`. Completion retains the original `run_id`, run, checks, context reference, promotion records and snapshot files. |
 | `completion_history[unit_id]` | Original completion references retained when a new revalidation run replaces the active run. Archived results grant no current acceptance by themselves. |
+| `unit_runs[unit_id].attempt_ref` | Immutable `unit_attempt` retaining an actual running/blocked run, every owned check including unrun checks, original context, current work snapshots and owner-reviewed status documents. Never completion. |
+| `attempt_history[unit_id]` | Original unfinished-attempt references retained across retries. A continuation context points to its `prior_attempt_ref`; new evidence uses a distinct run ID. |
 | `completion_applicability` | Direct original `completion_ref`, current plan hash, current reviewed inventory, immediately prior active manifest reference, explicit pending-unit mapping and calculated outcome/reasons. A stored outcome is never trusted without recomputation. |
 | `legacy_history` | References to actual version 1 manifest archives, labeled `unverified_not_reusable`. These preserve history and cannot satisfy a check or authorize a start. |
 | Staged candidate and activation journal | Candidate manifest, expected active revision, observed inputs and validation report; journal preserves before/after manifest references for recovery. |
@@ -77,12 +79,42 @@ Its commands are:
 - `capture-context --unit ID --inventory reviewed.json`: returns the pre-start reference; index it in `execution_contexts` before the normal checker start boundary.
 - `observe-inputs --unit ID [--inventory reviewed.json]`: reads actual execution inputs, using the captured inventory when omitted. Bind matching before/after observations to the genuine check event.
 - `capture-completion --unit ID --context-ref context-ref.json --run-id ACTUAL_RUN_ID [--inventory reviewed-current.json]`: validates the actual completed run and returns its immutable reference. After a canonical owner update, such as appending QA execution history, supply a fresh current owner review after the actual checks. Relevant definitions must remain unchanged. The record retains original canonical context and actual post-run provenance separately; it cannot mark unfinished work complete.
+- `capture-attempt --unit ID --context-ref context-ref.json --run-id ACTUAL_RUN_ID --outcome failed|interrupted --inventory reviewed-current.json`: preserves unfinished work without requiring passed acceptance. Add the returned reference as `attempt_ref` to the unchanged actual run, then stage/activate that candidate. Status-only owner edits require a fresh review and unchanged relevant acceptance and authority; actual check hashes, times and outcomes remain unchanged.
+- `observe-runtime --probes probes.json`: executes explicit identity commands once and returns an immutable receipt. The input maps identity names to argument lists starting with an absolute executable; no shell is used. Its `environment` maps each name to stripped stdout. Probe the runtime/session that will execute evidence; an installed binary version alone does not identify an attached process. Use non-secret, bounded identity commands that do not start background helpers.
+- `capture-continuation --unit ID --attempt-ref attempt-ref.json --run-id NEW_RUN_ID --inventory reviewed-continuation.json`: returns a complete candidate `manifest`, `context_ref` and `prior_attempt_ref`. The fresh reviewed inventory includes the new probe's `runtime_observation_ref` and exact `environment`. The helper preserves work and all earlier attempts, captures a new context, and resets owned checks to unrun. Save the returned manifest as the candidate, reconcile progress, stage/activate, pass `--start-unit`, then record the actual start. Only subsequent executed checks can establish acceptance.
 - `--manifest candidate-manifest.json assess --completion-ref completion-ref.json --inventory reviewed.json --pending-map pending-map.json`: reviews the candidate against the actual active `forge/sdd-manifest.json`. Mapping values are current unit IDs; keys are changed pending IDs or `__added__`. Preserve every old acceptance obligation, including obligations introduced in earlier revisions.
 - `stage --candidate candidate-manifest.json --expected-manifest-hash SHA256 [--pending-map pending-map.json]`, then `activate --candidate-ref candidate-ref.json --expected-manifest-hash SHA256`: validate and atomically replace the active manifest only while the expected revision and inputs still match. Mapping may come from its matching assessments; supply it explicitly for a transition without them.
 - `adopt-legacy --expected-manifest-hash SHA256`: archives supported version 1 records and stages version 2 with the exact existing gate. Its `migration_ready` report means conversion only; inspect nested `project_validation`, activate and verify as above. Prior execution needs genuine revalidation; no pre-start context or old pass is reconstructed.
 - `recover --journal-ref journal-ref.json`: reports whether the recorded activation happened, did not happen, or conflicts with later state. It never overwrites later work or silently removes another writer's lock.
 
 Reference arguments name JSON files containing the returned reference, not the history envelope itself. For completion, put the actual finished run and owner-reconciled results in a candidate manifest; use `--manifest candidate-manifest.json capture-completion ...`, then index the returned completion reference and stage/activate. The helper runs the complete-unit validation boundary before returning a valid completion. Never publish an unvalidated completed status. Save each actual command output and checker report.
+
+Capture an attempt before repairs when possible. If partial edits, deletions or new
+tree members already differ from recorded test inputs, capture retains both the
+actual old observations and current work as `observation_validity:
+unverified_stale_inputs`. It validates evidence bytes and authority, but cannot
+reconstruct unavailable tested source bytes or certify those results against later
+work. The current validation view treats those checks as unrun and reports the
+preserved failure/interruption; the source manifest and archive keep original
+outcomes. Changed acceptance definitions, corrupt/missing evidence and changed
+authority still block capture. A fresh continuation must rerun required checks.
+
+The continuation probe follows attempt capture and precedes context capture.
+After the actual new start, probe the execution session again and bind that receipt
+as each executed check's `runtime_observation_ref`, before its `executed_at`.
+Completion requires the observed environment to match the new context. Runtime
+drift requires another preserved attempt and continuation; it never rebinds old
+receipts. This records only the commands' observed identities, not authenticity of
+the host or continuous runtime stability; the executing harness must check the
+actual runtime at the test boundary.
+
+Retain inherited findings and their original fields. To close one, change its
+status to `closed` and add `closure: {closed_at, rationale, check_ids}` pointing to
+fresh passed checks owned by this continuation, with readable evidence and matching
+inputs/runtime. Closure follows those checks and precedes claimed completion;
+deletion, substituted identity or a bare closed status cannot clear the finding.
+A reopened finding may replace its closure when closing again; the previous
+closure remains in immutable attempt history.
 
 Source documents are owner-written before candidate validation; activation makes only the manifest replacement atomic. During staging, other workers must not dispatch from an invalidated old manifest. A crashed writer's lock needs verified process ownership and explicit local recovery; incomplete directories grant no authority. Re-run validation after recovery.
 

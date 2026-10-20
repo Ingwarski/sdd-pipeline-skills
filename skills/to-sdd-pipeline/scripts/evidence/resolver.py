@@ -17,14 +17,17 @@ SCHEMAS = frozenset({"evidence-bytes-v1", "evidence-json-v1", "source-inventory-
 HASH = re.compile(r"[0-9a-f]{64}")
 IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 JSON_LIMIT = 16 * 1024 * 1024
+INACTIVE_HISTORY_KEYS = frozenset({"history", "run_history", "superseded"})
 
 
 def evidence_reference(record):
-    """Direct references and a named evidence_ref wrapper are both portable."""
+    """Recognize explicit reference intent, not generic version/hash metadata."""
     if isinstance(record, dict):
         if "evidence_ref" in record:
+            if not isinstance(record["evidence_ref"], dict):
+                raise ValueError("evidence_ref must be an object")
             return record["evidence_ref"]
-        if "artifact_id" in record or "locator" in record or "version" in record and "sha256" in record:
+        if "artifact_id" in record or "locator" in record:
             return record
     return None
 
@@ -84,7 +87,7 @@ def validate_reference(ref):
     _size(ref.get("size"), "original size")
     if not isinstance(ref.get("kind"), str) or not ref["kind"]:
         raise ValueError("evidence kind required")
-    if ref.get("schema") not in SCHEMAS:
+    if not isinstance(ref.get("schema"), str) or ref["schema"] not in SCHEMAS:
         raise ValueError("unsupported evidence schema: " + str(ref.get("schema")))
     if not isinstance(ref.get("provenance"), dict) or not ref["provenance"]:
         raise ValueError("original evidence provenance required")
@@ -132,7 +135,7 @@ def validate_reference(ref):
 
 def payload_references(value, schema="evidence-json-v1"):
     """Yield current JSON dependencies without loading inactive historical payloads."""
-    if schema not in SCHEMAS - {"evidence-bytes-v1", "archive-attachment-v1"}:
+    if not isinstance(schema, str) or schema not in SCHEMAS - {"evidence-bytes-v1", "archive-attachment-v1"}:
         raise ValueError("evidence schema is not a JSON record")
     if not isinstance(value, dict):
         raise ValueError("evidence JSON payload must be an object")
@@ -154,7 +157,7 @@ def payload_references(value, schema="evidence-json-v1"):
             for key, child in record.items():
                 # Wrapper siblings can carry required captures. History is loaded
                 # only when a current reference explicitly depends on it.
-                if key not in ("evidence_ref", "history", "run_history", "superseded"):
+                if key != "evidence_ref" and key not in INACTIVE_HISTORY_KEYS:
                     yield from closure(child, depth + 1)
         elif isinstance(record, list):
             for child in record:
@@ -335,7 +338,8 @@ class EvidenceResolver:
         return self._json(path, 64 * 1024 * 1024)  # Stable throughout closure reads.
 
     def json(self, ref):
-        if ref.get("schema") not in SCHEMAS - {"evidence-bytes-v1", "archive-attachment-v1"}:
+        validate_reference(ref)
+        if ref["schema"] not in SCHEMAS - {"evidence-bytes-v1", "archive-attachment-v1"}:
             raise ValueError("evidence schema is not a JSON record")
         return self._json(self.resolve(ref))
 
