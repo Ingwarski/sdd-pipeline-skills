@@ -17,7 +17,7 @@ import socket
 import sys
 import uuid
 
-from evidence.resolver import EvidenceResolver, evidence_reference
+from evidence.resolver import EvidenceResolver, evidence_reference, validate_reference
 
 VERSION = 2
 CONTRACT = "sdd-unit-history-v2"
@@ -257,10 +257,24 @@ def prepare_inventory(checker, unit_id, inventory):
             "canonical_hashes": canonical, "inputs": inputs, "bindings": copy.deepcopy(bindings)}
 
 
+class _ExternalEvidenceError(ValueError):
+    """Explicit reference failures are never optional application path metadata."""
+
+
 def referenced_paths(project, manifest, *, checker=None, external_refs=None):
     """Enumerate declared regular sources/receipts and frozen render trees only."""
     found, seen_json, seen_external = set(), set(), set()
-    def add(value):
+    def add(value, *, optional=False):
+        try:
+            add_path(value)
+        except _ExternalEvidenceError:
+            raise
+        except (ValueError, UnicodeError):
+            if not optional:
+                raise
+            # Incidental application metadata can name non-project machine paths.
+
+    def add_path(value):
         if not isinstance(value, str) or not value:
             return
         path = physical(project, value)
@@ -283,23 +297,36 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
         if path.suffix == ".json" and value not in seen_json:
             seen_json.add(value)
             try:
-                walk(api().read_json(path))
+                document = api().read_json(path)
             except (ValueError, UnicodeError):
-                pass  # JSON application data need not contain references.
-    def walk(value):
+                return  # Application files need not be parseable JSON.
+            # Ignore incidental paths individually, never the remaining references.
+            walk(document, optional_paths=True)
+    def walk(value, *, optional_paths=False):
         if isinstance(value, dict):
-            external = evidence_reference(value)
+            try:
+                external = evidence_reference(value)
+                if external is not None:
+                    validate_reference(external)
+            except ValueError as error:
+                raise _ExternalEvidenceError(str(error)) from error
             if external is not None:
                 if external_refs is not None:
                     external_refs.append(external)
                 # Locator/original_path values describe external evidence, not
                 # project files. Only verified JSON payloads can add sources.
-                if checker is not None and external["artifact_id"] not in seen_external:
-                    seen_external.add(external["artifact_id"])
-                    checker.evidence_resolver.resolve(external)
-                    checker.evidence_accounting(external)
-                    if external.get("schema") not in ("evidence-bytes-v1", "archive-attachment-v1"):
-                        walk(checker.evidence_resolver.json(external))
+                marker = external["artifact_id"]
+                if checker is not None and marker not in seen_external:
+                    seen_external.add(marker)
+                    try:
+                        checker.evidence_resolver.resolve(external)
+                        checker.evidence_accounting(external)
+                        payload = checker.evidence_resolver.json(external) if external["schema"] not in (
+                            "evidence-bytes-v1", "archive-attachment-v1") else None
+                    except ValueError as error:
+                        raise _ExternalEvidenceError(str(error)) from error
+                    if payload is not None:
+                        walk(payload, optional_paths=optional_paths)
                 if external is value:
                     return
                 value = {key: child for key, child in value.items() if key != "evidence_ref"}
@@ -307,19 +334,19 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
                 if key == "repository_observations" and isinstance(child, dict):
                     for observation in child.values():
                         for path in observation.get("paths", {}):
-                            add(path)
+                            add(path, optional=optional_paths)
                 elif key in ("source_hashes", "evaluated_source_hashes") and isinstance(child, dict):
                     for path in child:
-                        add(path)
+                        add(path, optional=optional_paths)
                 elif key in ("implementation_paths", "required_source_paths", "render_dependencies") and isinstance(child, list):
                     for path in child:
-                        add(path)
+                        add(path, optional=optional_paths)
                 elif isinstance(child, str) and (key in ("path", "source", "destination") or key.endswith("_path") or key.endswith("_root")):
-                    add(child)
-                walk(child)
+                    add(child, optional=optional_paths)
+                walk(child, optional_paths=optional_paths)
         elif isinstance(value, list):
             for child in value:
-                walk(child)
+                walk(child, optional_paths=optional_paths)
     walk(manifest)
     # The default policy is implied by external references even when a legacy
     # manifest has no evidence_storage declaration. Historical checks need the

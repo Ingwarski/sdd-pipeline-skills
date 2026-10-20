@@ -166,6 +166,61 @@ class HistoryEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside the repository"):
             self.helper.capture_context(self.p.root, self.m, "U-1", self.history.inventory(), evidence_cache=self.p.root / "cache")
 
+    def test_context_capture_preserves_ordinary_version_hash_metadata(self):
+        metadata = {"native_runtime": {"path": "/opt/synthetic-browser/metadata.json",
+                    "version": "12.3", "sha256": "a" * 64, "build": "3"}}
+        path = "forge/runtime-observation.json"
+        self.p.write(path, json.dumps(metadata))
+        self.m["runtime_observation"] = {"path": path, "content_hash": self.p.hash(path)}
+        original = (self.p.root / path).read_bytes()
+        context = self.helper.capture_context(self.p.root, self.m, "U-1", self.history.inventory(), evidence_cache=self.cache)
+        record = self.history.read(context)
+        self.assertEqual(original, (self.p.root / record["files"][path]["path"]).read_bytes())
+        self.assertEqual(original, (self.p.root / path).read_bytes())
+        self.assertNotIn("U-1", self.m.get("execution_contexts", {}))
+        self.helper.validate_context(self.p.root, context, "U-1", evidence_cache=self.cache)
+
+    def test_nested_explicit_reference_errors_are_not_swallowed_after_metadata(self):
+        path = "forge/runtime-observation.json"
+        missing_bytes = self.external.prepare({"synthetic": True}, "missing-prepared")
+        (self.cache / "objects" / missing_bytes["sha256"]).unlink()
+        for bad in ({"artifact_id": "missing-fields"}, {"locator": {}},
+                    {"evidence_ref": None}, {"evidence_ref": {}},
+                    {**self.prompt, "schema": []}, missing_bytes):
+            with self.subTest(bad=bad):
+                self.p.write(path, json.dumps({"runtime": {"path": "/opt/synthetic-runtime/info",
+                    "version": "12.3", "sha256": "a" * 64}, "capture": bad}))
+                manifest = {"observation": {"path": path, "content_hash": self.p.hash(path)}}
+                with self.assertRaises(ValueError):
+                    self.helper.referenced_paths(self.p.root, manifest, checker=self.checker())
+
+    def test_history_rejects_malformed_explicit_refs_without_a_checker(self):
+        for bad in ({"locator": {}}, {"artifact_id": "missing-fields"}, {"evidence_ref": None}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.helper.referenced_paths(self.p.root, {"capture": bad}, external_refs=[])
+
+    def test_metadata_paths_do_not_hide_verified_payload_sources_or_siblings(self):
+        source = "tests/only-in-external-payload.txt"
+        sibling = "tests/only-in-observation.txt"
+        self.p.write(source, "Synthetic payload source.\n")
+        self.p.write(sibling, "Synthetic sibling source.\n")
+        reference = self.external.prepare({"source_hashes": {source: self.p.hash(source)}}, "payload-sources")
+        path = "forge/runtime-observation.json"
+        self.p.write(path, json.dumps({"runtime": {"path": "/opt/synthetic-runtime/info",
+            "version": "12.3", "sha256": "a" * 64}, "capture": reference,
+            "sibling": {"path": sibling}}))
+        manifest = {"observation": {"path": path, "content_hash": self.p.hash(path)}}
+        paths = self.helper.referenced_paths(self.p.root, manifest, checker=self.checker())
+        self.assertEqual({source, sibling, path}, paths)
+        with self.assertRaisesRegex(ValueError, "unsafe history path"):
+            self.helper.referenced_paths(self.p.root, {"path": "/opt/synthetic-runtime/info"})
+
+    def test_direct_external_payload_keeps_declared_source_containment_strict(self):
+        reference = self.external.prepare({"source_hashes": {
+            "/opt/synthetic-runtime/info": "a" * 64}}, "unsafe-payload-source")
+        with self.assertRaisesRegex(ValueError, "unsafe history path"):
+            self.helper.referenced_paths(self.p.root, {"capture": reference}, checker=self.checker())
+
 
 if __name__ == "__main__":
     unittest.main()
