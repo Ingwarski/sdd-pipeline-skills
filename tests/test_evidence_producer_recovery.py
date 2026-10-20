@@ -25,11 +25,33 @@ from evidence.producer import recover_producers, run_producer
 from evidence.producer_runtime import stop_registered
 
 
-COORDINATOR = """import json, sys
+COORDINATOR = """import json, sys, time
 from pathlib import Path
 from evidence.accounting import Accounting
 from evidence.producer import run_producer
 config = json.loads(sys.argv[1])
+if config.get('fallback_recovery_ready'):
+    import evidence.producer as producer
+    from evidence.process_identity import identity
+    actual_recovery = producer.recover_producers
+    applied_calls = 0
+    def coordinated_recovery(ledger, *, dry_run=True):
+        global applied_calls
+        if not dry_run:
+            applied_calls += 1
+            if applied_calls > 1:
+                # Startup recovery stays real. Hold only the coordinator's
+                # fallback so the parent can exercise loss of both owners.
+                Path(config['fallback_recovery_ready']).write_text(json.dumps({
+                    'phase': 'before-fallback-recovery',
+                    'coordinator': identity(), 'applied_calls': applied_calls,
+                }), encoding='utf-8')
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    time.sleep(.02)
+                raise RuntimeError('fixture fallback-recovery barrier timed out')
+        return actual_recovery(ledger, dry_run=dry_run)
+    producer.recover_producers = coordinated_recovery
 with Accounting(config['ledger'], config['policy']['project_id'], config['policy']) as ledger:
     result = run_producer(ledger, config['run_id'], 'unit-fixture', config['output'],
         [sys.executable, '-B', '-c', config['source']], 65536, 20,
@@ -94,7 +116,7 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
             detail = path.read_text(encoding="utf-8", errors="replace")[-2500:]
         self.fail(description + " did not finish within its bound\n" + detail)
 
-    def _start(self, source, timeout=10):
+    def _start(self, source, timeout=10, *, hold_fallback_recovery=False):
         environment = os.environ.copy()
         environment["PYTHONPATH"] = str(SCRIPTS)
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -102,6 +124,8 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
                   "run_id": "interrupted-attempt", "output": str(self.output),
                   "result": str(self.root / "result.json"), "source": source,
                   "timeout": timeout}
+        if hold_fallback_recovery:
+            config["fallback_recovery_ready"] = str(self.root / "fallback-recovery-ready.json")
         log = (self.root / "coordinator.log").open("wb")
         self.streams.append(log)
         process = subprocess.Popen([sys.executable, "-B", str(self.coordinator_source), json.dumps(config)],
@@ -135,8 +159,8 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
                        "helper = spawn_managed([sys.executable, '-B', '-c', " + repr(helper_source) + "])\n")
         return source + "time.sleep(60)\n"
 
-    def _marker(self, name):
-        path = self.output / name
+    def _marker(self, name, *, root=None):
+        path = (root or self.output) / name
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
@@ -255,19 +279,47 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
 
     def test_lost_guardian_keeps_uncertain_hold_and_recovery_does_not_authorize_retry(self):
         sentinel = self._sentinel()
-        coordinator = self._start(self._payload())
+        coordinator = self._start(self._payload(), hold_fallback_recovery=True)
         payload, helper, record = self._ready()
+        def diagnostics():
+            return {
+                "record": self._record(),
+                "reservations": [dict(row) for row in self.ledger.connection.execute("SELECT * FROM reservations")],
+                "coordinator_returncode": coordinator.poll(),
+                "coordinator_log": (self.root / "coordinator.log").read_text(encoding="utf-8", errors="replace")[-2500:],
+            }
+        self.assertEqual(record["status"], "running", diagnostics())
+        self.assertNotIn("result", record, diagnostics())
+        self.assertEqual(self.ledger.connection.execute(
+            "SELECT state FROM reservations WHERE id=?", (record["reservation_id"],)).fetchone()[0],
+            "pending", diagnostics())
         self.assertEqual(process_identity.terminate(record["guardian"], force=True), "signalled")
-        self._force_coordinator(coordinator)
         self._gone(record["guardian"])
+        # The surviving coordinator normally applies its own recovery. Pause it
+        # before that call so this fault specifically loses both owners before
+        # the parent performs the first applied recovery.
+        fallback = self._wait(lambda: self._marker("fallback-recovery-ready.json", root=self.root),
+                              "coordinator fallback barrier: " + repr(diagnostics()))
+        self.assertEqual(fallback["phase"], "before-fallback-recovery", diagnostics())
+        self.assertEqual(fallback["coordinator"]["pid"], coordinator.pid, diagnostics())
+        self.assertEqual(fallback["applied_calls"], 2, diagnostics())
+        self.assertIsNone(coordinator.poll(), diagnostics())
+        self._force_coordinator(coordinator)
+        self._gone(fallback["coordinator"])
         before = self._record()
-        recover_producers(self.ledger, dry_run=True)
+        self.assertEqual(before["status"], "running", diagnostics())
+        preview = recover_producers(self.ledger, dry_run=True)
+        self.assertTrue(preview["incomplete"], (preview, diagnostics()))
+        self.assertEqual(preview["actions"][0]["action"], "retained", (preview, diagnostics()))
         self.assertEqual(self._record(), before, "dry-run changed ownership records")
-        recover_producers(self.ledger, dry_run=False)
+        recovery = recover_producers(self.ledger, dry_run=False)
+        self.assertTrue(recovery["incomplete"], (recovery, diagnostics()))
+        self.assertEqual(recovery["actions"][0]["action"], "retained", (recovery, diagnostics()))
+        self.assertEqual(self._record()["status"], "terminal", (recovery, diagnostics()))
         self._gone(payload)
         self._gone(helper)
         snapshot = self.ledger.snapshot()
-        self.assertFalse(snapshot["accounting_complete"])
+        self.assertFalse(snapshot["accounting_complete"], (snapshot, recovery, diagnostics()))
         self.assertEqual(len(snapshot["reservations"]), 1)
         self.assertEqual(snapshot["totals"]["pending_generated_bytes"], 65536)
         self.assertEqual(snapshot["runs"][0]["status"], "incomplete")
@@ -276,6 +328,41 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
             self.ledger.reserve("unsafe-retry", "unit-fixture", 1, 1)
         charged = snapshot["totals"]["project_generated_bytes"]
         recover_producers(self.ledger, dry_run=False)
+        self.assertEqual(self.ledger.snapshot()["totals"]["project_generated_bytes"], charged)
+        self.assertEqual(len(self.ledger.snapshot()["reservations"]), 1)
+        self.assertIsNone(sentinel.poll(), "unrelated process was stopped")
+
+    def test_lost_guardian_with_surviving_coordinator_keeps_uncertain_hold(self):
+        sentinel = self._sentinel()
+        coordinator = self._start(self._payload())
+        payload, helper, record = self._ready()
+        self.assertEqual(record["status"], "running", record)
+        self.assertNotIn("result", record, record)
+        self.assertEqual(self.ledger.connection.execute(
+            "SELECT state FROM reservations WHERE id=?", (record["reservation_id"],)).fetchone()[0], "pending", record)
+        self.assertEqual(process_identity.terminate(record["guardian"], force=True), "signalled")
+        self._gone(record["guardian"])
+        # Leave the coordinator alive to exercise its real fallback recovery.
+        coordinator.wait(timeout=12)
+        self._gone(payload)
+        self._gone(helper)
+        log = (self.root / "coordinator.log").read_text(encoding="utf-8", errors="replace")
+        self.assertNotEqual(coordinator.returncode, 0, log)
+        self.assertIn("producer guardian stopped without a terminal result", log)
+        self.assertFalse((self.root / "result.json").exists(), log)
+        snapshot = self.ledger.snapshot()
+        diagnostic = (snapshot, self._record(), log[-2500:])
+        self.assertEqual(self._record()["status"], "terminal", diagnostic)
+        self.assertFalse(snapshot["accounting_complete"], diagnostic)
+        self.assertEqual(len(snapshot["reservations"]), 1, diagnostic)
+        self.assertEqual(snapshot["totals"]["pending_generated_bytes"], 65536, diagnostic)
+        self.assertEqual(snapshot["runs"][0]["status"], "incomplete", diagnostic)
+        self.assertTrue((self.output / "observation.txt").is_file())
+        with self.assertRaisesRegex(EvidenceError, "accounting recovery required"):
+            self.ledger.reserve("unsafe-retry", "unit-fixture", 1, 1)
+        charged = snapshot["totals"]["project_generated_bytes"]
+        recovery = recover_producers(self.ledger, dry_run=False)
+        self.assertTrue(recovery["incomplete"], (recovery, diagnostic))
         self.assertEqual(self.ledger.snapshot()["totals"]["project_generated_bytes"], charged)
         self.assertEqual(len(self.ledger.snapshot()["reservations"]), 1)
         self.assertIsNone(sentinel.poll(), "unrelated process was stopped")
