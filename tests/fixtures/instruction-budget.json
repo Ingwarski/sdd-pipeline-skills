@@ -8,23 +8,23 @@
     "path": "instruction-baseline.json",
     "sha256": "b9aa3ae4416890799774b00466dde9d16c84b18d11e61c94417873a1991529ce"
   },
-  "reason": "The original numerical consolidation baseline remains unchanged. Independently reviewed cumulative allowances retain unit-loop reporting and first-entry storage selection/recovery, then add 18 product-idea entrypoint tokens and 130 storage-contract tokens per load for the approved plain-language intake questions, low-storage note and separate agent setup guidance. All five scenarios, resources, seeds, invocation order, retries, tokenizer and measurement method remain unchanged. README retains zero growth. Ceilings equal the baseline plus these exact cumulative allowances; further growth requires independent review of instructions, complete resource loads, measurements and rationale. Static estimates exclude tool output and do not establish live-run cost or behavior. See docs/maintenance.md.",
+  "reason": "The original numerical consolidation baseline remains unchanged. Independently reviewed cumulative allowances retain earlier approved intake and reporting changes and include unfinished-attempt recovery, current progress, early construction validation, clause-coverage review and optional browser/evidence guidance. Every prior conditional resource and retry remains counted; QA invocations additionally load coverage review, and evidence-consumer invocations load browser guidance in all five visual scenarios. Scenario definitions, seeds, invocation order, retries, tokenizer and measurement method remain unchanged. README retains zero growth. Ceilings equal the exact independently reviewed totals with no spare allowance. Further growth requires independent review of instructions, complete resource loads, measurements and rationale. Static estimates exclude executable helper source and tool output and do not establish live-run cost or behavior. See docs/maintenance.md.",
   "absolute": {
-    "entrypoints": 16663,
+    "entrypoints": 16727,
     "readme": 3555,
-    "first_setup_with_retry": 148835,
-    "approved_design_revision": 92828,
-    "interrupted_claude_resume": 108528,
-    "approved_decision_correction": 108319,
-    "completion_preservation": 189946
+    "first_setup_with_retry": 158671,
+    "approved_design_revision": 101688,
+    "interrupted_claude_resume": 119892,
+    "approved_decision_correction": 119683,
+    "completion_preservation": 211944
   },
   "approved_growth_tokens": {
-    "entrypoints": 71,
+    "entrypoints": 135,
     "readme": 0,
-    "first_setup_with_retry": 825,
-    "approved_design_revision": 807,
-    "interrupted_claude_resume": 1614,
-    "approved_decision_correction": 1614,
-    "completion_preservation": 3228
+    "first_setup_with_retry": 10661,
+    "approved_design_revision": 9667,
+    "interrupted_claude_resume": 12978,
+    "approved_decision_correction": 12978,
+    "completion_preservation": 25226
   }
 }

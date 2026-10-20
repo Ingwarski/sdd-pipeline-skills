@@ -57,6 +57,15 @@ Integration/release checks require `real_consumers` and an integration/release o
 
 Required checks need prepared/passed status, actual executor, readable hash-bound evidence, no open blocker, current `evaluated_plan_hash`, and `evaluated_source_hashes` covering QA plus owner/prerequisite implementation paths. Rehash all declared sources/evidence; [shared inventories](evidence-storage-contract.md) retain identical maps. Authorization cannot be future-dated; runs follow it. Execute checks within their owning run, before consumers. Real-consumer checks require `execution_mode: real_consumers`, `integration` evidence and other required classes. Mocks/fixture execution cannot substitute; fixture data through actual consumers is allowed only by the canonical check. Labels do not prove authenticity.
 
+Preserve failed/interrupted runs with `capture-attempt` and an `attempt_ref` on
+their unchanged running/blocked record. This path permits reviewed status-only
+owner updates without completion. It retains all actual check outcomes and
+preserves stale observations separately from later partial work. A fresh retry
+uses `capture-continuation`, a distinct run ID and new pre-start context; earlier
+attempts remain in `attempt_history`. Probe the actual execution runtime and bind
+the fresh receipt to continuation checks. Follow the exact command order and
+nonaccepting-history rules in [completion preservation](completion-preservation.md).
+
 Revalidate completed records, including on resume; stale evidence/open blockers invalidate completion. A predecessor must complete before its consumer starts. Release requires all units and existing gates; unit completion alone never proves release readiness.
 
 ### Current acceptance and historical compatibility

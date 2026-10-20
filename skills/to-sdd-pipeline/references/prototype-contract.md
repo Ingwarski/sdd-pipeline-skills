@@ -29,6 +29,8 @@ Apply the [freeze contract](freeze-contract.md) to all candidate inputs, includi
 
 Codex opens A, B and C on separate stable live routes on the selected surface; a shared server is allowed. Images or headless captures are insufficient. For Claude Design, open and verify only the selected normalized export before approval.
 
+Use the [browser evidence lifecycle](browser-evidence-workflow.md#settle-preserve-and-approve) when producing browser receipts: record live review, close and settle producers, archive/prepare evidence, validate, then record the later approval. Reopen unchanged candidates for further live review when needed.
+
 Rank/recommend with rationale, never auto-select. Claude selection selects only the export; revision requests create no approval. After Codex validation/opening, whole-design approval binds the exact normalized candidate/version.
 
 Each revision needs a new candidate version, immutable target and hash. Preserve and explicitly supersede prior versions; never overwrite them.

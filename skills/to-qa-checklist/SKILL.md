@@ -37,7 +37,7 @@ Read the [security traceability contract](../to-sdd-pipeline/references/security
 
 1. Inspect current sources and recheck any repository observations; source truth defines behavior, not discovered implementation drift.
 2. For UI scope, use proposed visual expectations with `Binding Status: pending_baseline` before approval. After architecture/DoD reconciliation, bind the active Baseline ID, immutable target hash and permitted variance.
-3. Map each requirement clause, journey and state to stable checks or blockers. Separate scenarios when their claims, failure diagnosis or rerun conditions differ; parent IDs are insufficient.
+3. Map each requirement clause, journey and state to stable checks or blockers. Use the [coverage review](../to-sdd-pipeline/references/acceptance-coverage-review.md) when preparing or reconciling checks. Separate scenarios when their claims, failure diagnosis or rerun conditions differ; parent IDs are insufficient.
 4. Separate bounded mechanism construction checks from native/device qualification and full integration/release checks. Use architecture's mechanism duties, owned interfaces and declared success/failure outcomes; later qualification cannot hide missing construction checks.
 5. Resolve H1-H10 and user-task scope/evidence through the shared verification contract for applicable UI or nonvisual tasks; include supported input modes, errors/recovery and accessible critical actions.
 6. H7: source-backed novice flow and applicable shortcuts, bulk/repeated work and customization using supported input modes/platforms. H10: contextual help, searchable docs when needed, actionable empty states, inline instructions and recovery links.

@@ -14,6 +14,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import socket
+import subprocess
 import sys
 import uuid
 
@@ -23,8 +24,8 @@ VERSION = 2
 CONTRACT = "sdd-unit-history-v2"
 HISTORY = "forge/unit-history"
 REF_KEYS = {"path", "content_hash"}
-EXECUTION_KEYS = {"execution_status", "executor", "executed_at", "evidence", "execution_mode", "evaluated_plan_hash", "evaluated_source_hashes", "evaluated_execution_inputs", "findings", "rationale", "source_inventory_ref", "revalidation_ref", "run_id"}
-V2_KEYS = {"execution_contexts", "completion_ref", "applicability_ref", "unit_history", "completion_history", "legacy_history", "evaluated_execution_inputs", "context_ref"}
+EXECUTION_KEYS = {"execution_status", "executor", "executed_at", "evidence", "execution_mode", "evaluated_plan_hash", "evaluated_source_hashes", "evaluated_execution_inputs", "findings", "rationale", "source_inventory_ref", "revalidation_ref", "run_id", "runtime_observation_ref"}
+V2_KEYS = {"execution_contexts", "completion_ref", "applicability_ref", "unit_history", "completion_history", "legacy_history", "evaluated_execution_inputs", "context_ref", "attempt_ref", "attempt_history", "prior_attempt_ref"}
 
 
 def contains_v2_fields(value):
@@ -247,14 +248,20 @@ def prepare_inventory(checker, unit_id, inventory):
     if "construction" in plan:
         allocated = {key: value for key, value in plan["construction"].items() if value.get("owner_unit") == unit_id}
         reference = plan["construction_ref"]
-        blocks = re.findall(r"```json\s*\n(.*?)\n```", checker.section(reference["path"], reference["heading"]).decode("utf-8"), re.S)
-        require(len(blocks) == 1, "construction inventory requires the canonical mechanism block")
-        definitions = json.loads(blocks[0])["mechanisms"]
+        definitions = api().validate_architecture_construction(checker)
+        require(definitions is not None, "construction inventory requires the canonical mechanism block")
         bindings["construction"] = {"definition_ref": copy.deepcopy(reference), "allocations": copy.deepcopy(allocated),
                                     "mechanisms": {key: copy.deepcopy(definitions[key]) for key in allocated}}
-    return {"review": copy.deepcopy(review), "sources": copy.deepcopy(sources), "environment": copy.deepcopy(environment),
+    result = {"review": copy.deepcopy(review), "sources": copy.deepcopy(sources), "environment": copy.deepcopy(environment),
             "execution_inputs": copy.deepcopy(selections), "execution_fingerprints": fingerprints,
             "canonical_hashes": canonical, "inputs": inputs, "bindings": copy.deepcopy(bindings)}
+    if "runtime_observation_ref" in inventory:
+        observation = validate_runtime_observation(checker.project, inventory["runtime_observation_ref"])
+        require(same(observation["environment"], environment), "runtime observation differs from reviewed environment")
+        require(api().timestamp(observation["observed_at"]) <= api().timestamp(review["reviewed_at"]),
+                "owner review must follow the runtime observation")
+        result["runtime_observation_ref"] = copy.deepcopy(inventory["runtime_observation_ref"])
+    return result
 
 
 class _ExternalEvidenceError(ValueError):
@@ -286,16 +293,6 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
         seen_directories.add(value)
 
     def add(value, *, optional=False):
-        try:
-            add_path(value)
-        except _ExternalEvidenceError:
-            raise
-        except (ValueError, UnicodeError):
-            if not optional:
-                raise
-            # Incidental application metadata can name non-project machine paths.
-
-    def add_path(value):
         if not isinstance(value, str) or not value:
             return
         if value in seen_directories:
@@ -303,7 +300,12 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
             return  # Directory membership is checked below.
         if value in seen_files:
             return  # Consumers recheck containment before reading.
-        path = physical(project, value)
+        try:
+            path = physical(project, value)
+        except ValueError:
+            if not optional:
+                raise
+            return  # Incidental application metadata can name non-project paths.
         if not path.exists():
             return  # Planned implementation destinations need not exist before start.
         if path.is_dir():
@@ -348,7 +350,10 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
                     except ValueError as error:
                         raise _ExternalEvidenceError(str(error)) from error
                     if payload is not None:
-                        walk(payload, optional_paths=optional_paths)
+                        # JSON evidence can contain HTTP routes and observed machine
+                        # paths, just like contained application JSON. Explicit
+                        # references and declared source inventories remain strict.
+                        walk(payload, optional_paths=True)
                 if external is value:
                     return
                 value = {key: child for key, child in value.items() if key != "evidence_ref"}
@@ -358,15 +363,15 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
                 if key == "repository_observations" and isinstance(child, dict):
                     for observation in child.values():
                         for path in observation.get("paths", {}):
-                            add(path, optional=optional_paths)
+                            add(path)
                 elif key in ("source_hashes", "evaluated_source_hashes") and isinstance(child, dict):
                     for path in child:
-                        add(path, optional=optional_paths)
+                        add(path)
                 elif key in ("implementation_paths", "required_source_paths", "render_dependencies") and isinstance(child, list):
                     for path in child:
-                        add(path, optional=optional_paths)
+                        add(path)
                 elif isinstance(child, str) and (key in ("path", "source", "destination") or key.endswith("_path") or key.endswith("_root")):
-                    add(child, optional=optional_paths)
+                    add(child, optional=optional_paths and not (key == "path" and "content_hash" in value))
                 walk(child, optional_paths=optional_paths)
         elif isinstance(value, list):
             for child in value:
@@ -463,6 +468,32 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
     manifest = context["manifest"]
     require(manifest.get("unit_contract_version") in (1, 2), "unsupported historical unit contract")
     require(manifest.get("unit_runs", {}).get(unit_id, {}).get("status", "pending") == "pending", "context must be captured before first start")
+    if "prior_attempt_ref" in context:
+        attempt, original = validate_attempt(project, context["prior_attempt_ref"], stack, cache, evidence_cache=evidence_cache)
+        require(attempt["unit_id"] == unit_id, "continuation context belongs to another attempted unit")
+        attempt_authority(original["manifest"], manifest)
+        continuation_inventory(original, attempt, context["input_inventory"])
+        references = manifest.get("attempt_history", {}).get(unit_id, [])
+        require(any(same(context["prior_attempt_ref"], item) for item in references), "continuation omitted its original attempt")
+        for inherited in attempt_refs(attempt["post_manifest"]).get(unit_id, []):
+            require(any(same(inherited, item) for item in references), "continuation dropped an earlier attempt")
+        run_id = manifest.get("unit_runs", {}).get(unit_id, {}).get("run_id")
+        require(isinstance(run_id, str) and run_id.strip(), "continuation requires a new run identity")
+        for item in references:
+            prior, _ = validate_attempt(project, item, stack, cache, evidence_cache=evidence_cache)
+            require(prior["run_id"] != run_id, "continuation reuses an old run identity")
+        observation = validate_runtime_observation(project, context["input_inventory"].get("runtime_observation_ref"))
+        require(api().timestamp(attempt["captured_at"]) <= api().timestamp(observation["started_at"])
+                and api().timestamp(observation["observed_at"]) <= api().timestamp(context["captured_at"]),
+                "continuation runtime observation must be fresh and precede the new context")
+        require(same(manifest["unit_runs"][unit_id].get("findings", []), attempt["run"].get("findings", [])),
+                "continuation dropped run findings")
+        old_checks = {item["check_id"]: item for item in attempt["checks"]}
+        for check in attempt_checks(manifest, unit_id):
+            require(check.get("execution_status") == "not_run" and not check.get("evidence"),
+                    "continuation cannot reuse old acceptance results")
+            require(same(check.get("findings", []), old_checks[check["check_id"]].get("findings", [])),
+                    "continuation dropped check findings")
     checker = historical_checker(project, manifest, context, stack=stack, cache=cache, evidence_cache=evidence_cache)
     checker._history_capturing = unit_id
     report = checker.run("implementation", unit_action="start", unit_id=unit_id)
@@ -475,10 +506,12 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
     return context
 
 
-def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=None):
+def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=None, prior_attempt_ref=None, _cache=None):
     require(manifest.get("unit_contract_version") == VERSION, "migrate legacy records before capturing current execution")
     require(manifest.get("unit_runs", {}).get(unit_id, {}).get("status", "pending") == "pending", "capture context before starting the unit")
     checker = api().Checker(project, copy.deepcopy(manifest), evidence_cache=evidence_cache)
+    cache = _cache if _cache is not None else {}
+    checker._history_stack, checker._history_cache = (), cache
     checker._history_capturing = unit_id
     report = checker.run("implementation", unit_action="start", unit_id=unit_id, require_current=True)
     require(report["result"] == "passed", "cannot capture unauthorized/unstartable context: " + json.dumps(report["issues"]))
@@ -487,8 +520,13 @@ def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=Non
     context = {"event": "unit_execution_context", "version": VERSION, "validation_contract": CONTRACT, "unit_id": unit_id,
                "captured_at": utcnow(), "toolchain": api().toolchain_identity(), "manifest": copy.deepcopy(manifest),
                "input_inventory": reviewed, "snapshot_root": directory + "/files"}
+    if prior_attempt_ref is not None:
+        context["prior_attempt_ref"] = copy.deepcopy(prior_attempt_ref)
     context["files"] = freeze_files(project, manifest, directory, reviewed["execution_inputs"], checker=checker)
-    return store_record(project, "contexts", context, directory)
+    reference = store_record(project, "contexts", context, directory)
+    if prior_attempt_ref is not None:
+        validate_context(project, reference, unit_id, cache=cache, evidence_cache=evidence_cache)
+    return reference
 
 
 def validate_completion(project, reference, stack=(), cache=None, *, evidence_cache=None):
@@ -511,6 +549,10 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
     context = validate_context(project, completed["context_ref"], unit, stack, cache, evidence_cache=evidence_cache)
     run = completed["run"]
     require(run.get("status") == "completed" and "completion_ref" not in run, "only an actual completed run can be preserved")
+    require("run_id" not in run or run["run_id"] == completed["run_id"], "completion identity differs from actual run")
+    if "prior_attempt_ref" in context:
+        require(run.get("run_id") == context["manifest"]["unit_runs"][unit]["run_id"],
+                "completion identity differs from its continuation context")
     require(api().timestamp(context["captured_at"]) <= api().timestamp(run.get("started_at")), "execution context must predate start")
     manifest = copy.deepcopy(context["manifest"])
     manifest.setdefault("execution_contexts", {})[unit] = completed["context_ref"]
@@ -537,6 +579,7 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
             actual = checks[check["check_id"]]
             require(same({k: v for k, v in actual.items() if k not in EXECUTION_KEYS}, {k: v for k, v in check.items() if k not in EXECUTION_KEYS}), "completion cannot change its original QA definition")
             manifest["verification"]["checks"][index] = copy.deepcopy(actual)
+    validate_continuation_findings(project, context, run, completed["checks"], completed["input_inventory"])
     promotions = completed.get("prototype_promotions", [])
     def planned(records):
         return [{k: v for k, v in record.items() if k not in ("started_at", "receipt")} for record in records]
@@ -565,6 +608,7 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
     for check in completed["checks"]:
         if check.get("execution_status") in ("passed", "failed"):
             require(same(check.get("evaluated_execution_inputs"), completed["input_inventory"]["execution_fingerprints"]), "executed check lacks matching test-time execution input observation")
+            validate_check_runtime(project, context, check, run, accepting=True)
     cache[cache_key] = copy.deepcopy((completed, context))
     return completed, context
 
@@ -593,7 +637,7 @@ def capture_completion(project, manifest, unit_id, context_ref, run_id, inventor
     checker.manifest.setdefault("execution_contexts", {})[unit_id] = context_ref
     checker._history_capture_completed = unit_id
     checker._history_completion_inventory = {unit_id: completed_inventory}
-    report = checker.run("implementation", unit_action="complete", unit_id=unit_id, require_current=True)
+    report = checker.run("implementation", unit_action="complete", unit_id=unit_id, require_current=True, projections=False)
     require(report["result"] == "passed", "cannot capture incomplete/unverified run: " + json.dumps(report["issues"]))
     directory = HISTORY + "/completions/" + uuid.uuid4().hex
     post_manifest = copy.deepcopy(manifest)
@@ -606,6 +650,329 @@ def capture_completion(project, manifest, unit_id, context_ref, run_id, inventor
     ref = store_record(project, "completions", record, directory)
     validate_completion(project, ref, evidence_cache=evidence_cache)
     return ref
+
+
+def validate_runtime_observation(project, reference):
+    record = read_ref(project, reference)
+    require(record.get("event") == "runtime_observation" and record.get("version") == VERSION,
+            "unsupported runtime observation")
+    require(api().timestamp(record["started_at"]) <= api().timestamp(record["observed_at"]) <= api().timestamp(utcnow()),
+            "invalid runtime observation chronology")
+    probes = record.get("probes")
+    require(isinstance(probes, dict) and probes, "actual runtime probes required")
+    environment = {}
+    for key, probe in probes.items():
+        command = probe.get("command")
+        require(isinstance(key, str) and key.strip() and isinstance(command, list) and command
+                and all(isinstance(arg, str) and arg for arg in command) and Path(command[0]).is_absolute(),
+                "runtime probe requires a named absolute executable and argument list")
+        require(probe.get("returncode") == 0 and isinstance(probe.get("stdout"), str) and probe["stdout"].strip()
+                and isinstance(probe.get("stderr"), str), "runtime probe must succeed with an observed identity")
+        require(all(len(probe[name].encode("utf-8")) <= 65536 for name in ("stdout", "stderr")),
+                "runtime identity output exceeds 64 KiB per stream")
+        environment[key] = probe["stdout"].strip()
+    require(same(environment, record.get("environment")), "runtime identity differs from actual probe output")
+    return record
+
+
+def observe_runtime(project, probes):
+    """Execute explicit local identity probes once; validation only reads their receipts."""
+    require(isinstance(probes, dict) and probes, "runtime probes must map identity names to argument lists")
+    record = {"event": "runtime_observation", "version": VERSION, "started_at": utcnow(), "probes": {}, "environment": {}}
+    for key, command in probes.items():
+        require(isinstance(key, str) and key.strip() and isinstance(command, list) and command
+                and all(isinstance(arg, str) and arg for arg in command) and Path(command[0]).is_absolute(),
+                "runtime probe requires a named absolute executable and argument list")
+        try:
+            result = subprocess.run(command, cwd=Path(project).resolve(), capture_output=True, text=True, timeout=30, check=False)
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("runtime identity probe timed out: " + key) from error
+        require(result.returncode == 0 and result.stdout.strip(), "runtime identity probe failed: " + key)
+        require(all(len(value.encode("utf-8")) <= 65536 for value in (result.stdout, result.stderr)),
+                "runtime identity output exceeds 64 KiB per stream: " + key)
+        record["probes"][key] = {"command": command, "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+        record["environment"][key] = result.stdout.strip()
+    record["observed_at"] = utcnow()
+    return store_record(project, "runtime-observations", record)
+
+
+def validate_check_runtime(project, context, check, run, *, accepting):
+    """Continuation acceptance needs the runtime actually observed in that run."""
+    if "prior_attempt_ref" not in context and "runtime_observation_ref" not in context["input_inventory"]:
+        return
+    reference = check.get("runtime_observation_ref")
+    if reference is None and not accepting:
+        return  # Preserve unfinished observations without granting acceptance.
+    require(reference is not None, "continuation acceptance requires an execution-time runtime observation")
+    observation = validate_runtime_observation(project, reference)
+    require(api().timestamp(run["started_at"]) <= api().timestamp(observation["started_at"])
+            and api().timestamp(observation["observed_at"]) <= api().timestamp(check["executed_at"]),
+            "runtime observation must be made within this run before its check result")
+    if accepting:
+        require(same(observation["environment"], context["input_inventory"]["environment"]),
+                "executed runtime changed; preserve this attempt and capture a new continuation context")
+
+
+def attempt_checks(manifest, unit):
+    owned = {key for key, allocation in manifest["unit_plan"]["acceptance"].items() if allocation["owner_unit"] == unit}
+    checks = [copy.deepcopy(check) for check in manifest["verification"]["checks"] if check["check_id"] in owned]
+    require(len(checks) == len(owned) and {check["check_id"] for check in checks} == owned,
+            "attempt must retain every owned check exactly once, including unrun checks")
+    return checks
+
+
+def validate_continuation_findings(project, context, run, checks, inventory):
+    """Carry finding identities forward; closure points to fresh current evidence."""
+    if "prior_attempt_ref" not in context:
+        return
+    unit = context["unit_id"]
+    original = context["manifest"]
+    current_checks = {check["check_id"]: check for check in checks}
+    collections = [(original["unit_runs"][unit].get("findings", []), run.get("findings", []), unit)]
+    for before in attempt_checks(original, unit):
+        require(before["check_id"] in current_checks, "continuation omitted inherited check findings")
+        collections.append((before.get("findings", []), current_checks[before["check_id"]].get("findings", []), before["check_id"]))
+    for prior, current, label in collections:
+        merged_findings(prior, current)  # Retain ordinary classification validation.
+        for finding in prior:
+            matches = [item for item in current if all(name == "status"
+                                                        or name == "closure" and finding["status"] == "open" and item.get("status") == "closed"
+                                                        or name in item and same(value, item[name])
+                                                        for name, value in finding.items())]
+            require(len(matches) == 1, "continuation dropped or rewrote inherited finding: " + label)
+            preserved = matches[0]
+            if finding["status"] == "open" and preserved["status"] == "closed":
+                closure = preserved.get("closure", {})
+                require(isinstance(closure, dict) and isinstance(closure.get("rationale"), str)
+                        and closure["rationale"].strip(), "inherited finding closure needs evidence-backed rationale: " + label)
+                check_ids = closure.get("check_ids")
+                require(isinstance(check_ids, list) and check_ids and all(isinstance(key, str) for key in check_ids)
+                        and len(set(check_ids)) == len(check_ids) and set(check_ids) <= set(current_checks),
+                        "inherited finding closure must name current owned checks: " + label)
+                closed = api().timestamp(closure.get("closed_at"))
+                finished = api().timestamp(run["completed_at"]) if run.get("completed_at") else api().timestamp(utcnow())
+                require(api().timestamp(run["started_at"]) <= closed <= finished,
+                        "inherited finding closure is outside the continuation run: " + label)
+                for key in check_ids:
+                    check = current_checks[key]
+                    require(check.get("execution_status") == "passed" and check.get("executor") and check.get("evidence")
+                            and api().timestamp(run["started_at"]) <= api().timestamp(check.get("executed_at")) <= closed,
+                            "inherited finding closure needs fresh passed check evidence: " + key)
+                    require(same(check.get("evaluated_execution_inputs"), inventory["execution_fingerprints"]),
+                            "inherited finding closure cannot use stale check inputs: " + key)
+                    validate_check_runtime(project, context, check, run, accepting=True)
+
+
+def attempt_authority(original, current):
+    for field in ("unit_plan", "implementation_gate", "active_baseline", "approved_baseline_id", "product_scope"):
+        require(same(original.get(field), current.get(field)), "attempt authority/acceptance changed: " + field)
+    require(original["artifacts"]["development-plan"]["content_hash"] == current["artifacts"]["development-plan"]["content_hash"],
+            "attempt plan prose changed")
+
+
+def canonical_alternatives(context, record):
+    return {check["check_id"]: {path: {value, record["input_inventory"]["canonical_hashes"][path]}
+                               for path, value in context["input_inventory"]["canonical_hashes"].items()}
+            for check in record["checks"]}
+
+
+def attempt_observation_validity(checks, inventory):
+    executed = [check for check in checks if check.get("execution_status") in ("passed", "failed")]
+    require(all(isinstance(check.get("evaluated_execution_inputs"), dict) and check["evaluated_execution_inputs"]
+                for check in executed), "executed attempt results need their original input observations")
+    return ("unverified_stale_inputs" if any(not same(check["evaluated_execution_inputs"], inventory["execution_fingerprints"])
+                                             for check in executed) else "matched")
+
+
+def unfinished_evidence_alternatives(project, context, record, checker):
+    """Allow archived stale bytes only while validating a nonaccepting attempt."""
+    alternatives = canonical_alternatives(context, record)
+    if record["observation_validity"] != "unverified_stale_inputs":
+        return alternatives
+    canonical = context["input_inventory"]["canonical_hashes"]
+    for check in record["checks"]:
+        if check.get("execution_status") not in ("passed", "failed"):
+            continue
+        fingerprints = check["evaluated_execution_inputs"]
+        require(set(fingerprints) == set(record["input_inventory"]["execution_inputs"]),
+                "old attempt observation omits declared execution inputs")
+        observed_hashes = {}
+        for path, fingerprint in fingerprints.items():
+            physical(project, path)
+            selection = record["input_inventory"]["execution_inputs"][path]
+            require(fingerprint.get("mode") == selection["mode"] and type(fingerprint.get("exists")) is bool,
+                    "invalid original execution input observation")
+            if not fingerprint["exists"]:
+                continue
+            if fingerprint["mode"] == "file":
+                observed_hashes[path] = fingerprint.get("content_hash")
+            elif fingerprint["mode"] == "tree":
+                require(isinstance(fingerprint.get("members"), dict), "original tree membership required")
+                for member, value in fingerprint["members"].items():
+                    physical(project, path.rstrip("/") + "/" + member.rstrip("/"))
+                    if not member.endswith("/"):
+                        observed_hashes[path.rstrip("/") + "/" + member] = value
+        for path, value in observed_hashes.items():
+            require(isinstance(value, str) and api().HASH_RE.fullmatch(value), "invalid original input digest")
+        hashes, _ = checker.source_inventory(check, "evaluated_source_hashes")
+        for path, value in hashes.items():
+            if path not in canonical and path in observed_hashes:
+                require(api().hash_matches(value, observed_hashes[path]),
+                        "old source hash differs from original execution observation: " + path)
+                alternatives[check["check_id"]][path] = {observed_hashes[path]}
+    return alternatives
+
+
+def validate_attempt(project, reference, stack=(), cache=None, *, evidence_cache=None):
+    """Validate preserved execution without ever requiring or granting completion."""
+    cache = cache if cache is not None else {}
+    record = read_ref(project, reference)
+    identity = reference["content_hash"]
+    marker = ("attempt", identity)
+    require(identity not in stack and len(stack) < 128, "cyclic/excessive attempt history")
+    if marker in cache:
+        return copy.deepcopy(cache[marker])
+    require(record.get("event") == "unit_attempt" and record.get("version") == VERSION
+            and record.get("validation_contract") == CONTRACT and record.get("acceptance") == "not_completed",
+            "unsupported unfinished attempt envelope")
+    unit, run = record["unit_id"], record["run"]
+    require(record.get("outcome") in ("failed", "interrupted"), "unfinished attempt outcome required")
+    require(run.get("status") in ("running", "blocked") and not any(key in run for key in ("completed_at", "completion_ref", "attempt_ref")),
+            "attempt must retain an actual unfinished run")
+    require(isinstance(record.get("run_id"), str) and record["run_id"].strip(), "actual attempt run identity required")
+    require("run_id" not in run or run["run_id"] == record["run_id"], "attempt run identity differs from actual run")
+    cache_key = ("attempt_run", unit, record["run_id"])
+    require(cache_key not in cache or cache[cache_key] == identity, "attempt run identity was reused")
+    cache[cache_key] = identity
+    context = validate_context(project, record["context_ref"], unit, stack + (identity,), cache, evidence_cache=evidence_cache)
+    if "prior_attempt_ref" in context:
+        require(run.get("run_id") == context["manifest"]["unit_runs"][unit]["run_id"],
+                "attempt identity differs from its continuation context")
+    require(api().timestamp(context["captured_at"]) <= api().timestamp(run["started_at"]) <= api().timestamp(record["captured_at"]) <= api().timestamp(utcnow()),
+            "invalid attempt chronology")
+    post_manifest = record["post_manifest"]
+    attempt_authority(context["manifest"], post_manifest)
+    for inherited in attempt_refs(context["manifest"]).get(unit, []):
+        require(any(same(inherited, item) for item in attempt_refs(post_manifest).get(unit, [])),
+                "attempt dropped earlier unfinished history")
+    require(same(post_manifest.get("unit_runs", {}).get(unit), run), "attempt differs from actual post-run status")
+    require(same(post_manifest.get("execution_contexts", {}).get(unit), record["context_ref"]), "attempt binds another execution context")
+    require(same(attempt_checks(post_manifest, unit), record.get("checks")), "attempt omitted or changed actual results")
+    validate_continuation_findings(project, context, run, record["checks"], record["input_inventory"])
+    actual = {check["check_id"]: check for check in record["checks"]}
+    for original in attempt_checks(context["manifest"], unit):
+        require(same({k: v for k, v in original.items() if k not in EXECUTION_KEYS},
+                     {k: v for k, v in actual[original["check_id"]].items() if k not in EXECUTION_KEYS}),
+                "attempt cannot change original QA definitions")
+    validate_completion_inventory(context, record["input_inventory"], record["checks"])
+    require(record.get("observation_validity") == attempt_observation_validity(record["checks"], record["input_inventory"]),
+            "attempt observation validity differs from its actual input observations")
+    for check in record["checks"]:
+        if check.get("execution_status") in ("passed", "failed"):
+            require(api().timestamp(run["started_at"]) <= api().timestamp(check["executed_at"]) <= api().timestamp(record["captured_at"]),
+                    "attempt check was not executed within the actual run")
+            require(check.get("evaluated_plan_hash") == run["development_plan_hash"], "attempt check belongs to another plan")
+            require(not check.get("run_id") or check["run_id"] == record["run_id"], "attempt check belongs to another run")
+            validate_check_runtime(project, context, check, run, accepting=False)
+    for original_canonical in (True, False):
+        manifest = copy.deepcopy(post_manifest)
+        if original_canonical:
+            # Original authoring provenance stays bound to the original document bytes.
+            manifest["artifacts"] = copy.deepcopy(context["manifest"]["artifacts"])
+            for field in ("bundle", "verification"):
+                if field == "verification":
+                    manifest[field] = copy.deepcopy(context["manifest"][field])
+                    manifest[field]["checks"] = [actual.get(check["check_id"], check) for check in manifest[field]["checks"]]
+                elif field in context["manifest"]:
+                    manifest[field] = copy.deepcopy(context["manifest"][field])
+        checker = historical_checker(project, manifest, context, record, stack + (identity,), cache,
+                                     original_canonical=original_canonical, evidence_cache=evidence_cache)
+        checker._history_validating_run = unit
+        checker._history_canonical_evidence = unfinished_evidence_alternatives(project, context, record, checker)
+        report = checker.run("implementation", unit_action="start", unit_id=unit)
+        require(report["result"] == "passed", "unfinished attempt records are invalid: " + json.dumps(report["issues"]))
+        if not original_canonical:
+            require(same(prepare_inventory(checker, unit, record["input_inventory"]), record["input_inventory"]),
+                    "attempt inventory differs from preserved snapshots")
+        remember_evidence(checker)
+    cache[marker] = copy.deepcopy((record, context))
+    return record, context
+
+
+def capture_attempt(project, manifest, unit_id, context_ref, run_id, outcome, inventory=None, *, evidence_cache=None):
+    cache = {}
+    context = validate_context(project, context_ref, unit_id, cache=cache, evidence_cache=evidence_cache)
+    run = manifest.get("unit_runs", {}).get(unit_id, {})
+    require(run.get("status") in ("running", "blocked") and "attempt_ref" not in run,
+            "supply an actual unarchived running/blocked attempt; completed work uses capture-completion")
+    attempt_authority(context["manifest"], manifest)
+    checker = api().Checker(project, copy.deepcopy(manifest), evidence_cache=evidence_cache)
+    reviewed = prepare_inventory(checker, unit_id, inventory or context["input_inventory"])
+    checks = attempt_checks(manifest, unit_id)
+    validate_completion_inventory(context, reviewed, checks)
+    directory = HISTORY + "/attempts/" + uuid.uuid4().hex
+    record = {"event": "unit_attempt", "version": VERSION, "validation_contract": CONTRACT,
+              "acceptance": "not_completed", "unit_id": unit_id, "run_id": run_id, "outcome": outcome,
+              "captured_at": utcnow(), "context_ref": copy.deepcopy(context_ref), "run": copy.deepcopy(run),
+              "checks": checks, "post_manifest": copy.deepcopy(manifest), "input_inventory": reviewed,
+              "observation_validity": attempt_observation_validity(checks, reviewed),
+              "snapshot_root": directory + "/files"}
+    record["files"] = freeze_files(project, manifest, directory, reviewed["execution_inputs"], checker=checker)
+    reference = store_record(project, "attempts", record, directory)
+    validate_attempt(project, reference, cache=cache, evidence_cache=evidence_cache)
+    return reference
+
+
+def attempt_refs(manifest):
+    references = {key: list(value) for key, value in manifest.get("attempt_history", {}).items()}
+    for unit, run in manifest.get("unit_runs", {}).items():
+        if "attempt_ref" in run:
+            references.setdefault(unit, []).append(run["attempt_ref"])
+    return references
+
+
+def continuation_inventory(context, attempt, reviewed):
+    ignored = {"environment", "runtime_observation_ref", "canonical_hashes", "review"}
+    require(same({k: v for k, v in attempt["input_inventory"].items() if k not in ignored},
+                 {k: v for k, v in reviewed.items() if k not in ignored}),
+            "continuation changed relevant acceptance definitions or preserved work")
+    require(api().timestamp(reviewed["review"]["reviewed_at"]) >= api().timestamp(attempt["captured_at"]),
+            "continuation needs a fresh owner review after attempt capture")
+    attempt_authority(context["manifest"], attempt["post_manifest"])
+
+
+def capture_continuation(project, manifest, unit_id, attempt_ref, run_id, inventory, *, evidence_cache=None):
+    cache = {}
+    attempt, original = validate_attempt(project, attempt_ref, cache=cache, evidence_cache=evidence_cache)
+    require(attempt["unit_id"] == unit_id, "continuation attempt belongs to another unit")
+    require(same({k: v for k, v in manifest.get("unit_runs", {}).get(unit_id, {}).items() if k != "attempt_ref"}, attempt["run"])
+            and same(attempt_checks(manifest, unit_id), attempt["checks"]), "continuation must preserve the actual current attempt")
+    attempt_authority(original["manifest"], manifest)
+    reviewed = prepare_inventory(api().Checker(project, manifest, evidence_cache=evidence_cache), unit_id, inventory)
+    continuation_inventory(original, attempt, reviewed)
+    observation = validate_runtime_observation(project, inventory.get("runtime_observation_ref"))
+    require(api().timestamp(observation["started_at"]) >= api().timestamp(attempt["captured_at"]),
+            "continuation requires a new runtime observation after attempt capture")
+    require(isinstance(run_id, str) and run_id.strip(), "new continuation run identity required")
+    refs = attempt_refs(manifest).get(unit_id, [])
+    if not any(same(attempt_ref, reference) for reference in refs):
+        refs.append(attempt_ref)
+    for reference in refs:
+        previous, _ = validate_attempt(project, reference, cache=cache, evidence_cache=evidence_cache)
+        require(previous["run_id"] != run_id, "continuation must use a new run identity")
+    candidate = copy.deepcopy(manifest)
+    candidate.setdefault("attempt_history", {})[unit_id] = refs
+    candidate["unit_runs"][unit_id] = {"status": "pending", "run_id": run_id, "findings": copy.deepcopy(attempt["run"].get("findings", []))}
+    for index, check in enumerate(candidate["verification"]["checks"]):
+        if candidate["unit_plan"]["acceptance"].get(check["check_id"], {}).get("owner_unit") == unit_id:
+            candidate["verification"]["checks"][index] = {k: v for k, v in check.items() if k not in EXECUTION_KEYS or k == "findings"}
+            candidate["verification"]["checks"][index]["execution_status"] = "not_run"
+    candidate.setdefault("execution_contexts", {}).pop(unit_id, None)
+    context_ref = capture_context(project, candidate, unit_id, inventory, evidence_cache=evidence_cache,
+                                  prior_attempt_ref=attempt_ref, _cache=cache)
+    candidate["execution_contexts"][unit_id] = context_ref
+    return {"manifest": candidate, "context_ref": context_ref, "prior_attempt_ref": copy.deepcopy(attempt_ref),
+            "run_id": run_id, "acceptance": "not_completed"}
 
 
 def pending_mapping(original, current, mapping):
@@ -699,6 +1066,7 @@ class HistoryView:
         self.checker = checker
         self.original = copy.deepcopy(checker.manifest)
         self.preserved = {}
+        self.attempts = {}
         self.checks = {}
         self.units = {}
         self.canonical_evidence = getattr(checker, "_history_canonical_evidence", {})
@@ -728,7 +1096,46 @@ class HistoryView:
                 identities.add(reference.get("content_hash"))
                 completed, _ = validate_completion(checker.project, reference, getattr(checker, "_history_stack", ()), checker._history_cache, evidence_cache=checker.evidence_resolver.cache)
                 require(completed["unit_id"] == key, "archived completed ID reassigned")
+        for key, references in manifest.get("attempt_history", {}).items():
+            require(key in manifest.get("unit_plan", {}).get("units", {}), "archived attempted ID disappeared")
+            require(isinstance(references, list) and references, "attempt history must retain original references")
+            identities = set()
+            for reference in references:
+                require(reference.get("content_hash") not in identities, "duplicate attempt history reference")
+                identities.add(reference.get("content_hash"))
+                attempted, _ = validate_attempt(checker.project, reference, getattr(checker, "_history_stack", ()),
+                                                checker._history_cache, evidence_cache=checker.evidence_resolver.cache)
+                require(attempted["unit_id"] == key, "archived attempted ID reassigned")
         for key, run in list(manifest.get("unit_runs", {}).items()):
+            if "attempt_ref" in run:
+                try:
+                    attempted, context = validate_attempt(checker.project, run["attempt_ref"], getattr(checker, "_history_stack", ()),
+                                                         checker._history_cache, evidence_cache=checker.evidence_resolver.cache)
+                    require(attempted["unit_id"] == key, "attempted ID reassigned")
+                    require(same({name: value for name, value in run.items() if name != "attempt_ref"}, attempted["run"])
+                            and same(attempt_checks(manifest, key), attempted["checks"]),
+                            "current attempt differs from immutable actual status/results; capture a new continuation before retry")
+                    require(same(manifest.get("execution_contexts", {}).get(key), attempted["context_ref"]),
+                            "current attempt binds another context")
+                    attempt_authority(context["manifest"], manifest)
+                    require(same(prepare_inventory(checker, key, attempted["input_inventory"]), attempted["input_inventory"]),
+                            "current attempt inventory is stale; preserve it and capture a reviewed continuation")
+                    self.canonical_evidence.update(canonical_alternatives(context, attempted))
+                    self.attempts[key] = attempted
+                    require(not (action == "complete" and unit_id == key),
+                            "archived unfinished attempt cannot complete; use capture-continuation before fresh qualification")
+                    if attempted["observation_validity"] == "unverified_stale_inputs":
+                        # The raw manifest and immutable archive keep actual outcomes;
+                        # the validation view cannot borrow them as current acceptance.
+                        for index, check in enumerate(manifest["verification"]["checks"]):
+                            if manifest["unit_plan"]["acceptance"].get(check["check_id"], {}).get("owner_unit") == key:
+                                manifest["verification"]["checks"][index] = {name: value for name, value in check.items()
+                                                                            if name not in EXECUTION_KEYS or name == "findings"}
+                                manifest["verification"]["checks"][index]["execution_status"] = "not_run"
+                        checker.warnings.append(key + ": original " + attempted["outcome"] + " attempt preserved; stale input observations are unverified and grant no current acceptance")
+                except (ValueError, OSError, KeyError, TypeError) as error:
+                    checker.issue("unit_history", "development-plan", key + ": invalid unfinished attempt: " + str(error))
+                continue
             if "completion_ref" not in run:
                 if run.get("status") in ("running", "blocked", "completed"):
                     if run.get("development_plan_hash") != plan_hash:
@@ -742,10 +1149,14 @@ class HistoryView:
                             context = validate_context(checker.project, ref, key, getattr(checker, "_history_stack", ()), checker._history_cache, evidence_cache=checker.evidence_resolver.cache)
                             require(context["manifest"]["artifacts"]["development-plan"]["content_hash"] == plan_hash, "execution context belongs to another plan")
                             require(api().timestamp(context["captured_at"]) <= api().timestamp(run.get("started_at")), "context was captured after start")
+                            if "prior_attempt_ref" in context:
+                                require(run.get("run_id") == context["manifest"]["unit_runs"][key]["run_id"],
+                                        "current run identity differs from its continuation context")
                             reviewed = getattr(checker, "_history_completion_inventory", {}).get(key, context["input_inventory"])
                             observed = prepare_inventory(checker, key, reviewed)
                             if not same(observed["canonical_hashes"], reviewed["canonical_hashes"]):
-                                raise ValueError("canonical owner output changed; reconcile owners and use capture-completion --inventory with a fresh current review")
+                                operation = "capture-completion" if run.get("status") == "completed" else "capture-attempt"
+                                raise ValueError("canonical owner output changed; reconcile owners and use " + operation + " --inventory with a fresh current review")
                             require(same({k: v for k, v in observed.items() if k not in ("execution_fingerprints", "canonical_hashes", "review")},
                                          {k: v for k, v in context["input_inventory"].items() if k not in ("execution_fingerprints", "canonical_hashes", "review")}), "pre-start reviewed acceptance inputs changed during execution")
                             owned = {check for check, allocation in manifest["unit_plan"]["acceptance"].items() if allocation["owner_unit"] == key}
@@ -755,6 +1166,9 @@ class HistoryView:
                             for check in manifest["verification"]["checks"]:
                                 if check["check_id"] in owned and check.get("execution_status") in ("passed", "failed"):
                                     require(same(check.get("evaluated_execution_inputs"), observed["execution_fingerprints"]), "check execution inputs changed since actual test observation: " + check["check_id"])
+                                    validate_check_runtime(checker.project, context, check, run,
+                                                           accepting=action == "complete" or run.get("status") == "completed")
+                            validate_continuation_findings(checker.project, context, run, attempt_checks(manifest, key), observed)
                         except (ValueError, OSError, KeyError, TypeError) as error:
                             checker.issue("unit_history", "development-plan", str(error))
                 continue
@@ -946,6 +1360,38 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
                 archives.append(legacy)
         require(archives, "version 2 adoption requires an archive of the exact active version 1 manifest")
     old_refs, new_refs = completion_refs(previous), completion_refs(candidate)
+    old_attempts, new_attempts = attempt_refs(previous), attempt_refs(candidate)
+    for unit, references in old_attempts.items():
+        require(unit in candidate.get("unit_plan", {}).get("units", {}), "attempted unit identity removed")
+        for reference in references:
+            require(any(same(reference, item) for item in new_attempts.get(unit, [])), "unfinished attempt history was dropped: " + unit)
+    if previous.get("unit_contract_version") == VERSION:
+        for unit, run in previous.get("unit_runs", {}).items():
+            if run.get("status") not in ("running", "blocked"):
+                continue
+            current = candidate.get("unit_runs", {}).get(unit, {})
+            same_execution = (current.get("status") != "pending" and current.get("started_at") == run.get("started_at")
+                              and current.get("run_id") == run.get("run_id")
+                              and same(previous.get("execution_contexts", {}).get(unit), candidate.get("execution_contexts", {}).get(unit)))
+            if "completion_ref" in current:
+                completed, _ = validate_completion(project, current["completion_ref"], evidence_cache=evidence_cache)
+                same_execution = (completed["run"].get("started_at") == run.get("started_at")
+                                  and completed["run"].get("run_id") == run.get("run_id"))
+            if same_execution:
+                continue
+            preserved = False
+            for reference in new_attempts.get(unit, []):
+                attempted, _ = validate_attempt(project, reference, evidence_cache=evidence_cache)
+                if (same(attempted["run"], {key: value for key, value in run.items() if key != "attempt_ref"})
+                        and same(attempted["checks"], attempt_checks(previous, unit))
+                        and same(attempted["context_ref"], previous.get("execution_contexts", {}).get(unit))):
+                    preserved = True
+            require(preserved, "replaced unfinished run needs its exact immutable attempt: " + unit)
+            context_ref = candidate.get("execution_contexts", {}).get(unit)
+            require(context_ref is not None, "replacement needs a captured continuation context")
+            context = validate_context(project, context_ref, unit, evidence_cache=evidence_cache)
+            require(any(same(context.get("prior_attempt_ref"), reference) for reference in new_attempts.get(unit, [])),
+                    "replacement context must retain its prior attempt")
     for reference in previous.get("legacy_history", []):
         require(any(same(reference, item) for item in candidate.get("legacy_history", [])), "legacy execution history was dropped")
     for unit, refs in old_refs.items():
@@ -1208,18 +1654,26 @@ def main():
     parser.add_argument("--manifest", default="forge/sdd-manifest.json")
     parser.add_argument("--evidence-cache", type=Path, help="read-only prepared evidence cache outside the project")
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("capture-context", "capture-completion", "assess", "stage", "activate", "recover", "adopt-legacy", "observe-inputs"):
+    for command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "observe-runtime",
+                    "assess", "stage", "activate", "recover", "adopt-legacy", "observe-inputs"):
         child = sub.add_parser(command)
-        if command in ("capture-context", "capture-completion", "observe-inputs"):
+        if command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "observe-inputs"):
             child.add_argument("--unit", required=True)
-        if command in ("capture-context", "assess"):
+        if command in ("capture-context", "capture-continuation", "assess"):
             child.add_argument("--inventory", required=True)
         if command == "observe-inputs":
             child.add_argument("--inventory")
-        if command == "capture-completion":
+        if command in ("capture-completion", "capture-attempt"):
             child.add_argument("--context-ref", required=True)
             child.add_argument("--run-id", required=True)
             child.add_argument("--inventory")
+        if command == "capture-attempt":
+            child.add_argument("--outcome", required=True, choices=("failed", "interrupted"))
+        if command == "capture-continuation":
+            child.add_argument("--attempt-ref", required=True)
+            child.add_argument("--run-id", required=True)
+        if command == "observe-runtime":
+            child.add_argument("--probes", required=True)
         if command == "assess":
             child.add_argument("--completion-ref", required=True)
             child.add_argument("--pending-map", required=True)
@@ -1242,6 +1696,14 @@ def main():
             result = capture_context(args.project, manifest, args.unit, read(args.inventory), evidence_cache=args.evidence_cache)
         elif args.command == "capture-completion":
             result = capture_completion(args.project, manifest, args.unit, read(args.context_ref), args.run_id, read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache)
+        elif args.command == "capture-attempt":
+            result = capture_attempt(args.project, manifest, args.unit, read(args.context_ref), args.run_id, args.outcome,
+                                     read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache)
+        elif args.command == "capture-continuation":
+            result = capture_continuation(args.project, manifest, args.unit, read(args.attempt_ref), args.run_id,
+                                          read(args.inventory), evidence_cache=args.evidence_cache)
+        elif args.command == "observe-runtime":
+            result = observe_runtime(args.project, read(args.probes))
         elif args.command == "assess":
             result = assess_completion(args.project, manifest, read(args.completion_ref), read(args.inventory), read(args.pending_map), evidence_cache=args.evidence_cache)
         elif args.command == "stage":

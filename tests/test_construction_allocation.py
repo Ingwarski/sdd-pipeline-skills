@@ -181,6 +181,56 @@ class ConstructionAllocationTests(unittest.TestCase):
                 self.assertEqual("blocked", report["result"], report)
                 self.assertTrue(any("path" in issue["detail"] for issue in report["issues"]), report)
 
+    def test_owner_stage_validates_declaration_without_plan_allocation(self):
+        self.sync()
+        del self.m["unit_plan"]
+        self.assertEqual("passed", self.p.run("architecture", after=True)["result"])
+
+    def test_owner_stage_rejects_malformed_json_and_missing_fence(self):
+        for body in ('{"version": 1, "mechanisms": }',
+                     json.dumps(self.definition)):
+            with self.subTest(body=body):
+                text = ("\n" + self.heading + "\n\n" +
+                        ("```json\n" + body + "\n```\n" if body.endswith(" }") else body + "\n"))
+                self.p.write("docs/architecture.md", self.architecture + text)
+                self.p.sync_unit_contract()
+                report = self.p.run("architecture", after=True)
+                self.assertEqual("blocked", report["result"], report)
+                self.assertTrue(any(item["code"] == "construction" for item in report["issues"]), report)
+
+    def test_owner_stage_rejects_duplicate_keys_and_multiple_blocks(self):
+        for body in (
+            '{"version":1,"version":1,"mechanisms":{}}',
+            json.dumps(self.definition) + "\n```\n```json\n" + json.dumps(self.definition),
+        ):
+            with self.subTest(body=body):
+                self.p.write("docs/architecture.md", self.architecture + "\n" + self.heading + "\n\n```json\n" + body + "\n```\n")
+                self.p.sync_unit_contract()
+                report = self.p.run("architecture", after=True)
+                self.assertEqual("blocked", report["result"], report)
+                self.assertTrue(any(item["code"] == "construction" for item in report["issues"]), report)
+
+    def test_owner_pointer_cannot_use_a_nested_documentation_example(self):
+        self.p.write("docs/architecture.md", self.architecture + "\n" + self.heading +
+                     "\n\n````markdown\n```json\n" + json.dumps(self.definition) + "\n```\n````\n")
+        self.p.sync_unit_contract()
+        report = self.p.run("architecture", after=True)
+        self.assertTrue(any(item["code"] == "construction" for item in report["issues"]), report)
+
+    def test_owner_stage_rejects_schema_paths_obligations_and_missing_pointer(self):
+        for field, value in (("required", "yes"), ("obligation_ids", ["UNKNOWN"]),
+                             ("source_paths", ["../escape.py"])):
+            with self.subTest(field=field):
+                original = self.definition["mechanisms"]["M-STORE"][field]
+                self.definition["mechanisms"]["M-STORE"][field] = value
+                self.sync()
+                self.assertEqual("blocked", self.p.run("architecture", after=True)["result"])
+                self.definition["mechanisms"]["M-STORE"][field] = original
+        self.sync()
+        del self.m["artifacts"]["architecture"]["construction_ref"]
+        report = self.p.run("architecture", after=True)
+        self.assertTrue(any(item["code"] == "construction" for item in report["issues"]), report)
+
 
 if __name__ == "__main__":
     unittest.main()

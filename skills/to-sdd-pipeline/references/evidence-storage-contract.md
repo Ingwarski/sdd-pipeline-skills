@@ -57,6 +57,8 @@ Label corrections use a separate version-1 `observation_metadata_correction` rec
 
 ## Preparation and resources
 
+For browser producers, use the optional [browser evidence workflow](browser-evidence-workflow.md) for absolute producer paths, runtime/profile separation, actual prerequisites, settlement and exact owned cleanup. It adds no browser requirement to other product scopes.
+
 Storage performs network/cache writes: capture stable regular bytes → immutable pack → upload → independent retrieval → verify archive/original members → recoverable catalog → eligible local removal. Deduplicate content, retain logical associations, checkpoint transfers and journal deletion; reconcile unknown outcomes before retries.
 
 Prepare active references/dependencies outside checkout; use `sdd_check.py --evidence-cache PATH`. Checker reads `objects/<sha256>` and verified `receipts/<artifact_id>.json`, checks actual bytes/size/identity/closure and original bindings, with no network or cache writes. Historical payloads load only when currently referenced. Import/archive/cache never refresh execution or grant changed-plan acceptance.

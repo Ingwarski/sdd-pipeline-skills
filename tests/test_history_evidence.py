@@ -109,6 +109,7 @@ class HistoryEvidenceTests(unittest.TestCase):
             "required": True, "obligation_ids": ["FR-01"], "source_paths": ["src/alpha.txt"]}}}
         original = (self.p.root / "docs/architecture.md").read_text()
         self.p.write("docs/architecture.md", original + "\n## Construction Mechanisms\n```json\n" + json.dumps(definition) + "\n```\n")
+        self.m["artifacts"]["architecture"]["construction_ref"] = copy.deepcopy(reference)
         plan.update(construction_ref=reference, construction={"M-ALPHA": {"owner_unit": "U-1", "check_ids": ["QA-02"]}})
         inventory = self.history.inventory()
         inventory["sources"]["docs/architecture.md"] = {"mode": "sections", "headings": ["## Definition"]}
@@ -221,6 +222,57 @@ class HistoryEvidenceTests(unittest.TestCase):
             "/opt/synthetic-runtime/info": "a" * 64}}, "unsafe-payload-source")
         with self.assertRaisesRegex(ValueError, "unsafe history path"):
             self.helper.referenced_paths(self.p.root, {"capture": reference}, checker=self.checker())
+
+    def test_external_application_paths_preserve_nested_evidence_and_project_sources(self):
+        source = "tests/nested-evidence-source.txt"
+        sibling = "tests/application-sibling.txt"
+        self.p.write(source, "Synthetic nested source.\n")
+        self.p.write(sibling, "Synthetic sibling source.\n")
+        nested = self.external.prepare({"source_hashes": {source: self.p.hash(source)}}, "nested-http-source")
+        payload = {"delivery": [{"path": "/", "status": 200}, {"path": "/../private", "status": 404}],
+            "runtime": {"path": "/opt/synthetic-browser", "version": "1.0"},
+            "capture": nested, "sibling": {"path": sibling, "content_hash": self.p.hash(sibling)}}
+        direct = self.external.prepare(payload, "http-observation")
+        before = {p: p.read_bytes() for p in self.cache.rglob("*") if p.is_file()}
+        checker, references = self.checker(), []
+        self.assertEqual({source, sibling}, self.helper.referenced_paths(
+            self.p.root, {"capture": direct}, checker=checker, external_refs=references))
+        self.assertEqual({direct["artifact_id"], nested["artifact_id"]}, {ref["artifact_id"] for ref in references})
+        self.assertEqual(payload, checker.evidence_resolver.json(direct))
+        self.assertEqual(before, {p: p.read_bytes() for p in self.cache.rglob("*") if p.is_file()})
+
+    def test_application_metadata_never_relaxes_declared_paths_or_legacy_references(self):
+        cases = [
+            {"source_hashes": {"/outside": "a" * 64}},
+            {"evaluated_source_hashes": {"../outside": "a" * 64}},
+            {"implementation_paths": ["/outside"]},
+            {"required_source_paths": ["../outside"]},
+            {"render_dependencies": ["/outside"]},
+            {"repository_observations": {"source": {"paths": {"../outside": "a" * 64}}}},
+            {"receipt": {"path": "/outside", "content_hash": "a" * 64}},
+            {"receipt": {"path": "../outside", "content_hash": "a" * 64}},
+        ]
+        for index, declaration in enumerate(cases):
+            payload = {"request": {"path": "/"}, "declaration": declaration}
+            external = self.external.prepare(payload, "declared-path-" + str(index))
+            path = "forge/declared-path.json"
+            self.p.write(path, json.dumps(payload))
+            # Exercise both a direct external payload and a contained JSON file
+            # reached through optional application metadata in another payload.
+            indirect = self.external.prepare({"observation": {"path": path}}, "indirect-path-" + str(index))
+            for reference in (external, indirect):
+                with self.subTest(index=index, reference=reference["artifact_id"]):
+                    with self.assertRaisesRegex(ValueError, "unsafe history path"):
+                        self.helper.referenced_paths(self.p.root, {"capture": reference}, checker=self.checker())
+
+    def test_external_http_metadata_does_not_hide_invalid_or_missing_nested_evidence(self):
+        missing = self.external.prepare({"synthetic": True}, "missing-http-dependency")
+        (self.cache / "objects" / missing["sha256"]).unlink()
+        for index, bad in enumerate(({"artifact_id": "missing-fields"}, {"locator": {}},
+                {"evidence_ref": None}, {"evidence_ref": {}}, {**self.prompt, "schema": []}, missing)):
+            reference = self.external.prepare({"request": {"path": "/"}, "capture": bad}, "bad-http-" + str(index))
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                self.helper.referenced_paths(self.p.root, {"capture": reference}, checker=self.checker())
 
     def test_inactive_logs_preserve_bytes_without_loading_payloads_or_changing_authority(self):
         unavailable = self.external.prepare({"synthetic": True}, "inactive-unavailable")

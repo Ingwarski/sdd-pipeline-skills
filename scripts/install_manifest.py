@@ -87,6 +87,7 @@ def validate_manifest(root, metadata_only=False):
     if not metadata_only:
         for relative in ("scripts/retired-skills.sh", "scripts/retired-skills.ps1",
                          "retired-skills.txt", "skills/to-sdd-pipeline/scripts/sdd_check.py",
+                         "skills/to-sdd-pipeline/scripts/progress.py",
                          "scripts/evidence_setup.py", "skills/to-sdd-pipeline/scripts/evidence_store.py",
                          "skills/to-sdd-pipeline/scripts/evidence/defaults.json",
                          "skills/to-sdd-pipeline/scripts/evidence/__init__.py",

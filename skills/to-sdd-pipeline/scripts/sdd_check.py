@@ -23,8 +23,9 @@ from evidence.io import hash_file, read_json as safe_read_json
 from evidence.resolver import EvidenceResolver, evidence_reference, _regular
 from evidence.policy import validate_policy
 from acceptance_revalidation import validate_revalidation
-from construction import validate_construction
+from construction import validate_architecture_construction, validate_construction
 from observation_receipts import validate_observation_receipt
+from progress import implementation_progress, validate_intake_progress, validate_ready_projection, workflow_progress
 
 
 CONTRACT = Path(__file__).resolve().parent.parent / "references/pipeline-contract.json"
@@ -1049,6 +1050,11 @@ class Checker:
             self.security_review(entry)
         elif key in SECURITY_OWNERS:
             self.security_coverage(entry, key)
+        if key == "architecture":
+            try:
+                validate_architecture_construction(self)
+            except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:
+                self.issue("construction", key, str(error))
 
     def source_usage(self, entry, target, required):
         """Check owner-declared consumption against bindings, not inferred prose meaning."""
@@ -2157,6 +2163,8 @@ class Checker:
         for key, deps in edges.items():
             require(all(positions[dep] < positions[key] for dep in deps), key + ": forward acceptance/construction prerequisite under strict sequential execution")
         require(numbers == sorted(numbers), "unit numbers must increase in execution order; a lower-numbered unit cannot depend on a higher-numbered unit by reordering the list")
+        self._unit_progress_state = {"total_units": len(order), "accepted_unit_ids": None,
+                                     "eligible_unit_ids": [], "run_blockers": []}
 
         runs = self.manifest.get("unit_runs", {})
         require(isinstance(runs, dict) and set(runs) <= unit_ids, "unknown unit run")
@@ -2287,6 +2295,22 @@ class Checker:
         for key, run in runs.items():
             if run["status"] != "pending" and not (hasattr(self, "_unit_history") and key in self._unit_history.preserved):
                 can_start(key, timestamp(run["started_at"]), original=key in reviews)
+        eligible, run_blockers = [], []
+        for key in order:
+            if key in completed:
+                continue
+            run = runs.get(key, {})
+            if run.get("status") == "blocked":
+                run_blockers.append({"unit_id": key, "reason": run["reason"]})
+                continue
+            try:
+                can_start(key, now)
+                eligible.append(key)
+            except ValueError:
+                pass
+        self._unit_progress_state.update(
+            accepted_unit_ids=[key for key in order if key in completed],
+            eligible_unit_ids=eligible, run_blockers=run_blockers)
         if action:
             require(unit_id in units, "unknown boundary unit")
             run = runs.get(unit_id, {"status": "pending"})
@@ -2303,13 +2327,15 @@ class Checker:
         if release:
             require(set(completed) == unit_ids, "release requires every unit, including integration, completed")
 
-    def run(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False):
+    def run(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
         # Resolution is a per-invocation view. Reuse the caller's actual source
         # manifest rather than treating a previous expanded history view as input.
         self.manifest = self._source_manifest
         self.artifacts = self.manifest.get("artifacts", {})
         if hasattr(self, "_unit_history"):
             del self._unit_history
+        if hasattr(self, "_unit_progress_state"):
+            del self._unit_progress_state
         if not hasattr(self, "_history_stack"):
             self._history_cache = {}
         self.hash_cache.clear()
@@ -2323,7 +2349,7 @@ class Checker:
         self.evidence_resolver = EvidenceResolver(self.evidence_resolver.cache)
         self._invocation_active = True
         try:
-            report = self._run(node, after, audit, unit_action, unit_id, require_current=require_current)
+            report = self._run(node, after, audit, unit_action, unit_id, require_current=require_current, projections=projections)
             try:
                 for cache in (self.hash_cache, self.json_cache, self.evidence_resolver.hashes, self.evidence_resolver.documents):
                     for path, (signature, _) in cache.items():
@@ -2336,11 +2362,13 @@ class Checker:
             except (ValueError, OSError) as error:
                 self.issue("changing_input", "manifest", str(error))
                 report["result"] = "blocked"
+                if "implementation_progress" in report:
+                    report["implementation_progress"] = implementation_progress(self, unit_id, unit_action)
             return report
         finally:
             self._invocation_active = False
 
-    def _run(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False):
+    def _run(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
         # Historical snapshots and legacy import validation remain readable. All
         # operational CLI entrypoints require current records before proceeding.
         checker_version, unit_version = self.manifest.get("checker_contract_version"), self.manifest.get("unit_contract_version")
@@ -2406,6 +2434,9 @@ class Checker:
             if self.manifest.get("unit_contract_version") == 1 and not spec.get("authorization_required") and any(x.get("status") not in (None, "pending") for x in self.manifest.get("unit_runs", {}).values()):
                 self.authorization()
             self.units(unit_action, unit_id, release=spec.get("release_required", False) or self.manifest.get("verification", {}).get("release_readiness") == "passed")
+        if projections and not hasattr(self, "_history_snapshot_root") and not hasattr(self, "_history_capturing"):
+            validate_intake_progress(self)
+            validate_ready_projection(self, require_current=require_current)
         result = "blocked" if self.issues else "passed"
         if self.issues and all(item["code"] == "migration_required" for item in self.issues):
             result = "migration_required"
@@ -2414,6 +2445,8 @@ class Checker:
                 "skipped_artifacts": sorted(self.skipped),
                 "checked_artifacts": sorted(self.checked), "affected_artifacts": sorted(self.affected),
                 "issues": self.issues, "warnings": sorted(set(self.warnings)),
+                **({"implementation_progress": implementation_progress(self, unit_id, unit_action)}
+                   if "development-plan" in self.checked else {}),
                 **({"unit_history": {"units": self._unit_history.units}, "execution_authority": history_api().current_authority(self)} if hasattr(self, "_unit_history") else {}),
                 "limits": "Checks declared metadata, file integrity, stages and evidence references; not semantic quality, research authenticity or runner enforcement."}
 
@@ -2427,17 +2460,21 @@ def main():
     group.add_argument("--start-unit", metavar="UNIT_ID", help="validate authorization, plan and unit start/resume; read-only")
     group.add_argument("--complete-unit", metavar="UNIT_ID", help="validate fresh evidence before recording unit completion; read-only")
     group.add_argument("--audit", action="store_true")
+    group.add_argument("--progress", action="store_true", help="derive current next node and unit progress with bounded read-only gate checks")
     group.add_argument("--hash", dest="hash_path")
     group.add_argument("--hash-render", metavar="RECORD", help="hash a candidate/baseline JSON record and its declared render resources")
     group.add_argument("--snapshot", metavar="NODE", help="emit unvalidated owner/source metadata without writing files or claiming review")
     parser.add_argument("--evidence-cache", type=Path, help="read-only prepared evidence cache outside the project; manager performs preparation")
     parser.add_argument("--heading", help="with --hash: exact Markdown heading for a fragment")
+    parser.add_argument("--worked-unit", metavar="UNIT_ID", help="with --progress: identify the unit just worked on without inferring it from order")
     parser.add_argument("--consume", action="append", default=[], metavar="PATH[#HEADING]", help="with --snapshot: consumed full file or exact heading; repeat for every consumed section, including shared definitions")
     parser.add_argument("--unused", action="append", default=[], metavar="PATH=REASON", help="with --snapshot: explicitly unused context/optional source; cannot waive other required inputs")
     args = parser.parse_args()
     args.project = args.project.resolve()
     if (args.consume or args.unused) and not args.snapshot:
         parser.error("--consume and --unused require --snapshot")
+    if args.worked_unit and not args.progress:
+        parser.error("--worked-unit requires --progress")
     if sys.version_info < (3, 12):
         parser.error("Python 3.12+ is required")
     try:
@@ -2455,7 +2492,7 @@ def main():
             return 0
         unit_action = "start" if args.start_unit else "complete" if args.complete_unit else None
         node = "implementation" if unit_action else args.before or args.after or args.snapshot or "audit"
-        if not args.audit and node not in contract["nodes"]:
+        if not args.audit and not args.progress and node not in contract["nodes"]:
             raise ValueError("unknown node; choose: " + ", ".join(contract["nodes"]))
         manifest_path = args.project / "forge/sdd-manifest.json"
         manifest_signature = _regular(manifest_path)
@@ -2470,6 +2507,20 @@ def main():
             # Escape JSON Unicode for locale-dependent Windows output pipes; decoding preserves text.
             print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=True, indent=2))
             return 0
+        if args.progress:
+            checker = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache)
+            report = workflow_progress(checker, worked_unit=args.worked_unit, require_current=True)
+            validate_intake_progress(checker)
+            validate_ready_projection(checker, derived=report["progress"], require_current=True)
+            report["issues"].extend(issue for issue in checker.issues if issue not in report["issues"])
+            if report["issues"]:
+                report["result"] = ("migration_required" if all(item["code"] == "migration_required" for item in report["issues"])
+                                    else "blocked")
+            if _regular(manifest_path) != manifest_signature:
+                raise ValueError("manifest changed during checker invocation")
+            report["toolchain"] = toolchain_identity()
+            print(json.dumps(report, ensure_ascii=True, indent=2))
+            return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
         report = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit, require_current=True)
         if _regular(manifest_path) != manifest_signature:
             raise ValueError("manifest changed during checker invocation")

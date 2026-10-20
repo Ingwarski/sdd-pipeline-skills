@@ -43,12 +43,18 @@ class BudgetTests(unittest.TestCase):
             ("prototype_reuse", True, "to-development-plan", "skills/to-development-plan/references/prototype-promotion.md"),
             ("approved_decision_correction", True, "to-development-plan", measure.SHARED + "authorization-corrections.md"),
             ("evidence_storage_consumers", ["to-sdd-pipeline"], "to-sdd-pipeline", measure.SHARED + "evidence-storage-contract.md"),
+            ("evidence_storage_consumers", ["to-sdd-pipeline"], "to-sdd-pipeline", measure.SHARED + "browser-evidence-workflow.md"),
         )
         for flag, value, skill, path in cases:
             with self.subTest(flag=flag, skill=skill):
                 self.assertNotIn(path, dict(measure.resource_loads(skill, plain)))
                 loaded = dict(measure.resource_loads(skill, {**plain, flag: value}))
                 self.assertIn(path, loaded)
+
+    def test_qa_coverage_review_is_included_on_each_owner_invocation(self):
+        for scenario in measure.scenarios_from_disk().values():
+            paths = [path for path, _ in measure.resource_loads("to-qa-checklist", scenario)]
+            self.assertEqual(1, paths.count(measure.SHARED + "acceptance-coverage-review.md"))
 
     def test_missing_required_resource_fails_instead_of_reducing_cost(self):
         scenario = {"intake": False, "claude_design": False, "prototype_reuse": False}

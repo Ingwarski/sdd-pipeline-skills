@@ -126,4 +126,6 @@ At planning/handoff, read the [unit execution contract](references/unit-executio
 
 During SDD authoring, pause only for material non-inferable intent, the one whole-design approval, required source access/capability/evidence, just-in-time high-risk authorization, or the separate implementation prompt. Advisory findings, playback and ordinary reversible work are not approval gates.
 
+Use [native progress reports](references/manifest-contract.md#current-progress) on resume, handoff and implementation return; reconcile saved readiness and intake through actual owner returns.
+
 Return a concise state/evidence summary: changed/validated/invalidated artifacts, language/locales, candidate/browser or handoff/source-access evidence when relevant, Baseline ID/integrity, checker result, check execution versus definition status, implementation gate/prompt receipt, named blockers and next action. Localize displayed labels; keep machine enum values unchanged.
