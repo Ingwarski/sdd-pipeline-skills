@@ -263,7 +263,7 @@ class _ExternalEvidenceError(ValueError):
 
 def referenced_paths(project, manifest, *, checker=None, external_refs=None):
     """Enumerate declared regular sources/receipts and frozen render trees only."""
-    found, seen_json, seen_external = set(), set(), set()
+    found, seen_json, seen_external, seen_files = set(), set(), set(), set()
     def add(value, *, optional=False):
         try:
             add_path(value)
@@ -277,6 +277,8 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
     def add_path(value):
         if not isinstance(value, str) or not value:
             return
+        if value in seen_files:
+            return  # Consumers recheck containment before reading; directories stay uncached.
         path = physical(project, value)
         if not path.exists():
             return  # Planned implementation destinations need not exist before start.
@@ -290,6 +292,7 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
                     found.add(relative)
             return
         require(path.is_file(), "snapshot source must be regular: " + value)
+        seen_files.add(value)
         # History envelopes keep direct refs; their own immutable snapshots are checked independently.
         if value.startswith(HISTORY + "/"):
             return

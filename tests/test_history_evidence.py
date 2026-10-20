@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 import test_evidence_checker as external_fixture
 import test_unit_history as history_fixture
@@ -220,6 +221,47 @@ class HistoryEvidenceTests(unittest.TestCase):
             "/opt/synthetic-runtime/info": "a" * 64}}, "unsafe-payload-source")
         with self.assertRaisesRegex(ValueError, "unsafe history path"):
             self.helper.referenced_paths(self.p.root, {"capture": reference}, checker=self.checker())
+
+    def test_repeated_sources_are_checked_once_per_traversal_and_fresh_calls_recheck_json(self):
+        path = "forge/repeated-source.json"
+        self.p.write(path, json.dumps({"version": 1, "sha256": "a" * 64}))
+        manifest = {"observations": [{"path": path}] * 1000}
+        with mock.patch.object(self.helper, "physical", wraps=self.helper.physical) as physical:
+            self.assertEqual({path}, self.helper.referenced_paths(self.p.root, manifest))
+        self.assertEqual(1, physical.call_count)
+        self.p.write(path, json.dumps({"evidence_ref": None}))
+        with self.assertRaisesRegex(ValueError, "evidence_ref must be an object"):
+            self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_directory_discovery_does_not_skip_explicit_json_dependency_validation(self):
+        path, source = "forge/discovery/record.json", "src/only-in-record.txt"
+        self.p.write(source, "Synthetic source.\n")
+        self.p.write(path, json.dumps({"source_hashes": {source: self.p.hash(source)}}))
+        manifest = {"tree": {"path": "forge/discovery"}, "record": {"path": path}}
+        self.assertEqual({path, source}, self.helper.referenced_paths(self.p.root, manifest))
+        self.p.write(path, json.dumps({"evidence_ref": None}))
+        with self.assertRaisesRegex(ValueError, "evidence_ref must be an object"):
+            self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_capture_rechecks_containment_after_source_discovery(self):
+        path, target = "src/replaceable.txt", "src/link-target.txt"
+        self.p.write(path, "Original.\n")
+        self.p.write(target, "Synthetic replacement.\n")
+        manifest = {"sources": [{"path": path}] * 3}
+        discover = self.helper.referenced_paths
+        def change_after_discovery(*args, **kwargs):
+            paths = discover(*args, **kwargs)
+            (self.p.root / path).unlink()
+            try:
+                (self.p.root / path).symlink_to(self.p.root / target)
+            except OSError as error:
+                self.skipTest("symlink creation unavailable: " + str(error))
+            return paths
+        with mock.patch.object(self.helper, "referenced_paths", side_effect=change_after_discovery):
+            with self.assertRaisesRegex(ValueError, "history cannot follow links"):
+                self.helper.freeze_files(self.p.root, manifest, "forge/unit-history/contexts/synthetic")
+        with self.assertRaisesRegex(ValueError, "history cannot follow links"):
+            self.helper.referenced_paths(self.p.root, manifest)
 
 
 if __name__ == "__main__":
