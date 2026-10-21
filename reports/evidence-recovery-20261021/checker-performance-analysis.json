@@ -1,0 +1,543 @@
+{
+  "version": 1,
+  "kind": "bounded-read-only-checker-performance-analysis",
+  "observed_at": "2026-10-21T17:05:27.606665+00:00",
+  "status": "native_hotspots_measured_python_call_sites_source_inferences_only",
+  "scope": {
+    "target_pid": 41461,
+    "sample_command": "/usr/bin/sample41461 1 1 -file ENGINE/reports/evidence-recovery-20261021/checker-performance-stack.txt",
+    "sample_seconds": 1,
+    "new_checker_runs": 0,
+    "source_edits": false,
+    "old_archive_contents_read": false,
+    "private_sql_browser_network_git_signals_kill": false,
+    "only_writes": [
+      "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/checker-performance-stack.txt",
+      "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/checker-performance-analysis.json"
+    ]
+  },
+  "sample": {
+    "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/checker-performance-stack.txt",
+    "bytes": 109766,
+    "sha256": "adda8a1c7f926af59a64e41fd23de671c7f76b65471c455e4c609ed0f1f64002",
+    "process_launch_local": "2026-10-21 19:58:50.902 +0300",
+    "sample_local": "2026-10-21 20:02:20.410 +0300",
+    "main_thread_samples": 596,
+    "physical_footprint": "243.5MiB current;971.1MiB peak, as sample reports",
+    "dominant_leaf_samples": [
+      {
+        "symbol": "read",
+        "samples": 173,
+        "percent": 29.03
+      },
+      {
+        "symbol": "sha256_block_armv8 via SHA256_Update via _hashlib_openssl_sha256",
+        "samples": 147,
+        "percent": 24.66
+      },
+      {
+        "symbol": "lstat",
+        "samples": 71,
+        "percent": 11.91
+      },
+      {
+        "symbol": "stat",
+        "samples": 29,
+        "percent": 4.87
+      }
+    ],
+    "interpretation": "read\u2192BufferedReader.readall and one-shot hashlib.sha256(data) dominate this window. No sre/regex engine hotspot appears. Native sample contains Python interpreter C frames, not Python filename/line frames; do not claim an exact Python runtime caller from it.",
+    "point_in_time_process_after_analysis": {
+      "ps_exit": 1,
+      "pid_elapsed_cpu_time_cpu_percent_rss_kib": ""
+    }
+  },
+  "active_inputs": {
+    "manifest_bytes": 4241926,
+    "canonical_docs": [
+      {
+        "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/development-plan.md",
+        "bytes": 522400,
+        "lines": 12288,
+        "sha256": "0515ce2b0c0ab01ebbc9de5f06cae8e52b9dc6cd94286900673ff8e3b56d3dac"
+      },
+      {
+        "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/qa-checklist.md",
+        "bytes": 2356802,
+        "lines": 40288,
+        "sha256": "c8a96df44f697e170fb7d6d2d9d4cfcd3fa6f576881c5f63efb41022145ff519"
+      }
+    ],
+    "manifest_reference_count": 3184,
+    "distinct_reference_sections": 526,
+    "top_repeated_references": [
+      {
+        "path": "docs/development-plan.md",
+        "heading": "### UNIT-EXP-18 \u2014 R3 instructor course workspace",
+        "count": 81
+      },
+      {
+        "path": "docs/development-plan.md",
+        "heading": "### UNIT-EXP-13 \u2014 Catalogue, format comparison and account-backed interest",
+        "count": 70
+      },
+      {
+        "path": "docs/qa-checklist.md",
+        "heading": "### QA-EXP-BND-13-FUNCTIONAL \u2014 Catalogue, format comparison and account-backed interest: functional",
+        "count": 63
+      },
+      {
+        "path": "docs/qa-checklist.md",
+        "heading": "### QA-EXP-BND-18-FUNCTIONAL \u2014 R3 instructor course workspace: functional",
+        "count": 61
+      },
+      {
+        "path": "docs/development-plan.md",
+        "heading": "### UNIT-EXP-06 \u2014 Founder live-cohort and shared-materials operations",
+        "count": 53
+      },
+      {
+        "path": "docs/development-plan.md",
+        "heading": "### UNIT-EXP-02 \u2014 Corporate commerce and delivery prerequisites",
+        "count": 48
+      }
+    ],
+    "legacy_history_entries": 1,
+    "current_unit_runs": [
+      "UNIT-EXP-00"
+    ]
+  },
+  "source_backed_hot_paths": [
+    {
+      "file": "sdd_history.py",
+      "lines": "110-117",
+      "fact": "read_ref reads entire JSON bytes and SHA-hashes them, then api.read_json reopens/rereads/parses same file. Cache lookups in validate_context/validate_attempt/validate_completion occur after read_ref, so even validated references are reread before result reuse.",
+      "inference": "Direct source match to observed readall+one-shot SHA combination; number/size of runtime repeats not measured."
+    },
+    {
+      "file": "sdd_history.py",
+      "lines": "413-426,1099-1102",
+      "fact": "validate_files rehashes every historical snapshot member using sha(path.read_bytes()). Every historical_checker calls it for context and completion; every HistoryView.resolve validates legacy files again. These bypass Checker.file_hash cache.",
+      "inference": "Likely major repeated whole-file work in this history-rich invocation, especially if preserved assets are large. No old archive content or inventory was read to quantify it."
+    },
+    {
+      "file": "sdd_history.py",
+      "lines": "160-196,204-230",
+      "fact": "canonical_hashes and execution_fingerprints use one-shot read_bytes/sha rather than Checker.file_hash. prepare_inventory calls canonical_hashes and section_bytes directly, bypassing instance section memoization.",
+      "inference": "Repeated inventory validation can reread/reparse unchanged inputs; counts not profiled."
+    },
+    {
+      "file": "sdd_history.py",
+      "lines": "423-442,826-900",
+      "fact": "validate_attempt validates context then creates two historical Checkers for original/current canonical views, each with fresh own caches; context itself calls checker.run.",
+      "inference": "Required distinct semantic checks multiply file IO and parsing; optimizing shared immutable IO is safer than deleting either view."
+    },
+    {
+      "file": "progress.py",
+      "lines": "94-103,177-185",
+      "fact": "workflow_progress creates fresh Checker and normal child.run(projections=False); at most two probes. validate_ready_projection triggers this after outer validation. Fresh child caches do not share verified source IO with the outer invocation.",
+      "inference": "Projection validation repeats normal history/checker work even though recursive projection is prevented."
+    },
+    {
+      "file": "sdd_check.py",
+      "lines": "520-549,703-733,2414-2452",
+      "fact": "Checker.file_hash and section_cache already memoize within each Checker invocation and guard signatures/final immutability. Every distinct heading still rereads and scans full document once through section_bytes. run clears caches, and historical/progress child Checkers have separate caches.",
+      "inference": "Canonical document parsing contributes, but the measured interval does not justify a regex rewrite or prove regex backtracking."
+    }
+  ],
+  "safe_bounded_future_options": [
+    {
+      "priority": 1,
+      "proposal": "Share a bounded per-top-level-invocation stable physical-file hash/JSON-byte cache across historical and progress child checkers. Preserve each child semantic validation; reuse only verified immutable IO.",
+      "required_invariants": [
+        "Key by real physical path and full dev/ino/size/mtime_ns/ctime_ns identity; logical overlay path alone is insufficient.",
+        "Use existing no-link/reparse/stable-open safeguards, verify signature before/after retrieval and at top-level invocation end.",
+        "No cross-CLI persistent trust and no acceptance-result caching without complete source/context binding.",
+        "Mutation, replacement, symlink, history-reference hash conflict or oversize metadata remains blocked."
+      ]
+    },
+    {
+      "priority": 2,
+      "proposal": "Hash historical large regular snapshot files with stable streaming hash_file rather than read_bytes into a one-shot SHA. Thread bounded verified hash cache through validate_files/read_ref/canonical_hashes/execution_fingerprints.",
+      "required_invariants": [
+        "Do not skip any historical file, failed attempt, hash or provenance check.",
+        "Directory additions/removals must remain covered by exact inventory and directory signature checks."
+      ]
+    },
+    {
+      "priority": 3,
+      "proposal": "Parse/index each immutable Markdown document once per invocation and preserve exact unique-heading/fence/BOM/UTF8/ATX section byte semantics; cache section bytes/digests keyed to verified file identity.",
+      "required_invariants": [
+        "Duplicate headings and invalid headings remain errors.",
+        "Retain all canonical JSON, traceability, ID boundary and source-fragment checks.",
+        "Use adversarial fence/duplicate-heading/mutation tests; do not rewrite regex based on this sample alone."
+      ]
+    }
+  ],
+  "root_operational_decision": {
+    "source": "Parent message during this analysis",
+    "sequence": "Actual preobserve-runtime \u2192 stop and independent cleanup \u2192 expensive capture-continuation/stage/start \u2192 actual postprobe after start.",
+    "judgment": "Avoids spending a900-second pre-browser lifetime on multiple expensive checker passes while preserving actual immutable pre-observation and fresh post-probe. This is an ordering change, not a cached-check acceptance waiver or same-PID assertion.",
+    "engine_changes_requested_now": false
+  },
+  "not_proven": [
+    "Exact Python line/profile cumulative time of each source path.",
+    "Number/bytes of legacy snapshot members or their contents.",
+    "Overall checker completion/result or wall-clock speedup of any proposed fix.",
+    "Regex cost in phases outside the1-second sample."
+  ],
+  "usage": {
+    "live_checked": true,
+    "included_used_percent": 59,
+    "ordinary_usage_allowed": true,
+    "extra_api_reset_used": false
+  },
+  "source_hashes": [
+    {
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_check.py",
+      "sha256": "cb6e53fa54a68bd6c547d8e043f1cc81bfc4ea7d78cca6eea7a7fa27c3ef4a67"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "sha256": "194bea3521fbf9534481bb018cf93c403a403cdb2329fa9ce56f7f39db45b516"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/progress.py",
+      "sha256": "a8c86c17f98d3d65da58cd2f3f50f47693a78343fca252468728f443fcba7c83"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/resolver.py",
+      "sha256": "348ca5acb889d4819d693f71b31396157023996da1a184f66e5c1aec63ef8bce"
+    }
+  ],
+  "metadata_followup": {
+    "authorization": "Parent subsequently authorized existing context/legacy envelope JSON metadata and selected member sizes only; no archived member payload read or rehash.",
+    "observed_at": "2026-10-21T17:07:59.322111+00:00",
+    "envelopes": [
+      {
+        "role": "context",
+        "metadata_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/record.json",
+        "metadata_bytes": 4966762,
+        "file_count": 1419,
+        "snapshot_logical_bytes": 174935492,
+        "unique_inode_bytes": 80699037,
+        "largest_members": [
+          {
+            "logical": "tests/assets/unit08-approved-neutral.mp4",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/tests/assets/unit08-approved-neutral.mp4",
+            "bytes": 5485935,
+            "inode": [
+              16777232,
+              127032471
+            ]
+          },
+          {
+            "logical": "forge/sdd-manifest.json",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/forge/sdd-manifest.json",
+            "bytes": 4229743,
+            "inode": [
+              16777232,
+              128377085
+            ]
+          },
+          {
+            "logical": "platform/identity/password-blocklist-data.json",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/platform/identity/password-blocklist-data.json",
+            "bytes": 3388190,
+            "inode": [
+              16777232,
+              127031267
+            ]
+          },
+          {
+            "logical": "docs/qa-checklist.md",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/docs/qa-checklist.md",
+            "bytes": 2356802,
+            "inode": [
+              16777232,
+              128369746
+            ]
+          },
+          {
+            "logical": "forge/design/candidates/HP-EXP-A/v10/ai-course-hero.png",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/forge/design/candidates/HP-EXP-A/v10/ai-course-hero.png",
+            "bytes": 1555965,
+            "inode": [
+              16777232,
+              126955509
+            ]
+          },
+          {
+            "logical": "forge/design/candidates/HP-EXP-A/v5/ai-course-hero.png",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/forge/design/candidates/HP-EXP-A/v5/ai-course-hero.png",
+            "bytes": 1555965,
+            "inode": [
+              16777232,
+              126955509
+            ]
+          },
+          {
+            "logical": "forge/design/candidates/HP-EXP-A/v6/ai-course-hero.png",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/forge/design/candidates/HP-EXP-A/v6/ai-course-hero.png",
+            "bytes": 1555965,
+            "inode": [
+              16777232,
+              126955509
+            ]
+          },
+          {
+            "logical": "forge/design/candidates/HP-EXP-A/v7/ai-course-hero.png",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/forge/design/candidates/HP-EXP-A/v7/ai-course-hero.png",
+            "bytes": 1555965,
+            "inode": [
+              16777232,
+              126955509
+            ]
+          },
+          {
+            "logical": "forge/design/candidates/HP-EXP-A/v8/ai-course-hero.png",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/forge/design/candidates/HP-EXP-A/v8/ai-course-hero.png",
+            "bytes": 1555965,
+            "inode": [
+              16777232,
+              126955509
+            ]
+          },
+          {
+            "logical": "forge/design/candidates/HP-EXP-B/v10/ai-course-hero.png",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/forge/design/candidates/HP-EXP-B/v10/ai-course-hero.png",
+            "bytes": 1555965,
+            "inode": [
+              16777232,
+              126955509
+            ]
+          },
+          {
+            "logical": "forge/design/candidates/HP-EXP-B/v11/ai-course-hero.png",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/forge/design/candidates/HP-EXP-B/v11/ai-course-hero.png",
+            "bytes": 1555965,
+            "inode": [
+              16777232,
+              126955509
+            ]
+          },
+          {
+            "logical": "forge/design/candidates/HP-EXP-B/v12/ai-course-hero.png",
+            "snapshot_path": "forge/unit-history/contexts/ee0be6eb687a4984aa164c1d9748f1c0/files/forge/design/candidates/HP-EXP-B/v12/ai-course-hero.png",
+            "bytes": 1555965,
+            "inode": [
+              16777232,
+              126955509
+            ]
+          }
+        ],
+        "execution_inputs_count": 258,
+        "execution_input_modes": {
+          "file": 257,
+          "tree": 1,
+          "absent": 0
+        },
+        "embedded_context_manifest_legacy_refs": [
+          {
+            "content_hash": "61899536a34196f7a6b7e40791b0a3e8e03bc454926eb47adebef1bb31ee0999",
+            "path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/record.json"
+          }
+        ]
+      },
+      {
+        "role": "legacy",
+        "metadata_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/record.json",
+        "metadata_bytes": 9689174,
+        "file_count": 23780,
+        "snapshot_logical_bytes": 8281558591,
+        "unique_inode_bytes": 7731838719,
+        "largest_members": [
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/runtime/final-browser15/unit07-final-edge-text200-producer15.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/runtime/final-browser15/unit07-final-edge-text200-producer15.execution.json",
+            "bytes": 112548653,
+            "inode": [
+              16777232,
+              126984663
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/runtime/final-browser15/unit07-final-edge-reflow400-equivalent-producer15.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/runtime/final-browser15/unit07-final-edge-reflow400-equivalent-producer15.execution.json",
+            "bytes": 109564919,
+            "inode": [
+              16777232,
+              126984659
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-1440-producer14.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-1440-producer14.execution.json",
+            "bytes": 108466443,
+            "inode": [
+              16777232,
+              126983012
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-1280-producer14.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-1280-producer14.execution.json",
+            "bytes": 104658305,
+            "inode": [
+              16777232,
+              126983004
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-768-producer14.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-768-producer14.execution.json",
+            "bytes": 100842906,
+            "inode": [
+              16777232,
+              126983047
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/frontend/final-browser-11/unit07-final-chrome-samsungflip7-landscape-producer14.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/frontend/final-browser-11/unit07-final-chrome-samsungflip7-landscape-producer14.execution.json",
+            "bytes": 97302976,
+            "inode": [
+              16777232,
+              126983655
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-430-producer14.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-430-producer14.execution.json",
+            "bytes": 93927423,
+            "inode": [
+              16777232,
+              126983036
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/runtime/final-browser14/unit07-final-webkit-iphone16promax-landscape-producer14.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/runtime/final-browser14/unit07-final-webkit-iphone16promax-landscape-producer14.execution.json",
+            "bytes": 93651358,
+            "inode": [
+              16777232,
+              126984625
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-08/current-20261008/review/browser/u08-be-reduced-coverage-diagnostic-reduced-v1.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-08/current-20261008/review/browser/u08-be-reduced-coverage-diagnostic-reduced-v1.execution.json",
+            "bytes": 92799591,
+            "inode": [
+              16777232,
+              126987982
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-390-producer14.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/backend/final-browser14/unit07-final-edge-390-producer14.execution.json",
+            "bytes": 90173459,
+            "inode": [
+              16777232,
+              126983028
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/frontend/final-browser-11/unit07-final-chrome-reduced-producer14.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/frontend/final-browser-11/unit07-final-chrome-reduced-producer14.execution.json",
+            "bytes": 89742976,
+            "inode": [
+              16777232,
+              126983634
+            ]
+          },
+          {
+            "logical": "forge/implementation/platform-expansion/unit-07/current-20261006/frontend/final-browser-11/unit07-final-chrome-samsungflip7-producer14.execution.json",
+            "snapshot_path": "forge/unit-history/legacy/d4d6a8fb0a7440df88309b22ab24b161/files/forge/implementation/platform-expansion/unit-07/current-20261006/frontend/final-browser-11/unit07-final-chrome-samsungflip7-producer14.execution.json",
+            "bytes": 87112306,
+            "inode": [
+              16777232,
+              126983664
+            ]
+          }
+        ],
+        "execution_inputs_count": 0,
+        "execution_input_modes": {
+          "file": 0,
+          "tree": 0,
+          "absent": 0
+        },
+        "embedded_context_manifest_legacy_refs": null
+      }
+    ],
+    "completed_checker_status": {
+      "source": "Parent report, not inferred from process disappearance",
+      "result": "passed",
+      "issues": 0,
+      "next_unit": "UNIT-EXP-00",
+      "runtime": "Parent estimated CPU~9min; exact final elapsed not measured by this audit."
+    },
+    "lsof_after_pid_exit": {
+      "command": "/usr/sbin/lsof -nP -p41461 -Fn",
+      "exit": 1,
+      "stdout_bytes": 0,
+      "qualification": "Process already absent; cannot identify current filename from this probe."
+    },
+    "specific_dominant_membership": "Legacy file map23780 entries /8281558591 logical bytes, mostly old execution JSONs; largest112548653B. Every validate_files invocation hashes all logical members, even hardlinks that share inode. Current context selected258file inputs, snapshot1419members174935492B. No giant executable is needed to explain repeated reads.",
+    "derived_call_graph": {
+      "one_normal_checker": [
+        "HistoryView.resolve validates current legacy once.",
+        "validate_attempt\u2192validate_context\u2192historical Checker.run validates context manifest legacy again.",
+        "validate_attempt original_canonical=True/False loop creates2historical Checker.run views; each HistoryView.resolve validates its post-manifest legacy refs."
+      ],
+      "ready_projection": "workflow_progress fresh child Checker.run repeats normal chain with separate caches; successful implementation candidate needs1normal child probe, possible owner reconciliation permits2.",
+      "conditional_normal_probe_legacy_passes": 4,
+      "conditional_outer_plus_one_projection_passes": 8,
+      "conditional_legacy_member_hash_calls": 190240,
+      "conditional_legacy_bytes_read_and_hashed": 66252468728,
+      "certainty": "Outer and context legacy refs match exactly in inspected metadata. Both historical attempt post-manifest legacy memberships were not opened in this bounded context/legacy-only inspection;4/8counts are source-derived conditional estimates, not runtime counters. Even one legacy pass is23780whole-file hashes/8.28GB. No297checks\u00d7293executioninputs all-rehash loop was found; check runtime processing does not call prepare_inventory per check."
+    },
+    "recommended_smallest_future_scope": "Replace repeated legacy validate_files whole-buffer hashing with one invocation-scoped shared stable hash memo (physical path+full file signature; original expected hash still compared eachtime; final signature audit), and stable streaminghash on firstread. Propagate memo through historical and progress Checkers; keep every legacy member and both semantic views. Profile/measure actual callcount afterward before broader canonical parser rewrite."
+  },
+  "writing_stopped": true,
+  "minimal_shared_validation_cache_seams": {
+    "current_ownership": [
+      {
+        "owner": "Checker.__init__ and Checker.run",
+        "references": "sdd_check.py:607-618,2414-2448",
+        "behavior": "Own per-Checker hash_cache/json_cache/section_cache/directory_cache. Root run clears them; final invocation audit checks cached file and directory signatures."
+      },
+      {
+        "owner": "History result cache",
+        "references": "sdd_history.py:423-442,454-505,826-900; sdd_check.py:2423-2424",
+        "behavior": "historical_checker receives cache and assigns same _history_cache to nested historical Checkers. validate_context/attempt/completion memoize semantic results after read_ref. Outer normal Checker initializes _history_cache afresh. Legacy validate_files has no cache parameter and bypasses this sharing."
+      },
+      {
+        "owner": "Ready/progress probe",
+        "references": "progress.py:94-103; sdd_check.py:2520",
+        "behavior": "New child Checker copies source manifest/contract and evidence cache path only, then child.run(projections=False); child does not share parent hash or history memo, and run resets its independent history cache."
+      }
+    ],
+    "option_A_smallest_targeted_cache": {
+      "scope": "Cache fully verified legacy file-map validation within one top-level CLI invocation. No persistent file or trust across CLI calls.",
+      "API_seam": "Give validate_files(project,record,*,validation_cache=None) a dedicated invocation-owned file-validation memo; thread optional memo through historical_checker and HistoryView.resolve. Default uncached path preserves unrelated callers.",
+      "cache_identity": "Exact canonical project plus verified legacy/context record identity (or normalized full snapshot file-map/root binding), not just snapshot-root name. Member memo keyed by physical path and original expected hash plus full dev/ino/size/mtime_ns/ctime_ns signature.",
+      "lookup": "Revalidate every logical/physical path, every ancestor no-link/escape rule, and fresh member signature; reuse only the original verified content hash for identical bound members/signatures. Membership/hash conflict or change must fail or perform safe fresh read that triggers changed-input guard; never silently reclassify mutated input as the initial snapshot.",
+      "first_validation": "Use existing stable hash_file streaming safeguards and retain each physical member signature for final invocation verification. Cache signatures/hashes, not8.28GB bytes.",
+      "root_and_probe_lifetime": "Explicit invocation-owned memo created by root run and passed to historical/progress children. Child may not reset the shared file memo; top-level completion final-checks all shared member signatures, including paths used only by children. Do not simulate sharing by setting _history_stack private sentinel; that flag also affects history recursion/cycle semantics.",
+      "semantic_boundary": "Keep read_ref expected-hash validation, legacy envelope classification, previous manifest legacy_format, both attempt semantic views, all unit/findings/runtime/evidence checks. This caches verified immutable IO, not successful acceptance results."
+    },
+    "option_B_existing_history_cache_propagation": {
+      "scope": "Propagate root history cache to progress probe and add namespaced legacy-member validation memo inside it.",
+      "condition": "Checker.run currently resets history cache when no _history_stack; add explicit invocation cache ownership rather than abusing historical-stack marker. Cached semantic context/attempt results would additionally need full dependency signature freshness/final audit before broader reuse; do not assume ref JSON alone proves dependencies unchanged.",
+      "preference": "OptionA dedicated file-validation memo is narrower and leaves semantic result reuse unchanged."
+    },
+    "planned_verification_only": [
+      "Count first-read and repeat-read calls using synthetic repeated legacy maps; hashes once per unchanged physical binding and every expected hash still compared.",
+      "Mutate content, inode, parent link, file membership, expected hash or metadata signature between child probes; top-level checker remains blocked.",
+      "Keep failed attempts and legacy members byte-for-byte present and verified; no file removals/test-scope reduction.",
+      "Exercise outer+projection+nested historical invocation lifetime and ensure a later independent CLI starts fresh.",
+      "Measure actual long checker wall/CPU/peak-memory and member read/hash counts once authorized; no performance result is claimed now."
+    ]
+  }
+}

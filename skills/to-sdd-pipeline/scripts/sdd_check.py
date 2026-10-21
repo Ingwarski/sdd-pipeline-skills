@@ -603,6 +603,51 @@ def validate_contract(contract):
                 raise ValueError("unknown node artifact: " + key)
 
 
+def _cached_file_hash(path, cache):
+    """Hash once while retaining fresh regular-file checks on every use."""
+    path = Path(path)
+    signature = _regular(path)
+    if path not in cache:
+        cache[path] = (signature, hash_file(path)[0])
+    saved, value = cache[path]
+    if signature != saved or _regular(path) != saved:
+        raise ValueError("input changed during checker invocation: " + str(path))
+    return value
+
+
+class SnapshotFileHashes:
+    """Only historical snapshot hashes; scopes own their short lifetime."""
+    def __init__(self):
+        self.hashes = {}
+        self.depth = 0
+        self.history_results = []
+
+    def history_result(self, cache, key, remember=False):
+        # The semantic cache stays with its caller. Only a result validated in
+        # this hash lifetime may reuse the snapshot union already registered.
+        for known, keys in self.history_results:
+            if known is cache:
+                if remember:
+                    keys[key] = (cache[key], self._result_hash(cache[key]))
+                return (key in keys and key in cache and keys[key][0] is cache[key]
+                        and keys[key][1] == self._result_hash(cache[key]))
+        if remember:
+            self.history_results.append((cache, {key: (cache[key], self._result_hash(cache[key]))}))
+        return remember
+
+    @staticmethod
+    def _result_hash(value):
+        return digest(json.dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False).encode("utf-8"))
+
+    def file_hash(self, path):
+        return _cached_file_hash(path, self.hashes)
+
+    def audit(self):
+        for path, (signature, _) in self.hashes.items():
+            if _regular(path) != signature:
+                raise ValueError("historical snapshot changed during checker invocation: " + str(path))
+
+
 class Checker:
     def __init__(self, project, manifest, contract=None, evidence_cache=None):
         self.project = Path(project).resolve()
@@ -703,13 +748,13 @@ class Checker:
     def file_hash(self, path):
         """Memoize stable regular files; any later mutation blocks this invocation."""
         path = Path(path)
-        signature = _regular(path)
-        if path not in self.hash_cache:
-            self.hash_cache[path] = (signature, hash_file(path)[0])
-        saved, value = self.hash_cache[path]
-        if signature != saved or _regular(path) != saved:
-            raise ValueError("input changed during checker invocation: " + str(path))
-        return value
+        owner = getattr(self, "_history_hash_owner", None)
+        if owner is not None and owner.depth and path in owner.hashes:
+            return owner.file_hash(path)
+        return _cached_file_hash(path, self.hash_cache)
+
+    def history_hash_scope(self):
+        return history_api().snapshot_hash_scope(getattr(self, "_history_hash_owner", None), audit=True)
 
     def document(self, path):
         path = Path(path)
@@ -2412,6 +2457,24 @@ class Checker:
             require(set(completed) == unit_ids, "release requires every unit, including integration, completed")
 
     def run(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
+        report = None
+        try:
+            with self.history_hash_scope() as owner:
+                self._history_hash_owner = owner
+                for record in getattr(self, "_history_snapshot_records", ()):
+                    history_api().validate_files(self.project, record, hash_owner=owner)
+                report = self._run_invocation(node, after, audit, unit_action, unit_id,
+                                              require_current=require_current, projections=projections)
+        except (ValueError, OSError) as error:
+            if report is None:
+                raise
+            self.issue("changing_input", "manifest", str(error))
+            report["result"] = "blocked"
+            if "implementation_progress" in report:
+                report["implementation_progress"] = implementation_progress(self, unit_id, unit_action)
+        return report
+
+    def _run_invocation(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
         # Resolution is a per-invocation view. Reuse the caller's actual source
         # manifest rather than treating a previous expanded history view as input.
         self.manifest = self._source_manifest
@@ -2592,23 +2655,25 @@ def main():
             print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=True, indent=2))
             return 0
         if args.progress:
-            checker = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache)
-            report = workflow_progress(checker, worked_unit=args.worked_unit, require_current=True)
-            validate_intake_progress(checker)
-            validate_ready_projection(checker, derived=report["progress"], require_current=True)
-            report["issues"].extend(issue for issue in checker.issues if issue not in report["issues"])
-            if report["issues"]:
-                report["result"] = ("migration_required" if all(item["code"] == "migration_required" for item in report["issues"])
-                                    else "blocked")
+            with history_api().snapshot_hash_scope():
+                checker = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache)
+                report = workflow_progress(checker, worked_unit=args.worked_unit, require_current=True)
+                validate_intake_progress(checker)
+                validate_ready_projection(checker, derived=report["progress"], require_current=True)
+                report["issues"].extend(issue for issue in checker.issues if issue not in report["issues"])
+                if report["issues"]:
+                    report["result"] = ("migration_required" if all(item["code"] == "migration_required" for item in report["issues"])
+                                        else "blocked")
+                if _regular(manifest_path) != manifest_signature:
+                    raise ValueError("manifest changed during checker invocation")
+                report["toolchain"] = toolchain_identity()
+            print(json.dumps(report, ensure_ascii=True, indent=2))
+            return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
+        with history_api().snapshot_hash_scope():
+            report = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit, require_current=True)
             if _regular(manifest_path) != manifest_signature:
                 raise ValueError("manifest changed during checker invocation")
             report["toolchain"] = toolchain_identity()
-            print(json.dumps(report, ensure_ascii=True, indent=2))
-            return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
-        report = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit, require_current=True)
-        if _regular(manifest_path) != manifest_signature:
-            raise ValueError("manifest changed during checker invocation")
-        report["toolchain"] = toolchain_identity()
         print(json.dumps(report, ensure_ascii=True, indent=2))
         return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:

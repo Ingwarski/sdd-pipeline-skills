@@ -92,10 +92,17 @@ def _candidate(checker):
 
 
 def workflow_progress(checker, *, worked_unit=None, require_current=False):
+    with checker.history_hash_scope() as owner:
+        checker._history_hash_owner = owner
+        return _workflow_progress(checker, worked_unit=worked_unit, require_current=require_current)
+
+
+def _workflow_progress(checker, *, worked_unit=None, require_current=False):
     """At most two normal gate probes; no writes, network or recursive projections."""
     def probe(node, after=False):
         child = type(checker)(checker.project, checker._source_manifest, checker.contract,
                               evidence_cache=checker.evidence_resolver.cache)
+        child._history_hash_owner = checker._history_hash_owner
         report = child.run(node, after=after, require_current=require_current, projections=False)
         return child, report
 

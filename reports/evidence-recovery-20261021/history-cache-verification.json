@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "kind": "invocation-history-snapshot-hash-verification",
+  "status": "targeted_checks_passed_parent_full_suite_pending",
+  "source_baseline": "909483c",
+  "synthetic_measurement": {
+    "measurement": "synthetic literal original validate_files hash algorithm versus actual new validate_files under one read-only scope; not execution of a checked-out historical revision",
+    "requests": 8,
+    "payload_size": 212992,
+    "before": {
+      "hash_passes": 8,
+      "payload_bytes_read": 1703936
+    },
+    "after": {
+      "hash_passes": 1,
+      "payload_bytes_read": 212992,
+      "fresh_regular_signature_calls": 17,
+      "physical_path_validation_calls": 16
+    },
+    "result": "same expected SHA256 accepted on all eight requests; one streaming hash pass, two path validations and two fresh regular signatures per reuse plus final union audit",
+    "not_measured": [
+      "live product archive read count or elapsed time",
+      "OS disk physical I/O or page-cache misses",
+      "live CLI wall-clock speedup"
+    ],
+    "revision_note": "validate_files and hash-owner code measured here were unchanged by the later continuation preflight scope correction; no repeated live/native benchmark was performed."
+  },
+  "observed_at": "2026-10-21T17:32:57.230517+00:00",
+  "provided_source_baseline": "909483c; parent reported clean baseline; worker used no Git commands",
+  "source_files_frozen": true,
+  "scope": {
+    "changed_source_paths": [
+      "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "skills/to-sdd-pipeline/scripts/sdd_check.py",
+      "skills/to-sdd-pipeline/scripts/progress.py"
+    ],
+    "new_test": "tests/test_history_file_cache.py",
+    "owned_reports": [
+      "reports/evidence-recovery-20261021/history-cache-verification.json",
+      "reports/evidence-recovery-20261021/history-cache-design.json"
+    ],
+    "only_synthetic_temporary_fixtures": true,
+    "product_private_ledger_old_payload_provider_browser_network_git_install_access": false,
+    "dependencies_installed": false,
+    "subagents": 0
+  },
+  "implemented_guards": [
+    "Historical snapshot hashes only live in an active SnapshotFileHashes owner. Ordinary checker hash/JSON/directory/evidence caches remain separate.",
+    "Every validate_files use repeats logical path and no-link checks, exact snapshot_root/logical path membership, physical no-link checks, fresh _regular signature checks, and the caller-specific expected SHA256 comparison.",
+    "The first hash uses the existing no-follow stable streaming hash_file; cached reads compare st_dev/st_ino/st_size/st_mtime_ns/st_ctime_ns through existing evidence.resolver._regular, including its Windows descriptor metadata-change clock.",
+    "Every Checker/progress boundary and outer read-only phase audits the full registered snapshot union in finally, including child-only paths, errors and semantic result hits. Outer exit clears hashes and semantic eligibility metadata.",
+    "Historical checker objects retain copied context/completion records and register/revalidate their entire snapshot closure on every later run, even when a gate body consumes no snapshot.",
+    "Semantic result hits require the same strongly referenced cache object, exact result key, current result object identity and unchanged canonical-JSON SHA256, all registered in the active owner. New owner means fresh dependency validation. Existing semantic cache reset/cycle/stack conditions are unchanged.",
+    "Progress probes explicitly borrow the same hash owner while keeping separate semantic history caches. Standalone validation, progress and reused top-level Checker runs open fresh owners.",
+    "Read-only continuation preflight shares one owner for all prior-attempt checks and closes before capture_context writes snapshot hard links. Capture/assessment/staging/activation/CLI dispatch do not span writes with a hash owner.",
+    "Already registered historical canonical/execution-inventory snapshot hashes reuse the same owner. Ordinary inventory reads and fresh execution-tree listings retain their prior behavior."
+  ],
+  "material_initial_failures": [
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_history_file_cache.py -q",
+      "tests": 19,
+      "failures": 1,
+      "errors": 4,
+      "interpretation": "Three real capture fixtures rejected expected ctime changes from new hard links because the initial scope crossed writing phases. Two negative-test assertions needed to accept the final audit error and audit-on-exit behavior. Strict metadata checks were retained. Root approved read-only phase boundaries; explicit hard-link-between-phase and hard-link-inside-phase regressions added."
+    },
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_attempt_history.py -q",
+      "tests": 11,
+      "failures": 1,
+      "errors": 0,
+      "elapsed_seconds": 272.858,
+      "failed_test": "test_repeated_retry_validation_reuses_one_operation_cache_and_rejects_old_identity",
+      "checker_run_counts": [
+        18,
+        39,
+        63,
+        90
+      ],
+      "interpretation": "Separate owners per prior-ref loop iteration caused quadratic semantic revalidation. Corrected by one shared read-only continuation preflight scope ending before writes. Original assertion unchanged; focused rerun passed."
+    }
+  ],
+  "checks": [
+    {
+      "command": "env PYTHONPATH=tests python3 -B -m unittest test_history_file_cache test_progress test_evidence_checker test_sdd_check -q",
+      "status": "passed",
+      "scope": "final frozen sources",
+      "tests": 134,
+      "elapsed_seconds": 26.105,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_attempt_history.py -k test_repeated_retry_validation -q",
+      "status": "passed",
+      "tests": 1,
+      "elapsed_seconds": 64.711,
+      "scope": "final frozen sources; original linear-growth and old-run identity assertions unchanged"
+    },
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_unit_history.py -q",
+      "status": "passed",
+      "tests": 50,
+      "elapsed_seconds": 492.869,
+      "scope": "started before final source refinements; importlib helper loads may have observed different intermediate revisions. This is not a complete final-source suite claim."
+    },
+    {
+      "command": "compile(source, path, exec) for the three modules and new test",
+      "status": "passed",
+      "files": 4,
+      "bytecode_written": false
+    }
+  ],
+  "coverage": [
+    "root plus historical child plus actual ready projection uses one payload hash pass",
+    "all eight baseline synthetic snapshot references retain exact expected hashes",
+    "different expected hash fails despite cache hit",
+    "same-size rewrite with restored mtime fails on metadata-change clock",
+    "same-byte inode replacement and symlink/parent-link/missing-file fail",
+    "mutation during first stream and between signature/read fails",
+    "child-end, root-end, progress-child-only and exceptional-exit union audits fail closed",
+    "repeated root runs, standalone history calls and subprocess history CLI are fresh",
+    "retained context/completion/attempt semantic caches cannot skip fresh dependency validation",
+    "historical checker _history_stack does not retain previous invocation trust",
+    "unused overlay files revalidate on later historical checker runs",
+    "hard-link change inside phase blocks; after phase requires a new physical hash",
+    "canonical/file/tree inventory snapshot hash reuse retains fresh tree listings",
+    "ordinary checker files do not enter shared snapshot cache"
+  ],
+  "limits": [
+    "No live product/legacy archive was read or benchmarked. Synthetic byte/hash pass reductions are not a measured native wall-clock or disk-I/O speedup.",
+    "Tests executed on macOS Python 3.12.14. The existing Windows _regular implementation is reused and the restored-mtime regression is portable, but Windows was not executed by this worker.",
+    "Parent owns required full-suite verification, independent review, Git and any later installation. No product QA or acceptance claim.",
+    "Material first failures and the earlier history-suite revision/timing limitation are preserved."
+  ],
+  "included_usage": {
+    "ordinary_usage_allowed": true,
+    "latest_primary_used_percent": 60,
+    "no_extra_credit_purchase_api_switch_or_free_reset_action_taken": true,
+    "limit": "Agent followed included-usage instructions; this is not an account-level billing cap or a guarantee about other clients."
+  },
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": {
+      "sha256": "e7a3d88a6ba674178b928cd630c5a10a111df6e41e8953596d9609e90f361cef",
+      "size": 122976
+    },
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": {
+      "sha256": "38959073dacfd62b555eb9ff03399cf2ba67caefac67fa6cec0277ae756bdc5e",
+      "size": 174473
+    },
+    "skills/to-sdd-pipeline/scripts/progress.py": {
+      "sha256": "232115c6448824e65c7909479df782065d9e9046b4517c20fc7e4c573b15984d",
+      "size": 11606
+    },
+    "tests/test_history_file_cache.py": {
+      "sha256": "f053bc1c3dc0fde24bcbaed56c3d8d6e262acbbf746fb8b4f11d3354db127799",
+      "size": 20608
+    },
+    "reports/evidence-recovery-20261021/history-cache-design.json": {
+      "sha256": "a64d9a7c582379728d9bf14c5d17f1bcb13a5ec7c84d8498b69843b971e0848a",
+      "size": 6519
+    }
+  },
+  "writing_stopped": true,
+  "handoff": "All three source files and new test remain frozen. Parent owns the full required suite and independent review. Worker has no remaining test processes or source writes."
+}

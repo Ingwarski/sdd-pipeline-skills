@@ -6,7 +6,10 @@ The checker never calls the writing helpers. Standard library only.
 """
 import argparse
 import copy
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
+from functools import wraps
 import hashlib
 import importlib.util
 import json
@@ -26,6 +29,44 @@ HISTORY = "forge/unit-history"
 REF_KEYS = {"path", "content_hash"}
 EXECUTION_KEYS = {"execution_status", "executor", "executed_at", "evidence", "execution_mode", "evaluated_plan_hash", "evaluated_source_hashes", "evaluated_execution_inputs", "findings", "rationale", "source_inventory_ref", "revalidation_ref", "run_id", "runtime_observation_ref"}
 V2_KEYS = {"execution_contexts", "completion_ref", "applicability_ref", "unit_history", "completion_history", "legacy_history", "evaluated_execution_inputs", "context_ref", "attempt_ref", "attempt_history", "prior_attempt_ref"}
+_snapshot_hash_owner = ContextVar("sdd_history_snapshot_hash_owner", default=None)
+
+
+@contextmanager
+def snapshot_hash_scope(owner=None, *, audit=False):
+    """A fresh standalone invocation, or the active caller's snapshot hashes."""
+    current = _snapshot_hash_owner.get()
+    if current is not None:
+        require(owner is None or not owner.depth or owner is current, "conflicting snapshot hash invocations")
+        owner = current
+    elif owner is None or not owner.depth:
+        owner = api().SnapshotFileHashes()
+    token = _snapshot_hash_owner.set(owner)
+    owner.depth += 1
+    try:
+        yield owner
+    finally:
+        try:
+            # Audit each checker/projection boundary and the outer read-only
+            # phase, including exceptions and semantic history cache hits.
+            # Tiny nested helpers still stat each use; they need no repeated
+            # full-union scan while their enclosing boundary remains active.
+            if audit or owner.depth == 1:
+                owner.audit()
+        finally:
+            owner.depth -= 1
+            if not owner.depth:
+                owner.hashes.clear()
+                owner.history_results.clear()
+            _snapshot_hash_owner.reset(token)
+
+
+def snapshot_hash_invocation(function):
+    @wraps(function)
+    def scoped(*args, **kwargs):
+        with snapshot_hash_scope():
+            return function(*args, **kwargs)
+    return scoped
 
 
 def contains_v2_fields(value):
@@ -157,6 +198,14 @@ def store_record(project, kind, record, directory=None):
     return write_new(project, directory + "/record.json", encoded(record))
 
 
+def snapshot_or_file_hash(checker, path):
+    """Reuse registered snapshots only; other inventory reads retain their behavior."""
+    owner = getattr(checker, "_history_hash_owner", None)
+    if owner is not None and owner.depth and path in owner.hashes:
+        return checker.file_hash(path)
+    return sha(path.read_bytes())
+
+
 def canonical_hashes(checker, allow_missing=False):
     result = {}
     for key, spec in checker.specs.items():
@@ -166,7 +215,7 @@ def canonical_hashes(checker, allow_missing=False):
         if allow_missing and not path.exists():
             result[spec["path"]] = None
         else:
-            result[spec["path"]] = sha(path.read_bytes())
+            result[spec["path"]] = snapshot_or_file_hash(checker, path)
     return result
 
 
@@ -184,7 +233,7 @@ def execution_fingerprints(checker, selections):
             raise ValueError("execution input must remain absent: " + logical)
         elif mode == "file":
             require(target.is_file(), "execution input is not a regular file: " + logical)
-            result[logical] = {"mode": mode, "exists": True, "content_hash": sha(target.read_bytes())}
+            result[logical] = {"mode": mode, "exists": True, "content_hash": snapshot_or_file_hash(checker, target)}
         else:
             require(target.is_dir(), "execution input is not a directory: " + logical)
             members = {}
@@ -193,7 +242,7 @@ def execution_fingerprints(checker, selections):
                     path = Path(directory) / name
                     require(not api().is_link(path), "execution inventory cannot follow a symlink")
                     if path.is_file():
-                        members[path.relative_to(target).as_posix()] = sha(path.read_bytes())
+                        members[path.relative_to(target).as_posix()] = snapshot_or_file_hash(checker, path)
                     else:
                         require(path.is_dir(), "execution tree contains a special file")
                         members[path.relative_to(target).as_posix() + "/"] = None
@@ -410,20 +459,23 @@ def freeze_files(project, manifest, directory, execution_inputs=None, *, checker
     return files
 
 
-def validate_files(project, record):
-    require(isinstance(record.get("files"), dict) and (record["files"] or record.get("event") == "legacy_execution_archive"), "historical snapshots required")
-    for logical, ref in record["files"].items():
-        physical(project, logical)
-        require(ref.get("path") == record["snapshot_root"] + "/" + logical, "snapshot path must preserve logical identity")
-        path = physical(project, ref["path"])
-        require(path.is_file() and api().hash_matches(ref.get("content_hash"), sha(path.read_bytes())), "historical snapshot changed: " + logical)
+def validate_files(project, record, *, hash_owner=None):
+    with snapshot_hash_scope(hash_owner) as owner:
+        require(isinstance(record.get("files"), dict) and (record["files"] or record.get("event") == "legacy_execution_archive"), "historical snapshots required")
+        for logical, ref in record["files"].items():
+            physical(project, logical)
+            require(ref.get("path") == record["snapshot_root"] + "/" + logical, "snapshot path must preserve logical identity")
+            path = physical(project, ref["path"])
+            require(path.is_file() and api().hash_matches(ref.get("content_hash"), owner.file_hash(path)), "historical snapshot changed: " + logical)
 
 
+@snapshot_hash_invocation
 def historical_checker(project, manifest, context, completion=None, stack=(), cache=None, original_canonical=True, *, evidence_cache=None):
-    validate_files(project, context)
+    owner = _snapshot_hash_owner.get()
+    validate_files(project, context, hash_owner=owner)
     files = dict(context["files"])
     if completion:
-        validate_files(project, completion)
+        validate_files(project, completion, hash_owner=owner)
         files = dict(completion["files"])  # A post-run deletion must not resurrect a pre-start file.
         if original_canonical:
             for artifact in context["manifest"]["artifacts"].values():
@@ -431,6 +483,8 @@ def historical_checker(project, manifest, context, completion=None, stack=(), ca
                 if logical in context["files"]:
                     files[logical] = context["files"][logical]
     checker = api().Checker(project, copy.deepcopy(manifest), evidence_cache=evidence_cache)
+    checker._history_hash_owner = owner
+    checker._history_snapshot_records = copy.deepcopy((context, completion) if completion else (context,))
     checker._history_overlay = files
     checker._history_snapshot_root = (completion or context)["snapshot_root"]
     if completion and original_canonical:
@@ -451,11 +505,12 @@ def remember_evidence(checker):
         references[key] = copy.deepcopy(ref)
 
 
+@snapshot_hash_invocation
 def validate_context(project, reference, unit_id, stack=(), cache=None, *, evidence_cache=None):
     cache = cache if cache is not None else {}
     context = read_ref(project, reference)
     cache_key = ("context", reference["content_hash"], unit_id)
-    if cache_key in cache:
+    if cache_key in cache and _snapshot_hash_owner.get().history_result(cache, cache_key):
         return copy.deepcopy(cache[cache_key])
     visiting = ("visiting_context", reference["content_hash"], unit_id)
     require(visiting not in cache, "cyclic execution context history")
@@ -502,6 +557,7 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
     require(same(reviewed, context["input_inventory"]), "captured inventory does not match original context")
     remember_evidence(checker)
     cache[cache_key] = copy.deepcopy(context)
+    _snapshot_hash_owner.get().history_result(cache, cache_key, remember=True)
     del cache[visiting]
     return context
 
@@ -529,6 +585,7 @@ def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=Non
     return reference
 
 
+@snapshot_hash_invocation
 def validate_completion(project, reference, stack=(), cache=None, *, evidence_cache=None):
     cache = cache if cache is not None else {}
     identity = reference.get("content_hash") if isinstance(reference, dict) else None
@@ -544,7 +601,7 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
             "unit/run identity is reused by a different completion: " + unit + " / " + completed["run_id"])
     cache[run_identity] = content_identity
     cache_key = ("completion", identity)
-    if cache_key in cache:
+    if cache_key in cache and _snapshot_hash_owner.get().history_result(cache, cache_key):
         return copy.deepcopy(cache[cache_key])
     context = validate_context(project, completed["context_ref"], unit, stack, cache, evidence_cache=evidence_cache)
     run = completed["run"]
@@ -610,6 +667,7 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
             require(same(check.get("evaluated_execution_inputs"), completed["input_inventory"]["execution_fingerprints"]), "executed check lacks matching test-time execution input observation")
             validate_check_runtime(project, context, check, run, accepting=True)
     cache[cache_key] = copy.deepcopy((completed, context))
+    _snapshot_hash_owner.get().history_result(cache, cache_key, remember=True)
     return completed, context
 
 
@@ -823,6 +881,7 @@ def unfinished_evidence_alternatives(project, context, record, checker):
     return alternatives
 
 
+@snapshot_hash_invocation
 def validate_attempt(project, reference, stack=(), cache=None, *, evidence_cache=None):
     """Validate preserved execution without ever requiring or granting completion."""
     cache = cache if cache is not None else {}
@@ -830,7 +889,7 @@ def validate_attempt(project, reference, stack=(), cache=None, *, evidence_cache
     identity = reference["content_hash"]
     marker = ("attempt", identity)
     require(identity not in stack and len(stack) < 128, "cyclic/excessive attempt history")
-    if marker in cache:
+    if marker in cache and _snapshot_hash_owner.get().history_result(cache, marker):
         return copy.deepcopy(cache[marker])
     require(record.get("event") == "unit_attempt" and record.get("version") == VERSION
             and record.get("validation_contract") == CONTRACT and record.get("acceptance") == "not_completed",
@@ -896,6 +955,7 @@ def validate_attempt(project, reference, stack=(), cache=None, *, evidence_cache
                     "attempt inventory differs from preserved snapshots")
         remember_evidence(checker)
     cache[marker] = copy.deepcopy((record, context))
+    _snapshot_hash_owner.get().history_result(cache, marker, remember=True)
     return record, context
 
 
@@ -956,32 +1016,35 @@ def continuation_inventory(context, attempt, reviewed):
 
 
 def capture_continuation(project, manifest, unit_id, attempt_ref, run_id, inventory, *, evidence_cache=None):
-    cache = {}
-    attempt, original = validate_attempt(project, attempt_ref, cache=cache, evidence_cache=evidence_cache)
-    require(attempt["unit_id"] == unit_id, "continuation attempt belongs to another unit")
-    require(same({k: v for k, v in manifest.get("unit_runs", {}).get(unit_id, {}).items() if k != "attempt_ref"}, attempt["run"])
-            and same(attempt_checks(manifest, unit_id), attempt["checks"]), "continuation must preserve the actual current attempt")
-    attempt_authority(original["manifest"], manifest)
-    reviewed = prepare_inventory(api().Checker(project, manifest, evidence_cache=evidence_cache), unit_id, inventory)
-    continuation_inventory(original, attempt, reviewed)
-    observation = validate_runtime_observation(project, inventory.get("runtime_observation_ref"))
-    require(api().timestamp(observation["started_at"]) >= api().timestamp(attempt["captured_at"]),
-            "continuation requires a new runtime observation after attempt capture")
-    require(isinstance(run_id, str) and run_id.strip(), "new continuation run identity required")
-    refs = attempt_refs(manifest).get(unit_id, [])
-    if not any(same(attempt_ref, reference) for reference in refs):
-        refs.append(attempt_ref)
-    for reference in refs:
-        previous, _ = validate_attempt(project, reference, cache=cache, evidence_cache=evidence_cache)
-        require(previous["run_id"] != run_id, "continuation must use a new run identity")
-    candidate = copy.deepcopy(manifest)
-    candidate.setdefault("attempt_history", {})[unit_id] = refs
-    candidate["unit_runs"][unit_id] = {"status": "pending", "run_id": run_id, "findings": copy.deepcopy(attempt["run"].get("findings", []))}
-    for index, check in enumerate(candidate["verification"]["checks"]):
-        if candidate["unit_plan"]["acceptance"].get(check["check_id"], {}).get("owner_unit") == unit_id:
-            candidate["verification"]["checks"][index] = {k: v for k, v in check.items() if k not in EXECUTION_KEYS or k == "findings"}
-            candidate["verification"]["checks"][index]["execution_status"] = "not_run"
-    candidate.setdefault("execution_contexts", {}).pop(unit_id, None)
+    # One read-only preflight shares memoized dependencies; audit it before
+    # capture_context creates new snapshot hard links and changes inode ctime.
+    with snapshot_hash_scope():
+        cache = {}
+        attempt, original = validate_attempt(project, attempt_ref, cache=cache, evidence_cache=evidence_cache)
+        require(attempt["unit_id"] == unit_id, "continuation attempt belongs to another unit")
+        require(same({k: v for k, v in manifest.get("unit_runs", {}).get(unit_id, {}).items() if k != "attempt_ref"}, attempt["run"])
+                and same(attempt_checks(manifest, unit_id), attempt["checks"]), "continuation must preserve the actual current attempt")
+        attempt_authority(original["manifest"], manifest)
+        reviewed = prepare_inventory(api().Checker(project, manifest, evidence_cache=evidence_cache), unit_id, inventory)
+        continuation_inventory(original, attempt, reviewed)
+        observation = validate_runtime_observation(project, inventory.get("runtime_observation_ref"))
+        require(api().timestamp(observation["started_at"]) >= api().timestamp(attempt["captured_at"]),
+                "continuation requires a new runtime observation after attempt capture")
+        require(isinstance(run_id, str) and run_id.strip(), "new continuation run identity required")
+        refs = attempt_refs(manifest).get(unit_id, [])
+        if not any(same(attempt_ref, reference) for reference in refs):
+            refs.append(attempt_ref)
+        for reference in refs:
+            previous, _ = validate_attempt(project, reference, cache=cache, evidence_cache=evidence_cache)
+            require(previous["run_id"] != run_id, "continuation must use a new run identity")
+        candidate = copy.deepcopy(manifest)
+        candidate.setdefault("attempt_history", {})[unit_id] = refs
+        candidate["unit_runs"][unit_id] = {"status": "pending", "run_id": run_id, "findings": copy.deepcopy(attempt["run"].get("findings", []))}
+        for index, check in enumerate(candidate["verification"]["checks"]):
+            if candidate["unit_plan"]["acceptance"].get(check["check_id"], {}).get("owner_unit") == unit_id:
+                candidate["verification"]["checks"][index] = {k: v for k, v in check.items() if k not in EXECUTION_KEYS or k == "findings"}
+                candidate["verification"]["checks"][index]["execution_status"] = "not_run"
+        candidate.setdefault("execution_contexts", {}).pop(unit_id, None)
     context_ref = capture_context(project, candidate, unit_id, inventory, evidence_cache=evidence_cache,
                                   prior_attempt_ref=attempt_ref, _cache=cache)
     candidate["execution_contexts"][unit_id] = context_ref
@@ -1087,6 +1150,7 @@ class HistoryView:
         if not hasattr(checker, "_history_cache"):
             checker._history_cache = {}
 
+    @snapshot_hash_invocation
     def resolve(self, executing=False, action=None, unit_id=None):
         checker = self.checker
         manifest = checker.manifest
@@ -1349,6 +1413,7 @@ def explicit_revalidation(previous, candidate, unit):
     return "completion_ref" not in run and run.get("status", "pending") in ("pending", "running", "blocked")
 
 
+@snapshot_hash_invocation
 def validate_transition(project, previous, candidate, mapping, *, evidence_cache=None):
     """Validate the whole transition even when a candidate deletes all active indexes."""
     if previous.get("checker_contract_version") != VERSION or previous.get("unit_contract_version") != VERSION:
@@ -1536,6 +1601,7 @@ def observe_execution_inputs(project, manifest, unit_id, inventory=None, *, evid
 
 def current_authority(checker):
     probe = api().Checker(checker.project, copy.deepcopy(checker.manifest), checker.contract, evidence_cache=checker.evidence_resolver.cache)
+    probe._history_hash_owner = getattr(checker, "_history_hash_owner", None)
     for name in ("_history_overlay", "_history_snapshot_root"):
         if hasattr(checker, name):
             setattr(probe, name, getattr(checker, name))

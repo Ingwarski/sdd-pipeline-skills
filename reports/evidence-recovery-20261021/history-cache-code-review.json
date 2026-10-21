@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "kind": "independent-frozen-code-history-snapshot-cache-review",
+  "observed_at": "2026-10-21T17:36:12.030439+00:00",
+  "status": "no_material_findings_in_reviewed_frozen_source",
+  "sources": [
+    {
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_check.py",
+      "bytes": 174473,
+      "sha256": "38959073dacfd62b555eb9ff03399cf2ba67caefac67fa6cec0277ae756bdc5e"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "bytes": 122976,
+      "sha256": "e7a3d88a6ba674178b928cd630c5a10a111df6e41e8953596d9609e90f361cef"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/progress.py",
+      "bytes": 11606,
+      "sha256": "232115c6448824e65c7909479df782065d9e9046b4517c20fc7e4c573b15984d"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_history_file_cache.py",
+      "bytes": 20608,
+      "sha256": "f053bc1c3dc0fde24bcbaed56c3d8d6e262acbbf746fb8b4f11d3354db127799"
+    }
+  ],
+  "findings": [],
+  "design_findings_resolution": [
+    {
+      "id": "SEMANTIC-CACHE-DEPENDENCY-LIFETIME",
+      "status": "resolved",
+      "references": [
+        "sdd_check.py:SnapshotFileHashes.history_result around625-642",
+        "sdd_history.py:validate_context/validate_completion/validate_attempt cache-hit guards around513,604,892",
+        "sdd_history.py:historical_checker snapshot-record retention around488",
+        "sdd_check.py:Checker.run around2462-2466"
+      ],
+      "evidence": "Semantic cache entries are eligible only after this active hash owner remembered the exact same cache object/key/result object and canonical serialized content digest. Owner retains strong references to cache/result, so object-id reuse cannot grant eligibility. New owner has empty history_results; outer exit clears eligibility and hashes. Retained historical Checker copies complete snapshot records and revalidates/registers them on every later run before gate body. Context/completion/attempt standalone and retained-stack regressions pass."
+    },
+    {
+      "id": "PLATFORM-AWARE-CHANGE-CLOCK",
+      "status": "resolved_in_source_platform_execution_pending_CI",
+      "references": [
+        "sdd_check.py:_cached_file_hash around606-615",
+        "sdd_check.py:SnapshotFileHashes.audit around645-650",
+        "evidence/resolver.py:_regular around35-62"
+      ],
+      "evidence": "Shared first-read/cache-hit/final audit delegates to the existing _regular signature provider. First actual read uses existing stable streaming hash_file with signature-before/hash/signature-after comparison. No new raw-lstat Windows cache path was introduced. Local same-size restored-mtime/replacement/first-read races pass; no Windows runtime was run by reviewer."
+    }
+  ],
+  "checked_invariants": [
+    {
+      "area": "Expected hash and membership",
+      "references": "sdd_history.py:validate_files around462-469",
+      "conclusion": "Each validate_files call freshly validates original logical path, exact snapshot_root/logical ref membership and safe physical snapshot path, then compares caller-specific expected hash to cached/streamed digest. The digest memo stores no successful expected-hash verdict. Different expected hashes and changed membership/link refs are covered by tests."
+    },
+    {
+      "area": "Snapshot inventory file/tree reads",
+      "references": "sdd_history.py:snapshot_or_file_hash/canonical_hashes/execution_fingerprints around201-250",
+      "conclusion": "Only already registered snapshots under an active owner delegate to shared digest. Ordinary files retain prior behavior. Tree listing and member link/type checks still execute each use; no tree-membership memo is substituted."
+    },
+    {
+      "area": "Scoped union and errors",
+      "references": "sdd_history.py:snapshot_hash_scope around36-61; sdd_check.py:Checker.run around2460-2480; progress.py:workflow_progress around94-108",
+      "conclusion": "ContextVar plus explicit owner attachment shares one object across historical/progress module aliases. Checker and projection boundaries audit union; outermost scope audits again after nested helpers and on exceptions. Reset/decrement/clear occur in finally even if audit raises. Root changing_input is blocked before a passed report is returned. Tests mutate after child return, in progress-only paths, on first read and while another error is propagating."
+    },
+    {
+      "area": "Inactive/repeated invocation",
+      "references": "sdd_history.py:snapshot_hash_scope around38-44,56-61; sdd_check.py:history_hash_scope and Checker.run",
+      "conclusion": "Inactive retained owner depth0 is replaced by fresh owner, not reactivated. Historical stack affects existing semantic cache ownership but does not provide new-owner eligibility. Repeated root runs, standalone validate_files, standalone progress, retained historical Checkers and independent CLI process all revalidate."
+    },
+    {
+      "area": "Dynamic read-only boundaries before hardlink writes",
+      "references": "sdd_history.py:capture_continuation around1018-1052; capture_context/capture_completion/capture_attempt around565,683,962",
+      "conclusion": "Continuation preflight is a bounded read-only scope that exits before capture_context/freeze_files creates hardlinks and changes inode ctime. Capture helpers and sdd_history main are not wrapped in a broad write-spanning memo scope. Each nested validation/checker boundary closes/audits before its normal writing phase. Synthetic hardlink-between-phases rehashes; hardlink-inside-readonly-phase blocks."
+    },
+    {
+      "area": "Failed-history and semantic validation preservation",
+      "references": "sdd_history.py:HistoryView.resolve/validate_attempt/validate_transition; sdd_check.py:_run_invocation",
+      "conclusion": "No legacy member, failure, reference, source inventory, finding, runtime observation, authority or semantic gate was removed. Existing _history_cache reset and _history_stack cycle behavior remain; new owner eligibility narrows unsafe reuse rather than replacing validation with cached acceptance. Both historical attempt views still run when semantically required."
+    }
+  ],
+  "independent_actual_verification": {
+    "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest discover -s tests -p test_history_file_cache.py -v",
+    "result": "PASS",
+    "tests": 25,
+    "elapsed_seconds": 12.268,
+    "synthetic_temporary_fixtures_only": true,
+    "coverage": [
+      "One stable physical payload hash across actual root/ready projection plus historical child",
+      "Expected hash/membership checks on reuse",
+      "First-read races, restored-mtime edits, same-size replacement, missing input, file/parent symlink, hardlink mutation",
+      "Error-path and child-only full-union final auditing",
+      "Fresh root/standalone/historical/CLI invocations",
+      "Semantic cache cache/result identity plus content and retained context/completion/attempt trust",
+      "Registered snapshot inventory reuse while tree listing repeats",
+      "Ordinary-file cache isolation"
+    ],
+    "limits": "Synthetic local fixture tests, not product checker timing, native Windows execution, actual archived payload validation or product/runtime/provider acceptance. Root-owned consolidated suite is separate and not claimed here."
+  },
+  "limitations": [
+    "No measured speedup or final long-checker performance claim. Same-owner semantic eligibility JSON serialization and repeated signature audits still incur work.",
+    "History operations containing legitimate writes intentionally split read-only phases; one CLI may create more than one fresh owner rather than trusting through hardlink mutation.",
+    "No new snapshot-directory extra-member enforcement is claimed beyond existing exact file-map/path and tree-selection checks.",
+    "This is a bounded source and focused-test correctness review, not a repository-wide security audit."
+  ],
+  "scope": {
+    "source_edits": false,
+    "actual_product_or_archived_payload_read_hash": false,
+    "private_sql_browser_provider_network_git_install": false,
+    "sole_report_write": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/history-cache-code-review.json",
+    "test_owned_temporary_fixtures_created_and_cleaned": true
+  },
+  "usage": {
+    "live_checked": true,
+    "included_used_percent": 60,
+    "ordinary_usage_allowed": true,
+    "extra_api_reset_used": false
+  },
+  "writing_stopped": true
+}

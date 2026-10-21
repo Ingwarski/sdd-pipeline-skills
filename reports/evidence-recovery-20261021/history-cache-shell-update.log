@@ -1,0 +1,4 @@
+Updater tests passed: stable default, missing stable, explicit main, no downgrade, fresh installer, flags, dirty tree, branch, origin, old URL, ahead/diverged history.
+real 13.11
+user 4.09
+sys 4.30

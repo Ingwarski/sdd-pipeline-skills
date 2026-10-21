@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "kind": "independent-design-only-history-cache-review",
+  "observed_at": "2026-10-21T17:17:01.503888+00:00",
+  "status": "conditionally_sound_design_with_required_lifetime_and_platform_guards",
+  "design": {
+    "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/history-cache-design.json",
+    "sha256": "9d9f78019d9fbc36ae8c4fa9c417554ac605f0e9e894dd4d2b1ce323ad4fbde2"
+  },
+  "scope": {
+    "implementation_review": false,
+    "source_edits": false,
+    "tests_or_checker_runs": false,
+    "old_payload_hashing_or_reads": false,
+    "private_sql_browser_provider_network_git": false,
+    "only_write": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/history-cache-design-review.json"
+  },
+  "usage": {
+    "live_checked": true,
+    "included_used_percent": 60,
+    "ordinary_usage_allowed": true,
+    "extra_api_reset_used": false
+  },
+  "findings": [
+    {
+      "id": "SEMANTIC-CACHE-DEPENDENCY-LIFETIME",
+      "priority": "P1",
+      "classification": "material design requirement; current implementation not reviewed",
+      "references": [
+        "sdd_history.py validate_context around454-462",
+        "sdd_history.py validate_completion around532-550",
+        "sdd_history.py validate_attempt around826-835",
+        "sdd_check.py Checker.run around2423-2424"
+      ],
+      "problem": "A fresh SnapshotFileHashes owner does not by itself prevent an old semantic _history_cache hit from returning before validate_files/historical_checker. Standalone history APIs accept caller-provided cache; historical Checkers retain _history_stack and therefore do not reset that semantic cache on a repeated run. If such a cache outlives its active IO owner, a new invocation can read/hash only the envelope, return the old semantic result, register no snapshot members, and end-audit an empty union after a historical payload changed.",
+      "required_resolution_options": [
+        "Tie semantic cache entries or cache-container trust to the active invocation owner/generation; invalidate or revalidate entries from another/inactive owner.",
+        "Alternatively record complete dependency binding/signature union alongside each semantic result and freshly register/verify that union plus expected hashes/membership on every semantic cache hit. Envelope read_ref hash alone is insufficient."
+      ],
+      "tests_needed": [
+        "Validate context/attempt with caller-retained cache, end scope, mutate referenced snapshot, call again with same semantic cache: must block.",
+        "Repeated run on retained historical Checker must not revive old semantic trust.",
+        "Nested same-owner semantic hits remain fast but their complete dependent file union remains audited."
+      ]
+    },
+    {
+      "id": "PLATFORM-AWARE-CHANGE-CLOCK",
+      "priority": "P1 if implemented with raw path stat; otherwise verification requirement",
+      "classification": "signature provider must be explicit",
+      "references": [
+        "evidence/resolver.py:_regular around35-62",
+        "sdd_check.py:Checker.file_hash around703-712"
+      ],
+      "problem": "The listed dev/ino/size/mtime_ns/ctime_ns tuple is safe only if supplied through existing platform-aware _regular. On Windows path ctime can be creation time; _regular deliberately opens a no-follow descriptor and obtains the native metadata-change clock. A new cache built from Path.stat/lstat can trust same-size edited bytes after mtime restoration.",
+      "required_resolution": "Use existing _regular (or exactly equivalent descriptor-safe provider) for initial, reuse and final audit signatures. Do not substitute raw lstat on Windows.",
+      "tests_needed": [
+        "Existing Windows restored-mtime same-size replacement/edit fixture must cover shared cache hit and scope final audit.",
+        "POSIX parent-symlink/ancestor escape, replacement inode, missing file and first-read mutation remain blocked."
+      ]
+    }
+  ],
+  "accepted_design_properties": [
+    "Dedicated SHA/signature owner separate from _history_cache and _history_stack is the right reuse boundary. No validation-result caching or source/evidence semantic shortcuts are needed for the8GB legacy repeated-read problem.",
+    "Each caller still compares its own expected hash, exact snapshot_root/logical membership and safe physical path even when a physical digest is reused.",
+    "Explicit owner transfer into historical and progress children addresses separate importlib module aliases more reliably than ambient ContextVar state alone.",
+    "Fresh top-level run, standalone history scope and inactive-owner invalidation prevent persistent trust.",
+    "Every scope exit audits child-used paths; root final exit must audit union after projections and nested semantic operations, including exception paths.",
+    "Streaming first-read stable hash avoids large whole-buffer allocation without excluding a single failed history member."
+  ],
+  "implementation_acceptance_requirements": [
+    {
+      "area": "Alias/ContextVar lifetime",
+      "requirement": "ContextVar instances in different module aliases are distinct. Explicitly transferred owner must be the same object and all nested depths must share one lifetime. Do not use isinstance against a duplicate module class to silently drop sharing. Inactive retained owner must never be reactivated; create a fresh owner. Reset token/deactivate/clear must execute even when final audit raises."
+    },
+    {
+      "area": "Error and final-report semantics",
+      "requirement": "Audit even if body raises or nested failure is caught. A root union audit failure must block/raise before the caller can observe a passed report. Preserve useful original error if audit also fails. Do not let finally cleanup clear entries before audit or let mutation failure disappear on a later retry within same invocation."
+    },
+    {
+      "area": "Ordinary versus shared caches",
+      "requirement": "Existing ordinary file_hash/json/section caches and their mutation guards remain intact. Shared historical digest delegation must still put child-only paths in the root union or otherwise guarantee root end audit. Every expected hash comparison stays outside digest memoization."
+    },
+    {
+      "area": "Membership",
+      "requirement": "Reusing the same physical digest for different logical refs never reuses a prior membership verdict. Snapshot-root/logical equality, safe logical path and no-linked physical path checks must execute for each reference. File additions outside declared inventory should retain whichever existing directory/membership contract currently applies; do not claim a stronger check unless implemented."
+    },
+    {
+      "area": "Resource bound",
+      "requirement": "Store only signatures+digests and bounded metadata, not payload buffers. No cross-CLI disk cache. Repeated nested full-union stat audits may still be expensive; measure later, without trading away final union audit."
+    }
+  ],
+  "planned_review_after_freeze": [
+    "Review actual owner scope entry/exit and all standalone history entrypoints.",
+    "Verify same-owner vs stale-owner semantic cache hits, cross-alias explicit owner attachment, repeated top-level calls and error exits.",
+    "Verify no current expected-hash/membership checks move behind a successful cached result.",
+    "Inspect focused mutation/Windows/lifetime tests and actual results; design alone is not code or runtime acceptance."
+  ],
+  "current_limits": "Worker implementation is concurrently owned and unfrozen. These are design findings against documented contract and existing baseline cache behavior; no claim is made about whether in-flight code has already resolved them.",
+  "writing_stopped": true
+}
