@@ -1,0 +1,141 @@
+{
+  "after_edits": {
+    "counts": {
+      "download_original": 4,
+      "list": 4,
+      "metadata": 14
+    },
+    "fresh_object_stat_calls": 14,
+    "independent_downloads": 4,
+    "metadata_bytes": 1616,
+    "metadata_files": 6,
+    "prefix_listing_matches": [
+      {
+        "matches": 2,
+        "prefix": "projects/11111111-1111-4111-8111-111111111111/roots/"
+      },
+      {
+        "matches": 1,
+        "prefix": "projects/11111111-1111-4111-8111-111111111111/authority/"
+      },
+      {
+        "matches": 3,
+        "prefix": "projects/11111111-1111-4111-8111-111111111111/indexes/"
+      },
+      {
+        "matches": 0,
+        "prefix": "projects/11111111-1111-4111-8111-111111111111/packs/"
+      }
+    ],
+    "remote_object_count": 6
+  },
+  "baseline_before_edits": {
+    "counts": {
+      "download_original": 4,
+      "list": 5,
+      "lookup": 10,
+      "metadata": 4
+    },
+    "evidence": "Actual pre-edit ConnectedFixture adapter requests; isolated local synthetic catalog with2roots,3indexes including orphan,1authority,2readsegments. No live provider.",
+    "metadata_bytes": 1616,
+    "metadata_files": 6,
+    "remote_object_count": 6,
+    "source_hashes": {
+      "skills/to-sdd-pipeline/scripts/evidence/manager.py": "729bc7fe7ed2def264bdaf25793b3c0dd4c0543bc1f3f6bf3adec01353e040a5",
+      "skills/to-sdd-pipeline/scripts/evidence/transports.py": "e505bcfc2344ac0582ebe8d5e0299b5b0f002caac30e120ef53fdf268c021a5d"
+    }
+  },
+  "changes": [
+    "ConnectedDriveTransport.inventory performs the existing fresh complete bounded paginated validation and returns sorted validated metadata records.",
+    "ConnectedDriveTransport.keys keeps sorted string API and delegates to fresh inventory.",
+    "Manager uses same-catalog listing locators for root/authority/index metadata reads and fresh admission stat on every historical root/index/authority.",
+    "Manager passes same-catalog authority entries only within that catalog operation; standalone authority calls freshly enumerate.",
+    "Transports without inventory retain keys fallback; latest root comparison remains original string for fresh publication fence."
+  ],
+  "checks": [
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_catalog_inventory.py -v",
+      "result": "passed",
+      "seconds": 0.596,
+      "tests": 13
+    },
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_evidence_transports.py -v",
+      "result": "passed",
+      "seconds": 13.923,
+      "tests": 68
+    },
+    {
+      "command": "python3 -B -m unittest discover -s tests -p 'test_evidence_*manager*.py' -v",
+      "result": "passed",
+      "seconds": 34.748,
+      "tests": 82
+    }
+  ],
+  "failures_preserved": [
+    {
+      "command": "first new catalog test import",
+      "correction": "Parenthesize generator supplied with sorted key argument;13 tests then passed.",
+      "error": "SyntaxError: Generator expression must be parenthesized"
+    }
+  ],
+  "first_failed_baseline_fixture": {
+    "correction": "Use two fixed canonical UUID fixture identities; no production mutation occurred.",
+    "error": "EvidenceError: project_id must be a canonical UUID"
+  },
+  "kind": "bounded-fresh-catalog-inventory-optimization",
+  "native_host_cost_formula": {
+    "assumptions": "Successful small complete native folder listing; one native list_folder call per list/lookup. Prefix listing calls metadata for each matching row; exact lookup calls metadata for matching immutable key; metadata operation calls get_file_metadata once; each download_original performs its additional fresh metadata then fetch. Capabilities/initialization excluded on both sides.",
+    "classification": "Derived from unchanged ConnectedHostAdapter source; not a live Drive or SDK-latency measurement. Adapter-call counts above are measured actual fakeadapter calls.",
+    "fixture_after": {
+      "native_fetch": 4,
+      "native_get_file_metadata": 24,
+      "native_list_folder": 4,
+      "prefix_listing_matching_rows": 6,
+      "total_native_tools": 32
+    },
+    "fixture_before": {
+      "native_fetch": 4,
+      "native_get_file_metadata": 25,
+      "native_list_folder": 15,
+      "prefix_listing_matching_rows": 7,
+      "total_native_tools": 44
+    },
+    "formula": {
+      "native_fetch": "adapter download_original calls",
+      "native_get_file_metadata": "sum of matching rows across all adapter prefix listings + matching exact-lookup rows + adapter metadata calls + adapter download_original calls",
+      "native_list_folder": "adapter list calls + adapter exact-key lookup calls"
+    },
+    "interpretation": "Removes10 redundant exact-key whole-folder lookups and1 duplicate authority prefix enumeration for this catalog snapshot. Fresh transport stat calls remain14; independent original downloads remain4; bytes1616/files6 unchanged. No universal latency/throughput or larger/native-saturated-folder support claimed."
+  },
+  "preserved": [
+    "Every historical root/index/authority receives fresh stat; listed sizes are never reused for admission.",
+    "All complete listings, pagination/token/object/aggregate-byte bounds and duplicate/ambiguous identity rejection remain.",
+    "Fresh metadata stable object ID/name/folder validation remains via existing stat(locator).",
+    "Latest root and all referenced segment independent downloads, exact size/hash checks, and original-byte/bypass-cache controls remain.",
+    "Publication still executes its separate fresh string-key listing concurrency fence and capacity checks; index/root uploads still independently read back originals.",
+    "No cross-operation cache, no skipped begin snapshots, no changed budgets/accounting/history/recovery behavior."
+  ],
+  "recorded_at": "2026-10-21T16:41:47.302917+00:00",
+  "remaining": [
+    "Root independent semantic review and exact-final-source full regression suite/Git publication.",
+    "No installation or live application until current UNIT00 execution ends.",
+    "Synthetic fixture results are not actual provider performance or product acceptance."
+  ],
+  "scope": {
+    "checkout_Git_or_install_actions": false,
+    "development_engine_only": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+    "extra_API_reset_authorized": false,
+    "included_usage_start_percent": 59,
+    "installed_snapshot": "Immutable installed v2 from5f3fa81 untouched; do not install development changes while current UNIT00 executes.",
+    "isolated_fixture_Git": "Existing manager suite Git-review fixture uses disposable temporary repositories; explicitly confirmed authorized by root. No engine/product checkout branch/commit/push.",
+    "product_or_private_ledger_or_provider_or_browser_or_temp_server_actions": false
+  },
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py": "c5fdc9a90d3ea0c6dfe6e412bfb1faa9b6cb0758f7eb454b318239ac554ed8c1",
+    "skills/to-sdd-pipeline/scripts/evidence/transports.py": "5ef4647f81121bcf8ac9f1110cef6860d89a92d7d7eb83853f795441f9f5233f",
+    "tests/test_catalog_inventory.py": "5abe041b41670fea2cf6bb16428dc7dd73c71836484f1aa38730d0fcd150ba24"
+  },
+  "status": "SOURCE_FROZEN_TARGETED_REGRESSIONS_PASS_ROOT_REVIEW_PENDING",
+  "version": 1
+}

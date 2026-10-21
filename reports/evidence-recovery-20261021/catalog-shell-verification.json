@@ -1,0 +1,76 @@
+{
+  "purpose": "Maintenance shell-suite verification after the catalog inventory change",
+  "source_revision": "5f3fa81313d728b851dfb8c24959db9ba9dfd77d",
+  "runtime": {
+    "python": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "version": "Python 3.12.14",
+    "path_prefix_used": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin"
+  },
+  "included_usage_check": {
+    "ordinary_usage_allowed": true,
+    "used_percent": 59,
+    "extra_credits_or_api": false
+  },
+  "source_freeze": {
+    "manifest": "reports/evidence-recovery-20261021/catalog-source-hashes.json",
+    "before_and_after_match": true,
+    "files": {
+      "skills/to-sdd-pipeline/scripts/evidence/manager.py": "c5fdc9a90d3ea0c6dfe6e412bfb1faa9b6cb0758f7eb454b318239ac554ed8c1",
+      "skills/to-sdd-pipeline/scripts/evidence/transports.py": "5ef4647f81121bcf8ac9f1110cef6860d89a92d7d7eb83853f795441f9f5233f",
+      "tests/test_catalog_inventory.py": "5abe041b41670fea2cf6bb16428dc7dd73c71836484f1aa38730d0fcd150ba24"
+    },
+    "note": "The catalog source/test files were already modified or untracked relative to HEAD by the parent task; their current hashes match the parent's catalog-source-hashes snapshot before and after these shell runs."
+  },
+  "shell_suites": [
+    {
+      "command": "bash tests/test-install.sh",
+      "exit_code": 0,
+      "elapsed_seconds_real": 2.16,
+      "result": "Unix installer tests passed.",
+      "log": "reports/evidence-recovery-20261021/catalog-shell-install.log",
+      "temporary_root": "${TMPDIR}/codex-sdd-installer.*",
+      "cleanup": "The script's EXIT trap removed its isolated test root; no matching directory remained under the resolved TMPDIR after completion."
+    },
+    {
+      "command": "bash tests/test-retirement.sh",
+      "exit_code": 0,
+      "elapsed_seconds_real": 4.59,
+      "result": "Permanent retirement tests passed, including expected deletion failure handling and recovery.",
+      "log": "reports/evidence-recovery-20261021/catalog-shell-retirement.log",
+      "temporary_root": "${TMPDIR}/sdd-retirement.*",
+      "cleanup": "The script's EXIT trap removed its isolated test root; no matching directory remained under the resolved TMPDIR after completion."
+    },
+    {
+      "command": "bash tests/test-update.sh",
+      "exit_code": 0,
+      "elapsed_seconds_real": 4.25,
+      "result": "Updater tests passed for stable/default channel, missing stable, explicit main, no downgrade, flags, dirty tree, origin, and divergence behavior.",
+      "log": "reports/evidence-recovery-20261021/catalog-shell-update.log",
+      "temporary_root": "${TMPDIR}/sdd-update.*",
+      "cleanup": "The script's EXIT trap removed its isolated test root; no matching directory remained under the resolved TMPDIR after completion.",
+      "network_scope": "The test redirects fetches to its disposable local bare Git remote; no live network operation was performed."
+    }
+  ],
+  "root_unittest_context": {
+    "log": "reports/evidence-recovery-20261021/catalog-unittest.log",
+    "json": "reports/evidence-recovery-20261021/catalog-unittest.json",
+    "exit_code": 0,
+    "test_count": 998,
+    "skipped": 11,
+    "unittest_reported_seconds": 497.738,
+    "json_wrapper_elapsed_seconds": 498.492,
+    "source_hashes_unchanged": true,
+    "product_acceptance": false,
+    "source": "Recorded parent-run result; inspected but not rerun in this task."
+  },
+  "cleanup_check": {
+    "resolved_tmpdir": "/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/",
+    "matching_test_roots_remaining": [],
+    "test_processes_remaining": false,
+    "basis": "All three commands had exited with status 0; each script uses an EXIT trap to remove the exact mktemp-created root. Pattern checks found no corresponding roots under TMPDIR."
+  },
+  "limits": [
+    "These are isolated local maintenance shell-suite results, not live installer or product acceptance evidence.",
+    "Requested model/reasoning settings were not independently visible or verified by this execution environment."
+  ]
+}

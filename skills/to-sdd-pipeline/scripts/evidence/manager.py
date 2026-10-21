@@ -597,11 +597,17 @@ class Manager:
         with self.locked():
             return self._catalog_locked(mutation=mutation, recover_policy=recover_policy)
 
+    def _catalog_inventory(self, prefix):
+        # Reuse only this fresh listing's object identity, never its sizes for
+        # admission. Older transports keep their existing string-key contract.
+        method = "inventory" if callable(getattr(self.transport, "inventory", None)) else "keys"
+        return self._transport_call(method, prefix)
+
     def _catalog_locked(self, *, mutation=False, recover_policy=False):
-        roots = self._transport_call("keys", self.prefix + "roots/")
-        authorities = self._transport_call("keys", self.prefix + "authority/")
+        roots = self._catalog_inventory(self.prefix + "roots/")
+        authorities = self._catalog_inventory(self.prefix + "authority/")
         authority_bytes = sum(self._transport_call("stat", item)["size"] for item in authorities)
-        authority = self._generation_authority() if authorities else None
+        authority = self._generation_authority(authorities) if authorities else None
         if mutation and authority is not None and authority["coordinator"] != self.coordinator:
             raise EvidenceError("this client lacks designated coordinator authority; cold recovery is read-only")
         if len(roots) + len(authorities) > self.limits["metadata_stop_files"] or authority_bytes > self.limits["metadata_stop_bytes"]:
@@ -612,7 +618,8 @@ class Manager:
                     "generation": {}, "generation_intents": {}, "generation_quarantines": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
         keys = sorted((x if isinstance(x, str) else x["key"]) for x in roots)
         latest = keys[-1]
-        root, (digest, size) = self._read_remote_json(latest, self.limits["metadata_stop_bytes"])
+        latest_locator = next(item for item in roots if (item if isinstance(item, str) else item["key"]) == latest)
+        root, (digest, size) = self._read_remote_json(latest_locator, self.limits["metadata_stop_bytes"])
         if latest != self.prefix + "roots/" + str(root.get("sequence", 0)).zfill(12) + "-" + digest + ".json":
             raise EvidenceError("catalog root identity/hash mismatch")
         if root.get("version") != 1 or root.get("project_id") != self.policy["project_id"] or root.get("store_id") != self.policy["store_id"]:
@@ -631,13 +638,14 @@ class Manager:
         if not isinstance(root.get("segments"), list) or len(root["segments"]) > self.limits["metadata_stop_files"]:
             raise EvidenceError("invalid catalog segment closure")
         total = authority_bytes
-        indexes = self._transport_call("keys", self.prefix + "indexes/")
-        index_keys = {(x if isinstance(x, str) else x["key"]) for x in indexes}
+        indexes = self._catalog_inventory(self.prefix + "indexes/")
+        index_locators = {(item if isinstance(item, str) else item["key"]): item for item in indexes}
+        index_keys = set(index_locators)
         # Old roots count too: splitting or retaining checkpoints cannot evade metadata limits.
-        for key in keys:
-            total += int(self._transport_call("stat", key)["size"])
+        for locator in roots:
+            total += int(self._transport_call("stat", locator)["size"])
         for key in index_keys:
-            total += int(self._transport_call("stat", key)["size"])
+            total += int(self._transport_call("stat", index_locators[key])["size"])
         refs, packs, generation, pending_deletions, retired_refs, import_retention_decisions = {}, {}, {}, {}, {}, {}
         generation_intents, generation_quarantines, reference_aliases = {}, {}, {}
         seen = set()
@@ -1394,14 +1402,15 @@ class Manager:
                 raise EvidenceError("restoration resource settlement incomplete: " + "; ".join(result["violations"]))
         return restored
 
-    def _generation_authority(self):
+    def _generation_authority(self, entries=None):
         key = self.prefix + "authority/coordinator.json"
-        entries = self._transport_call("keys", self.prefix + "authority/")
+        if entries is None:
+            entries = self._catalog_inventory(self.prefix + "authority/")
         if not entries:
             return None
         if len(entries) != 1 or (entries[0] if isinstance(entries[0], str) else entries[0]["key"]) != key:
             raise EvidenceError("ambiguous generation coordinator authority; reconciliation required")
-        value, _ = self._read_remote_json(key, 4096)
+        value, _ = self._read_remote_json(entries[0], 4096)
         if (not isinstance(value, dict) or value.get("version") != 1
                 or value.get("project_id") != self.policy["project_id"]
                 or value.get("store_id") != self.policy["store_id"]

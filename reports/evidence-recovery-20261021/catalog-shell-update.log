@@ -1,0 +1,4 @@
+Updater tests passed: stable default, missing stable, explicit main, no downgrade, fresh installer, flags, dirty tree, branch, origin, old URL, ahead/diverged history.
+real 4.25
+user 1.55
+sys 1.44

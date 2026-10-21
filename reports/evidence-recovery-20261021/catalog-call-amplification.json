@@ -1,0 +1,106 @@
+{
+  "report": "Connected-host catalog call amplification",
+  "scope_and_method": {
+    "revision": "5f3fa81313d728b851dfb8c24959db9ba9dfd77d",
+    "branch": "codex/fix-evidence-recovery",
+    "method": "Read-only source tracing of manager catalog reads, catalog publication, ConnectedDriveTransport, and ConnectedHostAdapter native operations. No runtime/provider calls, tests, fixtures, browser actions, or source edits were performed.",
+    "live_counts": {
+      "dry_run_native_requests": {
+        "value": 72,
+        "source": "Parent-reported observation; not independently measured in this analysis."
+      },
+      "apply_native_requests": {
+        "value": 169,
+        "source": "Parent-reported observation; not independently measured in this analysis."
+      },
+      "apply_json_uploads": {
+        "value": 2,
+        "source": "Parent-reported observation; not independently measured in this analysis."
+      },
+      "pre_begin_requests": {
+        "value": "50+ before browser start",
+        "source": "Parent-reported observation; not independently measured in this analysis."
+      },
+      "interpretation": "The 97-request apply-minus-dry-run difference is consistent with a second full catalog verification pass plus publication/concurrency/readback calls. The source confirms that apply publishes and then reloads the catalog, while dry-run does not. The exact split of the observed 169 requests is not inferable without the corresponding operation trace."
+    }
+  },
+  "source_findings": [
+    {
+      "finding": "A connected-host prefix listing costs one native list_folder request plus one get_file_metadata request for every returned row whose name matches the requested key or prefix. The native listing is a full single-page folder scan, bounded to 1000 rows, and is rejected if saturated or incomplete.",
+      "source": "skills/to-sdd-pipeline/scripts/evidence/connected_host.py:396-452",
+      "implication": "Catalog inventories for roots, authority, and indexes each rescan the same selected folder. Every matching root/index object is independently fetched for metadata during that scan. This protects completeness, stable identity, folder membership, non-trash state, binary MIME type, exact key, and size."
+    },
+    {
+      "finding": "ConnectedDriveTransport.keys calls adapter.list and then returns only key strings. The adapter had already returned validated object metadata including object_id, key, and size.",
+      "source": "skills/to-sdd-pipeline/scripts/evidence/transports.py:655-685; skills/to-sdd-pipeline/scripts/evidence/connected_host.py:436-452",
+      "implication": "The interface discards metadata already fetched and validated in the same fresh complete-list operation. Manager code subsequently asks for sizes via stat on those strings, forcing another complete folder scan for each key. A metadata-preserving inventory interface is the clearest source-grounded optimization candidate; each catalog operation would still perform a fresh complete listing."
+    },
+    {
+      "finding": "_catalog_locked lists roots and authority, stats each authority key, separately calls _generation_authority (which lists authority again and reads the authority JSON), reads the latest root by string key, lists indexes, stats every historical root and every index, and reads each referenced segment. _read_remote_json performs stat followed by get.",
+      "source": "skills/to-sdd-pipeline/scripts/evidence/manager.py:586-594,600-655,1399-1411",
+      "implication": "With R root keys, I index keys, A authority keys, and S catalog segments, the current connected-host path has approximately 10 + 3R + 3I + 4S native requests when authority is absent, and 18 + 3R + 3I + 4A + 4S when authority is present. These estimates count native list, metadata, and fetch calls under the current one-page adapter behavior; they exclude external operations and assume all references are string-key lookups where shown. In addition, each list_folder response scans the full folder, so metadata payload/row-processing work grows approximately with total folder rows F times the number of listing calls."
+    },
+    {
+      "finding": "_generation_authority performs a second authority-prefix listing even when _catalog_locked has just listed that prefix. In a normal single-authority catalog, this repeats a full folder listing and metadata validation; the authority JSON read then does additional exact-key lookups.",
+      "source": "skills/to-sdd-pipeline/scripts/evidence/manager.py:600-605,1399-1411",
+      "implication": "Within one catalog load, passing the already validated authority inventory into the helper could remove duplicate listing while retaining ambiguity checks and fresh validation. This is same-operation reuse of the current response, not a stale cross-call cache."
+    },
+    {
+      "finding": "_publish re-lists roots and compares the current latest key with the root used to build the new record before uploading the index and root. _put_json independently reads back each uploaded JSON and checks its hash. Quarantine apply then reloads the catalog and compares the published descriptor; dry-run skips publication and readback.",
+      "source": "skills/to-sdd-pipeline/scripts/evidence/manager.py:818-847,1472-1497",
+      "implication": "The root re-list is an optimistic concurrency fence and the independent readbacks are integrity checks; neither is a safe target for removal. Apply necessarily has a larger request count than dry-run. The post-publish catalog reload also verifies the committed quarantine state independently."
+    },
+    {
+      "finding": "begin_generation calls assert_generation_authority, then later obtains another catalog under its mutation lock before publishing the intent. assert_generation_authority itself loads a catalog, performs authority/recovery checks, then reloads a catalog for ledger reconciliation and readiness. Each catalog reads all historical roots/indexes/segments.",
+      "source": "skills/to-sdd-pipeline/scripts/evidence/manager.py:1501-1537,1545-1562",
+      "implication": "The pre-begin request count is expected to be high and grows with retained catalog history. The second begin-generation snapshot is a freshness/concurrency boundary after authority and producer-recovery work; removing it or reusing an earlier snapshot would need an explicit remote-version fence to preserve current mutation semantics."
+    },
+    {
+      "finding": "ConnectedDriveTransport.put performs an exact-key lookup, pre-upload capacity check, checkpoint, then upload; the connected adapter's upload operation repeats the capacity scan immediately before upload. The uploaded object is verified by metadata, then looked up and read back by the transport retry/verification flow.",
+      "source": "skills/to-sdd-pipeline/scripts/evidence/transports.py:477-510,560-563,606-620; skills/to-sdd-pipeline/scripts/evidence/connected_host.py:454-463,511-519",
+      "implication": "These scans overlap, but the early preflight prevents creating a pending checkpoint when capacity is already exhausted, while the upload-time scan protects against a competing writer in the interval. A future combined operation could retain both semantics and freshness while avoiding a separate full scan, but simply deleting either check would weaken failure ordering or race protection."
+    }
+  ],
+  "classification": {
+    "required_freshness_or_integrity_work": [
+      "A complete fresh folder listing per independent catalog snapshot; current native listing exposes no continuation token, so incomplete/saturated pages must fail closed.",
+      "Exact object metadata checks for folder membership, trash status, binary MIME, stable ID, immutable key, and size.",
+      "Counting all historical roots and indexes against metadata limits and reconstructing state from every immutable segment.",
+      "A fresh root comparison before publication to stop concurrent catalog mutation.",
+      "Independent upload readback and post-publication catalog verification.",
+      "A final upload-time capacity/key check to protect against writers racing after an earlier preflight."
+    ],
+    "grounded_repeat_work_candidates": [
+      "Preserve validated metadata returned by ConnectedDriveTransport.keys instead of discarding it and issuing one string-key stat per root/index/authority object. Revalidate the listing on each new catalog call; do not reuse it across operations.",
+      "Pass the authority inventory already returned inside _catalog_locked into _generation_authority or a value parser, avoiding a duplicate authority listing within the same catalog load while preserving the exactly-one-authority rule.",
+      "For root and segment reads, pass validated stable object locators from the inventory into stat/get paths instead of converting to string keys and triggering another whole-folder exact-key search. Preserve fresh object metadata and independent original-byte/hash readback.",
+      "Consider a transport-level preflight-and-upload operation that performs the capacity check immediately before upload and preserves the earlier no-pending-checkpoint-on-capacity-failure behavior. Keep a final write-time freshness check; do not remove race protection."
+    ],
+    "not_supported_by_evidence": [
+      "Removing complete listings, historical root/index accounting, segment validation, authority checks, concurrency fences, or independent readbacks.",
+      "Caching tool results across separate catalog calls or using stale listings for mutation decisions.",
+      "Assuming a native search endpoint can replace list_folder without demonstrating complete binary-object enumeration and the same validation guarantees."
+    ]
+  },
+  "growth_and_measurement": {
+    "symbols": {
+      "R": "number of historical root objects",
+      "I": "number of immutable index objects",
+      "S": "number of catalog segments referenced by the latest root",
+      "A": "number of authority objects",
+      "F": "all rows returned by one native folder listing"
+    },
+    "growth": "Per catalog load, native calls are linear in R, I, A, and S with the approximate formulas above. Returned folder-row work is approximately O(F times list-request-count), because string-key stat and exact reads invoke fresh full folder searches. Repeated catalog loads before begin, during begin, and after mutations multiply this cost; catalog history therefore raises both unit cost and repeated-call cost over time.",
+    "proof_needed_before_change": [
+      "Instrument one dry-run, one apply, begin_generation, and finish_generation with a counter at the native adapter boundary; label list_folder, get_file_metadata, fetch, upload_file, and other operations separately.",
+      "Record R, I, S, A, F and response-row/metadata bytes for each fresh catalog snapshot, then reconcile predicted and observed counts.",
+      "For a metadata-preserving inventory change, prove exact equality of object keys, IDs, sizes, folder membership, duplicate detection, root/index byte totals, parsed catalog state, and fail-closed behavior on missing, duplicate, truncated, or changing entries.",
+      "For any combined upload operation, inject a concurrent same-key writer and a capacity-boundary case to prove the final write-time guard and no-pending-checkpoint-on-preflight-failure semantics remain intact."
+    ]
+  },
+  "limits": [
+    "The live request totals and upload count are parent-reported and were not verified by this read-only source task.",
+    "The request formulas assume the current ConnectedDriveTransport string-key stat and get behavior and the single complete native listing page; an exact runtime trace could differ with a different adapter or a history shape with no authority.",
+    "This report identifies bounded candidates only. No implementation or runtime change is authorized by this research task."
+  ]
+}
