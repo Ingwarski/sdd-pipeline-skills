@@ -1,5 +1,6 @@
 """Invocation snapshot hashing on synthetic files; no product or archived payloads."""
 import copy
+from contextvars import copy_context
 import json
 import os
 from pathlib import Path
@@ -63,6 +64,278 @@ class HistoryFileCacheTests(unittest.TestCase):
                                             self.history.encoded(legacy))
         project.manifest.update(checker_contract_version=2, unit_contract_version=2,
                                 legacy_history=[legacy_ref], next_ready_nodes=[])
+        return legacy_ref
+
+    @staticmethod
+    def legacy_validations(validation):
+        return sum(call.args[1].get("event") == "legacy_execution_archive"
+                   for call in validation.call_args_list)
+
+    def legacy_checker(self):
+        project = Project(self.root)
+        reference = self.add_legacy(project)
+        return project, reference, sdd.Checker(self.root, project.manifest)
+
+    def resolve_legacy(self, checker):
+        self.history.HistoryView(checker).resolve()
+
+    def test_checker_legacy_memo_reuses_full_validation_but_reads_refs_each_time(self):
+        project, reference, checker = self.legacy_checker()
+        manifest_ref = self.history.read_ref(self.root, reference)["manifest_ref"]
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            self.resolve_legacy(checker)
+            self.assertEqual({self.path}, set(checker._history_hash_owner.hashes))
+            return self.report(checker)
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation, \
+                mock.patch.object(self.history, "read_ref", wraps=self.history.read_ref) as reads:
+            self.assertEqual("passed", checker.run("product-idea")["result"])
+        self.assertEqual(1, self.legacy_validations(validation))
+        for ref in (reference, manifest_ref):
+            self.assertEqual(2, sum(call.args[1] == ref for call in reads.call_args_list))
+        self.assertEqual({}, checker._history_hash_owner.legacy_files)
+        self.assertIsNone(self.history._checker_audit_lease.get())
+
+    def test_checker_legacy_memo_is_fresh_on_each_top_level_run(self):
+        project, reference, checker = self.legacy_checker()
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            self.resolve_legacy(checker)
+            return self.report(checker)
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation:
+            self.assertEqual("passed", checker.run("product-idea")["result"])
+            first = checker._history_hash_owner
+            os.link(self.path, self.path.with_name("between-phases.bin"))
+            self.assertEqual("passed", checker.run("product-idea")["result"])
+            self.assertIsNot(first, checker._history_hash_owner)
+        self.assertEqual(2, self.legacy_validations(validation))
+        self.assertEqual({}, first.legacy_files)
+
+    def test_generic_scope_and_expired_copied_checker_lease_never_reuse(self):
+        project, reference, checker = self.legacy_checker()
+        saved = []
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            self.resolve_legacy(checker)
+            saved.append(copy_context())
+            return self.report(checker)
+        with mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation, \
+                self.history.snapshot_hash_scope(audit=False) as owner:
+            with mock.patch.object(checker, "_run", side_effect=body):
+                self.assertEqual("passed", checker.run("product-idea")["result"])
+            self.resolve_legacy(checker)
+            # A stale caller flag cannot revive the expired context-local lease.
+            checker._invocation_active = True
+            try:
+                saved[0].run(self.resolve_legacy, checker)
+            finally:
+                checker._invocation_active = False
+            self.assertEqual(3, self.legacy_validations(validation))
+            self.assertEqual(1, len(owner.legacy_files))
+        self.assertEqual({}, owner.legacy_files)
+
+    def test_legacy_memo_semantic_record_mutation_requires_full_validation(self):
+        project, reference, checker = self.legacy_checker()
+        original = self.history.read_ref
+        visits = 0
+        def changed_record(root, ref):
+            nonlocal visits
+            value = original(root, ref)
+            if ref == reference:
+                visits += 1
+                if visits == 2:
+                    value["files"][self.logical]["content_hash"] = "0" * 64
+            return value
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            self.resolve_legacy(checker)
+            return self.report(checker)
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                mock.patch.object(self.history, "read_ref", side_effect=changed_record), \
+                mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation:
+            with self.assertRaisesRegex(ValueError, "historical snapshot changed"):
+                checker.run("product-idea")
+        self.assertEqual(2, self.legacy_validations(validation))
+
+    def test_legacy_memo_never_skips_reference_or_original_manifest_sha(self):
+        project, reference, checker = self.legacy_checker()
+        legacy = self.history.read_ref(self.root, reference)
+        for changed in ("legacy", "manifest"):
+            with self.subTest(changed=changed):
+                target = reference if changed == "legacy" else legacy["manifest_ref"]
+                path = self.root / target["path"]
+                original = path.read_bytes()
+                def body(*args, **kwargs):
+                    self.resolve_legacy(checker)
+                    path.write_bytes(path.read_bytes() + b" ")
+                    self.resolve_legacy(checker)
+                    return self.report(checker)
+                try:
+                    with mock.patch.object(checker, "_run", side_effect=body), \
+                            self.assertRaisesRegex(ValueError, "changed history file"):
+                        checker.run("product-idea")
+                finally:
+                    path.write_bytes(original)
+
+    def test_legacy_memo_keeps_current_logical_link_guards(self):
+        project, reference, checker = self.legacy_checker()
+        logical = self.root / self.logical
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            logical.parent.mkdir(exist_ok=True)
+            self.symlink(logical, self.path)
+            self.resolve_legacy(checker)
+            return self.report(checker)
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation:
+            with self.assertRaisesRegex(ValueError, "cannot follow links"):
+                checker.run("product-idea")
+        self.assertEqual(1, self.legacy_validations(validation))
+
+    def test_legacy_memo_rejects_frozen_change_before_checker_return(self):
+        project, reference, checker = self.legacy_checker()
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            self.changed()
+            self.resolve_legacy(checker)  # Reuse cannot escape the mandatory audit.
+            return self.report(checker)
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation:
+            result = checker.run("product-idea")
+        self.assertEqual(1, self.legacy_validations(validation))
+        self.assertEqual("blocked", result["result"])
+        self.assertTrue(any(issue["code"] == "changing_input" for issue in result["issues"]))
+
+    def test_legacy_memo_registers_unused_files_and_audits_before_child_return(self):
+        unused = self.path.with_name("unused.bin")
+        unused.write_bytes(b"Unused synthetic snapshot.\n")
+        self.record["files"]["assets/unused.bin"] = {
+            "path": unused.relative_to(self.root).as_posix(), "content_hash": sdd.digest(unused.read_bytes())}
+        project, reference, checker = self.legacy_checker()
+        child = sdd.Checker(self.root, project.manifest)
+        child_results = []
+        def child_body(*args, **kwargs):
+            self.resolve_legacy(child)
+            self.assertEqual({self.path, unused}, set(child._history_hash_owner.hashes))
+            unused.unlink()
+            return self.report(child)
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            with mock.patch.object(child, "_run", side_effect=child_body):
+                child_results.append(child.run("product-idea"))
+            return self.report(checker)
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation:
+            result = checker.run("product-idea")
+        self.assertEqual(1, self.legacy_validations(validation))
+        self.assertEqual("blocked", child_results[0]["result"])
+        self.assertEqual("blocked", result["result"])
+
+    def test_legacy_memo_registration_loss_requires_full_validation(self):
+        project, reference, checker = self.legacy_checker()
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            checker._history_hash_owner.hashes.clear()
+            self.changed()
+            self.resolve_legacy(checker)
+            return self.report(checker)
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation:
+            with self.assertRaisesRegex(ValueError, "historical snapshot changed"):
+                checker.run("product-idea")
+        self.assertEqual(2, self.legacy_validations(validation))
+
+    def test_legacy_memo_reference_path_is_part_of_namespace(self):
+        project, reference, checker = self.legacy_checker()
+        alias = dict(reference, path="forge/unit-history/synthetic/alias.json")
+        (self.root / alias["path"]).write_bytes((self.root / reference["path"]).read_bytes())
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            checker.manifest["legacy_history"] = [alias]
+            self.resolve_legacy(checker)
+            return self.report(checker)
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation:
+            self.assertEqual("passed", checker.run("product-idea")["result"])
+        self.assertEqual(2, self.legacy_validations(validation))
+
+    def test_legacy_memo_project_namespace_isolated_across_nested_checkers(self):
+        project, reference, checker = self.legacy_checker()
+        other_root = self.root / "another-project"
+        other_root.mkdir()
+        legacy = self.history.read_ref(self.root, reference)
+        for ref in (reference, legacy["manifest_ref"], self.record["files"][self.logical]):
+            target = other_root / ref["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((self.root / ref["path"]).read_bytes())
+        (other_root / self.relative).write_bytes(b"X" + self.payload[1:])
+        child = sdd.Checker(other_root, copy.deepcopy(project.manifest))
+        def child_body(*args, **kwargs):
+            self.resolve_legacy(child)
+            return self.report(child)
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            with mock.patch.object(child, "_run", side_effect=child_body), \
+                    self.assertRaisesRegex(ValueError, "historical snapshot changed"):
+                child.run("product-idea")
+            return self.report(checker)
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation:
+            self.assertEqual("passed", checker.run("product-idea")["result"])
+        self.assertEqual(2, self.legacy_validations(validation))
+
+    def test_legacy_memo_error_exit_still_audits_full_union(self):
+        project, reference, checker = self.legacy_checker()
+        def body(*args, **kwargs):
+            self.resolve_legacy(checker)
+            self.resolve_legacy(checker)
+            self.changed()
+            raise RuntimeError("synthetic semantic failure")
+        with mock.patch.object(checker, "_run", side_effect=body), \
+                self.assertRaisesRegex(ValueError, "historical snapshot changed") as raised:
+            checker.run("product-idea")
+        self.assertIsInstance(raised.exception.__context__, RuntimeError)
+        self.assertIsNone(self.history._checker_audit_lease.get())
+
+    def test_nested_migration_stage_and_activation_keep_prewrite_hard_errors(self):
+        for operation in ("stage", "activate"):
+            with self.subTest(operation=operation):
+                base = history_fixture.UnitHistoryTests("test_version_one_retains_original_acceptance_and_plan_binding_rules")
+                base.setUp()
+                self.addCleanup(base.doCleanups)
+                helper = self.history
+                base.p.save()
+                expected = base.p.hash("forge/sdd-manifest.json")
+                staged = helper.adopt_legacy(base.p.root, expected)
+                staged_record = base.read(staged)
+                candidate = staged_record["manifest"]
+                legacy = base.read(candidate["legacy_history"][-1])
+                checker = sdd.Checker(base.p.root, candidate)
+                def body(*args, **kwargs):
+                    self.resolve_legacy(checker)
+                    self.resolve_legacy(checker)
+                    return self.report(checker)
+                with self.assertRaisesRegex(ValueError, "missing|unreadable|historical snapshot changed"):
+                    with helper.snapshot_hash_scope():
+                        with mock.patch.object(checker, "_run", side_effect=body):
+                            self.assertEqual("passed", checker.run("product-idea")["result"])
+                        snapshot = next(iter(legacy["files"].values()))
+                        (base.p.root / snapshot["path"]).unlink()
+                        with mock.patch.object(helper, "write_new", wraps=helper.write_new) as writes, \
+                                mock.patch.object(helper, "store_record", wraps=helper.store_record) as records, \
+                                mock.patch.object(helper.os, "replace", wraps=helper.os.replace) as replace:
+                            with self.assertRaisesRegex(ValueError, "historical snapshot changed"):
+                                if operation == "stage":
+                                    helper.stage_candidate(base.p.root, candidate, expected)
+                                else:
+                                    helper.activate_candidate(base.p.root, staged, expected)
+                            writes.assert_not_called()
+                            records.assert_not_called()
+                            replace.assert_not_called()
+                            self.assertEqual(expected, base.p.hash("forge/sdd-manifest.json"))
+                            self.assertFalse((base.p.root / "forge/unit-history/activation.lock").exists())
 
     def fixture(self, finish=True):
         base = history_fixture.UnitHistoryTests("test_version_one_retains_original_acceptance_and_plan_binding_rules")

@@ -621,6 +621,7 @@ class SnapshotFileHashes:
         self.hashes = {}
         self.depth = 0
         self.history_results = []
+        self.legacy_files = {}
 
     def history_result(self, cache, key, remember=False):
         # The semantic cache stays with its caller. Only a result validated in
@@ -2459,7 +2460,7 @@ class Checker:
     def run(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
         report = None
         try:
-            with self.history_hash_scope() as owner:
+            with history_api()._checker_run_hash_scope(self) as owner:
                 self._history_hash_owner = owner
                 for record in getattr(self, "_history_snapshot_records", ()):
                     history_api().validate_files(self.project, record, hash_owner=owner)

@@ -1,0 +1,91 @@
+Validated 13 source skills and their shared references.
+Retirement summary: permanently-deleted=0 former-backups-deleted=0 remaining=0 backups-created=0
+Codex       to-product-idea          linked
+Codex       to-sdd-prd               linked
+Codex       to-prd                   removed legacy repository link
+Codex       to-project-context       linked
+Codex       to-guardrails            linked
+Codex       to-user-journey          linked
+Codex       to-screen-map            linked
+Codex       to-wireframes            linked
+Codex       to-design-brief          linked
+Codex       to-architecture          linked
+Codex       to-dod-evals             linked
+Codex       to-qa-checklist          linked
+Codex       to-development-plan      linked
+Codex       to-sdd-pipeline          linked
+Claude Code to-product-idea          linked
+Claude Code to-sdd-prd               linked
+Claude Code to-prd                   preserved unrelated legacy skill
+Claude Code to-project-context       linked
+Claude Code to-guardrails            linked
+Claude Code to-user-journey          linked
+Claude Code to-screen-map            linked
+Claude Code to-wireframes            linked
+Claude Code to-design-brief          linked
+Claude Code to-architecture          linked
+Claude Code to-dod-evals             linked
+Claude Code to-qa-checklist          linked
+Claude Code to-development-plan      linked
+Claude Code to-sdd-pipeline          linked
+Summary: created=26 already-installed=0 migrated=1 removed=0 failed=0
+{
+  "result": "setup_required",
+  "reason": "missing regular setup file: /private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-checker-legacy-memo-install-4rc4kvqi/codex-sdd-installer.zhPQAk/evidence-machine-state/default.json",
+  "project": null,
+  "next_action": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 /Users/ingwar/.codex/worktrees/sdd-evidence-recovery/scripts/evidence_setup.py wizard --evidence-home /private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-checker-legacy-memo-install-4rc4kvqi/codex-sdd-installer.zhPQAk/evidence-machine-state",
+  "next_action_argv": [
+    "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/scripts/evidence_setup.py",
+    "wizard",
+    "--evidence-home",
+    "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-checker-legacy-memo-install-4rc4kvqi/codex-sdd-installer.zhPQAk/evidence-machine-state"
+  ],
+  "setup_note": "Saved choices change only through explicit reconfiguration; restore an unavailable selected disk or external credential before retrying routine operations."
+}
+Evidence storage setup is required; skill links are installed. Run scripts/evidence_setup.py wizard before managed evidence operations.
+Skills are linked to this clone. Use ./update.sh for updates and retirement cleanup.
+Codex normally discovers new skills automatically. Restart only if they do not appear.
+Claude Code reloads SKILL.md changes live; restart if its top-level skills directory was created during this session.
+Validated 13 source skills and their shared references.
+Retirement summary: permanently-deleted=0 former-backups-deleted=0 remaining=0 backups-created=0
+Codex       to-product-idea          already installed
+Codex       to-sdd-prd               already installed
+Codex       to-project-context       already installed
+Codex       to-guardrails            already installed
+Codex       to-user-journey          already installed
+Codex       to-screen-map            already installed
+Codex       to-wireframes            already installed
+Codex       to-design-brief          already installed
+Codex       to-architecture          already installed
+Codex       to-dod-evals             already installed
+Codex       to-qa-checklist          already installed
+Codex       to-development-plan      already installed
+Codex       to-sdd-pipeline          already installed
+Claude Code to-product-idea          already installed
+Claude Code to-sdd-prd               already installed
+Claude Code to-prd                   preserved unrelated legacy skill
+Claude Code to-project-context       already installed
+Claude Code to-guardrails            already installed
+Claude Code to-user-journey          already installed
+Claude Code to-screen-map            already installed
+Claude Code to-wireframes            already installed
+Claude Code to-design-brief          already installed
+Claude Code to-architecture          already installed
+Claude Code to-dod-evals             already installed
+Claude Code to-qa-checklist          already installed
+Claude Code to-development-plan      already installed
+Claude Code to-sdd-pipeline          already installed
+Summary: created=0 already-installed=26 migrated=0 removed=0 failed=0
+{
+  "result": "configured",
+  "provider": "local",
+  "store_id": "9307245d-754d-4263-9bd8-4e7b0770b04c",
+  "project_id": null,
+  "config_path": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-checker-legacy-memo-install-4rc4kvqi/codex-sdd-installer.zhPQAk/evidence-machine-state/default.json",
+  "policy_path": null
+}
+Skills are linked to this clone. Use ./update.sh for updates and retirement cleanup.
+Codex normally discovers new skills automatically. Restart only if they do not appear.
+Claude Code reloads SKILL.md changes live; restart if its top-level skills directory was created during this session.
+Unix installer tests passed.

@@ -1,0 +1,128 @@
+{
+  "kind": "checker-only-legacy-snapshot-memo-independent-review",
+  "reviewed_at": "2026-10-21T23:16:10.703423+00:00",
+  "repository": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+  "verified_baseline_head": "86ee7763935ce016a9c03b655d2dea2f4d1e3f80",
+  "verified_branch": "codex/fix-evidence-recovery",
+  "patch": "Frozen working changes limited to sdd_history.py, sdd_check.py and test_history_file_cache.py; design report separately untracked. Read-only Git inspection; no repository Git mutation.",
+  "requested_profile": "gpt-6.1-sol/high inherited; effective host model/effort not independently verified",
+  "usage": {
+    "ordinary_usage_allowed": true,
+    "included_weekly_used_percent": 67,
+    "extra_api_reset_used": false
+  },
+  "status": "review_complete_no_material_findings",
+  "findings": [],
+  "open_issues": [],
+  "source_review": [
+    {
+      "file": "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "lines": [
+        36,
+        76
+      ],
+      "result": "Private checker scope wraps snapshot_hash_scope(audit=True). Lease binds checker identity and actual owner, is context-local, invalidates shared active flag before scope exit/audit, and restores parent context in finally. Copied expired contexts cannot revive the lease. Outer depth exit clears memo and other owner state even on audit error."
+    },
+    {
+      "file": "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "lines": [
+        487,
+        508
+      ],
+      "result": "Memo only applies under exact active checker/owner with positive owner depth and invocation_active. Namespace includes canonical project plus exact legacy reference path/hash; full record semantic digest and complete saved registration tuple must match. First validation is unchanged validate_files, registers every frozen file before memo population. Missing or changed registrations require full validation. Every reuse checks all current logical paths via physical."
+    },
+    {
+      "file": "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "lines": [
+        1193,
+        1207
+      ],
+      "result": "Each resolve freshly reads/hashes exact legacy reference and original manifest reference, checks event/version/unverified_not_reusable acceptance and supported original legacy format. Only frozen-file validation is memoized; invalid manifests/refs still deny before any reuse."
+    },
+    {
+      "file": "skills/to-sdd-pipeline/scripts/sdd_check.py",
+      "lines": [
+        618,
+        650
+      ],
+      "result": "Hash owner adds invocation-local legacy_files only; stable hash/signature guards and audit are unchanged. Final audit inspects full frozen union, including files unused by current projected acceptance, with existing parent/link/regular-file and Windows descriptor checks."
+    },
+    {
+      "file": "skills/to-sdd-pipeline/scripts/sdd_check.py",
+      "lines": [
+        2460,
+        2517
+      ],
+      "result": "Checker.run now owns private lease and audited scope. Any final audit failure cannot return a passed result: a completed report is changed to blocked; before report completion the error propagates. _run_invocation still resets active flag in finally. No writer or generic helper receives a lease merely by opening an arbitrary snapshot scope."
+    }
+  ],
+  "counterexamples_examined": [
+    "Frozen equal-size mutation during a memo hit is caught at mandatory checker return audit.",
+    "Mutation to unused snapshot is caught before nested child returns and again at root scope.",
+    "Expired copied lease plus stale caller flag cannot reuse.",
+    "Semantic record/reference/original-manifest hash changes cannot reuse old semantic validation.",
+    "Current logical symlink and cross-project namespace cannot borrow frozen snapshot trust.",
+    "Missing registration triggers full validation and rejects changed bytes.",
+    "Checker semantic failure still audits full union and preserves original exception as context.",
+    "Nested outer-scope stage/activation retain direct generic snapshot errors before write_new/store_record/os.replace; manifest hash unchanged and no activation lock left."
+  ],
+  "actual_checks": [
+    {
+      "commands": [
+        "git diff --stat",
+        "git diff -- skills/to-sdd-pipeline/scripts/sdd_history.py skills/to-sdd-pipeline/scripts/sdd_check.py",
+        "git status --short --branch",
+        "git rev-parse HEAD"
+      ],
+      "result": "Expected baseline/branch and frozen three-file working patch verified with read-only Git."
+    },
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_history_file_cache.HistoryFileCacheTests.test_generic_scope_and_expired_copied_checker_lease_never_reuse test_history_file_cache.HistoryFileCacheTests.test_legacy_memo_semantic_record_mutation_requires_full_validation test_history_file_cache.HistoryFileCacheTests.test_legacy_memo_never_skips_reference_or_original_manifest_sha test_history_file_cache.HistoryFileCacheTests.test_legacy_memo_keeps_current_logical_link_guards test_history_file_cache.HistoryFileCacheTests.test_legacy_memo_rejects_frozen_change_before_checker_return test_history_file_cache.HistoryFileCacheTests.test_legacy_memo_registers_unused_files_and_audits_before_child_return test_history_file_cache.HistoryFileCacheTests.test_legacy_memo_registration_loss_requires_full_validation test_history_file_cache.HistoryFileCacheTests.test_legacy_memo_project_namespace_isolated_across_nested_checkers test_history_file_cache.HistoryFileCacheTests.test_legacy_memo_error_exit_still_audits_full_union test_history_file_cache.HistoryFileCacheTests.test_nested_migration_stage_and_activation_keep_prewrite_hard_errors",
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests",
+      "runtime": "3.12.14 (main, Aug 25 2026, 13:50:33) [Clang 22.1.3 ]",
+      "result": "10passed,0failed,0errors,0skipped",
+      "duration_seconds": 0.842,
+      "evidence_class": "Synthetic isolated local TemporaryDirectory fixtures; real Checker.run boundary with mocked _run bodies for focused lease/audit injections. Nested stage/activate paths assert no write/replace before invalid snapshot rejection. No product acceptance."
+    },
+    {
+      "command": "In-memory ast.parse/ast.dump comparison of current sdd_history.py against git show86ee776 source; no temporary writes",
+      "result": "All10 generic function ASTs unchanged",
+      "functions": [
+        "validate_files",
+        "read_ref",
+        "validate_transition",
+        "capture_context",
+        "capture_completion",
+        "capture_attempt",
+        "capture_continuation",
+        "stage_candidate",
+        "activate_candidate",
+        "historical_checker"
+      ]
+    },
+    {
+      "result": "All3 frozen SHA256 values verified after tests and immediately before report creation."
+    }
+  ],
+  "writer_reported_not_independently_reexecuted": "38 cache tests passed as reported by writer; adjacent families running per parent. This review executes only10 selected tests and does not claim the full writer suite or later adjacent result.",
+  "limits": [
+    "Memo is a bounded optimization inside synchronous read-only Checker.run; it is not a hostile Python caller security boundary or an authenticated human approval mechanism.",
+    "No broad or full suite duplication, install/shell suites, cross-platform Windows/Linux execution, live performance measurement, actual product checks or operational acceptance performed. Root retains consolidated verification/CI/integration gates.",
+    "Windows descriptor protection and frozen union audit code are unchanged and source-reviewed; this macOS test run does not establish Windows runtime behavior.",
+    "No installed v5/v6, active root product activation, private ledger, Drive/provider, browser/network state touched. No subagents or new dependencies.",
+    "No original historical failure or legacy unverified acceptance is promoted to passing; validation/capture/transition AST comparison confirms original generic duties retained."
+  ],
+  "decision": "No material source blocker found for this frozen patch. Root owns subsequent consolidation, integration, release and any explicitly authorized installation; no product runtime acceptance inferred.",
+  "source_sha256_at_review_end": {
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_history.py": "0c0ae2804eda1d28e01c0e3c81181e549b7044512fd7f45782c2f09481b1b3e7",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_check.py": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_history_file_cache.py": "c50ce2053ac545333d3a22d4f3c24738fd274d42e4c538b785843bbcec98e0b5",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/AGENTS.md": "18eb0920c74321337b8c9e231e785538db612378f91f8a55ab269e24833452d6",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/docs/maintenance.md": "fc1883b38ac9406c636f4cbbd1508e678e63c8cce1348356f7800e0a44a63c5e",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/checker-legacy-memo-design.md": "848e659e83b8003e701f8d721fe9ff555c57f9aa77ecd3adaad5defe8a1a4276",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/resolver.py": "348ca5acb889d4819d693f71b31396157023996da1a184f66e5c1aec63ef8bce",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/io.py": "43fa9623cd8029a8ae51bd338480d32ccff45a8f743d36473355831d7b8a6b24"
+  },
+  "global_AGENTS_sha256": "4f5c87affeef99bf8ca3d55e5507f724b36956c266bcf487c99102f6c59fb218",
+  "writing_stopped_after_this_report": true
+}

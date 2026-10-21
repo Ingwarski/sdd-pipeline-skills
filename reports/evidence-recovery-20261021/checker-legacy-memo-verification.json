@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "status": "frozen_focused_checks_passed_pending_independent_review",
+  "at": "2026-10-21T23:14:48.458695+00:00",
+  "baseline": {
+    "commit": "86ee7763935ce016a9c03b655d2dea2f4d1e3f80",
+    "branch": "codex/fix-evidence-recovery",
+    "verification": "Read worktree branch ref directly; no Git command."
+  },
+  "requested_profile": {
+    "model": "gpt-6.1-sol",
+    "reasoning": "high",
+    "inherited_application_independently_verified": false
+  },
+  "included_usage_before": {
+    "used_percent": 67,
+    "ordinaryUsageAllowed": true,
+    "extra_credits_api_or_reset_used": false
+  },
+  "exclusive_paths": [
+    "skills/to-sdd-pipeline/scripts/sdd_check.py",
+    "skills/to-sdd-pipeline/scripts/sdd_history.py",
+    "tests/test_history_file_cache.py",
+    "reports/evidence-recovery-20261021/checker-legacy-memo-design.md",
+    "reports/evidence-recovery-20261021/checker-legacy-memo-verification.json"
+  ],
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": {
+      "sha256": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f",
+      "bytes": 174522
+    },
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": {
+      "sha256": "0c0ae2804eda1d28e01c0e3c81181e549b7044512fd7f45782c2f09481b1b3e7",
+      "bytes": 124957
+    },
+    "tests/test_history_file_cache.py": {
+      "sha256": "c50ce2053ac545333d3a22d4f3c24738fd274d42e4c538b785843bbcec98e0b5",
+      "bytes": 36354
+    },
+    "reports/evidence-recovery-20261021/checker-legacy-memo-design.md": {
+      "sha256": "848e659e83b8003e701f8d721fe9ff555c57f9aa77ecd3adaad5defe8a1a4276",
+      "bytes": 3256
+    }
+  },
+  "contract": {
+    "eligibility": "Private context-local checker/owner lease exists only inside actual Checker.run and unconditional audit=True scope; owner depth and active invocation must agree.",
+    "expiration": "Lease active=False and ContextVar reset in finally; copied stale contexts cannot revive eligibility.",
+    "key": "Canonical project namespace + exact reference path + exact reference content_hash.",
+    "semantic_binding": "Complete semantic record SHA plus original saved frozen registration tuples.",
+    "first_use": "Unchanged validate_files registers all exact frozen file guards and hashes before storing the memo.",
+    "reuse": "Fresh legacy SHA/event/version/acceptance/original-manifest SHA and legacy format checks; every current logical containment/link check repeats; full frozen validation omitted only when semantic record and registered owner entries still match.",
+    "audits": "Existing per-checker and outer entire-union audits remain mandatory and unchanged.",
+    "clearing": "legacy_files cleared at owner outer exit alongside hashes/history_results.",
+    "not_memoized": "Generic validate_files, read_ref, validate_transition, capture/write helpers, standalone and inactive checker flows."
+  },
+  "public_flow_AST_unchanged_vs_installed_v6": {
+    "validate_files": true,
+    "read_ref": true,
+    "validate_transition": true,
+    "capture_continuation": true,
+    "capture_context": true,
+    "capture_completion": true,
+    "capture_attempt": true,
+    "stage_candidate": true,
+    "activate_candidate": true,
+    "recover_activation": true,
+    "historical_checker": true
+  },
+  "installed_v6_readonly_comparison": {
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": "38959073dacfd62b555eb9ff03399cf2ba67caefac67fa6cec0277ae756bdc5e",
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": "e7a3d88a6ba674178b928cd630c5a10a111df6e41e8953596d9609e90f361cef"
+  },
+  "measurements": {
+    "class": "isolated deterministic fixture, not live timing",
+    "two_legacy_visits_within_checker": {
+      "full_legacy_validate_files_calls": 1,
+      "legacy_reference_reads": 2,
+      "original_manifest_reference_reads": 2,
+      "all_frozen_signatures_registered": true
+    },
+    "two_top_level_checker_runs": {
+      "full_legacy_validate_files_calls": 2,
+      "distinct_owners": true,
+      "between_phase_hardlink_supported": true
+    },
+    "generic_audit_false_scope_plus_expired_copied_context": {
+      "full_legacy_validate_files_calls": 3,
+      "notes": "One full validation in the actual checker; standalone resolve and copied expired checker lease both perform full validation even while the original owner remains active."
+    },
+    "unused_snapshot_child_case": {
+      "full_legacy_validate_files_calls_parent_plus_child": 1,
+      "both_snapshot_paths_registered": true,
+      "missing_unused_snapshot_blocks_child_and_root_before_return": true
+    },
+    "live_product_performance_measured": false
+  },
+  "checks": [
+    {
+      "command": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_history_file_cache",
+      "tests": 37,
+      "failures": 0,
+      "errors": 1,
+      "skips": 0,
+      "seconds": 4.98,
+      "exit_code": 1,
+      "classification": "authoring fixture error, preserved",
+      "error": {
+        "test": "test_legacy_memo_never_skips_reference_or_original_manifest_sha (manifest subcase)",
+        "type": "FileExistsError",
+        "errno": 17,
+        "cause": "Second subcase tried to recreate the first subcase exclusive synthetic/manifest.json.",
+        "correction": "Reuse the fixture and restore its exact metadata bytes between subcases. Production source unchanged; assertions retained.",
+        "initial_test_file_hash_recorded": false
+      }
+    },
+    {
+      "command": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_history_file_cache test_attempt_history test_history_evidence test_progress",
+      "tests": 95,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 109.542,
+      "exit_code": 0,
+      "source": "Final frozen source/test hashes above."
+    }
+  ],
+  "new_regression_coverage": [
+    "same-scope fewer full validations while every legacy/original-manifest reference is freshly read",
+    "fresh owners and full validation for every top-level run and after hardlink write phases",
+    "generic audit=False scopes and copied expired leases cannot reuse",
+    "semantic record mutation, reference path namespace and cross-project namespace separation",
+    "legacy/original-manifest SHA drift and current logical symlink rejected",
+    "frozen mutation and missing unused files block at child and root return boundaries",
+    "lost frozen registration cannot authorize memo reuse",
+    "semantic exceptions still audit the full union and invalidate the lease",
+    "nested active-owner legacy migration stage and activation keep original pre-write hard errors"
+  ],
+  "nested_writer_counterexample": {
+    "result": "Both stage and activation fail on missing frozen snapshot with populated checker memo, inside an active outer snapshot scope.",
+    "asserted_no_calls": [
+      "write_new",
+      "store_record",
+      "os.replace"
+    ],
+    "active_manifest_hash_unchanged": true,
+    "qualification": "Activation retains its pre-existing temporary coordination lock handshake before validation; the lock is removed normally. No candidate, snapshot, activation history or active manifest write occurs."
+  },
+  "source_audit": {
+    "generic_validation_and_write_functions_AST_unchanged": true,
+    "existing_test_assertions_removed_or_weakened": false,
+    "existing_add_legacy_test_helper_change": "Returns its existing reference in addition to writing the same fixture; existing callers remain valid.",
+    "persistent_cache_or_remote_trust_added": false,
+    "owner_audit_implementation_changed": false,
+    "source_test_writes_frozen_before_final_command_completed": true
+  },
+  "environment": {
+    "python": "3.12.14",
+    "executable": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "platform": "macOS-27.0.1-arm64-arm-64bit"
+  },
+  "resource_scope": {
+    "fixtures": "Isolated synthetic local files, fixture-only child Python commands and test cleanup. No cleanup errors reported.",
+    "installed_or_product_files_changed": false,
+    "private_ledger_drive_browser_network_git_subagents": false
+  },
+  "remaining": [
+    "Independent root review.",
+    "Consolidated regression and maintenance suites.",
+    "Linux/Windows and Python3.14 verification for this exact delta.",
+    "No live speedup claim or product acceptance; any release/install requires separate root integration."
+  ],
+  "writing_stopped": true
+}

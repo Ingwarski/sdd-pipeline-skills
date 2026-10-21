@@ -30,6 +30,7 @@ REF_KEYS = {"path", "content_hash"}
 EXECUTION_KEYS = {"execution_status", "executor", "executed_at", "evidence", "execution_mode", "evaluated_plan_hash", "evaluated_source_hashes", "evaluated_execution_inputs", "findings", "rationale", "source_inventory_ref", "revalidation_ref", "run_id", "runtime_observation_ref"}
 V2_KEYS = {"execution_contexts", "completion_ref", "applicability_ref", "unit_history", "completion_history", "legacy_history", "evaluated_execution_inputs", "context_ref", "attempt_ref", "attempt_history", "prior_attempt_ref"}
 _snapshot_hash_owner = ContextVar("sdd_history_snapshot_hash_owner", default=None)
+_checker_audit_lease = ContextVar("sdd_history_checker_audit_lease", default=None)
 
 
 @contextmanager
@@ -58,7 +59,21 @@ def snapshot_hash_scope(owner=None, *, audit=False):
             if not owner.depth:
                 owner.hashes.clear()
                 owner.history_results.clear()
+                owner.legacy_files.clear()
             _snapshot_hash_owner.reset(token)
+
+
+@contextmanager
+def _checker_run_hash_scope(checker):
+    """An unexported, expiring lease backed by a mandatory checker-end audit."""
+    with snapshot_hash_scope(getattr(checker, "_history_hash_owner", None), audit=True) as owner:
+        lease = {"checker": checker, "owner": owner, "active": True}
+        token = _checker_audit_lease.set(lease)
+        try:
+            yield owner
+        finally:
+            lease["active"] = False
+            _checker_audit_lease.reset(token)
 
 
 def snapshot_hash_invocation(function):
@@ -467,6 +482,30 @@ def validate_files(project, record, *, hash_owner=None):
             require(ref.get("path") == record["snapshot_root"] + "/" + logical, "snapshot path must preserve logical identity")
             path = physical(project, ref["path"])
             require(path.is_file() and api().hash_matches(ref.get("content_hash"), owner.file_hash(path)), "historical snapshot changed: " + logical)
+
+
+def _checker_legacy_files(checker, reference, record):
+    """Reuse only frozen validation inside an actual audited Checker.run body."""
+    lease, owner = _checker_audit_lease.get(), _snapshot_hash_owner.get()
+    if (lease is None or not lease["active"] or lease["checker"] is not checker
+            or lease["owner"] is not owner or not owner.depth or not checker._invocation_active):
+        validate_files(checker.project, record)
+        return
+    key = (str(checker.project.resolve()), reference["path"], reference["content_hash"])
+    content = owner._result_hash(record)
+    prior = owner.legacy_files.get(key)
+    if (prior is not None and prior[0] == content
+            and all(owner.hashes.get(path) == saved for path, saved in prior[1])):
+        # Current logical paths are not in the frozen signature union. Keep
+        # their containment/link guards on every reuse; end audits cover all
+        # original frozen files before this checker can return a passed result.
+        for logical in record["files"]:
+            physical(checker.project, logical)
+        return
+    validate_files(checker.project, record)
+    registrations = tuple((checker.project / ref["path"], owner.hashes[checker.project / ref["path"]])
+                          for ref in record["files"].values())
+    owner.legacy_files[key] = (content, registrations)
 
 
 @snapshot_hash_invocation
@@ -1162,9 +1201,9 @@ class HistoryView:
         for reference in manifest.get("legacy_history", []):
             legacy = read_ref(checker.project, reference)
             require(legacy.get("event") == "legacy_execution_archive" and legacy.get("version") == VERSION and legacy.get("acceptance") == "unverified_not_reusable", "invalid legacy execution archive")
-            validate_files(checker.project, legacy)
             previous = read_ref(checker.project, legacy["manifest_ref"])
             require(legacy_format(previous), "legacy archive must retain actual supported legacy context")
+            _checker_legacy_files(checker, reference, legacy)
         for key, references in manifest.get("completion_history", {}).items():
             require(key in manifest.get("unit_plan", {}).get("units", {}), "archived completed ID disappeared")
             require(isinstance(references, list) and references, "completion history must retain original references")
