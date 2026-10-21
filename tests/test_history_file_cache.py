@@ -193,9 +193,15 @@ class HistoryFileCacheTests(unittest.TestCase):
                 self.changed()
             return block
         with mock.patch.object(io.os, "read", side_effect=read_and_change):
-            with self.assertRaisesRegex(ValueError, "changed while reading"):
+            # Windows intentionally denies writable handles during this read.
+            # POSIX permits the mutation and must detect it before trusting bytes.
+            expected = "cannot safely read" if os.name == "nt" else "changed while reading"
+            with self.assertRaisesRegex(ValueError, expected):
                 self.check()
         self.assertTrue(mutated)
+        if os.name == "nt":
+            self.assertEqual(self.path.read_bytes(), self.payload)
+            self.check()  # The failed write left the original snapshot intact.
 
     def test_mutation_between_signature_and_first_stream_is_rejected(self):
         native_hash = self.api.hash_file

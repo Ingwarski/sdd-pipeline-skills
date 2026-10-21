@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "kind": "mac-ci-producer-recovery-analysis",
+  "observed_at": "2026-10-21T22:01:02.940464+00:00",
+  "source_revision": "385a3124584e444471564676a85146ee519ec22a",
+  "branch": "codex/fix-evidence-recovery",
+  "ci": {
+    "run_id": 39647974228,
+    "job_id": 119388478048,
+    "matrix": "macos-latest / Python 3.14",
+    "test": "test_lost_guardian_with_surviving_coordinator_keeps_uncertain_hold",
+    "original_log": "reports/evidence-recovery-20261021/history-cache-ci-failure-mac.log",
+    "original_log_sha256": "0b15c2ed3f7306133f24ee7f568059e4e8f6dfe8ed479fe16a67a7ddfaf23b95",
+    "original_failure_preserved": true
+  },
+  "observations": [
+    "Original CI record contains two gated helper groups (4921, 4923), status stopping, an unreplaced first_recovery_failure with raw EPERM, pending 65536-byte/20-file reservation, incomplete accounting, and no successful result.",
+    "Original failing assertion follows successful native exit observations for known payload/helper identities. Those observations do not establish entire process-group absence.",
+    "One pre-change execution of the exact failing test passed on local macOS/Python 3.12.14. This does not reproduce or explain the hosted Python 3.14 error.",
+    "The original error omits operation/group context. In the original source, stop_registered and verify_stopped group-existence probes could raise raw OSError; directory cleanup could also retain raw OSError. Thus the original log does not uniquely identify the failing operation."
+  ],
+  "identified_defects": [
+    "Recovery diagnostics omitted the exact stage and helper-group binding for failed absence probes; a thrown probe error could abort inspection before the other recorded group was examined.",
+    "The surviving-coordinator test required immediate terminal cleanup even when the engine correctly retained an unverified native group. The corrected test permits only a recorded group-probe EPERM failure, then requires fresh native absence proof and a new applied recovery to reach actual terminal state."
+  ],
+  "changes": [
+    "producer_runtime adds bounded operation/helper key/group/process-birth diagnostics for stop and verification failures; each group probe error is retained while other groups are examined.",
+    "Denied group probes and unknown identities stay failed observations. Verification returns these problems without retrying them away inside the same recovery; unknown identity before final SIGKILL is also retained.",
+    "producer recovery adds a stage prefix for otherwise unqualified exception paths, including accounting, stopping, verification, directory cleanup and diagnostic persistence.",
+    "One real disposable fixture, with three bounded subcases, injects stop-group EPERM, verify-group EPERM and unknown identity after actual helper exit. It checks full holds, no nonzero group signals, both group bindings, original first failure, retry refusal, retained evidence and later actual terminal recovery from new native absence proof."
+  ],
+  "safety_invariants": [
+    "No EPERM/unknown to absence conversion",
+    "No PID-only adoption or kill",
+    "No reservation refund or history rewrite",
+    "First failed recovery survives subsequent successful cleanup",
+    "Terminal resource cleanup never claims complete accounting or product success",
+    "No new product retry or execution permission"
+  ],
+  "unresolved_limits": [
+    "Hosted macOS/Python 3.14 native EPERM cause is not established; no claim that it is infrastructure-only or that native EPERM is repaired.",
+    "Python 3.14 was not found in PATH, standard Homebrew/framework locations, or the bundled runtime; no installation was attempted.",
+    "Focused local checks are deterministic test evidence. Parent must run consolidated full suite and required CI matrix for the final reviewed revision."
+  ],
+  "scope": {
+    "written_source_paths": [
+      "skills/to-sdd-pipeline/scripts/evidence/producer.py",
+      "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py",
+      "tests/test_evidence_producer_recovery.py"
+    ],
+    "written_report_paths": [
+      "reports/evidence-recovery-20261021/mac-ci-recovery-analysis.json",
+      "reports/evidence-recovery-20261021/mac-ci-recovery-verification.json",
+      "reports/evidence-recovery-20261021/mac-ci-recovery-diagnostic.log"
+    ],
+    "outside_scope_writes": [],
+    "git_mutations": false,
+    "installer_run": false,
+    "personal_ledger_access": false,
+    "provider_or_drive_access": false,
+    "browser_run": false,
+    "subagents_spawned": false
+  },
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py": {
+      "baseline_sha256": "0b12eb0ea2f2401c4c154946f2ee8e6686e6685b87c36e141da85134cb8185af",
+      "current_sha256": "cadccf258717f97d6ca0daea5111cbe17781aafaf2b88aa6c3a3042b1940b359"
+    },
+    "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": {
+      "baseline_sha256": "81ac24626435c06959d79ac02219a0e1e0b316a469c952eab0e8ebd34755b4cb",
+      "current_sha256": "7f72f0879cb16f5ce00d59f56a2bf09ebe9ae97721c5987d057422e4998653e0"
+    },
+    "tests/test_evidence_producer_recovery.py": {
+      "baseline_sha256": null,
+      "current_sha256": "9290649d31d1288cc18378b18e9a0b843b7666d091d353739930aebcfb8fcf0b"
+    }
+  }
+}

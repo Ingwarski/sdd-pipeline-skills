@@ -1,0 +1,91 @@
+{
+  "purpose": "Required maintenance shell suites after CI corrections, against frozen source",
+  "repository": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+  "runtime": {
+    "python_path_prefix": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin",
+    "python_version": "Python 3.12.14"
+  },
+  "source_freeze": {
+    "provided_exact_hashes": {
+      "skills/to-sdd-pipeline/scripts/evidence/producer.py": "cadccf258717f97d6ca0daea5111cbe17781aafaf2b88aa6c3a3042b1940b359",
+      "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": "7f72f0879cb16f5ce00d59f56a2bf09ebe9ae97721c5987d057422e4998653e0",
+      "tests/test_evidence_producer_recovery.py": "9290649d31d1288cc18378b18e9a0b843b7666d091d353739930aebcfb8fcf0b",
+      "tests/test_history_file_cache.py": "9ae61df979aa2dd37697a5bdead5f7050a6806a95af94ea3bc941c9f65917bb5"
+    },
+    "before_hashes": {
+      "skills/to-sdd-pipeline/scripts/evidence/producer.py": "cadccf258717f97d6ca0daea5111cbe17781aafaf2b88aa6c3a3042b1940b359",
+      "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": "7f72f0879cb16f5ce00d59f56a2bf09ebe9ae97721c5987d057422e4998653e0",
+      "tests/test_evidence_producer_recovery.py": "9290649d31d1288cc18378b18e9a0b843b7666d091d353739930aebcfb8fcf0b",
+      "tests/test_history_file_cache.py": "9ae61df979aa2dd37697a5bdead5f7050a6806a95af94ea3bc941c9f65917bb5"
+    },
+    "after_hashes": {
+      "skills/to-sdd-pipeline/scripts/evidence/producer.py": "cadccf258717f97d6ca0daea5111cbe17781aafaf2b88aa6c3a3042b1940b359",
+      "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": "7f72f0879cb16f5ce00d59f56a2bf09ebe9ae97721c5987d057422e4998653e0",
+      "tests/test_evidence_producer_recovery.py": "9290649d31d1288cc18378b18e9a0b843b7666d091d353739930aebcfb8fcf0b",
+      "tests/test_history_file_cache.py": "9ae61df979aa2dd37697a5bdead5f7050a6806a95af94ea3bc941c9f65917bb5"
+    },
+    "matched_expected_before": true,
+    "matched_before_after": true
+  },
+  "tests": [
+    {
+      "name": "install",
+      "command": [
+        "bash",
+        "tests/test-install.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 2.555,
+      "log": "reports/evidence-recovery-20261021/ci-corrections-shell-install.log",
+      "log_bytes": 5471,
+      "private_temp_children_before": [],
+      "private_temp_children_after": [],
+      "unexpected_new_temp_children": [],
+      "script_cleanup_complete": true
+    },
+    {
+      "name": "retirement",
+      "command": [
+        "bash",
+        "tests/test-retirement.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 5.334,
+      "log": "reports/evidence-recovery-20261021/ci-corrections-shell-retirement.log",
+      "log_bytes": 153,
+      "private_temp_children_before": [],
+      "private_temp_children_after": [],
+      "unexpected_new_temp_children": [],
+      "script_cleanup_complete": true
+    },
+    {
+      "name": "update",
+      "command": [
+        "bash",
+        "tests/test-update.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 4.664,
+      "log": "reports/evidence-recovery-20261021/ci-corrections-shell-update.log",
+      "log_bytes": 168,
+      "private_temp_children_before": [],
+      "private_temp_children_after": [],
+      "unexpected_new_temp_children": [],
+      "script_cleanup_complete": true
+    }
+  ],
+  "temporary_cleanup": {
+    "resolved_system_tmpdir": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T",
+    "private_parent": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-ci-corrections-shell-15jz_u27",
+    "remaining_children_before_parent_removal": [],
+    "private_parent_removed_after_empty_check": true,
+    "parent_verified_absent": true
+  },
+  "all_three_passed": true,
+  "network_scope": "Update suite is source-inspected to route fetch to its temporary local bare repository; no live network provider used.",
+  "limits": [
+    "These local isolated shell suites do not establish Windows/macOS cross-platform results or product/runtime acceptance.",
+    "Root-owned full unittest was concurrent and was not rerun or included in this report.",
+    "No source files, personal installer roots, private ledger, browser, provider, or Git checkout state were changed by this task."
+  ]
+}

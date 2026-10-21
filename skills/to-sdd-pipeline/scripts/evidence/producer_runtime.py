@@ -324,6 +324,14 @@ def register_temporary_directory(path):
         ledger.close()
 
 
+def _helper_problem(stage, key, item, problem):
+    """Keep a bounded exact ownership/operation diagnostic, never an absence proof."""
+    return ('helper recovery stage=' + stage + ' key=' + str(key)[:128]
+            + ' group=' + str(item['group'])
+            + ' identity=' + json.dumps(item['identity'], sort_keys=True, ensure_ascii=True)
+            + ' problem=' + str(problem)[:512])
+
+
 def stop_registered(ledger, attempt):
     """Stop exact recorded gate identities; never signal a bare saved PID.
 
@@ -337,7 +345,7 @@ def stop_registered(ledger, attempt):
         owner = item['identity']
         status = process_identity.state(owner)
         if status == 'unknown':
-            problems.append('helper ownership cannot be verified: ' + key)
+            problems.append(_helper_problem('stop.identity', key, item, 'helper ownership cannot be verified'))
             continue
         if status == 'gone':
             # A lost anchor cannot authorize killing a reused process group.
@@ -345,27 +353,42 @@ def stop_registered(ledger, attempt):
             # remains, retain the hold for inspection instead of guessing.
             if os.name == 'posix':
                 from .producer import _group_exists
-                if _group_exists(item['group']):
-                    problems.append('helper group survived its ownership anchor: ' + key)
+                try:
+                    if _group_exists(item['group']):
+                        problems.append(_helper_problem('stop.group-exists', key, item,
+                                                        'helper group survived its ownership anchor'))
+                except OSError as exc:
+                    problems.append(_helper_problem('stop.group-exists', key, item, exc))
             continue
         if os.name == 'posix':
+            stage = 'stop.getpgid'
             try:
-                if os.getpgid(owner['pid']) != owner['pid'] or os.getsid(owner['pid']) != owner['pid']:
+                group = os.getpgid(owner['pid'])
+                stage = 'stop.getsid'
+                session = os.getsid(owner['pid'])
+                if group != owner['pid'] or session != owner['pid']:
                     raise EvidenceError('recorded helper is no longer its session leader')
+                stage = 'stop.identity-before-term'
                 if process_identity.state(owner) != 'alive':
                     raise EvidenceError('helper identity changed before cleanup')
+                stage = 'stop.sigterm'
                 os.killpg(owner['pid'], signal.SIGTERM)
                 time.sleep(.05)
                 # The gate ignores TERM so it stays an ownership anchor until
                 # this final group kill; payloads had a chance to exit/reap.
-                if process_identity.state(owner) == 'alive':
+                stage = 'stop.identity-before-kill'
+                status = process_identity.state(owner)
+                if status == 'unknown':
+                    raise EvidenceError('helper ownership cannot be verified')
+                if status == 'alive':
+                    stage = 'stop.sigkill'
                     os.killpg(owner['pid'], signal.SIGKILL)
             except ProcessLookupError:
                 pass
             except (EvidenceError, OSError) as exc:
-                problems.append('helper stop: ' + str(exc))
+                problems.append(_helper_problem(stage, key, item, exc))
         elif process_identity.terminate(owner, force=True) == 'unknown':
-            problems.append('helper termination could not verify ownership: ' + key)
+            problems.append(_helper_problem('stop.terminate', key, item, 'helper termination could not verify ownership'))
     return problems
 
 
@@ -455,13 +478,22 @@ def verify_stopped(ledger, attempt, timeout=3):
     deadline = time.monotonic() + timeout
     while True:
         problems = []
+        uncertain = False
         for key, item in read(ledger, attempt)['processes'].items():
-            if process_identity.state(item['identity']) != 'gone':
-                problems.append('helper exit cannot be verified: ' + key)
+            state = process_identity.state(item['identity'])
+            if state != 'gone':
+                problems.append(_helper_problem('verify.identity', key, item, 'helper exit cannot be verified: ' + state))
+                uncertain |= state == 'unknown'
             elif os.name == 'posix':
                 from .producer import _group_exists
-                if _group_exists(item['group']):
-                    problems.append('helper group exit cannot be verified: ' + key)
-        if not problems or time.monotonic() >= deadline:
+                try:
+                    if _group_exists(item['group']):
+                        problems.append(_helper_problem('verify.group-exists', key, item, 'helper group exit cannot be verified'))
+                except OSError as exc:
+                    problems.append(_helper_problem('verify.group-exists', key, item, exc))
+                    uncertain = True
+        # A denied/unknown probe remains a failed observation. Only a new
+        # explicit recovery may supersede it with current native absence proof.
+        if uncertain or not problems or time.monotonic() >= deadline:
             return problems
         time.sleep(.05)

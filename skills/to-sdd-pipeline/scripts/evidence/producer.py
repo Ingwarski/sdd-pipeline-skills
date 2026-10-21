@@ -424,6 +424,7 @@ def recover_producers(ledger, *, dry_run=True):
                 if not claimed:
                     action.update(action='retained', incomplete=True, problem='producer recovery already active or ownership unknown')
                 else:
+                    stage = 'reservation-state'
                     try:
                         reservation = ledger.connection.execute('SELECT state FROM reservations WHERE id=?', (value['reservation_id'],)).fetchone()
                         pending = reservation is None or reservation[0] == 'pending'
@@ -431,15 +432,20 @@ def recover_producers(ledger, *, dry_run=True):
                             # The monitor is verified gone and this caller owns
                             # the recovery claim. Preserve its known floor before
                             # cleanup can fail; cleanup never refunds this hold.
+                            stage = 'record-uncertain'
                             ledger.record_uncertain(value['reservation_id'], value.get('observed_bytes', 0), value.get('observed_files', 0))
+                        stage = 'mark-incomplete'
                         ledger.mark_incomplete(value['run_id'])
+                        stage = 'stop-registered'
                         problems = runtime.stop_registered(ledger, value['attempt_id'])
+                        stage = 'verify-stopped'
                         problems += runtime.verify_stopped(ledger, value['attempt_id'])
                         if not problems:
+                            stage = 'cleanup-directories'
                             try:
                                 problems += runtime.cleanup_directories(ledger, value['attempt_id'])
                             except (EvidenceError, OSError) as exc:
-                                problems.append(str(exc))
+                                problems.append('producer recovery stage=' + stage + ' problem=' + str(exc))
                         def completed(v):
                             problem = '; '.join(problems) or None
                             v.update(status='terminal' if not problems else 'stopping', recovery_owner=None,
@@ -447,10 +453,12 @@ def recover_producers(ledger, *, dry_run=True):
                             if problem:
                                 v.setdefault('first_recovery_failure', {
                                     'problem': problem[:2048], 'observed_at': datetime.now(timezone.utc).isoformat()})
+                        stage = 'persist-recovery'
                         runtime.update(ledger, value['attempt_id'], completed)
                         action.update(action='retained' if pending or problems else 'cleaned', incomplete=bool(pending or problems), problems=problems)
                     except (EvidenceError, OSError, ValueError) as exc:
-                        message = str(exc)[:2048] or type(exc).__name__
+                        message = ('producer recovery stage=' + stage + ' problem='
+                                   + (str(exc) or type(exc).__name__))[:2048]
                         action.update(action='retained', incomplete=True, problem=message)
                         def failed(v):
                             v.update(status='stopping', recovery_problem=message)
