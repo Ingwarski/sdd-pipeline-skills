@@ -1507,8 +1507,9 @@ class Manager:
                     "history_complete": False, "historical_uncertainty": True,
                     "descriptor": descriptor}
 
-    def assert_generation_authority(self):
-        """Recover owned local attempts, then require designated generation authority."""
+    @contextmanager
+    def _generation_catalog(self):
+        """Yield fresh ready catalog under its lock; recover before acquiring it."""
         catalog = self._catalog(mutation=True)
         authority = self._generation_authority()
         if authority is None:
@@ -1527,23 +1528,32 @@ class Manager:
             if (intent and not intent.get("settled") and action["action"] in ("cleaned", "terminal")
                     and not action.get("incomplete") and self._generation_owner_state(intent) == "gone"):
                 self.finish_generation(action["intent_id"], reservation_id=action.get("reservation_id"))
-        catalog = self._catalog(mutation=True)
-        from .accounting import Accounting
-        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-            self._reconcile_ledger(catalog, ledger)
-            ledger.require_generation_ready()
-            readiness = self._generation_readiness(catalog, ledger)
-            quarantined = {item["intent_id"] for item in readiness["quarantines"]}
-            for intent_id, intent in catalog.get("generation_intents", {}).items():
-                if intent_id in quarantined:
-                    continue
-                if not intent.get("settled"):
-                    owner_state = self._generation_owner_state(intent)
-                    run = ledger.connection.execute("SELECT 1 FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
-                    pending = ledger.connection.execute("SELECT 1 FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()
-                    if (run is None or pending) and owner_state != "alive":
-                        raise EvidenceError("durable generation intent has unknown local accounting; reconcile before generation")
-        return {"coordinator_authorized": True, "coordinator": self.coordinator}
+        # Recovery may publish settlements. Always reload after it, then retain
+        # this lock through the caller's publication instead of loading again.
+        # Do not extend the lock across producer shutdown above.
+        with self.locked():
+            catalog = self._catalog(mutation=True)
+            from .accounting import Accounting
+            with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                self._reconcile_ledger(catalog, ledger)
+                ledger.require_generation_ready()
+                readiness = self._generation_readiness(catalog, ledger)
+                quarantined = {item["intent_id"] for item in readiness["quarantines"]}
+                for intent_id, intent in catalog.get("generation_intents", {}).items():
+                    if intent_id in quarantined:
+                        continue
+                    if not intent.get("settled"):
+                        owner_state = self._generation_owner_state(intent)
+                        run = ledger.connection.execute("SELECT 1 FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
+                        pending = ledger.connection.execute("SELECT 1 FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()
+                        if (run is None or pending) and owner_state != "alive":
+                            raise EvidenceError("durable generation intent has unknown local accounting; reconcile before generation")
+            yield catalog
+
+    def assert_generation_authority(self):
+        """Recover owned local attempts, then require designated generation authority."""
+        with self._generation_catalog():
+            return {"coordinator_authorized": True, "coordinator": self.coordinator}
 
     @staticmethod
     def _run_generation(run):
@@ -1553,16 +1563,14 @@ class Manager:
 
     def begin_generation(self, run_id, unit_id, reserve_bytes, reserve_files):
         """Record an incomplete durable intent before any managed producer starts."""
-        self.assert_generation_authority()
-        if (any(not isinstance(value, str) or not value for value in (run_id, unit_id))
-                or any(type(value) is not int or value < 0 for value in (reserve_bytes, reserve_files))):
-            raise EvidenceError("generation intent requires stable run/unit and nonnegative reservation bounds")
-        owner = process_identity.identity()
-        if owner is None:
-            raise EvidenceError("cannot establish the generation owner process identity")
-        intent = str(uuid.uuid4())
-        with self.locked():
-            catalog = self._catalog(mutation=True)
+        with self._generation_catalog() as catalog:
+            if (any(not isinstance(value, str) or not value for value in (run_id, unit_id))
+                    or any(type(value) is not int or value < 0 for value in (reserve_bytes, reserve_files))):
+                raise EvidenceError("generation intent requires stable run/unit and nonnegative reservation bounds")
+            owner = process_identity.identity()
+            if owner is None:
+                raise EvidenceError("cannot establish the generation owner process identity")
+            intent = str(uuid.uuid4())
             if any(item["run_id"] == run_id for item in catalog.get("generation_quarantines", {}).values()):
                 raise EvidenceError("quarantined historical run cannot resume generation; use a fresh run identity")
             self._publish(catalog, {"version": 1, "generation_intents": {intent: {

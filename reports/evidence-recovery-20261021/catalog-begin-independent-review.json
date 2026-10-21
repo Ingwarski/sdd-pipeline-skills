@@ -1,0 +1,106 @@
+{
+  "kind": "catalog-begin-independent-semantic-review",
+  "reviewed_at": "2026-10-21T22:51:28.940532+00:00",
+  "repository": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+  "branch": "codex/fix-evidence-recovery",
+  "verified_head": "3f38fc87ba15999bed13fe9e8e03ad16b5f1824c",
+  "patch": "Uncommitted; git diff shows only manager.py and test_evidence_producer_manager.py tracked modifications at review. Read-only Git inspection only.",
+  "requested_profile": "gpt-6.1-sol/high inherited; effective host model/effort not independently verified",
+  "usage": {
+    "ordinary_usage_allowed": true,
+    "included_weekly_used_percent": 67,
+    "extra_credits_api_reset_used": false
+  },
+  "status": "review_complete_no_material_findings",
+  "findings": [],
+  "blockers": [],
+  "semantic_review": [
+    {
+      "path": "skills/to-sdd-pipeline/scripts/evidence/manager.py",
+      "lines": [
+        1510,
+        1551
+      ],
+      "result": "Initial fresh catalog and standalone fresh authority validation remain before producer recovery. Recovery and automatic settlement finish before the retained final lock is acquired. The final catalog is fully reloaded under the existing reentrant coordinator lock; ledger reconciliation, require_generation_ready, quarantine closure and unresolved intent checks run before yielding."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/evidence/manager.py",
+      "lines": [
+        1553,
+        1580
+      ],
+      "result": "Public assert_generation_authority consumes the context and retains its result shape. Begin performs input and exact process identity validation while the final lock is held, prohibits historical quarantined run reuse, and publishes the same validated catalog before context exit. Errors unwind both accounting and catalog contexts."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/evidence/manager.py",
+      "lines": [
+        596,
+        761
+      ],
+      "result": "Catalog loader unchanged by patch: fresh inventory, original stat sizes, original authority/root/index JSON downloads and identity/hash validation, complete segment closure, retained historical metadata admission and quarantine validation remain in force. No cached catalog survives between begins."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/evidence/manager.py",
+      "lines": [
+        826,
+        857
+      ],
+      "result": "Publication unchanged: fresh root listing rejects changed current root; preliminary and exact combined metadata/file capacity checks, immutable index/root uploads, readback and metadata reconciliation remain. Existing catalog-to-accounting order preserved; accounting is closed before yielding to publication."
+    },
+    {
+      "path": "tests/test_evidence_producer_manager.py",
+      "lines": [
+        61,
+        276
+      ],
+      "result": "Regression cases exercise two fresh validations per ordinary begin, recovery outside final lock, same-object readiness/publication inside final lock, byte/authority drift rejection, fresh root fence, settlement visibility, unknown/incomplete hold preservation, capacity denial and serialization between two Manager clients."
+    }
+  ],
+  "actual_checks": [
+    {
+      "command": "git status --short --branch; git rev-parse HEAD; git diff -- skills/to-sdd-pipeline/scripts/evidence/manager.py tests/test_evidence_producer_manager.py",
+      "note": "Executed as separate read-only shell calls; no real repository Git mutations.",
+      "result": "Expected branch/HEAD; tracked patch confined to two frozen files."
+    },
+    {
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests",
+      "command": "python3 -B -m unittest -v test_evidence_producer_manager.ProducerManagerRecoveryTests.test_begin_reuses_final_catalog_only_inside_publication_lock test_evidence_producer_manager.ProducerManagerRecoveryTests.test_final_catalog_reads_changed_original_index_bytes_after_recovery test_evidence_producer_manager.ProducerManagerRecoveryTests.test_final_catalog_rechecks_authority_after_recovery test_evidence_producer_manager.ProducerManagerRecoveryTests.test_publication_retains_fresh_root_guard_after_readiness test_evidence_producer_manager.ProducerManagerRecoveryTests.test_begin_final_catalog_sees_automatic_recovery_settlement test_evidence_producer_manager.ProducerManagerRecoveryTests.test_unknown_owner_keeps_full_original_hold_and_blocks_new_intent test_evidence_producer_manager.ProducerManagerRecoveryTests.test_incomplete_recovery_preserves_hold_floor_and_publication_state test_evidence_producer_manager.ProducerManagerRecoveryTests.test_capacity_failure_releases_final_lock_without_publishing test_evidence_producer_manager.ProducerManagerRecoveryTests.test_two_clients_serialize_final_readiness_through_publication",
+      "runtime": "Python3.9.6 default shell executable, below supported minimum; supplemental result only",
+      "result": "9passed,0failed,0errors",
+      "duration_seconds": 3.34
+    },
+    {
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests",
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_evidence_producer_manager.ProducerManagerRecoveryTests.test_begin_reuses_final_catalog_only_inside_publication_lock test_evidence_producer_manager.ProducerManagerRecoveryTests.test_final_catalog_reads_changed_original_index_bytes_after_recovery test_evidence_producer_manager.ProducerManagerRecoveryTests.test_final_catalog_rechecks_authority_after_recovery test_evidence_producer_manager.ProducerManagerRecoveryTests.test_publication_retains_fresh_root_guard_after_readiness test_evidence_producer_manager.ProducerManagerRecoveryTests.test_begin_final_catalog_sees_automatic_recovery_settlement test_evidence_producer_manager.ProducerManagerRecoveryTests.test_unknown_owner_keeps_full_original_hold_and_blocks_new_intent test_evidence_producer_manager.ProducerManagerRecoveryTests.test_incomplete_recovery_preserves_hold_floor_and_publication_state test_evidence_producer_manager.ProducerManagerRecoveryTests.test_capacity_failure_releases_final_lock_without_publishing test_evidence_producer_manager.ProducerManagerRecoveryTests.test_two_clients_serialize_final_readiness_through_publication",
+      "runtime": "Python3.12.14 independently verified via --version",
+      "result": "9passed,0failed,0errors",
+      "duration_seconds": 3.622,
+      "isolation": "Existing fixtures create and clean isolated TemporaryDirectory stores/ledgers. Producer recovery is mocked; concurrency uses two Manager clients and two threads. No private/installed state or live provider."
+    },
+    {
+      "result": "Both frozen source SHA256 values matched before tests and again immediately before report creation."
+    }
+  ],
+  "writer_reported_not_independently_reexecuted": "101 adjacent tests passed as reported by writer; independent reviewer executed only the9 selected cases above.",
+  "performance_scope": "Source and selected test verify ordinary begin has2_catalog calls instead of3; automatic settlement owns an additional fresh catalog as needed. No live Drive call-count, latency or traffic measurement asserted.",
+  "limits": [
+    "Full regression suite, installer/shell suites and cross-platform CI not rerun by this reviewer; root retains these gates.",
+    "Two-client test verifies same-process thread/client locking and fresh publication visibility; no new multiprocess/multihost stress proof.",
+    "No installed immutable v5 or actual product runner mutation or verification; root owns any later integration, full tests, commit and installation.",
+    "No actual private ledger, Drive/provider/browser/network execution or product acceptance. No subagents.",
+    "Original authority/unknown-history/full-hold/floor admission behavior preserved by unchanged core code and selected rejection checks; no reset/refund or acceptance-history repair claimed."
+  ],
+  "source_sha256_at_review_end": {
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/manager.py": "f088932abf55334e7955e23ddbf58d4e7f0f482ace7707de15ec3e38b52de425",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_evidence_producer_manager.py": "773656e3780daf71d78ea8de098af7308ed02326ef13b6cc7c8659eced837001",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/AGENTS.md": "18eb0920c74321337b8c9e231e785538db612378f91f8a55ab269e24833452d6",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/docs/maintenance.md": "fc1883b38ac9406c636f4cbbd1508e678e63c8cce1348356f7800e0a44a63c5e",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/docs/specification-quality.md": "a5c18594a0910b6a1194ea747352dfb3cf0672f4a95f4f0ca3c34c7cbd261aeb",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/catalog-begin-reuse-design.md": "45fe4aa34fe3d48ca9408019151177d5a5b998f497beb2de5932d277f68a7248",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/accounting.py": "4ece97d0adddb6517b516a68748bb8220c328ec1147642717de36ea1fc857e4a",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/transports.py": "5ef4647f81121bcf8ac9f1110cef6860d89a92d7d7eb83853f795441f9f5233f",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_evidence_manager.py": "a6baea535d8c729e05f58628c10eee8eef16584658e8840868c127f67b032cde"
+  },
+  "global_instructions_sha256": "4f5c87affeef99bf8ca3d55e5507f724b36956c266bcf487c99102f6c59fb218",
+  "writing_stopped_after_report": true
+}
