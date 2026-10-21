@@ -1,0 +1,215 @@
+{
+  "review_kind": "independent engine semantic source review with pure in-memory logic probes",
+  "created_at": "2026-10-21T12:19:42.963259+00:00",
+  "source_revision": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b",
+  "branch": "codex/fix-evidence-recovery",
+  "source_sha256": {
+    "skills/to-sdd-pipeline/scripts/evidence/accounting.py": "4ece97d0adddb6517b516a68748bb8220c328ec1147642717de36ea1fc857e4a",
+    "skills/to-sdd-pipeline/scripts/evidence/quarantine.py": "4a15452b413a0bccaae4656116929a76a03f1fb78485e921c27156c9d3a36851",
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py": "c6b58af6cb07229b8fab33bc021aaaa3c7a7479ba6e2a66b8e34d6a2fed57102",
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py": "729bc7fe7ed2def264bdaf25793b3c0dd4c0543bc1f3f6bf3adec01353e040a5",
+    "skills/to-sdd-pipeline/scripts/evidence_store.py": "acb8a2f58ee810ee345b26c794170f79ab4e197a6dfd172a3d1ed18e98335bbd",
+    "tests/test_evidence_quarantine.py": "bbff3fce4bafb31102c4ada0dddc051ff674eb57c7937852146f21b71a306934",
+    "tests/test_evidence_quarantine_manager.py": "77b286cfa161ffbe92c7e41c325d0ab81d0112fd3e1e9e79d85e7288a262b5ae"
+  },
+  "source_unchanged_at_review_end": true,
+  "reviewed_files": [
+    "skills/to-sdd-pipeline/scripts/evidence/accounting.py",
+    "skills/to-sdd-pipeline/scripts/evidence/quarantine.py",
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py",
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py",
+    "skills/to-sdd-pipeline/scripts/evidence_store.py",
+    "tests/test_evidence_quarantine.py",
+    "tests/test_evidence_quarantine_manager.py"
+  ],
+  "instructions": [
+    "global and repository AGENTS.md",
+    "docs/maintenance.md",
+    "docs/specification-quality.md"
+  ],
+  "usage": {
+    "included_used_percent_before": 57,
+    "ordinary_usage_allowed": true,
+    "extra_purchased_API_reset_authorized_or_requested": false
+  },
+  "scope_constraints": "Sole write this new report. No implementation edits, Git mutations, runtime processes, browser, network, live or synthetic SQLite ledgers, external assertions or application acceptance.",
+  "findings": [],
+  "resolved_during_review": [
+    {
+      "id": "ENGINE-STRUCTURAL-01",
+      "priority": 1,
+      "path": "skills/to-sdd-pipeline/scripts/evidence/accounting.py",
+      "original_lines": [
+        708,
+        708
+      ],
+      "fixed_lines": [
+        180,
+        185
+      ],
+      "title": "Uncertainty recording must not overwrite a structural recovery cause",
+      "before": "record_uncertain unconditionally replaced the durable journal-loss reason with UNKNOWN_REASON. Existing object remained blocked only by its cached structural cause; a reopened object with recreated consistent checkpoints could then quarantine the gap and report ready.",
+      "original_probe": "Real record_uncertain plus real _transaction and generation_readiness on a SQL-behavior memory stub reproduced durable downgrade and fresh ready=true. No SQLite, processes, files or original ledger were used.",
+      "fix": "Core owner added shared _record_recovery_reason preserving the first structural cause, with UNKNOWN promotion only to structural; all recovery cause writers use it. _current_recovery_reason lets newer durable structural cause override cached UNKNOWN. No unchanged identity row replacement.",
+      "recheck": "Seven pure logical transition probes match expected preserved structural/readiness=false and sticky/cached precedence behavior. Tests for missing journal then uncertainty/reopen and cached UNKNOWN/new durable structural cause were source-reviewed but not executed by this reviewer.",
+      "status": "fixed and independently rechecked"
+    }
+  ],
+  "semantic_review": [
+    {
+      "area": "original failure preservation",
+      "conclusion": "Quarantine builds a separate immutable descriptor, retaining the original raw producer session hash, whole original run, uncertain floor, reservation, retry ordinal and unsettled intent. Current output hashes are present-day evidence; no lost gross history or original observation is reconstructed."
+    },
+    {
+      "area": "authority and disposition",
+      "conclusion": "Application requires the designated coordinator, intact original ledger/checkpoints, inactive exact recorded native owners/groups, absent registered resources, stable output identity/inventory, and a hash-bound external assertion. The external assertion is explicitly operator-attested; engine does not authenticate its truth or host authority."
+    },
+    {
+      "area": "crash and idempotence",
+      "conclusion": "Local descriptor SQL/checkpoint transaction precedes catalog publication. A failed publication leaves full local holds and blocks manager generation on local/published mismatch; retry reuses the immutable descriptor. Checkpoint-before-commit failure and revision/inventory mismatch remain blockers."
+    },
+    {
+      "area": "cold recovery",
+      "conclusion": "Portable/checkpoint descriptors preserve floors, holds and original failure metadata without creating original producer sessions or authoritative generation readiness. Missing database/journal and reconstructed catalog history retain structural causes across uncertainty recording and reopen."
+    },
+    {
+      "area": "fresh scoped runs and budgets",
+      "conclusion": "Admission preserves unchanged cumulative numeric limits, known original charges, whole pending reservations and retry count; quarantined runs and output roots cannot be reused or settled/reconciled into success. These lower-bound sums do not establish a physical maximum for missing history."
+    },
+    {
+      "area": "target settlement and publication closure",
+      "conclusion": "Healthy distinct target intents may settle while verified historical quarantines remain unsettled. Catalog replay binds reservation/run/unit/intent/reserved amounts and rejects settlement or changed/replayed quarantine bindings. Scoped final receipt readiness requires only quarantined pending intents, exact quarantined pending counts and no other outstanding run rows."
+    },
+    {
+      "area": "final proof",
+      "conclusion": "Producer saves final stable observation before settlement and retains it when later accounting fails. Final hash/inventory/root identity failures are separately explicit even after earlier aggregate failure. Oversized proof is rejected with compact incomplete failure marker, raw files preserved and full reservation retained."
+    },
+    {
+      "area": "unchanged acceptance boundary",
+      "conclusion": "No quarantine operation marks original failure complete, grants product acceptance, changes QA/DoD duties, or authorizes implementation. Initial unknown records with no original hashes stay historically incomplete."
+    }
+  ],
+  "source_reviewed_test_method_counts": {
+    "tests/test_evidence_quarantine.py": 27,
+    "tests/test_evidence_quarantine_manager.py": 11
+  },
+  "pure_probe_results": [
+    {
+      "case": "structural reason survives real record_uncertain method and fresh object",
+      "expected": "same durable structural cause; fresh readiness false",
+      "actual": {
+        "reason": "accounting recovery journal was lost; complete generation history cannot be verified",
+        "ready": false,
+        "reason_writes": 0
+      },
+      "passed": true
+    },
+    {
+      "case": "sticky reason writer",
+      "initial": null,
+      "requested": "managed output inventory is unknown; observed charges are lower bounds and its reservation remains held",
+      "actual": "managed output inventory is unknown; observed charges are lower bounds and its reservation remains held",
+      "expected": "managed output inventory is unknown; observed charges are lower bounds and its reservation remains held",
+      "passed": true
+    },
+    {
+      "case": "sticky reason writer",
+      "initial": "managed output inventory is unknown; observed charges are lower bounds and its reservation remains held",
+      "requested": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "actual": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "expected": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "passed": true
+    },
+    {
+      "case": "sticky reason writer",
+      "initial": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "requested": "managed output inventory is unknown; observed charges are lower bounds and its reservation remains held",
+      "actual": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "expected": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "passed": true
+    },
+    {
+      "case": "sticky reason writer",
+      "initial": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "requested": "another structural reason",
+      "actual": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "expected": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "passed": true
+    },
+    {
+      "case": "cached UNKNOWN yields newer durable structural cause",
+      "actual": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "expected": "accounting recovery journal was lost; complete generation history cannot be verified",
+      "passed": true
+    },
+    {
+      "case": "unchanged structural reason writes no identity row",
+      "actual": 0,
+      "expected": 0,
+      "passed": true
+    }
+  ],
+  "producer_AST_tail_probes": {
+    "source_sha256": "c6b58af6cb07229b8fab33bc021aaaa3c7a7479ba6e2a66b8e34d6a2fed57102",
+    "method": "Compiled actual final-observation tail AST; replaced runtime.update and ledger calls entirely with memory callbacks; no producer launched.",
+    "results": [
+      {
+        "case": "later settlement fault",
+        "actual_events": [
+          "proof-saved",
+          "settle-fault"
+        ],
+        "result": "complete original final hash map retained"
+      },
+      {
+        "case": "oversized proof",
+        "actual_events": [
+          "full-proof-rejected",
+          "compact-incomplete-proof-saved",
+          "uncertain-hold-retained"
+        ],
+        "result": "no truncated hash map claimed complete"
+      },
+      {
+        "case": "aggregate overrun plus final hash failure",
+        "actual_events": [
+          "incomplete-proof-with-explicit-final-hash-failure-saved",
+          "uncertain-hold-retained"
+        ],
+        "result": "earlier aggregate text does not mask final-observation failure"
+      },
+      {
+        "case": "verified writer stop plus cleanup failure",
+        "actual_events": [
+          "complete-stable-hashes-saved",
+          "uncertain-hold-retained"
+        ],
+        "result": "stable observation may be retained while run remains incomplete"
+      }
+    ],
+    "first_probe_failure_preserved": {
+      "actual": "SyntaxError: no binding for nonlocal previous found",
+      "cause": "AST selection initially matched the earlier four-variable initialization and included nested observe(); selector corrected to the exact two-variable gross total assignment. No production change was made."
+    }
+  },
+  "not_run_by_reviewer": [
+    "new core/manager unittest suites",
+    "full regression suite",
+    "installer/update/retirement suites",
+    "real producer/runtime execution",
+    "actual SQLite restart/crash or concurrency exercise",
+    "live ledger apply",
+    "remote transport",
+    "browser/product QA/DoD acceptance",
+    "CI"
+  ],
+  "limitations": [
+    "Pure callback probes establish control-flow and declared transition behavior only; actual SQL durability, filesystem crash, process ownership and resource cleanup need the separately owned real test evidence. Core owner reported its regression runs; this reviewer does not count those as independently executed tests. Final source hashes require revalidation after any additional edit."
+  ],
+  "remaining_blockers": [],
+  "remaining_required_verification": "Root exact-revision full regression/install/integration and separately authorized live application/product checks remain outstanding for delivery; this scoped review alone is not readiness or acceptance.",
+  "writes": [
+    "reports/evidence-recovery-20261021/engine-review.json"
+  ],
+  "resources_created": []
+}

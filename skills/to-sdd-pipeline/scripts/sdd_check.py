@@ -780,21 +780,27 @@ class Checker:
         self.accounting_reference_id = accounting_ref.get("artifact_id") if accounting_ref is not None else None
         if accounting_ref is not None:
             receipt = self.evidence_resolver.json(accounting_ref)
-        if not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] != 1:
+        if not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] not in (1, 2):
             raise ValueError("unsupported evidence accounting version")
         for flag in ("accounting_complete", "incomplete"):
             if flag in receipt and type(receipt[flag]) is not bool:
                 raise ValueError("invalid evidence accounting completeness flag: " + flag)
-        if receipt.get("accounting_complete") is False or receipt.get("incomplete") is True:
+        scoped = receipt["version"] == 2
+        if not scoped and (receipt.get("accounting_complete") is False or receipt.get("incomplete") is True):
             raise ValueError("evidence accounting is incomplete; reconcile missing durable accounting history")
         if receipt.get("project_id") != policy["project_id"] or not hash_matches(receipt.get("policy_sha256"), self.file_hash(policy_path)):
             raise ValueError("evidence accounting belongs to another project or policy")
         runs = receipt.get("runs")
         if not isinstance(runs, dict):
             raise ValueError("evidence accounting run index required")
+        scope = None
+        if scoped:
+            scope = self.scoped_evidence_accounting(receipt, policy, runs)
         def reconciled(original_run, original_unit):
             if not isinstance(original_run, str) or not original_run or not isinstance(original_unit, str) or not original_unit:
                 raise ValueError("original stable run/unit accounting identities required")
+            if scope is not None and original_run not in scope:
+                raise ValueError("required evidence is outside the complete current accounting scope")
             observed = runs.get(original_run)
             if not isinstance(observed, dict) or observed.get("unit_id") != original_unit or observed.get("status") != "complete":
                 raise ValueError("missing/incomplete accounting for original run/unit")
@@ -827,6 +833,84 @@ class Checker:
                     raise ValueError("required evidence exceeds reconciled original generation accounting")
         elif run_id is not None or unit_id is not None:
             reconciled(run_id, unit_id)
+
+    @staticmethod
+    def scoped_evidence_accounting(receipt, policy, runs):
+        """Validate declared known-run scope without concealing historical gaps.
+
+        This checker does not inspect or repair a live ledger. The storage owner
+        must establish disposition and readiness before issuing this receipt.
+        Required evidence still passes every original per-run binding check.
+        """
+        from evidence.quarantine import validate_quarantine_descriptor
+        flags = {"accounting_complete": False, "incomplete": True,
+                 "totals_are_lower_bounds": True, "history_complete": False,
+                 "generation_ready": True}
+        if receipt.get("kind") != "scoped-known-generation" or any(
+                type(receipt.get(key)) is not bool or receipt[key] is not value
+                for key, value in flags.items()):
+            raise ValueError("scoped accounting must disclose incomplete historical accounting")
+        quarantines = receipt.get("quarantines")
+        if not isinstance(quarantines, list) or not quarantines:
+            raise ValueError("scoped accounting requires preserved quarantine descriptors")
+        isolated = {}
+        reservations = set()
+        for descriptor in quarantines:
+            validate_quarantine_descriptor(descriptor, policy)
+            ident = descriptor["intent_id"]
+            if (ident in isolated or descriptor["reservation_id"] in reservations
+                    or not isinstance(ident, str) or not ident):
+                raise ValueError("duplicate or missing scoped quarantine identity")
+            reservations.add(descriptor["reservation_id"])
+            isolated[ident] = descriptor
+            row = runs.get(descriptor["run_id"])
+            if (not isinstance(row, dict) or row.get("unit_id") != descriptor["unit_id"]
+                    or row.get("status") != "incomplete"
+                    or type(row.get("pending_reservations")) is not int
+                    or row["pending_reservations"] < 1
+                    or type(row.get("gross_generated_bytes")) is not int
+                    or row["gross_generated_bytes"] < descriptor["run"]["gross_bytes"]
+                    or type(row.get("original_logical_files")) is not int
+                    or row["original_logical_files"] < descriptor["run"]["gross_files"]):
+                raise ValueError("quarantined run must remain incomplete with its full pending hold")
+        pending = receipt.get("pending_generation_intents")
+        if not isinstance(pending, dict) or set(pending) != set(isolated):
+            raise ValueError("scoped accounting has unisolated pending generation intents")
+        for ident, intent in pending.items():
+            gap = isolated[ident]
+            if (not isinstance(intent, dict) or intent.get("settled")
+                    or intent.get("run_id") != gap["run_id"]
+                    or intent.get("unit_id") != gap["unit_id"]
+                    or intent.get("reserve_bytes") != gap["reservation"]["bytes"]
+                    or intent.get("reserve_files") != gap["reservation"]["files"]):
+                raise ValueError("quarantined generation intent changed or was settled")
+        selected = receipt.get("selected_scope")
+        if (not isinstance(selected, dict) or selected.get("complete") is not True
+                or not isinstance(selected.get("run_ids"), list)
+                or any(not isinstance(item, str) or not item for item in selected["run_ids"])
+                or len(set(selected["run_ids"])) != len(selected["run_ids"])):
+            raise ValueError("complete current accounting scope requires unique run identities")
+        scope = set(selected["run_ids"])
+        complete_runs = {ident for ident, row in runs.items()
+                         if isinstance(row, dict) and row.get("status") == "complete"}
+        if scope != complete_runs or scope.intersection(gap["run_id"] for gap in quarantines):
+            raise ValueError("current accounting scope differs from complete known runs")
+        quarantined_runs = {gap["run_id"] for gap in quarantines}
+        if len({gap["ledger_id"] for gap in quarantines}) != 1:
+            raise ValueError("scoped quarantines must retain one authoritative original ledger")
+        for ident, row in runs.items():
+            if not isinstance(ident, str) or not ident or not isinstance(row, dict):
+                raise ValueError("invalid scoped accounting run identity")
+            for field in ("gross_generated_bytes", "original_logical_files",
+                          "pending_reservations", "unreconciled_outputs"):
+                if type(row.get(field)) is not int or row[field] < 0:
+                    raise ValueError("invalid scoped accounting run amount: " + field)
+            if ident not in quarantined_runs and (row["pending_reservations"] or row["unreconciled_outputs"]):
+                raise ValueError("scoped accounting has unisolated outstanding reservations or outputs")
+            if ident in quarantined_runs and row["pending_reservations"] != sum(
+                    gap["run_id"] == ident for gap in quarantines):
+                raise ValueError("scoped accounting pending hold count differs from preserved quarantines")
+        return scope
 
     def evidence_json(self, record):
         ref = evidence_reference(record)

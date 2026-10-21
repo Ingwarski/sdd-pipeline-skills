@@ -1,0 +1,237 @@
+{
+  "review_kind": "independent semantic instruction compaction and conditional-resource review",
+  "created_at": "2026-10-21T12:31:42.626865+00:00",
+  "base_revision": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b",
+  "branch": "codex/fix-evidence-recovery",
+  "scope": [
+    "skills/to-sdd-pipeline/references/evidence-storage-contract.md",
+    "skills/to-sdd-pipeline/references/producer-gap-recovery.md"
+  ],
+  "source_sha256": {
+    "skills/to-sdd-pipeline/references/evidence-storage-contract.md": "4f3cf901f9d6a9759e8b6a2dd767edf6525324847ac57d280bd922e4b28a68e7",
+    "skills/to-sdd-pipeline/references/producer-gap-recovery.md": "b5b1c73374816fd4d76280b8b857f61c1d0462668f34235c301dd8413f134bb6",
+    "reports/evidence-recovery-20261021/storage-contract-reviewed-first-draft.md": "2e230456b14f54c6f519704ca2fdbdc55794e75f8e3b7f02dffee0645429e101",
+    "scripts/measure_tokens.py": "822a40e28ad7eecb2892790b812fcb69020121c344c50e82bb6ce30926ecb94c",
+    "tests/fixtures/token-scenarios.json": "02835426f78b73c79caf241cd94c2bbbc47e191feeee3d6248ae33daed558154",
+    "tests/fixtures/instruction-budget.json": "08035dbf78df984d82ed1493d6ccefd8448fc038df689f1a8a1106fbf1a91077",
+    "tests/fixtures/instruction-baseline.json": "87a071771bbec1d64519f1e1b768bc879188916e56b0b07625727c3745eb1285"
+  },
+  "original_parent_sha256": "48d08abfd40473fb99c9f3b21117c4e930c9f9648c7faef82b1331abd4318b0b",
+  "usage": {
+    "included_used_percent": 57,
+    "ordinary_usage_allowed": true,
+    "extra_credits_API_reset_authorized_or_requested": false
+  },
+  "read_only_methods": "Read entire original parent using git show, entire current diff/text, entire conditional guidance and preserved first draft, caller/resource-loading/scenario/policy sources. Read-only Git diff/show only; no mutation, product runtime, tests, network or tokenizer execution.",
+  "findings": [
+    {
+      "id": "INSTRUCTION-ANCHOR-01",
+      "priority": 3,
+      "path": "skills/to-sdd-pipeline/references/evidence-storage-contract.md",
+      "line": 9,
+      "title": "Retain the explicit canonical skill-directory anchor",
+      "detail": "Compaction shortened real to-sdd-pipeline skill directory to real skill directory. This shared contract is also read by QA, while bundled evidence_host.py is owned by to-sdd-pipeline; retain the explicit to-sdd-pipeline anchor to preserve unambiguous original helper resolution.",
+      "required_change": "Restore explicit to-sdd-pipeline in the real-directory phrase.",
+      "status": "Root accepted; queued after its currently running full suite, followed by focused resource/contract checks. Not yet included in reviewed hash."
+    }
+  ],
+  "semantic_conclusion": "All previous substantive authority, setup choice/consent, postponement, failure/provider, reference/binding, observation/correction, preparation/budget, configurable retention and cleanup rules remain. The directory anchor clarification is the sole required follow-up. No product/QA/DoD/implementation boundary waiver found.",
+  "preservation_mapping": [
+    {
+      "area": "Pipeline scope and timing",
+      "current_lines": [
+        7
+      ],
+      "review": "Authorized start/resume including headless scopes checks storage before owner dispatch/design questions. Opening repositories/advice/read-only requests do not trigger setup."
+    },
+    {
+      "area": "Setup helper, configuration and authenticated host",
+      "current_lines": [
+        9
+      ],
+      "review": "Supported Python ensure command, existing bindings/default reuse, compatible Drive host, host-session lifecycle and missing-access blocker preserved. Explicit canonical skill-directory anchor must be restored as noted below."
+    },
+    {
+      "area": "Foreground choices and default",
+      "current_lines": [
+        11,
+        23
+      ],
+      "review": "One question in working_language; all three choices/descriptions, recommended local low-storage caveat, Decide later, outside-checkout locations, Claude connector verification, optional rclone, original-byte Drive verification and local working/cache needs unchanged."
+    },
+    {
+      "area": "Consent and persistence",
+      "current_lines": [
+        25
+      ],
+      "review": "JSON/terminal output does not replace chat; wait before owner dispatch; silence/recommendations are not consent; reuse prior explicit choices, collect only missing account/destination/policy, explain defaults, require explicit Drive retention, configure and verify, keep machine paths/credentials outside Git, authorize adoption/upload separately."
+    },
+    {
+      "area": "Saved failures and postponement",
+      "current_lines": [
+        27
+      ],
+      "review": "Unavailable/malformed/mismatched choices are preserved for restoration/reconfiguration without provider fallback; configured is not live reachability. Explicit postponement permits planning but no evidence production; design material handling remains to-product-idea with saved answers/headless non-applicability."
+    },
+    {
+      "area": "Ownership, Git and evidence references",
+      "current_lines": [
+        31,
+        50
+      ],
+      "review": "QA/executor/storage/orchestrator authority, selective generated ignores, legacy/reference compatibility, canonical schema fields, original path/time/source/plan/baseline/environment/toolchain/execution bindings, dependencies/split closure, no URL-only proof and blocking unsupported/incomplete/mismatched claims preserved."
+    },
+    {
+      "area": "JSON semantics and source containment",
+      "current_lines": [
+        52
+      ],
+      "review": "Original JSON semantics, visual_target_hash approval bindings, source access/read/manifest mapping and source_inventory expansion remain; reject inline conflicts and preserve strict source containment/test reuse."
+    },
+    {
+      "area": "Observation labels and corrections",
+      "current_lines": [
+        54,
+        56
+      ],
+      "review": "Separate action/state/fixture/result/original time; original observation source index/pointer; no inferred states; legacy compatibility; structural agreement does not authenticate evidence. Separate version-1 metadata correction retains original hash/time/reviewer/reason/correction time/new_execution false, original interaction identities/times, no chained corrections, preserved history/other-state evidence, owner semantic review and no new authority/acceptance."
+    },
+    {
+      "area": "Preparation, budgets and version 1",
+      "current_lines": [
+        60,
+        66
+      ],
+      "review": "Optional browser applicability, independent retrieval/member verification, deletion journal, cache-only checker reads, current reference/dependency closure, stable run/unit accounting, cumulative holds/charges/retries, reserve-before-write, no refunds, v1 complete per-run accounting, zero pending/output requirement, imported-existing zero generation, migration separation and no truncated checks remain."
+    },
+    {
+      "area": "New conditional recovery",
+      "current_lines": [
+        68
+      ],
+      "review": "Mandatory recovery read is attached to unknown producer history before quarantine/v2 accounting. Parent retains visible historical incompleteness/full holds/known charges, current complete evidence-only scope and v1 incomplete rejection."
+    },
+    {
+      "area": "Retention and cleanup",
+      "current_lines": [
+        72,
+        74
+      ],
+      "review": "30 days remains a configurable local DEFAULT measured from original sealing; explicit Drive expiry choice, verified durable copies before cache eviction, complete protected set for permanent expiry and expired-but-protected reporting remain. Sole durable local originals are not cache. One coordinator/shared-client knowledge, dry-run/journal/verified absence/partial failures, no scheduler/unregistered deletion/account-wide trash, no age refresh, and separate GitHub/remote retention settings preserved."
+    }
+  ],
+  "conditional_resource_review": {
+    "moved_guidance_matches_previously_reviewed_draft_exactly": true,
+    "new_scope_introduction": "Read before quarantining unknown producer history or issuing version 2 scoped accounting. Ordinary complete-history storage uses the parent contract unchanged.",
+    "preserved_contract": [
+      "original failure record/run/ordinal/floor and full hold",
+      "no gross-history inference from final size/reservation/cleanup",
+      "original intact ledger/journal and exact inactive owners",
+      "stable current inventory/resource disposition and immutable bindings",
+      "external operator assertion hash does not authenticate host truth",
+      "unrelated structural loss and unknown/active ownership block",
+      "cold recovery never grants new generation authority",
+      "unchanged numeric budgets with lower-bound disclosure, no claimed physical maximum",
+      "all v2 historical false/incomplete/lower-bound flags and preserved descriptors/intents",
+      "only independently complete selected runs with zero pending/outstanding output for required references/prerequisites",
+      "failed quarantined runs never acceptance",
+      "v1 incomplete rejects, old checkers reject v2",
+      "QA/DoD/execution permission/release unchanged"
+    ],
+    "classification": "Legitimately conditional. Unknown producer gross history/quarantine/v2 receipts are additional recovery states; ordinary configured complete-history storage can operate correctly using the parent contract.",
+    "fixed_scenarios": {
+      "first_setup_with_retry": {
+        "invocations": 18,
+        "retries": 1,
+        "gap_guidance_required": false
+      },
+      "approved_design_revision": {
+        "invocations": 7,
+        "retries": 1,
+        "gap_guidance_required": false
+      },
+      "interrupted_claude_resume": {
+        "invocations": 7,
+        "retries": 1,
+        "gap_guidance_required": false
+      },
+      "approved_decision_correction": {
+        "invocations": 7,
+        "retries": 0,
+        "gap_guidance_required": false
+      },
+      "completion_preservation": {
+        "invocations": 9,
+        "retries": 1,
+        "gap_guidance_required": false
+      }
+    },
+    "scenario_reason": "None of the fixed seeds/descriptions invokes producer quarantine, missing managed gross history, or a scoped v2 accounting receipt. Interrupted Claude handoff/capture and an incomplete design receipt do not by themselves imply lost producer accounting. Their existing conditional browser/history/correction resources and retries remain counted unchanged.",
+    "real_gap_usage": "The new resource must be read and incurs real instruction load whenever the actual task has unknown producer history/quarantine/v2 accounting. Excluding it from these fixed non-gap scenarios does not claim zero cost for recovery tasks or excuse required reads."
+  },
+  "instruction_budget_review": {
+    "measurement_status": "NOT MEASURED; pending CI tokenizer run against unchanged method/scenarios/policy/baseline",
+    "no_numerical_pass_claim": true,
+    "dependencies_installed": false,
+    "gate_waiver": false,
+    "source_only_size_observations": {
+      "base_parent_bytes": 9938,
+      "reviewed_parent_bytes": 9783,
+      "byte_delta": -155,
+      "warning": "Byte/word differences are not token counts and cannot establish budget compliance."
+    },
+    "protected_inputs": [
+      {
+        "path": "scripts/measure_tokens.py",
+        "base_sha256": "822a40e28ad7eecb2892790b812fcb69020121c344c50e82bb6ce30926ecb94c",
+        "current_sha256": "822a40e28ad7eecb2892790b812fcb69020121c344c50e82bb6ce30926ecb94c",
+        "unchanged": true
+      },
+      {
+        "path": "tests/fixtures/token-scenarios.json",
+        "base_sha256": "02835426f78b73c79caf241cd94c2bbbc47e191feeee3d6248ae33daed558154",
+        "current_sha256": "02835426f78b73c79caf241cd94c2bbbc47e191feeee3d6248ae33daed558154",
+        "unchanged": true
+      },
+      {
+        "path": "tests/fixtures/instruction-budget.json",
+        "base_sha256": "08035dbf78df984d82ed1493d6ccefd8448fc038df689f1a8a1106fbf1a91077",
+        "current_sha256": "08035dbf78df984d82ed1493d6ccefd8448fc038df689f1a8a1106fbf1a91077",
+        "unchanged": true
+      },
+      {
+        "path": "tests/fixtures/instruction-baseline.json",
+        "base_sha256": "87a071771bbec1d64519f1e1b768bc879188916e56b0b07625727c3745eb1285",
+        "current_sha256": "87a071771bbec1d64519f1e1b768bc879188916e56b0b07625727c3745eb1285",
+        "unchanged": true
+      }
+    ],
+    "review": "No required prior conditional resource, fixed scenario seed, invocation, retry, tokenizer method, budget ceiling or numerical baseline was removed or changed. Existing resource_loads still counts parent storage/browser guidance for its existing consumers on every prescribed invocation. Exact zero headroom makes CI token measurement necessary even when bytes decrease."
+  },
+  "first_draft_preserved": {
+    "path": "reports/evidence-recovery-20261021/storage-contract-reviewed-first-draft.md",
+    "sha256": "2e230456b14f54c6f519704ca2fdbdc55794e75f8e3b7f02dffee0645429e101"
+  },
+  "not_run": [
+    "tokenizer measurement or numerical budget check",
+    "focused packaged-resource tests",
+    "full regression suite",
+    "CI"
+  ],
+  "remaining_required_checks": [
+    "Restore explicit canonical directory anchor; root-owned focused resource/contract verification after that edit.",
+    "Run exact pinned tokenizer budget gate in CI; do not claim numerical pass from byte counts.",
+    "Complete root-owned final regression/resource verification and report its actual exact-source results."
+  ],
+  "writes": [
+    "reports/evidence-recovery-20261021/instruction-review.json"
+  ],
+  "resources_created": [],
+  "source_unchanged_at_review_end": true,
+  "root_followup": {
+    "required_anchor": "restored explicit real to-sdd-pipeline skill directory after full-suite terminal",
+    "contract_sha256": "ea1905b414b665f54144dcb13f85cf4879f0c9f1c7d940fa329522a7fcaf23a2",
+    "executable_changes_after_final_suite": [],
+    "followup_checks": "skill resource/contract and evidence checker suites; CI token budget pending"
+  }
+}

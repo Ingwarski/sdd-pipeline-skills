@@ -1,0 +1,108 @@
+{
+  "source_revision": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b",
+  "branch": "codex/fix-evidence-recovery",
+  "authorization": "User2026-10-21: Fix recovery engine, preserve failed runs/accounting, test/install, address journal/test bloat, resume units; commit/push; no merge",
+  "active_product_unit": "UNIT-EXP-00 prerequisite before06",
+  "root_ownership": [
+    "checker.py and checker regression tests, contracts/docs, operational allocation, Git/install/live ledger/runtime integration"
+  ],
+  "workers": [
+    {
+      "name": "recovery_analysis",
+      "model": "gpt-6.1-sol",
+      "reasoning": "high",
+      "justification": "Persistent accounting and failure recovery safety",
+      "write": "reports/evidence-recovery-20261021/recovery-analysis.json",
+      "runtime": "none",
+      "deliverable": "Source-backed safe recovery contract, distinguish real retained proof from unknown gross; no implementation until interfaces settled"
+    },
+    {
+      "name": "bloat_analysis",
+      "model": "gpt-6-luna",
+      "reasoning": "high",
+      "justification": "Bounded source and data-size tracing",
+      "write": "reports/evidence-recovery-20261021/bloat-analysis.json",
+      "runtime": "none",
+      "deliverable": "Measured/source-backed redundant writes, test output/history amplification with acceptance-preserving fixes"
+    },
+    {
+      "name": "unit00_readiness",
+      "model": "gpt-6.1-sol",
+      "reasoning": "medium",
+      "justification": "Prepared harness dependency integration",
+      "write": "reports/evidence-recovery-20261021/unit00-readiness.json",
+      "runtime": "none",
+      "deliverable": "Exact ready inputs/QA00 requirements and bounded current harness assembly plan; no product execution or next-unit work"
+    }
+  ],
+  "interfaces": "v2 scoped-known-generation receipt; immutable quarantine preserves historical incompleteness, full floors and pending holds; readiness distinct from historical completeness; unrelated structural loss still blocks.",
+  "spending": "Included only, live56percentused; no extras/API/reset",
+  "returned_worker_settings": "requested, host not independently exposes",
+  "queue": [
+    "Research/review recovery semantics",
+    "Implement and regression-test accepted engine contract",
+    "Validate full suites/install tested branch without merge",
+    "Recover live state through supported command; preserve all originals",
+    "Assemble/test bounded UNIT00 harness and actual QA/DoD; continue orderedunits"
+  ],
+  "implementation_ownership": {
+    "engine_recovery_analysis": [
+      "evidence/accounting.py",
+      "evidence/producer.py",
+      "evidence/quarantine.py",
+      "tests/test_evidence_quarantine.py"
+    ],
+    "recovery_manager_integration": [
+      "evidence/manager.py",
+      "evidence_store.py",
+      "tests/test_evidence_quarantine_manager.py"
+    ],
+    "unit00_harness_readiness": [
+      "HappyPro unit-00/current-20261021-retry3/**"
+    ],
+    "test_bloat_analysis": [
+      "bloat-analysis.json",
+      "test-footprint.json"
+    ]
+  },
+  "baseline": {
+    "tests": 913,
+    "seconds": 285.636,
+    "failures": 8,
+    "skips": 11,
+    "cause": "installer subprocess PATH did not include available Python3.12 runtime; rerun with correct PATH required"
+  },
+  "additional_workers": [
+    {
+      "name": "recovery_manager_integration",
+      "profile": "gpt-6.1-sol/high requested",
+      "write": [
+        "evidence/manager.py",
+        "evidence_store.py",
+        "tests/test_evidence_quarantine_manager.py",
+        "own report"
+      ],
+      "state": "released; integrated and independently reviewed"
+    },
+    {
+      "name": "scoped_receipt_review",
+      "profile": "gpt-6.1-sol/high requested",
+      "write": [
+        "scoped-review.json",
+        "engine-review.json"
+      ],
+      "state": "released; findings fixed and rechecked"
+    }
+  ],
+  "verification": {
+    "source": "consolidated-source-hashes.json",
+    "unittest": "960 run,949 passed,11 platform/test-only dependency skips;276.321s",
+    "shell": "install/retirement/update passed",
+    "engine_source_frozen": true,
+    "included_allowance_latest_used_percent": 57,
+    "extra_credits_API_or_reset_used": false,
+    "product_acceptance": false
+  },
+  "phase": "Engine local regression/review complete; prepare tested topic commit/push, CI content check, then supported repair install and actual recovery",
+  "updated_at": "2026-10-21T12:25:05.741794+00:00"
+}

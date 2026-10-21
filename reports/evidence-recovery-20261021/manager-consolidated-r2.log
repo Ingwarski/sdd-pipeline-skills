@@ -1,0 +1,16 @@
+test_catalog_replay_rebinding_and_settlement_are_rejected (test_evidence_quarantine_manager.QuarantineManagerTests.test_catalog_replay_rebinding_and_settlement_are_rejected) ... ok
+test_cli_quarantine_defaults_to_dry_run (test_evidence_quarantine_manager.QuarantineManagerTests.test_cli_quarantine_defaults_to_dry_run) ... ok
+test_dry_run_and_repeated_publication_preserve_all_historical_rows (test_evidence_quarantine_manager.QuarantineManagerTests.test_dry_run_and_repeated_publication_preserve_all_historical_rows) ... ok
+test_fresh_real_producer_finishes_without_completing_old_attempt (test_evidence_quarantine_manager.QuarantineManagerTests.test_fresh_real_producer_finishes_without_completing_old_attempt) ... ok
+test_missing_original_ledger_cold_restore_retains_hold_and_blocks_generation (test_evidence_quarantine_manager.QuarantineManagerTests.test_missing_original_ledger_cold_restore_retains_hold_and_blocks_generation) ... ok
+test_publication_interruption_blocks_generation_and_retry_is_safe (test_evidence_quarantine_manager.QuarantineManagerTests.test_publication_interruption_blocks_generation_and_retry_is_safe) ... ok
+test_quarantined_run_cannot_be_reused_or_completed (test_evidence_quarantine_manager.QuarantineManagerTests.test_quarantined_run_cannot_be_reused_or_completed) ... ok
+test_scoped_receipt_does_not_hide_unisolated_pending_reservation (test_evidence_quarantine_manager.QuarantineManagerTests.test_scoped_receipt_does_not_hide_unisolated_pending_reservation) ... ok
+test_scoped_receipt_does_not_hide_unreconciled_output (test_evidence_quarantine_manager.QuarantineManagerTests.test_scoped_receipt_does_not_hide_unreconciled_output) ... ok
+test_unrelated_pending_intent_and_unknown_hold_cannot_gain_acceptance (test_evidence_quarantine_manager.QuarantineManagerTests.test_unrelated_pending_intent_and_unknown_hold_cannot_gain_acceptance) ... ok
+test_unverified_foreign_intent_still_blocks_new_generation (test_evidence_quarantine_manager.QuarantineManagerTests.test_unverified_foreign_intent_still_blocks_new_generation) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 4.285s
+
+OK

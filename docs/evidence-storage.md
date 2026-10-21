@@ -233,7 +233,36 @@ Cold recovery needs stable project/store identity and the authenticated storage 
 
 Payload restoration can run without the checkout. An acceptance `accounting-receipt` additionally requires the original policy bytes through `--project PATH` or `--policy /external/original-policy.json`; a reconstructed catalog policy cannot establish the original policy-file hash. Recover those bytes before issuing a receipt rather than inventing its binding.
 
-Remote archives can restore payloads even when local generation accounting has been lost. They cannot prove every failed or unpublished attempt. Preserve and recover the coordinator's `accounting.sqlite` database and its `accounting.sqlite.recovery` journal together. Without authoritative history, recovered totals are known lower bounds, `accounting_complete` stays false, and new generation or run completion is blocked. Bounded payload recovery remains available; restoring archived files never resets cumulative generation limits.
+Remote archives can restore payloads even when local generation accounting has been lost. They cannot prove every failed or unpublished attempt. Preserve and recover the coordinator's `accounting.sqlite` database and its `accounting.sqlite.recovery` journal together. Without that original authoritative ledger and journal, recovered totals are known lower bounds, `accounting_complete` stays false, and new generation or run completion is blocked. Bounded payload recovery remains available; restoring archived files never resets cumulative generation limits.
+
+### Preserved producer gaps
+
+A dead producer with missing final write history is different from a lost ledger.
+The explicit `quarantine-producer` command records this distinction without
+settling the failed reservation. It first checks the original ledger/journal,
+native process identities, current output and a hash-bound disposition proof.
+Use `--attempt-id` and `--proof` to inspect a proposed descriptor; add `--apply`
+only after reviewing the actual disposition. Unregistered helper/resource
+coverage is an explicit operator assertion, not engine-authenticated ownership.
+No cleanup timestamp becomes an original execution timestamp.
+
+The immutable descriptor preserves the original failure record hash, known gross
+floor, complete pending hold and retry ordinal. Old runs stay incomplete, their
+intents stay unsettled, and their output cannot be reused for a fresh run.
+Changed proof/bindings, active or unknown owners, missing journals and other
+unresolved causes remain blockers. Publication interruptions retain local holds;
+repeating the same operation is idempotent. Catalog-only recovery preserves the
+gap and holds but never certifies readiness without the original ledger.
+
+Fresh runs can then be admitted under the existing numeric limits, counting both
+known historical charges and entire pending holds. Historical totals remain
+lower bounds, not proven physical maxima. A version 2 `scoped-known-generation`
+receipt keeps global accounting incomplete while identifying independently
+complete current runs. Required evidence must belong to this complete scope;
+quarantined failures never qualify. Version 1 incomplete receipts still fail.
+See the [owner contract](../skills/to-sdd-pipeline/references/evidence-storage-contract.md)
+for the receipt fields and acceptance boundary. Quarantine does not waive any
+product check or grant implementation permission.
 
 Recover using the durable remote catalog and credentials even when the checkout/local database is absent. Restore only verified safe members within bounded local reservations. Original paths describe provenance, never permission to extract arbitrary destinations. Repeated remote transfers reconcile existing immutable IDs instead of blindly uploading again.
 

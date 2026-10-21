@@ -1,0 +1,96 @@
+{
+  "report_type": "read_only_test_suite_and_fixture_footprint",
+  "date": "2026-10-21",
+  "repository": {
+    "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+    "branch": "codex/fix-evidence-recovery",
+    "head": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b"
+  },
+  "method": {
+    "sources": [
+      "reports/evidence-recovery-20261021/baseline-unittest.log",
+      "tests/test_*.py source and tempfile/copy patterns",
+      "tests/fixtures file metadata",
+      "install.sh and tests/test_installer_inputs.py"
+    ],
+    "actions": "Read-only log and source inspection, AST counting, and filesystem size metadata. The suite was not rerun. No fixtures or archives were decompressed or modified.",
+    "limitations": "The baseline log has no per-test timing, duration profile, coverage report, or temporary-directory byte measurements. Static source counts cannot establish that any assertion is redundant."
+  },
+  "baseline_run": {
+    "log_path": "reports/evidence-recovery-20261021/baseline-unittest.log",
+    "log_bytes": 169556,
+    "logged_tests": 913,
+    "elapsed_seconds": 285.636,
+    "mean_seconds_per_test_arithmetic_only": 0.313,
+    "failures": 8,
+    "skipped": 11,
+    "failure_scope": "All eight failures are in test_installer_inputs.py. There are six distinct test methods in the failure report; compact-JSON and fresh-install methods each have two failing subtests.",
+    "failure_output": "Seven failing subcases report 'Python 3.12+ is required'; the missing-progress case receives that same earlier version error instead of the expected progress preflight diagnostic.",
+    "cause_assessment": {
+      "reported_by_parent": "The installer subprocess PATH did not expose Python 3.12+.",
+      "source_and_log_support": "test_installer_inputs.py install() passes the inherited os.environ by default. install.sh resolves python3 from PATH and fails before installation when that executable is missing or older than 3.12. The baseline's installer output is consistent with that environment issue.",
+      "recommended_action": "For a future authorized test run, expose the supported Python 3.12+ executable in the subprocess PATH. Keep all installer assertions enabled; do not treat these environment failures as code regressions or delete the tests."
+    },
+    "log_evidence_lines": [
+      {"lines": "922-990", "claim": "Eight installer test failure cases and their Python version diagnostics."},
+      {"lines": "993-995", "claim": "913 tests, 285.636 seconds, 8 failures, 11 skipped."}
+    ]
+  },
+  "source_footprint": {
+    "test_modules": 55,
+    "test_methods_ast_count": 913,
+    "test_source_bytes": 895098,
+    "test_source_mean_bytes_per_module": 16274,
+    "interpretation": "AST method count matches the unittest baseline count. The source volume is a size measure, not evidence of duplicated assertions or runtime cost.",
+    "largest_modules_by_source_bytes": [
+      {"path": "tests/test_unit_history.py", "test_methods": 50, "bytes": 95471},
+      {"path": "tests/test_evidence_transports.py", "test_methods": 68, "bytes": 47673},
+      {"path": "tests/test_sdd_check.py", "test_methods": 52, "bytes": 39910},
+      {"path": "tests/test_evidence_checker.py", "test_methods": 38, "bytes": 38165},
+      {"path": "tests/test_authorization_corrections.py", "test_methods": 39, "bytes": 36876}
+    ]
+  },
+  "temporary_fixture_lifetimes": {
+    "modules_with_tempfile_constructors": 42,
+    "TemporaryDirectory_or_mkdtemp_constructor_calls": 55,
+    "modules_with_explicit_cleanup_or_teardown_pattern": 36,
+    "constructor_calls_inside_with_context": 19,
+    "static_review_result": "Every discovered constructor call was covered by either a module-level explicit addCleanup/cleanup/tearDown pattern or a with-scoped TemporaryDirectory context. The categories overlap. This is a source-pattern check, not an observed post-run temp-directory inventory.",
+    "notable_lifetime": "test_installer_inputs.py creates one TemporaryDirectory per test in setUp and registers cleanup with addCleanup; each isolated installer scenario receives a fresh tree."
+  },
+  "installer_fixture_copy_cost": {
+    "source": "tests/test_installer_inputs.py:19-27, 41-50",
+    "installer_test_methods": 12,
+    "directories_copied_per_test": ["scripts/", "skills/"],
+    "scripts_tree_files": 6,
+    "scripts_tree_logical_bytes": 80044,
+    "skills_tree_files": 69,
+    "skills_tree_logical_bytes": 1213631,
+    "logical_source_bytes_copied_per_setup": 1293675,
+    "estimated_logical_bytes_across_12_setups": 15524100,
+    "estimate_limits": "Metadata-based multiplication of source tree sizes by the 12 test methods. It excludes manifest/installer files, destination mutations, filesystem block allocation, copy time, and caching; no runtime I/O was measured.",
+    "interpretation": "This is concrete repeated fixture setup, but only about 15.5 MB of logical source bytes across the module. It is not enough evidence to justify replacing isolated copies or claiming material suite-time savings."
+  },
+  "fixture_and_log_inventory": {
+    "tests_fixture_files": 5,
+    "tests_fixture_logical_bytes": 98586,
+    "largest_fixture_files": [
+      {"path": "tests/fixtures/instruction-baseline.json", "bytes": 46187},
+      {"path": "tests/fixtures/sdd-check-36d7952.py.gz", "bytes": 26640},
+      {"path": "tests/fixtures/agent-evals.json", "bytes": 18992},
+      {"path": "tests/fixtures/token-scenarios.json", "bytes": 4915},
+      {"path": "tests/fixtures/instruction-budget.json", "bytes": 1852}
+    ],
+    "available_log_files": [
+      {"path": "reports/evidence-recovery-20261021/baseline-unittest.log", "bytes": 169556}
+    ],
+    "compressed_fixture_handling": "The .py.gz fixture was inventoried by file metadata only; it was not opened or decompressed."
+  },
+  "bloat_assessment": {
+    "proven_redundant_test_cases": [],
+    "grounded_low_risk_fix": "Correct the inherited subprocess PATH for Python 3.12+ on the next authorized run. This addresses all eight baseline failures while retaining installer coverage.",
+    "unproven_optimization": "The installer module copies roughly 1.29 MB of source per test. Consider a copy-on-write fixture only if per-test timing shows this setup is material and the platform mechanism preserves independent mutations. Current evidence does not support that change.",
+    "test_reduction": "No tests or QA predicates are recommended for removal. Distinct safety, recovery, mutation, and freshness cases remain useful; no coverage or per-case timing was available to establish duplication.",
+    "follow_up_measurement": "A future authorized isolated run should record per-test durations and temporary output sizes, use a Python 3.12+ PATH, and verify temporary roots are removed. Keep the maintenance-required full suite for final shared-contract verification."
+  }
+}

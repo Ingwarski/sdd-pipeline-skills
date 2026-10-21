@@ -609,7 +609,7 @@ class Manager:
         if not roots:
             return {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"],
                     "sequence": 0, "coordinator": authority["coordinator"] if authority else self.coordinator, "segments": [], "refs": {}, "packs": {},
-                    "generation": {}, "generation_intents": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
+                    "generation": {}, "generation_intents": {}, "generation_quarantines": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
         keys = sorted((x if isinstance(x, str) else x["key"]) for x in roots)
         latest = keys[-1]
         root, (digest, size) = self._read_remote_json(latest, self.limits["metadata_stop_bytes"])
@@ -639,7 +639,7 @@ class Manager:
         for key in index_keys:
             total += int(self._transport_call("stat", key)["size"])
         refs, packs, generation, pending_deletions, retired_refs, import_retention_decisions = {}, {}, {}, {}, {}, {}
-        generation_intents, reference_aliases = {}, {}
+        generation_intents, generation_quarantines, reference_aliases = {}, {}, {}
         seen = set()
         for descriptor in root["segments"]:
             if descriptor["sha256"] in seen:
@@ -678,6 +678,18 @@ class Manager:
                 if ident not in generation_intents:
                     raise EvidenceError("durable generation settlement lacks its original intent")
                 generation_intents[ident] = {**generation_intents[ident], "settled": True}
+            quarantine_records = data.get("generation_quarantines", {})
+            if not isinstance(quarantine_records, dict):
+                raise EvidenceError("invalid durable generation quarantine index")
+            for ident, value in quarantine_records.items():
+                self._validate_generation_quarantine(ident, value, generation_intents)
+                if ident in generation_quarantines and generation_quarantines[ident] != value:
+                    raise EvidenceError("immutable generation quarantine changed")
+                if any(other != ident and (prior["attempt_id"] == value["attempt_id"]
+                       or prior["intent_id"] == value["intent_id"])
+                       for other, prior in generation_quarantines.items()):
+                    raise EvidenceError("generation quarantine replays another binding")
+                generation_quarantines[ident] = value
             for ident, aliases in data.get("reference_aliases", {}).items():
                 if ident not in refs or not isinstance(aliases, list) or len(aliases) > 10000:
                     raise EvidenceError("imported reference aliases lack registered original identity")
@@ -732,7 +744,9 @@ class Manager:
                 import_retention_decisions[ident] = decision
         if len(keys) + len(index_keys) + len(authorities) > self.limits["metadata_stop_files"] or total > self.limits["metadata_stop_bytes"]:
             raise EvidenceError("combined metadata allowance exhausted")
-        root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, generation_intents=generation_intents, reference_aliases=reference_aliases, pending_deletions=pending_deletions, retired_refs=retired_refs, import_retention_decisions=import_retention_decisions, root_key=latest,
+        for ident, value in generation_quarantines.items():
+            self._validate_generation_quarantine(ident, value, generation_intents)
+        root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, generation_intents=generation_intents, generation_quarantines=generation_quarantines, reference_aliases=reference_aliases, pending_deletions=pending_deletions, retired_refs=retired_refs, import_retention_decisions=import_retention_decisions, root_key=latest,
                     metadata_bytes=total, metadata_files=len(keys) + len(index_keys) + len(authorities))
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
@@ -771,6 +785,7 @@ class Manager:
         cache_bytes = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
         ledger.reconcile_local("cache", cache_bytes, "cache")
         ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache_bytes), "staging")
+        ledger.reconcile_quarantines(catalog.get("generation_quarantines", {}))
         ledger.reconcile_generation(catalog["generation"])
 
     @staticmethod
@@ -1430,6 +1445,59 @@ class Manager:
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
             return recover_producers(ledger, dry_run=dry_run)
 
+    def _validate_generation_quarantine(self, ident, value, intents):
+        from .quarantine import validate_quarantine_descriptor
+        validate_quarantine_descriptor(value, policy=self.policy)
+        if ident != value["reservation_id"]:
+            raise EvidenceError("generation quarantine reservation index differs")
+        intent = intents.get(value["intent_id"])
+        if (intent is None or intent.get("settled")
+                or (intent["run_id"], intent["unit_id"]) != (value["run_id"], value["unit_id"])
+                or (intent["reserve_bytes"], intent["reserve_files"])
+                   != (value["reservation"]["bytes"], value["reservation"]["files"])):
+            raise EvidenceError("generation quarantine lacks its exact unresolved durable intent")
+
+    def _generation_readiness(self, catalog, ledger):
+        readiness = ledger.generation_readiness()
+        published = catalog.get("generation_quarantines", {})
+        local = {item["reservation_id"]: item for item in readiness["quarantines"]}
+        if local != published:
+            raise EvidenceError("generation quarantine publication or original local accounting is incomplete")
+        for ident, value in published.items():
+            self._validate_generation_quarantine(ident, value, catalog.get("generation_intents", {}))
+        return readiness
+
+    def quarantine_producer(self, attempt_id, disposition_proof, *, dry_run=True):
+        """Preserve an unresolved gap and publish its immutable bounded disposition."""
+        from .accounting import Accounting
+        with self.locked():
+            catalog = self._catalog(mutation=True)
+            authority = self._generation_authority()
+            if authority is None or authority["coordinator"] != self.coordinator:
+                raise EvidenceError("producer quarantine requires the designated generation coordinator")
+            with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                self._reconcile_ledger(catalog, ledger)
+                descriptor = ledger.quarantine_producer(attempt_id, disposition_proof, dry_run=True)
+                ident = descriptor["reservation_id"]
+                self._validate_generation_quarantine(ident, descriptor, catalog.get("generation_intents", {}))
+                prior = catalog.get("generation_quarantines", {}).get(ident)
+                if prior is not None and prior != descriptor:
+                    raise EvidenceError("immutable generation quarantine changed")
+                if any(other != ident and (item["attempt_id"] == descriptor["attempt_id"]
+                       or item["intent_id"] == descriptor["intent_id"])
+                       for other, item in catalog.get("generation_quarantines", {}).items()):
+                    raise EvidenceError("generation quarantine replays another binding")
+                if not dry_run:
+                    descriptor = ledger.quarantine_producer(attempt_id, disposition_proof, dry_run=False)
+            if not dry_run and prior is None:
+                self._publish(catalog, {"version": 1, "generation_quarantines": {ident: descriptor}})
+                verified = self._catalog(mutation=True).get("generation_quarantines", {}).get(ident)
+                if verified != descriptor:
+                    raise EvidenceError("generation quarantine independent catalog readback differs")
+            return {"action": "quarantine-producer", "dry_run": dry_run,
+                    "history_complete": False, "historical_uncertainty": True,
+                    "descriptor": descriptor}
+
     def assert_generation_authority(self):
         """Recover owned local attempts, then require designated generation authority."""
         catalog = self._catalog(mutation=True)
@@ -1455,7 +1523,11 @@ class Manager:
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
             self._reconcile_ledger(catalog, ledger)
             ledger.require_generation_ready()
-            for intent in catalog.get("generation_intents", {}).values():
+            readiness = self._generation_readiness(catalog, ledger)
+            quarantined = {item["intent_id"] for item in readiness["quarantines"]}
+            for intent_id, intent in catalog.get("generation_intents", {}).items():
+                if intent_id in quarantined:
+                    continue
                 if not intent.get("settled"):
                     owner_state = self._generation_owner_state(intent)
                     run = ledger.connection.execute("SELECT 1 FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
@@ -1482,6 +1554,8 @@ class Manager:
         intent = str(uuid.uuid4())
         with self.locked():
             catalog = self._catalog(mutation=True)
+            if any(item["run_id"] == run_id for item in catalog.get("generation_quarantines", {}).values()):
+                raise EvidenceError("quarantined historical run cannot resume generation; use a fresh run identity")
             self._publish(catalog, {"version": 1, "generation_intents": {intent: {
                 "run_id": run_id, "unit_id": unit_id, "reserve_bytes": reserve_bytes, "reserve_files": reserve_files,
                 "owner_pid": os.getpid(), "owner_host": socket.gethostname(), "owner_identity": owner}}})
@@ -1495,6 +1569,9 @@ class Manager:
             intent = catalog.get("generation_intents", {}).get(intent_id)
             if intent is None:
                 raise EvidenceError("generation settlement requires its original durable intent")
+            if any(item["intent_id"] == intent_id or item["reservation_id"] == reservation_id
+                   for item in catalog.get("generation_quarantines", {}).values()):
+                raise EvidenceError("quarantined generation intent remains unresolved and cannot be settled")
             if intent.get("settled"):
                 return {"settled": True, "intent_id": intent_id}
             owner_state = self._generation_owner_state(intent)
@@ -1518,11 +1595,11 @@ class Manager:
                     raise EvidenceError("generation settlement reservation belongs to another producer intent")
                 reservation_id = exact_reservation
             with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-                snapshot = ledger.snapshot()
+                self._reconcile_ledger(catalog, ledger)
+                ledger.require_generation_ready()
+                self._generation_readiness(catalog, ledger)
                 run = ledger.connection.execute("SELECT * FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
                 pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()[0]
-                if not snapshot.get("accounting_complete", True):
-                    raise EvidenceError("generation accounting remains incomplete; durable intent retained for reconciliation")
                 if reservation_id is not None:
                     reservation = ledger.connection.execute("SELECT * FROM reservations WHERE id=?", (reservation_id,)).fetchone()
                     if reservation is None or reservation["run_id"] != intent["run_id"] or reservation["state"] == "pending":
@@ -1626,7 +1703,16 @@ class Manager:
         if (self.state / "pruning.json").exists():
             actions += self.cleanup(dry_run=dry_run, expire=False)
         catalog = self._catalog()
+        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._reconcile_ledger(catalog, ledger)
+            validated_quarantines = {item["intent_id"]: item
+                for item in self._generation_readiness(catalog, ledger)["quarantines"]}
         for ident, intent in catalog.get("generation_intents", {}).items():
+            if ident in validated_quarantines:
+                actions.append({"action": "generation-intent-quarantined", "intent_id": ident,
+                    "reservation_id": validated_quarantines[ident]["reservation_id"],
+                    "incomplete": False, "historical_uncertainty": True, "history_complete": False})
+                continue
             if intent.get("settled"):
                 continue
             own_catalog = catalog["coordinator"] == self.coordinator
@@ -1641,7 +1727,7 @@ class Manager:
                 action = {"action": "generation-intent-active", "intent_id": ident, "incomplete": False}
             if own_catalog and owner_state == "gone":
                 with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-                    known = ledger.snapshot().get("accounting_complete", True)
+                    known = ledger.generation_readiness()["ready"]
                     pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()[0]
                 if known and (not pending or settled_attempt):
                     action = {"action": "reconcile-exited-generation-intent", "intent_id": ident, "dry_run": dry_run}

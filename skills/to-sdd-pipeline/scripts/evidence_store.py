@@ -141,7 +141,7 @@ def probe(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("archive", "prepare", "restore", "recover", "import", "adopt", "cleanup", "reconcile", "retention-policy", "status", "accounting-receipt", "run", "complete-run", "initialize-generation-authority", "acknowledge-missing-upload", "git-review", "setup-probe"):
+    for name in ("archive", "prepare", "restore", "recover", "import", "adopt", "cleanup", "reconcile", "retention-policy", "status", "accounting-receipt", "run", "complete-run", "initialize-generation-authority", "acknowledge-missing-upload", "quarantine-producer", "git-review", "setup-probe"):
         sub = commands.add_parser(name)
         sub.add_argument("--project")
         sub.add_argument("--policy")
@@ -166,6 +166,10 @@ def main():
             sub.add_argument("--expire", action="store_true")
             sub.add_argument("--claims")
         elif name == "reconcile":
+            sub.add_argument("--apply", action="store_true")
+        elif name == "quarantine-producer":
+            sub.add_argument("--attempt-id", required=True)
+            sub.add_argument("--proof", required=True, help="Bound original producer disposition proof JSON")
             sub.add_argument("--apply", action="store_true")
         elif name == "git-review":
             sub.add_argument("--base", required=True)
@@ -221,6 +225,10 @@ def main():
                     protected_refs=claims.get("evidence_refs", []), reference_snapshot_complete=claims.get("complete") is True)}
             elif args.command == "reconcile":
                 result = {"actions": manager.reconcile(dry_run=not args.apply)}
+            elif args.command == "quarantine-producer":
+                result = manager.quarantine_producer(args.attempt_id,
+                    read_json(Path(args.proof).resolve(), manager.limits["metadata_stop_bytes"]),
+                    dry_run=not args.apply)
             elif args.command == "initialize-generation-authority":
                 result = manager.initialize_generation_authority()
             elif args.command == "acknowledge-missing-upload":
@@ -266,6 +274,24 @@ def main():
                               "totals_are_lower_bounds": not complete,
                               "pending_generation_intents": pending_intents,
                               "policy_sha256": hash_file(Path(args.policy).resolve() if args.policy else Path(args.project).resolve() / "forge/evidence-policy.json")[0]}
+                    readiness = manager._generation_readiness(catalog, ledger)
+                    quarantines = readiness["quarantines"]
+                    if quarantines:
+                        quarantined_intents = {item["intent_id"] for item in quarantines}
+                        quarantined_runs = {item["run_id"] for item in quarantines}
+                        outstanding = any(key not in quarantined_runs and
+                                          (row["pending_reservations"] or row["unreconciled_outputs"])
+                                          for key, row in runs.items())
+                        outstanding = outstanding or any(
+                            runs[key]["pending_reservations"] != sum(item["run_id"] == key for item in quarantines)
+                            for key in quarantined_runs)
+                        ready = readiness["ready"] and set(pending_intents) == quarantined_intents and not outstanding
+                        result.update(version=2, kind="scoped-known-generation",
+                                      accounting_complete=False, incomplete=True,
+                                      totals_are_lower_bounds=True, history_complete=False,
+                                      generation_ready=ready, quarantines=quarantines,
+                                      selected_scope={"run_ids": sorted(key for key, row in runs.items()
+                                          if row["status"] == "complete"), "complete": bool(ready)})
             elif args.command == "run":
                 from evidence.producer import run_producer
                 manager.assert_generation_authority()
@@ -297,6 +323,11 @@ def main():
             selected.parent.mkdir(parents=True, exist_ok=True)
             atomic_json(selected.parent.resolve() / selected.name, result)
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+        if (args.command == "accounting-receipt" and result.get("version") == 2
+                and result.get("kind") == "scoped-known-generation"
+                and result.get("generation_ready") is True
+                and result.get("selected_scope", {}).get("complete") is True):
+            return 0
         if result.get("incomplete") or result.get("status") == "incomplete" or any(x.get("incomplete") or x.get("action") == "delete-failed" for x in result.get("actions", [])):
             return 1
         return 0

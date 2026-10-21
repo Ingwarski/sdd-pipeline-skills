@@ -13,6 +13,7 @@ import json
 import sys
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 import signal
 import shutil
@@ -170,6 +171,7 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
     root = Path(output_dir).absolute()
     if not root.is_dir() or _is_link(root.lstat()) or any(root.iterdir()):
         raise EvidenceError("producer needs a registered empty regular output directory")
+    initial_output_identity = [root.lstat().st_dev, root.lstat().st_ino]
     if reserve_files < 1:
         raise EvidenceError("producer reservation must include its one log file")
     if attempt is None:
@@ -186,7 +188,7 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
         reservation, output_id = record['reservation_id'], record['output_id']
     process, job, problem, cleanup_problem, interrupted = None, None, None, None, None
     previous, gross_bytes, gross_files, last_inventory = {}, 0, 0, {}
-    managed, exit_code = None, None
+    managed, exit_code, writers_stopped = None, None, False
     log = root / "producer.log"
     environment = os.environ.copy()
     environment["SDD_EVIDENCE_OUTPUT_DIR"] = str(root)
@@ -266,6 +268,7 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
             try:
                 if attempt is None or os.name == "nt":
                     _stop_owned(process, job)
+                    writers_stopped = attempt is None
                 else:
                     process.wait(timeout=5)
             except (EvidenceError, OSError, subprocess.SubprocessError) as exc:
@@ -278,6 +281,7 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
         if attempt is not None:
             try:
                 errors = runtime.verify_stopped(ledger, attempt)
+                writers_stopped = not errors
                 errors += runtime.cleanup_directories(ledger, attempt) if not errors else []
                 if errors:
                     cleanup_problem = "; ".join(errors)
@@ -286,10 +290,12 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
     # All task-owned writers have stopped before stable-byte accounting. Unsafe
     # outputs are preserved but cannot support completion or byte-hash claims.
     inventory_known = not cleanup_problem
+    final_observation_problem = None if writers_stopped else "task-owned writer exit is not verified"
     try:
         observe(check_limits=False)
     except (EvidenceError, OSError) as exc:
         problem = problem or str(exc)
+        final_observation_problem = "final inventory: " + str(exc)
         inventory_known = False
     stable_files, current_bytes = {}, 0
     try:
@@ -297,11 +303,42 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
             digest, size = hash_file(root / name)
             stable_files[name] = {"content_hash": digest, "size": size}
             current_bytes += size
+        if _inventory(root) != last_inventory:
+            raise EvidenceError("managed output changed during final hash pass")
+        expected_identity = record['output_identity'] if attempt is not None else initial_output_identity
+        if [root.lstat().st_dev, root.lstat().st_ino] != expected_identity:
+            raise EvidenceError("managed output directory identity changed before final observation")
     except (EvidenceError, OSError) as exc:
         problem = problem or str(exc)
+        final_observation_problem = "final hashes: " + str(exc)
         inventory_known = False
     # Charge at least every surviving file even if launch/monitoring failed.
     gross_bytes, gross_files = max(gross_bytes, current_bytes), max(gross_files, len(stable_files))
+    final_observation_complete = final_observation_problem is None
+    if attempt is not None:
+        final_observation = {
+            "version": 1, "complete": final_observation_complete,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "gross_bytes": gross_bytes, "gross_files": gross_files,
+            "output_identity": record["output_identity"], "observations": stable_files,
+            "problem": final_observation_problem,
+            "enforcement": "sampled managed observations; unobserved rewrites and external writers remain outside the monitor",
+        }
+        try:
+            # Persist before settlement. A later accounting/guardian fault must
+            # not erase the monitor's original final inventory again.
+            runtime.update(ledger, attempt, lambda value: value.update(final_observation=final_observation))
+        except (EvidenceError, OSError) as exc:
+            inventory_known = final_observation_complete = False
+            final_observation_problem = "final observation could not be durably recorded: " + str(exc)
+            problem = problem or final_observation_problem
+            # Reject the oversized/failed proof explicitly. Preserve raw files,
+            # charge a lower bound and retain the entire reservation; never
+            # truncate a hashset and describe it as a complete observation.
+            failure = {"version": 1, "complete": False, "problem": final_observation_problem,
+                       "observed_at": final_observation["observed_at"],
+                       "gross_bytes": gross_bytes, "gross_files": gross_files}
+            runtime.update(ledger, attempt, lambda value: value.update(final_observation=failure))
     if inventory_known:
         settlement = ledger.settle(reservation, gross_bytes, gross_files, local_bytes=current_bytes)
     else:
@@ -326,6 +363,8 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
             "run_completion": "deferred" if not complete_run else "requested",
             "exit_code": exit_code if exit_code is not None else (process.returncode if process is not None else None),
             "problem": problem, "cleanup_problem": cleanup_problem,
+            "final_observation_complete": final_observation_complete,
+            "final_observation_problem": final_observation_problem,
             "gross_bytes": gross_bytes, "gross_files": gross_files,
             "observations": stable_files, "accounting": settlement,
             "enforcement": "task-owned process group and registered outputs; external writes and unobserved overwrites can bypass the monitor"}
@@ -336,6 +375,20 @@ def recover_producers(ledger, *, dry_run=True):
     from . import producer_runtime as runtime, process_identity
     actions = []
     for row in ledger.connection.execute('SELECT id FROM producer_sessions').fetchall():
+        isolated = ledger.connection.execute('SELECT 1 FROM producer_quarantines WHERE attempt_id=?', (row[0],)).fetchone()
+        if isolated:
+            # Even a damaged isolation receipt never authorizes mutating the
+            # original failed session. Report it retained until repaired.
+            readiness = ledger.generation_readiness()
+            descriptor = next((item for item in readiness['quarantines'] if item['attempt_id'] == row[0]), None)
+            action = {'attempt_id': row[0], 'action': 'retained', 'incomplete': True,
+                      'problem': readiness['problem'] or 'quarantine is not currently verifiable'}
+            if descriptor is not None and readiness['ready']:
+                action = {key: descriptor[key] for key in ('attempt_id', 'run_id', 'intent_id', 'reservation_id')}
+                action.update(action='quarantined', incomplete=False, historical_uncertainty=True,
+                              quarantine_digest=descriptor['digest'])
+            actions.append(action)
+            continue
         try:
             value = runtime.read(ledger, row[0])
         except (EvidenceError, ValueError, KeyError, TypeError) as exc:
@@ -490,6 +543,8 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
         recovered = recover_producers(ledger, dry_run=False)
         raise EvidenceError('producer guardian stopped without a terminal result; recovery incomplete=' + str(recovered['incomplete']))
     result = value['result']
+    if result.pop('observations_in_final_observation', False):
+        result['observations'] = value['final_observation']['observations']
     if result.pop('observations_in_ledger', False):
         result['observations'] = {row['path']: {'content_hash': row['digest'], 'size': row['bytes']}
             for row in ledger.connection.execute('SELECT path,digest,bytes FROM observations WHERE output_id=?', (value['output_id'],))}
@@ -521,11 +576,13 @@ def _guardian():
                 request['reserve_bytes'], request['reserve_files'], timeout=request['timeout'],
                 poll_interval=request['poll_interval'], complete_run=request['complete_run'], attempt=attempt, cancelled=cancelled)
             result['attempt_id'] = attempt
-            # File bindings already have a bounded, queryable ledger table. Do
-            # not duplicate a potentially large observation map in the journal.
+            # The original final observation was persisted before settlement,
+            # including failed cleanup. Reference it instead of duplicating its
+            # potentially large map in the result or discarding failed hashes.
             result['observations'] = {}
-            result['observations_in_ledger'] = bool(ledger.connection.execute(
-                'SELECT reconciled FROM outputs WHERE id=?', (value['output_id'],)).fetchone()[0])
+            current = runtime.read(ledger, attempt)
+            result['observations_in_final_observation'] = 'observations' in current.get('final_observation', {})
+            result['observations_in_ledger'] = False
             runtime.update(ledger, attempt, lambda v: v.update(status='stopping' if result['cleanup_problem'] else 'terminal', result=result))
         except BaseException as exc:
             runtime.update(ledger, attempt, lambda v: v.update(guardian_problem=str(exc) or type(exc).__name__))

@@ -1,0 +1,437 @@
+{
+  "version": 1,
+  "kind": "recovery-contract-analysis-and-authorized-core-implementation",
+  "observed_at": "2026-10-21T11:57:54.813053+00:00",
+  "source_revision_supplied_by_root": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b",
+  "branch_supplied_by_root": "codex/fix-evidence-recovery",
+  "source_hashes": {
+    "AGENTS.md": "18eb0920c74321337b8c9e231e785538db612378f91f8a55ab269e24833452d6",
+    "docs/maintenance.md": "fc1883b38ac9406c636f4cbbd1508e678e63c8cce1348356f7800e0a44a63c5e",
+    "docs/specification-quality.md": "a5c18594a0910b6a1194ea747352dfb3cf0672f4a95f4f0ca3c34c7cbd261aeb",
+    "docs/evidence-storage.md": "cfab742f5aea5e045e8949ee9324adf19bca6af41efa5c8d3910e8a32abca36b",
+    "skills/to-sdd-pipeline/references/evidence-storage-contract.md": "48d08abfd40473fb99c9f3b21117c4e930c9f9648c7faef82b1331abd4318b0b",
+    "skills/to-sdd-pipeline/scripts/evidence/accounting.py": "d94b187ca7e899dff5586e634dc41e2441cc7844d1629c67f6b0fc4525f55e17",
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py": "7646381bf22c2d6c863030a627338fccbc8beef9d2da2f29371e7b14f4790464",
+    "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": "cd7bf8852a21b483d49258088eaf69248c6f9c81525577ba6c46d7257bc6dcb7",
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py": "91bad78609e7db56b9ba0c16a940e10dd42cc40907801a88db3b93d5c5b62556",
+    "skills/to-sdd-pipeline/scripts/evidence_store.py": "515bb8947558108a7017092d95ed0abbaf2920db5c0e2629aa57e11aefddd5e6",
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": "1b820582208d07a50f4a0444b8b105c8bf5539880ec07ec0714b60587fdc543f",
+    "tests/test_evidence_accounting_recovery.py": "d57cb887b09a0a29e5ed452620b4fd93e7a710d21cbb40a6557611e5c8ccc64f",
+    "tests/test_evidence_producer_recovery.py": "060ea2248b20c3cc05feeead46abd39c4c3e898e2dd91e6485c21388434d5b39",
+    "tests/test_evidence_producer_faults.py": "1d6c4f9f081cad86814e2e06aff39db9ba1c52486c59a54f51a4dd4e41dfd67f",
+    "tests/test_evidence_producer_manager.py": "a41f36f7582856edd5c999217c52440d93a9d890d3869f49ed289e2bfc641893",
+    "tests/test_evidence_checker.py": "59cff9e913ec6a1d7b4ef9cd626651aed2f75ca6593dd1ec6fe849dfc26e8cff"
+  },
+  "verdict": {
+    "original_observed_accounting_recovery_current_attempt": "not proven; do not settle or clear uncertainty",
+    "reason": "Original monitor final hashset was discarded. Neither the native producer record nor pre.json retains it. Existing result does not distinguish successful final inventory/hash from a failure masked by the earlier aggregate-overrun problem. Cleanup proof establishes stopped writers and preserved surviving bytes, not lost sampled history.",
+    "possible_continuation": "A new explicitly versioned quarantine/scope contract can preserve all historical uncertainty and full holds while permitting independently complete new runs. This changes v1 eligibility semantics; it is not original-history recovery or a proof that unknown total generation fits an exact aggregate limit.",
+    "root_owner_decision": "Adopt the new scope policy consistently across ledger, producer, manager, catalog, CLI, checker and documentation before implementation, or retain the current global stop. No silent removal of the v1 global completeness requirement."
+  },
+  "actual_observations": {
+    "project_id": "6576cc96-a5ae-43fa-a6d0-1f7f85c1bfd3",
+    "attempt_id": "55471474-44b9-48ae-a486-833beca16465",
+    "run_id": "unit00-current-20261021-r1-3ec4aa2d",
+    "unit_id": "UNIT-EXP-00",
+    "reservation_id": "afc0c1c7-dd81-42a9-8b34-60c02194d4cc",
+    "intent_id": "65a22d47-9b57-476e-803d-a89858dfa6f8",
+    "output_id": "bd2c1cb0-ca47-4cbb-855c-81244f4bf68f",
+    "session_status": "stopping",
+    "run_status": "incomplete",
+    "run_ordinal": 1,
+    "recorded_gross_lower_bound_bytes": 16888829,
+    "recorded_gross_lower_bound_logical_files": 100,
+    "reservation": {
+      "state": "pending",
+      "bytes": 16777216,
+      "files": 500,
+      "local_bytes": 16777216,
+      "metadata_bytes": 3145728,
+      "metadata_files": 0
+    },
+    "uncertain_row": {
+      "gross_bytes": 16888829,
+      "logical_files": 100
+    },
+    "output_reconciled": false,
+    "native_result_observations_count": 0,
+    "native_result_observations_in_ledger": false,
+    "ledger_observation_count": 0,
+    "pre_json_result_observations_count": 0,
+    "native_result_problem": "producer exceeded its reserved aggregate output allowance",
+    "native_result_cleanup_problem": "[Errno 1] Operation not permitted",
+    "native_result_exit_code": -9,
+    "native_journal_process_count": 1,
+    "native_journal_resources_count": 0,
+    "global_recovery_reason": "managed output inventory is unknown; observed charges are lower bounds and its reservation remains held",
+    "nonmigration_run_records": [
+      {
+        "ordinal": 0,
+        "gross_bytes": 108410,
+        "gross_files": 23,
+        "status": "incomplete"
+      },
+      {
+        "ordinal": 1,
+        "gross_bytes": 16888829,
+        "gross_files": 100,
+        "status": "incomplete"
+      }
+    ],
+    "nonmigration_project_known_totals": {
+      "bytes": 16997239,
+      "logical_files": 123
+    },
+    "pending_reservation_count": 1,
+    "uncertain_reservation_count": 1,
+    "six_capture_files": [
+      {
+        "name": "identity-progress.json",
+        "bytes": 20997,
+        "sha256": "b33b7311cf85e00d6390d9886e3f02fdd4c1271287a60fdddfeb12516e845b75",
+        "matches_cleanup_proof": true
+      },
+      {
+        "name": "identity-ready.json",
+        "bytes": 521,
+        "sha256": "ea290f3d08e441deefb0339def935ba7c8941226e3acdb80e4cab45ff7df7b7c",
+        "matches_cleanup_proof": true
+      },
+      {
+        "name": "identity.json",
+        "bytes": 14241,
+        "sha256": "c0fcaa1002e836505a0bc08d27fcab1fca2e3a3fc353356d0b8222848dd403a4",
+        "matches_cleanup_proof": true
+      },
+      {
+        "name": "inputs.json",
+        "bytes": 11989,
+        "sha256": "aa55fb7f0c101400a16880d6ec6e2622bdb920255a49d9288f99b9e3d6db7f51",
+        "matches_cleanup_proof": true
+      },
+      {
+        "name": "owned-resources.json",
+        "bytes": 363613,
+        "sha256": "61347beeab760550f39e6c69f99adbe689329f25d5d267b5ba57653e91c421c1",
+        "matches_cleanup_proof": true
+      },
+      {
+        "name": "producer.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "matches_cleanup_proof": true
+      }
+    ],
+    "surviving_capture_bytes": 411361,
+    "cleanup_proof": {
+      "sha256": "b2797049a48aacd227bb7d0481338cf6bbbd76adbfb28291ae0f337adda88a50",
+      "claims_not_reexecuted": [
+        "50 process identities gone",
+        "12 resource directories plus control file removed",
+        "zero final path references"
+      ],
+      "all_six_raw_current_hashes_independently_match": true,
+      "original_phase_terminal_stamp_present": false,
+      "proof_purpose": "Independent resource cleanup after one preserved failed identity attempt; no acceptance or accounting settlement"
+    }
+  },
+  "current_contract_trace": [
+    {
+      "ref": "accounting.py:493-564",
+      "finding": "settle rejects uncertain_generation; record_uncertain adds only increased floor, keeps full hold and records global recovery reason; cancel cannot release unknown hold"
+    },
+    {
+      "ref": "accounting.py:294-325,343-407,823-839",
+      "finding": "require_generation_ready globally blocks reserve/complete; _totals charges known gross plus all pending holds at project/unit/run/local dimensions"
+    },
+    {
+      "ref": "producer.py:194-332",
+      "finding": "sampled changes count growth/replacement/same-length rewrite; unobserved changes are explicitly outside monitoring. Cleanup problem makes inventory_known false even if later observe/hash succeeds; later failure may be hidden behind earlier problem"
+    },
+    {
+      "ref": "producer.py:334-402,501-538",
+      "finding": "abandoned recovery cannot recover lost monitor history; terminal session only checks pending state. Guardian discards result observation map and only marks observations_in_ledger if output already reconciled, losing failed final hashset"
+    },
+    {
+      "ref": "producer_runtime.py:28-85,228-291,355-370",
+      "finding": "identity/binding validators plus exact helper checks and empty-directory cleanup; current update transactions preserve records but permit recovery status changes"
+    },
+    {
+      "ref": "manager.py:1433-1465,1490-1564,1590-1654",
+      "finding": "generation authority/finish/reconcile treat unrelated incomplete producer recovery and global history as blockers; status nulls exact gross while incomplete"
+    },
+    {
+      "ref": "manager.py:600-710,752-776; accounting.py:691-745",
+      "finding": "catalog immutable generation totals merge by maximum run snapshot and preserve larger live charges; catalog alone reconstructs lower bounds, not complete history"
+    },
+    {
+      "ref": "evidence_store.py:247-270; sdd_check.py:763-818",
+      "finding": "v1 accounting receipts and checker reject explicit global incompleteness before evaluating current run scope"
+    },
+    {
+      "ref": "docs/evidence-storage.md:91-99,121,154,180,236; evidence-storage-contract.md:Preparation and resources",
+      "finding": "cooperative managed monitoring is not a physical quota; v1 globally blocks generation/completion on unknown history and requires complete original run accounting"
+    },
+    {
+      "ref": "tests/test_evidence_accounting_recovery.py:59-77; tests/test_evidence_producer_faults.py; tests/test_evidence_checker.py:468-484",
+      "finding": "regressions intentionally preserve unknown floors/holds and reject incomplete global receipts; these remain valid v1 behavior"
+    }
+  ],
+  "candidate_interfaces_original_recovery": {
+    "status": "future eligible records only; current legacy attempt fails requirements",
+    "record": "monitor final-observation proof v2, persisted durably before any settlement or loss of in-memory inventory",
+    "required_proof": [
+      "Exact project/store/policy/ledger/run/unit/attempt/reservation/output bindings; unchanged output directory identity",
+      "Original monitor finalized after verified task-owned writer exit; successful final inventory and hash pass are separate booleans with original times, never inferred from existing status/problem",
+      "Durable final sampled gross bytes/logical files and complete final regular-file hashset, retained even when cleanup fails",
+      "Current source inventory matches that original snapshot or every difference has a separately verified original-byte deletion/archive proof; no later snapshot used to reconstruct erased writes",
+      "Complete intact ledger/journal; no unrelated uncertain holds, source/history loss or checkpoint mismatch cleared by this targeted action"
+    ],
+    "atomic_apply": "Unique reservation-bound recovery receipt; under BEGIN IMMEDIATE verify unchanged bindings, add only nonnegative recovered-minus-previous-floor delta, reconcile final observations, settle original reservation, retain original result and incomplete run. Only current uncertainty cause may resolve; all original failure facts stay in history. Never complete failed run.",
+    "legacy_rule": "Legacy result is eligible only if equivalent complete original final proof is actually retained and independently bound. Empty map/terminal status/current inventory/cleaned profiles alone are insufficient."
+  },
+  "candidate_interfaces_quarantine": {
+    "status": "root-owned proposal; no live mutation performed",
+    "policy_meaning": "Allow fresh distinct managed runs after a verified inactive historical failure is isolated. Historical accounting_complete remains false forever unless genuine original history is recovered. Admission evaluates known cumulative floor plus all retained holds against unchanged configured limits; it does not assert an upper bound on unknown historical production.",
+    "ledger_api": "quarantine_producer(attempt_id, disposition_proof, dry_run=True) creates one immutable versioned descriptor keyed by original reservation; generation_readiness(run_id, unit_id) separately classifies structural integrity, active ownership and eligible isolated historical gaps. Existing settle/cancel/complete prohibitions for quarantined original run remain.",
+    "descriptor_fields": [
+      "version and explicit accounting_scope semantic identifier",
+      "project/store/coordinator/ledger/policy byte hash",
+      "run/unit/ordinal/migration and attempt/reservation/output identities",
+      "original session/result canonical hashes and exact immutable failure facts",
+      "known gross lower-bound bytes/logical files and the full original pending reservation dimensions",
+      "independent exact owned process-exit/resource-disposition proof references and original times",
+      "isolation recorded_at/executor/reason distinct from original execution observations",
+      "disposition=quarantined-unresolved; history_complete=false; no execution acceptance"
+    ],
+    "eligibility": [
+      "Original database and recovery journal are intact and identity/revision consistent; only specifically classified known uncertain producer gaps may be isolated",
+      "Exact original producer coordinator/guardian/helper identities are verified gone; unregistered external helpers require existing harness-specific proof or supported adapter, not invented generic ownership",
+      "Output root identity and preserved diagnostics are accounted; active unknown writers, replaced roots/resources or unverified ownership cannot be isolated",
+      "Each uncertainty maps one-to-one to preserved pending hold and immutable run identity; no unknown rows or missing reservations/checkpoints",
+      "New runs use fresh IDs and next ordinal, retain retry count, cannot reuse old run or its output directory; all fresh observations are produced by supported monitor",
+      "New admission enforces existing _totals sum of known gross PLUS entire pending holds, including run/unit/project/local/metadata bounds and working peak; never replace by max or reduce old hold",
+      "Required acceptance references/dependencies may not rely on quarantined failed runs or claim their observations complete"
+    ],
+    "unchanged_facts": [
+      "Original uncertain_generation row",
+      "Original pending reservation and every dimension",
+      "Original gross floor, ordinal and failed status",
+      "Original native result/cleanup/error/observation times",
+      "Original global recovery_required string preserved as historical fact; global status incomplete and totals lower-bound labels stay visible"
+    ],
+    "producer_actions": "Return action=quarantined with historical_uncertainty=true, continuation_eligible=true only after validated descriptor. Keep historical incompleteness separate from an active recovery failure; never turn historical action into terminal-settled/cleaned success.",
+    "manager_api": "assert_generation_authority checks current structural readiness and excludes only valid quarantined failures from fresh-start poisoning. finish_generation validates its target attempt/intents plus global structural integrity, not unrelated isolated historical failures. Old quarantined generation intent stays unresolved; publish a separate immutable quarantine association, never settled_generation_intents for it.",
+    "catalog": "Add explicit immutable quarantine descriptors and managed-run-lower-bound records carrying original full holds and floor. Current managed-run-total must not imply complete totals for unknown old run. Keep old intent unresolved/quarantined. Fresh completed run total can publish independently. Local floor/hold remains even if publication fails; retries identify the same immutable descriptor.",
+    "cold_recovery": "Retain quarantine floor/full hold/run identity/ordinal in remote immutable records and local checkpoint closure. Catalog-only recovery must remain globally incomplete and generation-blocked without original authoritative ledger/journal; it must never synthesize scoped readiness solely from a quarantine receipt. No old archive retrieval is required or authorized here.",
+    "receipt_v2": "Keep global accounting_complete=false and totals_are_lower_bounds=true, with explicit history_complete=false, quarantined run/hold inventory and immutable bindings. Add selected_scope {run_ids, complete, ...} plus complete accounting rows for each selected current run. Checker supports v2 only after verifying declared isolated-gap closure, all current references and prerequisites are inside eligible complete scope, policy binding, zero pending/unreconciled selected outputs, and preserved historical lower-bound disclosure. V1 explicit incomplete stays rejected; old checkers reject v2 rather than silently accept.",
+    "acceptance_limit": "A scoped complete receipt can support fresh run evidence if the new owner contract explicitly permits it. It cannot certify globally complete project generation, successful old failed runs, production/product acceptance, physical output limits, or original missing observations.",
+    "concurrency_and_crash": [
+      "Acquire original producer recovery claim via exact identity and BEGIN IMMEDIATE; no signaling or deletion based on guessed ownership",
+      "Compare-and-set one immutable descriptor under original reservation; replay with same digest is idempotent, changed proof/binding fails",
+      "Checkpoint new quarantine descriptor as well as run/hold; durable descriptor is not optional private state omitted from checkpoint",
+      "Crash before commit or marker/run/descriptor mismatch keeps structural recovery blocker; do not erase pending hold or global uncertainty",
+      "Publish catalog association with content-derived stable operation ID; publish failures leave conservative local quarantine and historical intent unresolved; bounded retry verifies existing immutable bytes",
+      "Already-open clients recheck structural marker and quarantine closure before reservation/completion; no cached generation_ready override",
+      "Receipt/archive generation must not recursively include its own unsealed receipt or duplicate the full growing history; use bounded hash-bound descriptors"
+    ]
+  },
+  "rejected_alternatives": [
+    "Treat 411361 surviving bytes/6 files as original gross16888829/100",
+    "Promote saved gross floor to exact solely because producer returned a result",
+    "Use original reservation maximum or run_stop_bytes as a proven upper bound on actual unknown output; managed overrun demonstrably exceeded the reservation",
+    "Clear recovery_required wholesale or delete uncertain rows/holds",
+    "Settle old pending intent as complete while hiding unresolved history",
+    "Issue v1 complete receipt with hidden global incomplete history",
+    "Restore an old ledger snapshot or refund counters/retry ordinal",
+    "Relabel failed run imported-existing/migration or create new project/unit IDs to evade charges"
+  ],
+  "hard_stop_cases": [
+    "Applicable included subscription allowance exhausted or unsafe for next bounded unit",
+    "Active/foreign/unknown process identity, lost group anchor with surviving group, or changed output/resource identity",
+    "Missing/corrupt ledger/checkpoint/producer binding, checkpoint revision mismatch or database/journal loss",
+    "Global unknown reason not exhaustively mapped to isolated preserved producer gaps",
+    "No complete original final snapshot for exact original-observation recovery; current attempt has this limitation",
+    "New fresh reserve plus all known floors and retained holds exceeds any configured allowance/retry/free-space bound",
+    "Unverified cloud transfer, unknown remote catalog outcome/authority or changed original policy bindings",
+    "Required current acceptance depends on old uncertain failed run",
+    "Attempt to assert globally exact measured totals or physical writes while historical gap persists",
+    "Quarantine semantic owner contract is not adopted across receipt/checker/storage boundaries"
+  ],
+  "needed_regressions_not_run": [
+    "Successful final observation plus harmless cleanup failure retains final snapshot and recovers original observed charge exactly once, never old run success",
+    "Missing/partial final observation and final-hash failure retain uncertainty without falsely recovering from later inventory",
+    "Legacy live-shaped empty observations stops original recovery; valid isolated quarantine can permit fresh run under adopted v2 contract",
+    "Original floor/hold/status/ordinal survive quarantine, repeat apply, concurrent clients and manager publication interruption",
+    "New run bytes plus both floor and full historical hold exhaust bounds truthfully; no reservation/refund bypass",
+    "Structural journal/database loss/mismatch remains global blocker despite quarantine flag",
+    "Current scope accepts fresh complete run while showing global incomplete; quarantined or missing current dependency fails; v1 incomplete always fails",
+    "Two parallel healthy targets settle independently while another historical quarantine stays unresolved; active unknown target always blocks",
+    "Immutable remote quarantine and known floor/holds survive cold catalog recovery without granting generation readiness or exact history",
+    "Interruption at every quarantine checkpoint/SQL/catalog boundary remains conservative and resumes idempotently",
+    "All raw six files and original failure records remain hash-identical; no product check is marked passed by recovery"
+  ],
+  "initial_analysis_scope": {
+    "only_write": "reports/evidence-recovery-20261021/recovery-analysis.json",
+    "not_performed": [
+      "source edits",
+      "tests",
+      "production runtime",
+      "network",
+      "ledger or journal writes",
+      "installer",
+      "Git operations",
+      "subagents",
+      "old archive retrieval"
+    ],
+    "subscription": {
+      "live_checked_twice": true,
+      "applicable_used_percent": 56,
+      "ordinary_usage_allowed": true,
+      "extra_credits_or_api_or_reset_used": false
+    },
+    "private_read_scope": "SQLite immutable read-only SELECT of identity/target session/run/hold/uncertainty/output counts and policy limits; sanitized coordination and six capture metadata; no secrets/config exports or product content"
+  },
+  "implementation": {
+    "frozen_at": "2026-10-21T12:20:06.648338+00:00",
+    "authorization": "Root delegated settled core quarantine contract and future terminal-proof retention; only four source/test files and this report were writable. Root requested source freeze before consolidated validation.",
+    "changed_files": [
+      "skills/to-sdd-pipeline/scripts/evidence/accounting.py",
+      "skills/to-sdd-pipeline/scripts/evidence/producer.py",
+      "skills/to-sdd-pipeline/scripts/evidence/quarantine.py",
+      "tests/test_evidence_quarantine.py"
+    ],
+    "frozen_source_sha256": {
+      "skills/to-sdd-pipeline/scripts/evidence/accounting.py": "4ece97d0adddb6517b516a68748bb8220c328ec1147642717de36ea1fc857e4a",
+      "skills/to-sdd-pipeline/scripts/evidence/producer.py": "c6b58af6cb07229b8fab33bc021aaaa3c7a7479ba6e2a66b8e34d6a2fed57102",
+      "skills/to-sdd-pipeline/scripts/evidence/quarantine.py": "4a15452b413a0bccaae4656116929a76a03f1fb78485e921c27156c9d3a36851",
+      "tests/test_evidence_quarantine.py": "bbff3fce4bafb31102c4ada0dddc051ff674eb57c7937852146f21b71a306934"
+    },
+    "runtime": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3; Python 3.12.14; runtime parent prepended to PATH",
+    "interfaces": {
+      "Accounting.quarantine_producer": "(attempt_id, disposition_proof, dry_run=True) -> immutable descriptor. Explicit apply serializes with BEGIN IMMEDIATE; replay returns same descriptor; changed proof or duplicate reservation binding rejected.",
+      "Accounting.quarantines": "() -> list of portable descriptors additionally verified against original ledger/session/raw record hash/current preserved inventory/external assertion bytes/native owner exit.",
+      "Accounting.generation_readiness": "() -> {ready:bool, history_complete:bool, quarantines:list, problem:str|None}; current structural checkpoint/project/ledger/version/revision/run/hold/quarantine closure independently checked. Only exact known producer-gap reason with exhaustive one-to-one valid quarantines admits new runs.",
+      "Accounting.reconcile_quarantines": "(reservation_mapping_or_list) -> {quarantines:int,history_complete:false}. Call before generic generation merge. Restores full original known run row/ordinal and full pending hold/uncertain floor without inventing native session; missing original authority stays blocked.",
+      "evidence.quarantine.validate_quarantine_descriptor": "(value,policy=None) -> descriptor; pure portable field/digest/policy validation, no ledger/process/path I/O.",
+      "descriptor": "version1 kind quarantined-producer-gap, full original run/reservation/uncertain dictionaries, original_record_sha256 of exact native stored JSON bytes, original project/store/ledger/policy canonical hash/attempt/run/unit/output/intent/ordinal, explicit unresolved disposition/history false, current regular-file inventory with SHA256/size/device+inode and inventory_sha256, output identity, proof, new quarantined_at, digest of canonical whole descriptor excluding digest.",
+      "proof_schema": {
+        "version": 1,
+        "kind": "producer-disposition",
+        "attempt_id": "EXACT_ORIGINAL_ATTEMPT",
+        "original_record_sha256": "SHA256_RAW_STORED_SESSION_UTF8",
+        "verifier": "EXPLICIT_HOST_REVIEWER",
+        "observed_at": "ACTUAL_TIME_WITH_OFFSET",
+        "external_disposition": {
+          "coverage": "all-unregistered-helpers-and-resources",
+          "journal": {
+            "path": "ABSOLUTE_ORIGINAL_EXTERNAL_JOURNAL",
+            "sha256": "EXACT_ORIGINAL_BYTES_HASH"
+          },
+          "proof": {
+            "path": "ABSOLUTE_INDEPENDENT_DISPOSITION_PROOF",
+            "sha256": "EXACT_PROOF_BYTES_HASH"
+          },
+          "limitations": "Explicit limits of external identity coverage and no reconstructed historical accounting claim."
+        }
+      },
+      "proof_semantics": "Explicit host-reviewed external disposition assertion bound to two existing regular-file byte hashes, each <=1MiB. The engine rechecks nofollow stable bytes and exact native owner/group exit/current inventory itself. The assertion is not authentication of reviewer authority or an upgrade of weak external process evidence. No files are downloaded or deleted by quarantine.",
+      "native_final_observation": "New sessions retain original final_observation {version,complete,observed_at,gross_bytes,gross_files,output_identity,observations,problem,enforcement} before settlement/uncertain charge. Returned result includes final_observation_complete and independent final_observation_problem. Guardian result references the retained native map instead of discarding or duplicating it. No legacy proof is invented and no automatic exact recovery added."
+    },
+    "preserved_invariants": [
+      "All original failed session/result raw JSON bytes unchanged by quarantine",
+      "Original uncertain floor row and entire pending reservation unchanged",
+      "Original failed run gross/status/ordinal unchanged; original run/output/settle/cancel/acknowledge/reconcile reuse rejected",
+      "Known gross plus entire held generation/local/metadata/retry amounts continue to consume unchanged numeric policy limits",
+      "Global snapshot accounting_complete remains false and totals remain lower bounds; missing reason flag cannot hide uncertain rows",
+      "Database/journal loss, mismatched checkpoints, foreign/unknown/live identities, changed output/evidence and unclassified structural reasons remain blocked",
+      "Any structural cause remains sticky across record_uncertain, catalog merge, reopened and already-open clients; cached UNKNOWN cannot overwrite a newer durable structural reason"
+    ],
+    "verification": [
+      {
+        "command": "PATH=RUNTIME_BIN:$PATH python3 -B -m unittest discover -s tests -p 'test_evidence_quarantine*.py' -v",
+        "result": "PASS",
+        "tests": 38,
+        "scope": "27 core quarantine/final observation tests plus 11 concurrently authored manager integration tests",
+        "seconds": 6.44
+      },
+      {
+        "command": "PATH=RUNTIME_BIN:$PATH python3 -B -m unittest discover -s tests -p 'test_evidence_producer*.py' -q",
+        "result": "PASS",
+        "tests": 44,
+        "seconds": 13.08
+      },
+      {
+        "command": "PATH=RUNTIME_BIN:$PATH python3 -B -m unittest discover -s tests -p 'test_evidence_accounting*.py' -q",
+        "result": "PASS",
+        "tests": 36,
+        "seconds": 2.287
+      }
+    ],
+    "focused_coverage": [
+      "Real fresh native gated producer completes while historical failed run remains incomplete and fully held",
+      "Exact raw original row preservation, explicit dry run, same-proof replay, concurrent clients, reopen idempotence",
+      "Immutable descriptor/proof tampering, changed raw inventory/proof bytes, linked proof paths, missing checkpoint, mismatched marker and missing reason flag",
+      "Foreign or live owner, surviving registered resource, changed old run status, old output/run reuse and duplicate reservation binding",
+      "Cold descriptor reconstruction retains full floor/hold/ordinal and no producer history or generation readiness",
+      "Checkpoint-before-SQL interruption conservatively survives rollback and reopen",
+      "Cleanup EPERM with successful final hashes retains complete original sampled proof; earlier aggregate overrun plus final hash failure records explicit false/problem",
+      "Original final proof is durable before injected accounting failure; oversized proof is explicit unknown, raw101 output files retained and reservation held",
+      "Replaced root identity cannot claim complete final observation",
+      "Missing journal then record_uncertain then reopen cannot downgrade structural cause; cached UNKNOWN yields later durable structural cause",
+      "Ten snapshot/readiness pairs add zero SQL changes and zero WAL bytes after quarantine"
+    ],
+    "bloat_measurements": {
+      "schema_ddl": {
+        "scope": "Two isolated executable current-source variants differ only in constructor schema BEGIN IMMEDIATE/COMMIT. No production ledger or source file mutation. Same four 200000B local usage allocations and next8192B journal/50B hold peak.",
+        "autocommit": {
+          "init_ledger_bytes": 226576,
+          "after_four_local_usage_ledger_bytes": 259536,
+          "combined_next_peak_bytes": 1067778
+        },
+        "transactional": {
+          "init_ledger_bytes": 168896,
+          "after_four_local_usage_ledger_bytes": 201856,
+          "combined_next_peak_bytes": 1010098
+        },
+        "reduction_bytes": 57680,
+        "numeric_policy_or_fixture_changed": false
+      },
+      "unchanged_reason_hot_reads": {
+        "scope": "Two isolated executable current-source variants differ only in transaction reason replacement versus compare/no-op. Each executes10 snapshot/readiness pairs after real fixture quarantine. Global history remains incomplete in both.",
+        "old_replacement": {
+          "sql_changes": 10,
+          "wal_bytes_added": 82400
+        },
+        "compare_noop": {
+          "sql_changes": 0,
+          "wal_bytes_added": 0
+        }
+      }
+    },
+    "authoring_failures_preserved": [
+      {
+        "stage": "First accounting family run with additive table and old autocommit schema",
+        "observed": "35/36 passed; strict local budget fixture rejected actual1067778B >1048576B",
+        "correction": "Wrapped schema DDL in one transaction; same fixture passes at measured1010098B combined peak. No limit/test weakening."
+      },
+      {
+        "stage": "Initial shell-default producer family runtime",
+        "observed": "Apple Python3.9:41 tests passed and3 CLI errors because CLI correctly requires Python3.12+",
+        "correction": "Used existing canonical Python3.12.14 via PATH; final44 producer tests passed."
+      },
+      {
+        "stage": "Independent safety review",
+        "observed": "Unknown-floor updates could downgrade an existing structural recovery reason, and cached UNKNOWN could mask another client structural cause",
+        "correction": "Shared sticky reason writer preserves structural causes across all recovery sites; durable structural reason takes precedence over cached UNKNOWN; both transitions have passing regressions."
+      }
+    ],
+    "remaining_limits": [
+      "No live project ledger, native failed session, runtime/browser, installer, Git or network mutation was performed by this worker during implementation. Root owns deployment/install/live recovery.",
+      "External disposition coverage is a bound host assertion, not a universal process enumerator or authenticated reviewer proof. Root must review exact original journal/proof semantics before live use.",
+      "Historical gross remains unknown; continuation certifies new scoped managed observations and admission using known floors plus retained holds, never globally exact or physical generation.",
+      "Future complete final observations are retained within the pre-reserved native metadata bound. Oversized proof is rejected explicitly and remains unknown with its full hold; no automatic exact recovery path is provided.",
+      "Consolidated repository suite, shell installation suites, cross-platform CI and product acceptance belong to root validation and are not established by these focused tests."
+    ]
+  }
+}

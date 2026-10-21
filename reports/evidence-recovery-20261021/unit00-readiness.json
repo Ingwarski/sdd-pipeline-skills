@@ -1,0 +1,1455 @@
+{
+  "record_type": "UNIT-EXP-00_readonly_harness_assembly_acceptance_readiness",
+  "created_at": "2026-10-21T11:55:49.249174+00:00",
+  "status": "INTEGRATED_RETRY3_PREPARED_ONLY_LIVE_ENGINE_GATES_PENDING",
+  "unit": "UNIT-EXP-00",
+  "next_unit_allowed": false,
+  "authorization": {
+    "bounded_readonly": true,
+    "sole_write": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/unit00-readiness.json",
+    "usage": "Root supplied live included allowance 56 percent available; no extra credits/API/reset authorized. No subagent or paid provider usage initiated.",
+    "requested_settings": "gpt-6.1-sol/medium; application not independently exposed",
+    "protected": "All original failed attempts, archives, failure receipts and private configs preserved; no old archive fetch/retest."
+  },
+  "actual_work": {
+    "performed": [
+      "Read global and both worktree instructions, HappyPro guardrails, canonical UNIT00 plan/QA/DoD clauses and installed pipeline contracts",
+      "Read original and retry1 controllers/provider/Python preparation plus retry2 media HANDOFF and source contracts",
+      "Extracted canonical plan allocation and complete QA required source lists into this report",
+      "Compared assembly path contracts and budget/deadline requirements statically"
+    ],
+    "not_performed": [
+      "No implementation/source change",
+      "No tests, runtime, browser, SQL, HTTP, network or provider invocation",
+      "No private configuration/export contents read",
+      "No native ledger, generation, history/checker mutation or Git mutation",
+      "No completion, acceptance, current pass or new runtime identity asserted"
+    ],
+    "resources_created": [],
+    "cleanup": "No runtime/browser/helper/profile/temp resources created; report is sole artifact."
+  },
+  "readproof": [
+    {
+      "path": "/Users/ingwar/.codex/AGENTS.md",
+      "sha256": "4f5c87affeef99bf8ca3d55e5507f724b36956c266bcf487c99102f6c59fb218",
+      "bytes": 3658,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/AGENTS.md",
+      "sha256": "18eb0920c74321337b8c9e231e785538db612378f91f8a55ab269e24833452d6",
+      "bytes": 3214,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/AGENTS.md",
+      "sha256": "0417831994f8f55289c34a1a728b061caaa785cc8b45e6d5367b9fc5ea8c6d47",
+      "bytes": 20326,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/guardrails.md",
+      "sha256": "2a2b1625aa5bb35125709f3860f706cd3fa6e4262d2d86ea2955cf6bb39bb6f1",
+      "bytes": 12464,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/development-plan.md",
+      "sha256": "0515ce2b0c0ab01ebbc9de5f06cae8e52b9dc6cd94286900673ff8e3b56d3dac",
+      "bytes": 522400,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/qa-checklist.md",
+      "sha256": "c8a96df44f697e170fb7d6d2d9d4cfcd3fa6f576881c5f63efb41022145ff519",
+      "bytes": 2356802,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/dod-evals.md",
+      "sha256": "4c4eabd54e7d01275a3e4c622d5441fc1975c2ef5307c16bbd02937bc622d293",
+      "bytes": 27680,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/skills/to-sdd-pipeline/references/unit-execution-contract.md",
+      "sha256": "ecd0fcbcdc69fed315d0a273a75d254faf8f58b24719bbcd5ac19157ce38b95e",
+      "bytes": 13748,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/skills/to-sdd-pipeline/references/browser-evidence-workflow.md",
+      "sha256": "94ce4c9829133f3a82941586a540fd5cd10dccc6432c2bf61fd6c427b251560d",
+      "bytes": 13396,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/skills/to-sdd-pipeline/references/evidence-storage-contract.md",
+      "sha256": "48d08abfd40473fb99c9f3b21117c4e930c9f9648c7faef82b1331abd4318b0b",
+      "bytes": 9938,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/skills/to-sdd-pipeline/references/completion-preservation.md",
+      "sha256": "8e739a5d9a9d1198e9a5580abd66c3969367e75dfd61214eadce8b9283a8d6ce",
+      "bytes": 22387,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021/root-managed.py",
+      "sha256": "2dee5277a7a8bafe9a352a4ce249b2c3d9312f7f872e85d773f2a3116a897786",
+      "bytes": 7783,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021/root-batch.py",
+      "sha256": "60eb492fd9d4a2334948a14ab5cd1ac761d122899272e45ff811e36fdf74a00b",
+      "bytes": 22576,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021/root-integration-review.json",
+      "sha256": "090a4127f8664045a062d63928faa803f754f5205a480c7bf3e5e07623858259",
+      "bytes": 12905,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-managed.py",
+      "sha256": "b2766ee73bb373fdf8cfec243a5567cb6d56123ae104e417c15fe2d0a420d11a",
+      "bytes": 7880,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-batch.py",
+      "sha256": "bd333fedbe9120ca4ef340d6f88e8a78e6d5dbfc667a11335605426172b3f685",
+      "bytes": 26439,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/HANDOFF.md",
+      "sha256": "ee05526ec3c39a6b01ed734068540bb1398cd05a70812b4452cf4d0a9e7006e7",
+      "bytes": 7263,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/run-sql.py",
+      "sha256": "1858a5ee24a5be10c115818b9a9862bdc5150d6c8003142524a1f60a4fd3ae19",
+      "bytes": 22954,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/run-restore.py",
+      "sha256": "34b1a7f2f8c77b08d6e9a854092c29f78adb675703bed7e8da2820ee3a1c87e0",
+      "bytes": 17733,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/managed_runtime.py",
+      "sha256": "f285394f198de8baf967a80c070ac57a1e7993f03e1f8e022ebf67589f221285",
+      "bytes": 11104,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/live_tree.py",
+      "sha256": "c0637d271402bd114f3a484741e60467df6146824cf4740a6151e39b499f5903",
+      "bytes": 6072,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/providers/arguments.mjs",
+      "sha256": "1083dda760f45affde38033889d0a5a8eb04b13c1f3a3e299d363ca619381b3c",
+      "bytes": 1246,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/providers/probe-readonly.mjs",
+      "sha256": "561854393c086ff0f090bc9e5e43d43754231b2205265d860c98ecfdc07d9edf",
+      "bytes": 17783,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/HANDOFF.json",
+      "sha256": "567e2cc3b8c5bc16c09e65c62d587f408814873d8b4d25840d042708098f25b3",
+      "bytes": 9274,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/README.md",
+      "sha256": "519fed8e330f13d07ff126c808c9aab27186d91cc990defe632a6c85b9648f23",
+      "bytes": 20946,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/runtime-identity.mjs",
+      "sha256": "d91f126fb468f654c9e7118a0dcb9487fb68d0ad375cbd0c0fbaec91019ab6a8",
+      "bytes": 13722,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-resources.mjs",
+      "sha256": "8c223a3031064e1e19eb0416f3a7cfce9b4a43dc5285a8cdc4356f0f339be848",
+      "bytes": 20500,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/journal-persistence.mjs",
+      "sha256": "9aea1df524c689501ca3589a278879ee89ccc54c135fce999ab21f2643338b44",
+      "bytes": 4441,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    },
+    {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/hold-deadline.mjs",
+      "sha256": "ea2365e305e4d0da8c175de45462a1beabd792849eb529e3b7e94d07a447f7b2",
+      "bytes": 901,
+      "method": "current local source read; definitions/controller/contract inspection, not runtime execution"
+    }
+  ],
+  "canonical_unit": {
+    "scope": "Inventory actual legacy identities/runtime and rehearse isolated backup/restore. Probe Drive protected range/resume/rate/lease and read-report provider feasibility without purchases or production writes. Record measured limits and dependent-operation blockers.",
+    "owner": "Feasibility and compatibility probes implementation and acceptance owner",
+    "kind": "integration",
+    "construction_dependencies": [],
+    "implementation_paths": [
+      "access-store.mjs",
+      "certificate-store.mjs",
+      "course-cohort-store.mjs",
+      "course-schedule.mjs",
+      "enrollment-store.mjs",
+      "google-drive-video.mjs",
+      "package-lock.json",
+      "package.json",
+      "platform/compatibility/legacy-snapshot.mjs",
+      "platform/http/checkout-routes.mjs",
+      "platform/http/corporate-routes.mjs",
+      "platform/http/course-routes.mjs",
+      "platform/http/service-boundary.mjs",
+      "platform/media/abort.mjs",
+      "platform/media/author-preview.mjs",
+      "platform/media/drive-source.mjs",
+      "platform/media/mp4-index-worker.mjs",
+      "platform/media/mp4-index.mjs",
+      "platform/media/mysql-recorded-media.mjs",
+      "platform/media/private-video-cache.mjs",
+      "platform/media/public-preview.mjs",
+      "platform/persistence/local-store.mjs",
+      "platform/persistence/migrations/001-recorded-foundations.sql",
+      "platform/persistence/migrations/002-recorded-enrollment.sql",
+      "platform/persistence/migrations/003-recorded-authoring.sql",
+      "platform/persistence/migrations/004-recorded-release.sql",
+      "platform/persistence/migrations/005-outbox-delivery.sql",
+      "platform/persistence/migrations/006-recorded-progress.sql",
+      "platform/persistence/migrations/007-recorded-assessments.sql",
+      "platform/persistence/migrations/008-recorded-certificates-reviews.sql",
+      "platform/persistence/migrations/009-material-update-batches.sql",
+      "platform/persistence/migrations/010-instructor-profiles.sql",
+      "platform/persistence/migrations/011-course-interests.sql",
+      "platform/persistence/migrations/012-live-materials.sql",
+      "platform/persistence/migrations/013-marketing-reporting.sql",
+      "platform/persistence/migrations/014-corporate-intake.sql",
+      "platform/persistence/migrations/015-corporate-contacts.sql",
+      "platform/persistence/migrations/016-corporate-offers.sql",
+      "platform/persistence/migrations/017-corporate-billing.sql",
+      "platform/persistence/migrations/018-corporate-cohorts.sql",
+      "platform/persistence/migrations/019-communication-deliveries.sql",
+      "platform/persistence/migrations/020-corporate-delivery-audience.sql",
+      "platform/persistence/migrations/021-release-notice-audience.sql",
+      "platform/persistence/migrations/022-live-seat-ledger.sql",
+      "platform/persistence/migrations/023-live-hosted-checkout.sql",
+      "platform/persistence/mysql-migrations.mjs",
+      "platform/persistence/mysql-transaction.mjs",
+      "platform/runtime/mysql-services.mjs",
+      "public/assets/happypro-logo-dark.svg",
+      "public/assets/happypro-logo.svg",
+      "public/assets/menu-glass-renderer.js",
+      "public/assets/menu-glass.css",
+      "public/assets/menu-glass.js",
+      "public/styles.css",
+      "review-store.mjs",
+      "server.mjs",
+      "tests/integration/platform-mysql.test.mjs"
+    ],
+    "required_check_ids": [
+      "QA-EXP-BND-00-FUNCTIONAL",
+      "QA-EXP-BND-00-OPS",
+      "QA-EXP-BND-00-SECURITY"
+    ]
+  },
+  "acceptance_contracts": {
+    "QA-EXP-BND-00-FUNCTIONAL": {
+      "required": true,
+      "level": "unit",
+      "evidence_mode": "component",
+      "required_source_paths": [
+        "access-store.mjs",
+        "certificate-store.mjs",
+        "course-cohort-store.mjs",
+        "course-schedule.mjs",
+        "enrollment-store.mjs",
+        "google-drive-video.mjs",
+        "package-lock.json",
+        "package.json",
+        "platform/compatibility/legacy-snapshot.mjs",
+        "platform/http/checkout-routes.mjs",
+        "platform/http/corporate-routes.mjs",
+        "platform/http/course-routes.mjs",
+        "platform/http/service-boundary.mjs",
+        "platform/media/abort.mjs",
+        "platform/media/author-preview.mjs",
+        "platform/media/drive-source.mjs",
+        "platform/media/mp4-index-worker.mjs",
+        "platform/media/mp4-index.mjs",
+        "platform/media/mysql-recorded-media.mjs",
+        "platform/media/private-video-cache.mjs",
+        "platform/media/public-preview.mjs",
+        "platform/persistence/local-store.mjs",
+        "platform/persistence/migrations/001-recorded-foundations.sql",
+        "platform/persistence/migrations/002-recorded-enrollment.sql",
+        "platform/persistence/migrations/003-recorded-authoring.sql",
+        "platform/persistence/migrations/004-recorded-release.sql",
+        "platform/persistence/migrations/005-outbox-delivery.sql",
+        "platform/persistence/migrations/006-recorded-progress.sql",
+        "platform/persistence/migrations/007-recorded-assessments.sql",
+        "platform/persistence/migrations/008-recorded-certificates-reviews.sql",
+        "platform/persistence/migrations/009-material-update-batches.sql",
+        "platform/persistence/migrations/010-instructor-profiles.sql",
+        "platform/persistence/migrations/011-course-interests.sql",
+        "platform/persistence/migrations/012-live-materials.sql",
+        "platform/persistence/migrations/013-marketing-reporting.sql",
+        "platform/persistence/migrations/014-corporate-intake.sql",
+        "platform/persistence/migrations/015-corporate-contacts.sql",
+        "platform/persistence/migrations/016-corporate-offers.sql",
+        "platform/persistence/migrations/017-corporate-billing.sql",
+        "platform/persistence/migrations/018-corporate-cohorts.sql",
+        "platform/persistence/migrations/019-communication-deliveries.sql",
+        "platform/persistence/migrations/020-corporate-delivery-audience.sql",
+        "platform/persistence/migrations/021-release-notice-audience.sql",
+        "platform/persistence/migrations/022-live-seat-ledger.sql",
+        "platform/persistence/migrations/023-live-hosted-checkout.sql",
+        "platform/persistence/mysql-migrations.mjs",
+        "platform/persistence/mysql-transaction.mjs",
+        "platform/runtime/mysql-services.mjs",
+        "public/assets/happypro-logo-dark.svg",
+        "public/assets/happypro-logo.svg",
+        "public/assets/menu-glass-renderer.js",
+        "public/assets/menu-glass.css",
+        "public/assets/menu-glass.js",
+        "public/styles.css",
+        "review-store.mjs",
+        "server.mjs",
+        "tests/integration/platform-mysql.test.mjs"
+      ]
+    },
+    "QA-EXP-BND-00-OPS": {
+      "required": true,
+      "level": "unit",
+      "evidence_mode": "component",
+      "required_source_paths": [
+        "access-store.mjs",
+        "certificate-store.mjs",
+        "course-cohort-store.mjs",
+        "course-schedule.mjs",
+        "enrollment-store.mjs",
+        "google-drive-video.mjs",
+        "package-lock.json",
+        "package.json",
+        "platform/compatibility/legacy-snapshot.mjs",
+        "platform/http/checkout-routes.mjs",
+        "platform/http/corporate-routes.mjs",
+        "platform/http/course-routes.mjs",
+        "platform/http/service-boundary.mjs",
+        "platform/media/abort.mjs",
+        "platform/media/author-preview.mjs",
+        "platform/media/drive-source.mjs",
+        "platform/media/mp4-index-worker.mjs",
+        "platform/media/mp4-index.mjs",
+        "platform/media/mysql-recorded-media.mjs",
+        "platform/media/private-video-cache.mjs",
+        "platform/media/public-preview.mjs",
+        "platform/persistence/local-store.mjs",
+        "platform/persistence/migrations/001-recorded-foundations.sql",
+        "platform/persistence/migrations/002-recorded-enrollment.sql",
+        "platform/persistence/migrations/003-recorded-authoring.sql",
+        "platform/persistence/migrations/004-recorded-release.sql",
+        "platform/persistence/migrations/005-outbox-delivery.sql",
+        "platform/persistence/migrations/006-recorded-progress.sql",
+        "platform/persistence/migrations/007-recorded-assessments.sql",
+        "platform/persistence/migrations/008-recorded-certificates-reviews.sql",
+        "platform/persistence/migrations/009-material-update-batches.sql",
+        "platform/persistence/migrations/010-instructor-profiles.sql",
+        "platform/persistence/migrations/011-course-interests.sql",
+        "platform/persistence/migrations/012-live-materials.sql",
+        "platform/persistence/migrations/013-marketing-reporting.sql",
+        "platform/persistence/migrations/014-corporate-intake.sql",
+        "platform/persistence/migrations/015-corporate-contacts.sql",
+        "platform/persistence/migrations/016-corporate-offers.sql",
+        "platform/persistence/migrations/017-corporate-billing.sql",
+        "platform/persistence/migrations/018-corporate-cohorts.sql",
+        "platform/persistence/migrations/019-communication-deliveries.sql",
+        "platform/persistence/migrations/020-corporate-delivery-audience.sql",
+        "platform/persistence/migrations/021-release-notice-audience.sql",
+        "platform/persistence/migrations/022-live-seat-ledger.sql",
+        "platform/persistence/migrations/023-live-hosted-checkout.sql",
+        "platform/persistence/mysql-migrations.mjs",
+        "platform/persistence/mysql-transaction.mjs",
+        "platform/runtime/mysql-services.mjs",
+        "public/assets/happypro-logo-dark.svg",
+        "public/assets/happypro-logo.svg",
+        "public/assets/menu-glass-renderer.js",
+        "public/assets/menu-glass.css",
+        "public/assets/menu-glass.js",
+        "public/styles.css",
+        "review-store.mjs",
+        "server.mjs",
+        "tests/integration/platform-mysql.test.mjs"
+      ]
+    },
+    "QA-EXP-BND-00-SECURITY": {
+      "required": true,
+      "level": "unit",
+      "evidence_mode": "component",
+      "required_source_paths": [
+        "access-store.mjs",
+        "certificate-store.mjs",
+        "course-cohort-store.mjs",
+        "course-schedule.mjs",
+        "enrollment-store.mjs",
+        "google-drive-video.mjs",
+        "package-lock.json",
+        "package.json",
+        "platform/compatibility/legacy-snapshot.mjs",
+        "platform/http/checkout-routes.mjs",
+        "platform/http/corporate-routes.mjs",
+        "platform/http/course-routes.mjs",
+        "platform/http/service-boundary.mjs",
+        "platform/media/abort.mjs",
+        "platform/media/author-preview.mjs",
+        "platform/media/drive-source.mjs",
+        "platform/media/mp4-index-worker.mjs",
+        "platform/media/mp4-index.mjs",
+        "platform/media/mysql-recorded-media.mjs",
+        "platform/media/private-video-cache.mjs",
+        "platform/media/public-preview.mjs",
+        "platform/persistence/local-store.mjs",
+        "platform/persistence/migrations/001-recorded-foundations.sql",
+        "platform/persistence/migrations/002-recorded-enrollment.sql",
+        "platform/persistence/migrations/003-recorded-authoring.sql",
+        "platform/persistence/migrations/004-recorded-release.sql",
+        "platform/persistence/migrations/005-outbox-delivery.sql",
+        "platform/persistence/migrations/006-recorded-progress.sql",
+        "platform/persistence/migrations/007-recorded-assessments.sql",
+        "platform/persistence/migrations/008-recorded-certificates-reviews.sql",
+        "platform/persistence/migrations/009-material-update-batches.sql",
+        "platform/persistence/migrations/010-instructor-profiles.sql",
+        "platform/persistence/migrations/011-course-interests.sql",
+        "platform/persistence/migrations/012-live-materials.sql",
+        "platform/persistence/migrations/013-marketing-reporting.sql",
+        "platform/persistence/migrations/014-corporate-intake.sql",
+        "platform/persistence/migrations/015-corporate-contacts.sql",
+        "platform/persistence/migrations/016-corporate-offers.sql",
+        "platform/persistence/migrations/017-corporate-billing.sql",
+        "platform/persistence/migrations/018-corporate-cohorts.sql",
+        "platform/persistence/migrations/019-communication-deliveries.sql",
+        "platform/persistence/migrations/020-corporate-delivery-audience.sql",
+        "platform/persistence/migrations/021-release-notice-audience.sql",
+        "platform/persistence/migrations/022-live-seat-ledger.sql",
+        "platform/persistence/migrations/023-live-hosted-checkout.sql",
+        "platform/persistence/mysql-migrations.mjs",
+        "platform/persistence/mysql-transaction.mjs",
+        "platform/runtime/mysql-services.mjs",
+        "public/assets/happypro-logo-dark.svg",
+        "public/assets/happypro-logo.svg",
+        "public/assets/menu-glass-renderer.js",
+        "public/assets/menu-glass.css",
+        "public/assets/menu-glass.js",
+        "public/styles.css",
+        "review-store.mjs",
+        "server.mjs",
+        "tests/integration/platform-mysql.test.mjs"
+      ]
+    }
+  },
+  "acceptance_allocations": {
+    "QA-EXP-BND-00-FUNCTIONAL": {
+      "owner_unit": "UNIT-EXP-00",
+      "prerequisite_units": [],
+      "prerequisite_checks": [],
+      "obligation_ids": []
+    },
+    "QA-EXP-BND-00-OPS": {
+      "owner_unit": "UNIT-EXP-00",
+      "prerequisite_units": [],
+      "prerequisite_checks": [
+        "QA-EXP-BND-00-FUNCTIONAL"
+      ],
+      "obligation_ids": []
+    },
+    "QA-EXP-BND-00-SECURITY": {
+      "owner_unit": "UNIT-EXP-00",
+      "prerequisite_units": [],
+      "prerequisite_checks": [
+        "QA-EXP-BND-00-FUNCTIONAL"
+      ],
+      "obligation_ids": [
+        "NFR-EXP-SEC01",
+        "NFR-EXP-SEC02",
+        "NFR-EXP-SEC03",
+        "NFR-EXP-SEC07",
+        "NFR-EXP-SEC08",
+        "NFR-EXP-SEC09",
+        "NFR-EXP-SEC13",
+        "NFR-EXP-SEC16"
+      ]
+    }
+  },
+  "checks_mapping": [
+    {
+      "check_id": "QA-EXP-BND-00-FUNCTIONAL",
+      "gate": "functional_and_regression_requirements",
+      "definition_lines": "qa-checklist.md:1853-1868; additive task clause 40232",
+      "required_observations": [
+        "Actual legacy identity/runtime inventory, isolated restore exact counts/identities versus source",
+        "Actual authorized Drive protected initial/seek/resume ranges, provider rate/budget observations, actual read-report provider capability",
+        "Actual media/lease/rate feasibility through scoped consumers; no mock provider substitution",
+        "Before/action/after durable deltas and retained state, cause, next action, safe retry, acknowledged recovery"
+      ],
+      "harness_inputs": [
+        "retry1 providers/probe-readonly.mjs",
+        "retry1 python/run-restore.py",
+        "retry1 python/run-sql.py plus reviewed retry2 media sibling assembly"
+      ],
+      "status": "not_run_by_this_review; root must evaluate original actual results separately"
+    },
+    {
+      "check_id": "QA-EXP-BND-00-SECURITY",
+      "gate": "product_security_requirements",
+      "definition_lines": "qa-checklist.md:1870-1885",
+      "prerequisite": "QA-EXP-BND-00-FUNCTIONAL current passing evidence",
+      "obligations": [
+        "NFR-EXP-SEC01",
+        "NFR-EXP-SEC02",
+        "NFR-EXP-SEC03",
+        "NFR-EXP-SEC07",
+        "NFR-EXP-SEC08",
+        "NFR-EXP-SEC09",
+        "NFR-EXP-SEC13",
+        "NFR-EXP-SEC16"
+      ],
+      "required_observations": [
+        "Valid/foreign/revoked actors; stale revision; replay/concurrent mutation; unsafe payload/URL; interrupted transaction through actual scoped enforcement seam",
+        "Denied response, unchanged durable state, safe errors, token/version/idempotency and secret isolation",
+        "Exact positive/adversarial requests, sanitized audit and DB delta evidence; no whole-ASVS/deployed-TLS claim"
+      ],
+      "harness_contributors": [
+        "run-sql.py six component test files and four auth files",
+        "root-selected actual integration test names; media separate clients and expiry/lease rejection",
+        "Provider anonymous denial followed by permitted authenticated retry"
+      ],
+      "gap": "Entry-point names and exit zero do not demonstrate every scoped obligation; root must inspect actual per-case output and map all eight obligations before acceptance."
+    },
+    {
+      "check_id": "QA-EXP-BND-00-OPS",
+      "gate": "operational_readiness",
+      "definition_lines": "qa-checklist.md:1887-1902; additive task clause 40232",
+      "prerequisite": "QA-EXP-BND-00-FUNCTIONAL current passing evidence",
+      "required_observations": [
+        "Actual isolated restore reconciliation and reproducible sanitized provider limits",
+        "Declared interruption/failure followed by retained committed state and safe deterministic retry; no duplicate/partial mutation",
+        "Measured source-backed budgets and exact runtime/browser/helper/schema cleanup",
+        "Final source/environment unchanged observations and actual before/after execution input records"
+      ],
+      "gap": "Working/capture model and pure sampler tests are preparation. Missing actual provider probe/budget/recovery observation keeps the applicable check blocked."
+    }
+  ],
+  "assembly_required": {
+    "new_sibling_root": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3",
+    "components": [
+      "root-managed.py derived from retry1 corrected authority-before-working ordering",
+      "root-batch.py derived from retry1 portable BASE and provider argument correction",
+      "python/managed_runtime.py + run-restore.py + run-sql.py + live_tree.py from retry1 under root-reviewed new sibling",
+      "providers/probe-readonly.mjs + arguments.mjs from retry1",
+      "All retry2/media production imports and journal/deadline modules, retaining prepared-test/provenance distinction"
+    ],
+    "hard_path_gap": "Resolved in new retry3 sibling; Python/media/controller BASE are consistent. Actual runtime validation not performed.",
+    "engine_path_gap": "retry1 root-managed.py resolves SCRIPTS through /Users/ingwar/Projects/SDD Pipeline Skills Current; root must verify its actual resolved installed revision after authorized engine fix and bind same scripts in every controller/native session. Do not assume engine worktree code is installed.",
+    "controller_order": "actual current native start check -> begin_generation authority/recovery/accounting guard -> distinct working hold -> fresh external capture/storage record -> managed root batch. Keep pending hold on uncertainty.",
+    "identity_sequence": "Fresh managed SQL-free retry2 identity producer, live native query within 30s native limit (endpoint deadline 20s), owner-reviewed continuation inventory/current runtime receipt, capture-continuation with distinct run/context, native start, fresh post-start live runtime observation and exact full environment comparison, then product producer. Product media compares new live browser tuple to immutable context before checks.",
+    "identity_limit": "900s monotonic owner lifetime begins before setup; expiration fails and enters finally. It is not renewed by query/hold. Native timeout must allow owner lifetime plus explicit cleanup grace; root must settle identity resources before product stage."
+  },
+  "input_contract": {
+    "python_common_flags": [
+      "--project-root",
+      "--scripts-dir",
+      "--mysql-bin",
+      "--runtime-parent",
+      "--node-bin",
+      "--lsof-bin",
+      "--output-dir",
+      "--runtime-dir",
+      "--context-record",
+      "--storage-record",
+      "--root-context-sha256",
+      "--root-storage-sha256",
+      "--run-id",
+      "--executor",
+      "--runtime-reservation-bytes",
+      "--included-usage-verified",
+      "--execute"
+    ],
+    "restore_extra_flags": [
+      "--export",
+      "--legacy-inventory"
+    ],
+    "sql_extra_flags": [
+      "--media-dir",
+      "--sql-test-pattern",
+      "--playwright-module",
+      "--temp-base",
+      "--port"
+    ],
+    "root_batch_extra_flags": [
+      "--runtime-suffix",
+      "--implementation-revision"
+    ],
+    "provider_flags": [
+      "--output-dir",
+      "--reservation-id",
+      "--implementation-revision",
+      "--google-config",
+      "--meta-config",
+      "--drive-file-id",
+      "--ga4-property-id",
+      "--ads-customer-id"
+    ],
+    "storage_record_fields": [
+      "unit_id=UNIT-EXP-00",
+      "run_id=actual running native run",
+      "working_reservation_id=actual distinct pending ledger hold",
+      "working_reserved_bytes>=2147483648",
+      "registered_output=exact canonical native capture root"
+    ],
+    "context_record": "Standard project-contained canonical original unit_execution_context reference {path,content_hash}; media parses immutable original input_inventory.environment.browser_identity. Root validates exact context/storage reference file SHA256 before each stage.",
+    "paths_to_validate_not_assumed_ready": {
+      "project": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+      "installed_scripts": "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts",
+      "runtime_parent": "/tmp/happypro-platform-mysql-runtime/data/unit00-resume",
+      "mysql_bin": "/tmp/happypro-platform-mysql-runtime/mysql-8.4.11-macos15-arm64/bin",
+      "retained_private_export": "Root-only approved retained private export; never include contents in evidence",
+      "legacy_inventory": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261018/restore/legacy-source-inventory.json",
+      "playwright_selected_in_source": "/Users/ingwar/.npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.mjs",
+      "temp_base": "Actual canonical OS user temp from TMPDIR/tmpdir; never SQL test-temp substitution",
+      "node_lsof": "Absolute verified existing executables; version/path/hash bound at runtime",
+      "output": "Fresh empty real owned mode0700 external registered capture, unique children",
+      "control": "Fresh private mode0600 control file in root assigned owned canonical mode0700 runtime directory outside capture",
+      "port": "Root-reserved unique loopback port; no fabricated number"
+    },
+    "constraints": [
+      "Python3.12+ -B; no checkout .env; retain native SDD_PRODUCER_LEDGER/SDD_PRODUCER_ATTEMPT only through existing API",
+      "Runtime basenames <=48 chars and socket path <104 encoded bytes; unique 1-4 alphanumeric/underscore/hyphen suffix",
+      "Private export/config and source identities checked before/after/final; private configs outside Git/capture",
+      "Socket-only isolated MySQL skip-networking, mysqlx=0; no production writes/setup/purchases"
+    ]
+  },
+  "source_closure": {
+    "required": "Every QA required_source_paths and unit implementation_paths plus canonical shared definitions, plan prose, exact actions/outcomes and DoD gates, current instruction hashes, harness/controller/import/helper sources, migration directory membership, package-lock/package metadata, actual node/Python/MySQL/Playwright/browser executable identities, fixtures/sample/cover/worker/HTML and selected SQL names; tree fingerprints include membership.",
+    "sources_added_by_retry": "live_tree.py; retry2 journal-persistence.mjs and hold-deadline.mjs; current sibling controllers and provider arguments.mjs. Prepared inventory copied from earlier versions cannot establish current closure.",
+    "sampling": "Before and after each check actual execution-input observation; final source drift or unresolved input selection blocks acceptance. Recursive literal imports do not prove dynamic/native closure; root supplements named runtime inputs.",
+    "sample_sha256": "be998e5fed5a9065bbccdb097884794ebd2492cb261ec40948e7a846af5724b8",
+    "browser_keys": [
+      "chrome-desktop",
+      "edge-desktop",
+      "firefox-desktop",
+      "webkit-desktop",
+      "chromium-virtual-touch",
+      "webkit-virtual-touch"
+    ],
+    "browser_qualification": "Virtual desktop engines/touch profiles are not Safari/iOS/physical hardware or human research. No VoiceOver check under explicit exclusion."
+  },
+  "budgets_timeouts": {
+    "source_status": "Prepared source constants/estimate only; no actual new measurement",
+    "root_capture_bytes": 134217728,
+    "root_capture_files": 2000,
+    "root_product_timeout_seconds": 4800,
+    "working_hold_bytes": 2147483648,
+    "root_context_reservation_bytes": 134217728,
+    "root_context_metadata_bytes": 33554432,
+    "provider_child_timeout_seconds": 450,
+    "provider_cleanup_grace_seconds": 10,
+    "restore_child_timeout_seconds": 600,
+    "restore_cleanup_grace_seconds": 180,
+    "sql_child_timeout_seconds": 2700,
+    "sql_cleanup_grace_seconds": 180,
+    "media_each_timeout_seconds": 600,
+    "media_cleanup_grace_seconds": 180,
+    "provider_request_timeout_ms": 15000,
+    "provider_max_API_requests": 18,
+    "provider_max_google_auth_token_requests": 4,
+    "provider_report_limit_bytes": 131072,
+    "provider_json_body_limit_bytes": 65536,
+    "child_log_limit_bytes": 1048576,
+    "sql_output_limit_bytes": 67108864,
+    "identity_owner_lifetime_seconds": 900,
+    "identity_endpoint_deadline_seconds": 20,
+    "native_identity_probe_limit_seconds": 30,
+    "retry2_capture_estimate_900s_bytes": 117744110,
+    "retry2_capture_estimate_900s_remaining_under_128MiB_bytes": 16473618,
+    "retry2_capture_estimate_1800s_bytes": 235684503,
+    "limitations": [
+      "900s encoded model assumes 13 roots/96PID rows/2KiB commands plus 8MiB headroom and atomic staging/final versions; actual native accounting can differ. No 1800s hold at128MiB justified.",
+      "Sampled working occupancy is not hard quota or total OS bytes; reserve simultaneous identities and SQL/browser working roots, not just capture.",
+      "5s/64KiB immutable observation segments bound repeated rewriting; oversized indivisible record and uncheckpointed crash tail remain explicit uncertainty. Root enforces observed totals/cleanup grace and retains holds on unknown."
+    ]
+  },
+  "cleanup_control": [
+    "Journal owner PID/uid/start/command, exact profile/artifact/cache/control/private runtime paths with dev/inode/uid/parent, schemas phase and task helpers before consumer acquisition",
+    "try/finally normal close contexts/browser, stop exact unchanged owned helpers, drop exact owned schemas, then verify no process refs/open files with lsof",
+    "Before exact profile removal verify canonical real directory directly inside actual user temp, owned uid and creation identity, no symlinks/mounts; delete only verified task-owned paths and verify absent",
+    "Detached browser descendants may survive native gate death/SIGKILL. Parent exit or missing result is never zero occupancy. Root independently recovers exact identities, preserves unresolved paths and holds, never wildcard/group/port cleanup",
+    "Settle working hold only after paths gone, helpers exited, every schema dropped, complete final reports and independent verification; preserve raw failure history and current protected evidence",
+    "Finish generation only with supported engine accounting closure; upload alone is not independent original-byte readback; no old archive fetch/retest"
+  ],
+  "pending_dependency_gaps": [
+    "Supported engine recovery and installation verification must clear actual recovery_required/uncertain_generation safely; this report does not inspect or alter ledger",
+    "Fresh current runtime identity, immutable pre-start context/continuation, actual native start and post-start guard comparisons remain required",
+    "Root verifies current included usage/capacity before next actual unit of work; no extra/API/reset",
+    "Actual restore, SQL/auth/media/provider functional/security/ops runs and gate-specific coverage/outcomes remain unexecuted by this review",
+    "Provider probe intentionally exits observations_complete_acceptance_not_asserted even with blocked lanes; root must inspect each required lane, not accept process exit zero",
+    "Default 512MiB media-source rejection, unavailable report roles/tokens and missing real measured operational budgets remain explicit capability blockers if observed, not hidden passes",
+    "No other unit including06 may begin until current00 required checks and completion gates actually pass"
+  ],
+  "writing_stopped": true,
+  "assembly_update": {
+    "at": "2026-10-21T12:03:04.032142+00:00",
+    "root": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3",
+    "changes": "Copied23 authored source files from frozen retry1 controllers/provider/Python and retry2 media. Changed only installed scripts resolution in root-managed.py; authored assembly provenance/docs/current source inventory/current verification. No prior reports relabelled.",
+    "source_manifest": {
+      "ASSEMBLY.md": {
+        "sha256": "ed67ab21af5028eb0ab4d46189432b164dd7cf920028c973b03cd2bc4f5d7dbe",
+        "bytes": 2330
+      },
+      "assembly-provenance.json": {
+        "sha256": "c6d37b236ec12669d0a0f284afba1bf5b419737206c1c3eec0b37c1c7111ef14",
+        "bytes": 10827
+      },
+      "assembly-source-inventory.json": {
+        "sha256": "92d69664504aa959a9ec86a0d719a9e00818fbe2b62ea6b734550b9fd5bd200e",
+        "bytes": 62108
+      },
+      "assembly-verification.json": {
+        "sha256": "03324103c061d369b46e8dcf223b990cb4d85ff8b279573db9f8209891982b0d",
+        "bytes": 13717
+      },
+      "media/README.md": {
+        "sha256": "dcdad155561a99255c24c854c478904f63152ff8b0dae8649994d19bbd5f501d",
+        "bytes": 21083
+      },
+      "media/browser-feasibility.mjs": {
+        "sha256": "ebf092535c62fadb24700c8901b8417fd952e2d919fa2dfaa23b180402572507",
+        "bytes": 13014
+      },
+      "media/browser-identity.mjs": {
+        "sha256": "44243038fc3131b16203eae06efbb21c3f4cd1b72da3b465ada2fd7ca5155b83",
+        "bytes": 6142
+      },
+      "media/browser-identity.test.mjs": {
+        "sha256": "b18e6edbf705cbb90844cebd5d1797841b5dc66c320f1f1b214ece8b4d9b2644",
+        "bytes": 4023
+      },
+      "media/browser-resources.mjs": {
+        "sha256": "8c223a3031064e1e19eb0416f3a7cfce9b4a43dc5285a8cdc4356f0f339be848",
+        "bytes": 20500
+      },
+      "media/browser-resources.test.mjs": {
+        "sha256": "a68d87e6b6652da07675a4ff261b0af80fa8a8c6784fa5e8d8eca4340dce2e8a",
+        "bytes": 2460
+      },
+      "media/budget-estimate.mjs": {
+        "sha256": "07dff4e7bf91ac05211b78478911dcbe9bcaeeba2c8f6da73281481b22dc349d",
+        "bytes": 3282
+      },
+      "media/hold-deadline.mjs": {
+        "sha256": "ea2365e305e4d0da8c175de45462a1beabd792849eb529e3b7e94d07a447f7b2",
+        "bytes": 901
+      },
+      "media/journal-persistence.mjs": {
+        "sha256": "9aea1df524c689501ca3589a278879ee89ccc54c135fce999ab21f2643338b44",
+        "bytes": 4441
+      },
+      "media/journal-persistence.test.mjs": {
+        "sha256": "7b3a0a137a1904609e234c239bcaf01cfa33cd8aac4eb90e617f1be28becde13",
+        "bytes": 6226
+      },
+      "media/runtime-identity.mjs": {
+        "sha256": "d91f126fb468f654c9e7118a0dcb9487fb68d0ad375cbd0c0fbaec91019ab6a8",
+        "bytes": 13722
+      },
+      "media/runtime.mjs": {
+        "sha256": "22093b490acb3f9711a4c071997152ee091cc7480f02257d328b1dcb79317d04",
+        "bytes": 14771
+      },
+      "media/separate-clients.mjs": {
+        "sha256": "9468a8350f7ade0a38bb58fb25ca85a6840dae000c9d949ee23d881060077ebb",
+        "bytes": 9248
+      },
+      "media/working-budget.mjs": {
+        "sha256": "b69982a2b3358dd0d7df2cc2398b2851efcee58c80051e70f7fe05ae013a992f",
+        "bytes": 3017
+      },
+      "providers/arguments.mjs": {
+        "sha256": "1083dda760f45affde38033889d0a5a8eb04b13c1f3a3e299d363ca619381b3c",
+        "bytes": 1246
+      },
+      "providers/arguments.test.mjs": {
+        "sha256": "0fd8a29c0c16eb206e68a5ce5d226281effe67165a77e993e3a82a3ec985ee06",
+        "bytes": 2408
+      },
+      "providers/probe-readonly.mjs": {
+        "sha256": "561854393c086ff0f090bc9e5e43d43754231b2205265d860c98ecfdc07d9edf",
+        "bytes": 17783
+      },
+      "python/live_tree.py": {
+        "sha256": "c0637d271402bd114f3a484741e60467df6146824cf4740a6151e39b499f5903",
+        "bytes": 6072
+      },
+      "python/managed_runtime.py": {
+        "sha256": "f285394f198de8baf967a80c070ac57a1e7993f03e1f8e022ebf67589f221285",
+        "bytes": 11104
+      },
+      "python/run-restore.py": {
+        "sha256": "34b1a7f2f8c77b08d6e9a854092c29f78adb675703bed7e8da2820ee3a1c87e0",
+        "bytes": 17733
+      },
+      "python/run-sql.py": {
+        "sha256": "1858a5ee24a5be10c115818b9a9862bdc5150d6c8003142524a1f60a4fd3ae19",
+        "bytes": 22954
+      },
+      "python/test_live_tree.py": {
+        "sha256": "1c55bae5f3fcd97b21a724c4a4a5c14bbd8f20d76884020e911a153bd8af8d48",
+        "bytes": 8679
+      },
+      "root-batch.py": {
+        "sha256": "bd333fedbe9120ca4ef340d6f88e8a78e6d5dbfc667a11335605426172b3f685",
+        "bytes": 26439
+      },
+      "root-helpers.test.py": {
+        "sha256": "e4670edd67c50dc7f25daa8dda98e331b2b0aafe1ecd885997b3e040ba54650f",
+        "bytes": 2223
+      },
+      "root-history-command.py": {
+        "sha256": "3f1945cbb8a268121de4891cb852558d0a69c3de8e3898c1c1d969b8e1dee3b1",
+        "bytes": 2981
+      },
+      "root-identity-launch.py": {
+        "sha256": "82416c71f180eb62a28ea28321b14401612c78f72cb1f2d9eddd3d1b6f6b5e1f",
+        "bytes": 699
+      },
+      "root-managed.py": {
+        "sha256": "ad5ea40662fe28ae7b70d0ce3c6df3e4fda45f92c29109e7f6edded109670e57",
+        "bytes": 7855
+      },
+      "root-runtime-cleanup.py": {
+        "sha256": "61634e14307d13327285421bbbe2124cb032149c85e6494458c257de96fb35ad",
+        "bytes": 21670
+      },
+      "root-runtime-producer.py": {
+        "sha256": "a44eecab3537c6ac4dbd2b3ec4c0089399579dff9f1d743001c68172e8ec1ccc",
+        "bytes": 5402
+      },
+      "root-runtime-query.mjs": {
+        "sha256": "cb09c39afb085ac597f5e15dc1c1d7a6a687f1ba2701734a349f5e8b634d7d72",
+        "bytes": 1082
+      }
+    },
+    "total_files": 34,
+    "total_bytes": 368142,
+    "source_inventory_paths": 252,
+    "missing_inputs": [],
+    "prior_sources_rechecked_unchanged": [
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-managed.py",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-batch.py",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/live_tree.py",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/managed_runtime.py",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/run-restore.py",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/run-sql.py",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/test_live_tree.py",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/providers/arguments.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/providers/arguments.test.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/providers/probe-readonly.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-feasibility.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-identity.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-identity.test.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-resources.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-resources.test.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/budget-estimate.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/hold-deadline.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/journal-persistence.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/journal-persistence.test.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/runtime-identity.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/runtime.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/separate-clients.mjs",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/working-budget.mjs"
+    ],
+    "syntax_checks": 23,
+    "pure_tests_passed": 20,
+    "verification_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/assembly-verification.json",
+    "not_run": [
+      "Python live-tree temporary-directory regressions",
+      "browser resource factory temporary-directory regressions",
+      "all actual native/browser/SQL/provider/network execution"
+    ],
+    "live_inputs_remaining": [
+      "Supported engine recovery and repaired installed target verification",
+      "Fresh root-reviewed source/runtime inventory and continuation/context/native start/post-start guards",
+      "Exact native/capture/working/run/output bindings, existing binaries/temp/port and approved private input identities",
+      "Inherited preserve_first_failure requires old local failed capture; original bytes preserved, no remote fetch/testing attempted",
+      "Actual three QA checks and gate outcomes including individual provider lanes and budgets remain unrun here"
+    ],
+    "ownership": "All writing stopped after report handoff; root owns independent review/Git/runtime/accounting and integration."
+  },
+  "additional_helpers": {
+    "status": "prepared_only_no_actual_resources_executed",
+    "files_added": [
+      "root-runtime-producer.py",
+      "root-identity-launch.py",
+      "root-history-command.py",
+      "root-runtime-query.mjs",
+      "root-runtime-cleanup.py",
+      "root-helpers.test.py"
+    ],
+    "existing_files_refreshed": [
+      "assembly-provenance.json",
+      "assembly-source-inventory.json",
+      "assembly-verification.json"
+    ],
+    "full_manifest": {
+      "ASSEMBLY.md": {
+        "sha256": "ed67ab21af5028eb0ab4d46189432b164dd7cf920028c973b03cd2bc4f5d7dbe",
+        "bytes": 2330
+      },
+      "assembly-provenance.json": {
+        "sha256": "c6d37b236ec12669d0a0f284afba1bf5b419737206c1c3eec0b37c1c7111ef14",
+        "bytes": 10827
+      },
+      "assembly-source-inventory.json": {
+        "sha256": "92d69664504aa959a9ec86a0d719a9e00818fbe2b62ea6b734550b9fd5bd200e",
+        "bytes": 62108
+      },
+      "assembly-verification.json": {
+        "sha256": "03324103c061d369b46e8dcf223b990cb4d85ff8b279573db9f8209891982b0d",
+        "bytes": 13717
+      },
+      "media/README.md": {
+        "sha256": "dcdad155561a99255c24c854c478904f63152ff8b0dae8649994d19bbd5f501d",
+        "bytes": 21083
+      },
+      "media/browser-feasibility.mjs": {
+        "sha256": "ebf092535c62fadb24700c8901b8417fd952e2d919fa2dfaa23b180402572507",
+        "bytes": 13014
+      },
+      "media/browser-identity.mjs": {
+        "sha256": "44243038fc3131b16203eae06efbb21c3f4cd1b72da3b465ada2fd7ca5155b83",
+        "bytes": 6142
+      },
+      "media/browser-identity.test.mjs": {
+        "sha256": "b18e6edbf705cbb90844cebd5d1797841b5dc66c320f1f1b214ece8b4d9b2644",
+        "bytes": 4023
+      },
+      "media/browser-resources.mjs": {
+        "sha256": "8c223a3031064e1e19eb0416f3a7cfce9b4a43dc5285a8cdc4356f0f339be848",
+        "bytes": 20500
+      },
+      "media/browser-resources.test.mjs": {
+        "sha256": "a68d87e6b6652da07675a4ff261b0af80fa8a8c6784fa5e8d8eca4340dce2e8a",
+        "bytes": 2460
+      },
+      "media/budget-estimate.mjs": {
+        "sha256": "07dff4e7bf91ac05211b78478911dcbe9bcaeeba2c8f6da73281481b22dc349d",
+        "bytes": 3282
+      },
+      "media/hold-deadline.mjs": {
+        "sha256": "ea2365e305e4d0da8c175de45462a1beabd792849eb529e3b7e94d07a447f7b2",
+        "bytes": 901
+      },
+      "media/journal-persistence.mjs": {
+        "sha256": "9aea1df524c689501ca3589a278879ee89ccc54c135fce999ab21f2643338b44",
+        "bytes": 4441
+      },
+      "media/journal-persistence.test.mjs": {
+        "sha256": "7b3a0a137a1904609e234c239bcaf01cfa33cd8aac4eb90e617f1be28becde13",
+        "bytes": 6226
+      },
+      "media/runtime-identity.mjs": {
+        "sha256": "d91f126fb468f654c9e7118a0dcb9487fb68d0ad375cbd0c0fbaec91019ab6a8",
+        "bytes": 13722
+      },
+      "media/runtime.mjs": {
+        "sha256": "22093b490acb3f9711a4c071997152ee091cc7480f02257d328b1dcb79317d04",
+        "bytes": 14771
+      },
+      "media/separate-clients.mjs": {
+        "sha256": "9468a8350f7ade0a38bb58fb25ca85a6840dae000c9d949ee23d881060077ebb",
+        "bytes": 9248
+      },
+      "media/working-budget.mjs": {
+        "sha256": "b69982a2b3358dd0d7df2cc2398b2851efcee58c80051e70f7fe05ae013a992f",
+        "bytes": 3017
+      },
+      "providers/arguments.mjs": {
+        "sha256": "1083dda760f45affde38033889d0a5a8eb04b13c1f3a3e299d363ca619381b3c",
+        "bytes": 1246
+      },
+      "providers/arguments.test.mjs": {
+        "sha256": "0fd8a29c0c16eb206e68a5ce5d226281effe67165a77e993e3a82a3ec985ee06",
+        "bytes": 2408
+      },
+      "providers/probe-readonly.mjs": {
+        "sha256": "561854393c086ff0f090bc9e5e43d43754231b2205265d860c98ecfdc07d9edf",
+        "bytes": 17783
+      },
+      "python/live_tree.py": {
+        "sha256": "c0637d271402bd114f3a484741e60467df6146824cf4740a6151e39b499f5903",
+        "bytes": 6072
+      },
+      "python/managed_runtime.py": {
+        "sha256": "f285394f198de8baf967a80c070ac57a1e7993f03e1f8e022ebf67589f221285",
+        "bytes": 11104
+      },
+      "python/run-restore.py": {
+        "sha256": "34b1a7f2f8c77b08d6e9a854092c29f78adb675703bed7e8da2820ee3a1c87e0",
+        "bytes": 17733
+      },
+      "python/run-sql.py": {
+        "sha256": "1858a5ee24a5be10c115818b9a9862bdc5150d6c8003142524a1f60a4fd3ae19",
+        "bytes": 22954
+      },
+      "python/test_live_tree.py": {
+        "sha256": "1c55bae5f3fcd97b21a724c4a4a5c14bbd8f20d76884020e911a153bd8af8d48",
+        "bytes": 8679
+      },
+      "root-batch.py": {
+        "sha256": "bd333fedbe9120ca4ef340d6f88e8a78e6d5dbfc667a11335605426172b3f685",
+        "bytes": 26439
+      },
+      "root-helpers.test.py": {
+        "sha256": "e4670edd67c50dc7f25daa8dda98e331b2b0aafe1ecd885997b3e040ba54650f",
+        "bytes": 2223
+      },
+      "root-history-command.py": {
+        "sha256": "3f1945cbb8a268121de4891cb852558d0a69c3de8e3898c1c1d969b8e1dee3b1",
+        "bytes": 2981
+      },
+      "root-identity-launch.py": {
+        "sha256": "82416c71f180eb62a28ea28321b14401612c78f72cb1f2d9eddd3d1b6f6b5e1f",
+        "bytes": 699
+      },
+      "root-managed.py": {
+        "sha256": "ad5ea40662fe28ae7b70d0ce3c6df3e4fda45f92c29109e7f6edded109670e57",
+        "bytes": 7855
+      },
+      "root-runtime-cleanup.py": {
+        "sha256": "61634e14307d13327285421bbbe2124cb032149c85e6494458c257de96fb35ad",
+        "bytes": 21670
+      },
+      "root-runtime-producer.py": {
+        "sha256": "a44eecab3537c6ac4dbd2b3ec4c0089399579dff9f1d743001c68172e8ec1ccc",
+        "bytes": 5402
+      },
+      "root-runtime-query.mjs": {
+        "sha256": "cb09c39afb085ac597f5e15dc1c1d7a6a687f1ba2701734a349f5e8b634d7d72",
+        "bytes": 1082
+      }
+    },
+    "file_count": 34,
+    "total_bytes": 368142,
+    "pristine_original_comparisons": {
+      "root-managed.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-managed.py",
+        "original_identity": {
+          "sha256": "b2766ee73bb373fdf8cfec243a5567cb6d56123ae104e417c15fe2d0a420d11a",
+          "bytes": 7880
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "ad5ea40662fe28ae7b70d0ce3c6df3e4fda45f92c29109e7f6edded109670e57",
+          "bytes": 7855
+        },
+        "byte_identical_to_original": false
+      },
+      "root-batch.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-batch.py",
+        "original_identity": {
+          "sha256": "bd333fedbe9120ca4ef340d6f88e8a78e6d5dbfc667a11335605426172b3f685",
+          "bytes": 26439
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "bd333fedbe9120ca4ef340d6f88e8a78e6d5dbfc667a11335605426172b3f685",
+          "bytes": 26439
+        },
+        "byte_identical_to_original": true
+      },
+      "python/live_tree.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/live_tree.py",
+        "original_identity": {
+          "sha256": "c0637d271402bd114f3a484741e60467df6146824cf4740a6151e39b499f5903",
+          "bytes": 6072
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "c0637d271402bd114f3a484741e60467df6146824cf4740a6151e39b499f5903",
+          "bytes": 6072
+        },
+        "byte_identical_to_original": true
+      },
+      "python/managed_runtime.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/managed_runtime.py",
+        "original_identity": {
+          "sha256": "f285394f198de8baf967a80c070ac57a1e7993f03e1f8e022ebf67589f221285",
+          "bytes": 11104
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "f285394f198de8baf967a80c070ac57a1e7993f03e1f8e022ebf67589f221285",
+          "bytes": 11104
+        },
+        "byte_identical_to_original": true
+      },
+      "python/run-restore.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/run-restore.py",
+        "original_identity": {
+          "sha256": "34b1a7f2f8c77b08d6e9a854092c29f78adb675703bed7e8da2820ee3a1c87e0",
+          "bytes": 17733
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "34b1a7f2f8c77b08d6e9a854092c29f78adb675703bed7e8da2820ee3a1c87e0",
+          "bytes": 17733
+        },
+        "byte_identical_to_original": true
+      },
+      "python/run-sql.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/run-sql.py",
+        "original_identity": {
+          "sha256": "1858a5ee24a5be10c115818b9a9862bdc5150d6c8003142524a1f60a4fd3ae19",
+          "bytes": 22954
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "1858a5ee24a5be10c115818b9a9862bdc5150d6c8003142524a1f60a4fd3ae19",
+          "bytes": 22954
+        },
+        "byte_identical_to_original": true
+      },
+      "python/test_live_tree.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/python/test_live_tree.py",
+        "original_identity": {
+          "sha256": "1c55bae5f3fcd97b21a724c4a4a5c14bbd8f20d76884020e911a153bd8af8d48",
+          "bytes": 8679
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "1c55bae5f3fcd97b21a724c4a4a5c14bbd8f20d76884020e911a153bd8af8d48",
+          "bytes": 8679
+        },
+        "byte_identical_to_original": true
+      },
+      "providers/arguments.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/providers/arguments.mjs",
+        "original_identity": {
+          "sha256": "1083dda760f45affde38033889d0a5a8eb04b13c1f3a3e299d363ca619381b3c",
+          "bytes": 1246
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "1083dda760f45affde38033889d0a5a8eb04b13c1f3a3e299d363ca619381b3c",
+          "bytes": 1246
+        },
+        "byte_identical_to_original": true
+      },
+      "providers/arguments.test.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/providers/arguments.test.mjs",
+        "original_identity": {
+          "sha256": "0fd8a29c0c16eb206e68a5ce5d226281effe67165a77e993e3a82a3ec985ee06",
+          "bytes": 2408
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "0fd8a29c0c16eb206e68a5ce5d226281effe67165a77e993e3a82a3ec985ee06",
+          "bytes": 2408
+        },
+        "byte_identical_to_original": true
+      },
+      "providers/probe-readonly.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/providers/probe-readonly.mjs",
+        "original_identity": {
+          "sha256": "561854393c086ff0f090bc9e5e43d43754231b2205265d860c98ecfdc07d9edf",
+          "bytes": 17783
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "561854393c086ff0f090bc9e5e43d43754231b2205265d860c98ecfdc07d9edf",
+          "bytes": 17783
+        },
+        "byte_identical_to_original": true
+      },
+      "media/browser-feasibility.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-feasibility.mjs",
+        "original_identity": {
+          "sha256": "ebf092535c62fadb24700c8901b8417fd952e2d919fa2dfaa23b180402572507",
+          "bytes": 13014
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "ebf092535c62fadb24700c8901b8417fd952e2d919fa2dfaa23b180402572507",
+          "bytes": 13014
+        },
+        "byte_identical_to_original": true
+      },
+      "media/browser-identity.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-identity.mjs",
+        "original_identity": {
+          "sha256": "44243038fc3131b16203eae06efbb21c3f4cd1b72da3b465ada2fd7ca5155b83",
+          "bytes": 6142
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "44243038fc3131b16203eae06efbb21c3f4cd1b72da3b465ada2fd7ca5155b83",
+          "bytes": 6142
+        },
+        "byte_identical_to_original": true
+      },
+      "media/browser-identity.test.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-identity.test.mjs",
+        "original_identity": {
+          "sha256": "b18e6edbf705cbb90844cebd5d1797841b5dc66c320f1f1b214ece8b4d9b2644",
+          "bytes": 4023
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "b18e6edbf705cbb90844cebd5d1797841b5dc66c320f1f1b214ece8b4d9b2644",
+          "bytes": 4023
+        },
+        "byte_identical_to_original": true
+      },
+      "media/browser-resources.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-resources.mjs",
+        "original_identity": {
+          "sha256": "8c223a3031064e1e19eb0416f3a7cfce9b4a43dc5285a8cdc4356f0f339be848",
+          "bytes": 20500
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "8c223a3031064e1e19eb0416f3a7cfce9b4a43dc5285a8cdc4356f0f339be848",
+          "bytes": 20500
+        },
+        "byte_identical_to_original": true
+      },
+      "media/browser-resources.test.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/browser-resources.test.mjs",
+        "original_identity": {
+          "sha256": "a68d87e6b6652da07675a4ff261b0af80fa8a8c6784fa5e8d8eca4340dce2e8a",
+          "bytes": 2460
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "a68d87e6b6652da07675a4ff261b0af80fa8a8c6784fa5e8d8eca4340dce2e8a",
+          "bytes": 2460
+        },
+        "byte_identical_to_original": true
+      },
+      "media/budget-estimate.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/budget-estimate.mjs",
+        "original_identity": {
+          "sha256": "07dff4e7bf91ac05211b78478911dcbe9bcaeeba2c8f6da73281481b22dc349d",
+          "bytes": 3282
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "07dff4e7bf91ac05211b78478911dcbe9bcaeeba2c8f6da73281481b22dc349d",
+          "bytes": 3282
+        },
+        "byte_identical_to_original": true
+      },
+      "media/hold-deadline.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/hold-deadline.mjs",
+        "original_identity": {
+          "sha256": "ea2365e305e4d0da8c175de45462a1beabd792849eb529e3b7e94d07a447f7b2",
+          "bytes": 901
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "ea2365e305e4d0da8c175de45462a1beabd792849eb529e3b7e94d07a447f7b2",
+          "bytes": 901
+        },
+        "byte_identical_to_original": true
+      },
+      "media/journal-persistence.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/journal-persistence.mjs",
+        "original_identity": {
+          "sha256": "9aea1df524c689501ca3589a278879ee89ccc54c135fce999ab21f2643338b44",
+          "bytes": 4441
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "9aea1df524c689501ca3589a278879ee89ccc54c135fce999ab21f2643338b44",
+          "bytes": 4441
+        },
+        "byte_identical_to_original": true
+      },
+      "media/journal-persistence.test.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/journal-persistence.test.mjs",
+        "original_identity": {
+          "sha256": "7b3a0a137a1904609e234c239bcaf01cfa33cd8aac4eb90e617f1be28becde13",
+          "bytes": 6226
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "7b3a0a137a1904609e234c239bcaf01cfa33cd8aac4eb90e617f1be28becde13",
+          "bytes": 6226
+        },
+        "byte_identical_to_original": true
+      },
+      "media/runtime-identity.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/runtime-identity.mjs",
+        "original_identity": {
+          "sha256": "d91f126fb468f654c9e7118a0dcb9487fb68d0ad375cbd0c0fbaec91019ab6a8",
+          "bytes": 13722
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "d91f126fb468f654c9e7118a0dcb9487fb68d0ad375cbd0c0fbaec91019ab6a8",
+          "bytes": 13722
+        },
+        "byte_identical_to_original": true
+      },
+      "media/runtime.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/runtime.mjs",
+        "original_identity": {
+          "sha256": "22093b490acb3f9711a4c071997152ee091cc7480f02257d328b1dcb79317d04",
+          "bytes": 14771
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "22093b490acb3f9711a4c071997152ee091cc7480f02257d328b1dcb79317d04",
+          "bytes": 14771
+        },
+        "byte_identical_to_original": true
+      },
+      "media/separate-clients.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/separate-clients.mjs",
+        "original_identity": {
+          "sha256": "9468a8350f7ade0a38bb58fb25ca85a6840dae000c9d949ee23d881060077ebb",
+          "bytes": 9248
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "9468a8350f7ade0a38bb58fb25ca85a6840dae000c9d949ee23d881060077ebb",
+          "bytes": 9248
+        },
+        "byte_identical_to_original": true
+      },
+      "media/working-budget.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/working-budget.mjs",
+        "original_identity": {
+          "sha256": "b69982a2b3358dd0d7df2cc2398b2851efcee58c80051e70f7fe05ae013a992f",
+          "bytes": 3017
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "b69982a2b3358dd0d7df2cc2398b2851efcee58c80051e70f7fe05ae013a992f",
+          "bytes": 3017
+        },
+        "byte_identical_to_original": true
+      },
+      "root-runtime-producer.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-runtime-producer-post.py",
+        "original_identity": {
+          "sha256": "388b96abe27e250fb5def5e736bef86dcd49446447fb9534cb4af0453cff4e77",
+          "bytes": 4381
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "a44eecab3537c6ac4dbd2b3ec4c0089399579dff9f1d743001c68172e8ec1ccc",
+          "bytes": 5402
+        },
+        "byte_identical_to_original": false
+      },
+      "root-identity-launch.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-identity-launch.py",
+        "original_identity": {
+          "sha256": "3251675fe5e67b7424e6c7875be54a78b54f37176ef98b016e68fb3993144f58",
+          "bytes": 551
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "82416c71f180eb62a28ea28321b14401612c78f72cb1f2d9eddd3d1b6f6b5e1f",
+          "bytes": 699
+        },
+        "byte_identical_to_original": false
+      },
+      "root-history-command.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-history-command.py",
+        "original_identity": {
+          "sha256": "ba84c83f53464325005728ea5ca758999a73008299dd7bac41ffba8265650146",
+          "bytes": 3006
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "3f1945cbb8a268121de4891cb852558d0a69c3de8e3898c1c1d969b8e1dee3b1",
+          "bytes": 2981
+        },
+        "byte_identical_to_original": false
+      },
+      "root-runtime-query.mjs": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-runtime-query.mjs",
+        "original_identity": {
+          "sha256": "cb09c39afb085ac597f5e15dc1c1d7a6a687f1ba2701734a349f5e8b634d7d72",
+          "bytes": 1082
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "cb09c39afb085ac597f5e15dc1c1d7a6a687f1ba2701734a349f5e8b634d7d72",
+          "bytes": 1082
+        },
+        "byte_identical_to_original": true
+      },
+      "root-runtime-cleanup.py": {
+        "original_path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry1/root-runtime-cleanup.py",
+        "original_identity": {
+          "sha256": "9a52105496dca3bb393988068b77b09b8823f56b49bea9e8b9df0a6290254a9a",
+          "bytes": 21592
+        },
+        "original_unchanged_since_copy": true,
+        "prepared_identity": {
+          "sha256": "61634e14307d13327285421bbbe2124cb032149c85e6494458c257de96fb35ad",
+          "bytes": 21670
+        },
+        "byte_identical_to_original": false
+      }
+    },
+    "syntax_checks": 6,
+    "resource_free_pure_tests": 3,
+    "phase_reservation_bytes": 134217728,
+    "phase_reservation_files": 2000,
+    "conditional_logical_count_model": "900s model277 snapshot writes+180segments;734 if both staging/canonical snapshots observed, plus reports/other output;2000 conservative allocation approved root. Actual native output/version accounting still required.",
+    "owner_deadline_seconds": 900,
+    "native_timeout_with_cleanup_grace_seconds": 1080,
+    "history_inventory_walks": 2,
+    "current_node_alias_resolution": "/Users/ingwar/.local/nodejs/node-v24.16.0-darwin-arm64/bin/node",
+    "important_controls": [
+      "Unified pre requires preserved failed attempt and supplied new run ID different from current failed native run; post requires actual continuation run ID match",
+      "Both phase outputs coordination namespace and main producer use root-supplied new run ID; no old run literal selected",
+      "Native begin authority/recovery guard runs before working hold/control/output writes",
+      "Nested finally records producer_terminal_at and pending independent cleanup even if finish_generation fails; explicit sanitized generation_settlement_error preserved and exception propagates",
+      "General cleanup keeps exact owned process/path/source/capture/native hold checks; settlement failure cannot become a pass; no failed-specific cleanup wrapper imported",
+      "Original history two walks and hardlinked blob standalone-metadata accounting preserved"
+    ],
+    "remaining_root_gates": [
+      "Verify repaired installed skill target/source identities and included allowance",
+      "Fresh distinct supplied run ID, phase ports, native guard/continuation/context and post-start observations",
+      "Actual128MiB/2000-file native accounting; conditional model cannot promise bound under real commands/cleanup",
+      "Actual provider/SQL/browser/restore/acceptance plus normal-finally and independent cleanup evidence remain unexecuted",
+      "Inherited root-batch local original-failure packaging prerequisites remain as previously reported"
+    ],
+    "writing_stopped": true
+  }
+}

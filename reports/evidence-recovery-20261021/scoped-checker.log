@@ -1,0 +1,21 @@
+test_failed_run_cannot_be_in_scope_or_required_dependency (test_evidence_scoped_checker.ScopedAccountingCheckerTests.test_failed_run_cannot_be_in_scope_or_required_dependency) ... FAIL
+test_false_complete_flags_and_nonboolean_flags_block (test_evidence_scoped_checker.ScopedAccountingCheckerTests.test_false_complete_flags_and_nonboolean_flags_block) ... ok
+test_fresh_scope_is_readable_without_claiming_global_completeness (test_evidence_scoped_checker.ScopedAccountingCheckerTests.test_fresh_scope_is_readable_without_claiming_global_completeness) ... ok
+test_historical_floor_hold_and_intent_must_stay_visible (test_evidence_scoped_checker.ScopedAccountingCheckerTests.test_historical_floor_hold_and_intent_must_stay_visible) ... ok
+test_missing_duplicate_or_unsettled_scope_blocks (test_evidence_scoped_checker.ScopedAccountingCheckerTests.test_missing_duplicate_or_unsettled_scope_blocks) ... ok
+test_tampered_or_other_policy_quarantine_blocks (test_evidence_scoped_checker.ScopedAccountingCheckerTests.test_tampered_or_other_policy_quarantine_blocks) ... ok
+test_undisclosed_or_active_pending_intent_blocks (test_evidence_scoped_checker.ScopedAccountingCheckerTests.test_undisclosed_or_active_pending_intent_blocks) ... ok
+
+======================================================================
+FAIL: test_failed_run_cannot_be_in_scope_or_required_dependency (test_evidence_scoped_checker.ScopedAccountingCheckerTests.test_failed_run_cannot_be_in_scope_or_required_dependency)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_evidence_scoped_checker.py", line 74, in test_failed_run_cannot_be_in_scope_or_required_dependency
+    with self.assertRaisesRegex(ValueError, "outside.*scope"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.137s
+
+FAILED (failures=1)
