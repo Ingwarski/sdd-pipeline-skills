@@ -1,0 +1,1 @@
+Updater tests passed: stable default, missing stable, explicit main, no downgrade, fresh installer, flags, dirty tree, branch, origin, old URL, ahead/diverged history.

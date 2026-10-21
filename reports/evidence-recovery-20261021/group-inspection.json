@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "kind": "native-managed-group-inspection-implementation",
+  "observed_at": "2026-10-21T15:54:30.417936+00:00",
+  "status": "source frozen;13 managed-group tests,44 producer tests and4 abandoned-accounting tests passed on canonical Python3.12.14/macOS",
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": "81ac24626435c06959d79ac02219a0e1e0b316a469c952eab0e8ebd34755b4cb",
+    "tests/test_evidence_managed_group_identity.py": "8300edf55e9f7fbef8948d6559aed82cf12cc5643e886b7e67a72723120a2f3e",
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py": "0b12eb0ea2f2401c4c154946f2ee8e6686e6685b87c36e141da85134cb8185af",
+    "tests/test_evidence_abandoned_accounting.py": "cb1ea7d8b1e2a7983b5db50158ef7bd90401aaaef00c64b0444d737bd1d6e762"
+  },
+  "public_api": {
+    "name": "evidence.producer_runtime.managed_group_identity",
+    "signature": "managed_group_identity(pid=None)",
+    "input": "Optional positive integer PID; default current caller. Explicit target must currently share caller PGID and SID. Uses SDD_PRODUCER_LEDGER and SDD_PRODUCER_ATTEMPT from existing active native environment.",
+    "output": {
+      "version": 1,
+      "attempt_id": "original native attempt ID",
+      "owner": "exact process_identity of requested live target PID",
+      "anchor": "exact process_identity of the still-live existing registered gate",
+      "group_id": "kernel PGID shared by caller,target,anchor; equals anchor.pid",
+      "session_id": "kernel SID shared by caller,target,anchor; equals anchor.pid"
+    },
+    "errors": "EvidenceError for non-POSIX, missing environment/sidecars, unsafe ledger path, malformed/missing/inactive native bindings, nonpending reservation, unbound run/output, dead/unknown coordinator or guardian, foreign target group/session, absent/ambiguous/dead/reused anchor, or changes during inspection.",
+    "readiness_is_not_authority": "Result is a current group-membership observation only. It does not register or adopt processes, authenticate a new actor, establish containment, settle accounting, or prove membership after return."
+  },
+  "mechanism": [
+    "Use SQLite URI mode=ro and an authorizer permitting only SELECT/READ/transaction operations; never instantiate Accounting, migrate schema, enter accounting transactions or call mutation APIs.",
+    "Require the original absolute regular ledger and existing regular nonlinked WAL/SHM sidecars before opening. Refuse missing sidecars rather than create them. No immutable=1 or reconstructed snapshot.",
+    "Reuse producer_runtime.read against a small read-only connection/policy view, preserving the existing native ownership/binding validation.",
+    "Require running original attempt, pending original reservation, matching project/version/unit/output bindings and unchanged output directory identity; exact coordinator and guardian identities must be alive.",
+    "Read exact target identity and kernel group/session; require target membership in caller current group/session and one unique recorded anchor.",
+    "Verify exact target/anchor identities alive and anchor kernel PGID/SID both equal anchor PID. Release initial read snapshot, reread current native bindings, then repeat kernel identity/group checks before returning.",
+    "No registration, resource cleanup, signal, run completion, reservation release, catalog interaction, provider access or browser-specific code."
+  ],
+  "read_only_contract": {
+    "root_explicit_decision": "Ordinary SQLite read locks/read-mark updates in EXISTING SHM are acceptable. No SQL/schema/accounting/session mutations; DB and WAL bytes/tables unchanged; no new sidecars.",
+    "observed": "Real native fixtures verify zero connection.total_changes, trace only SELECT/BEGIN/ROLLBACK, unchanged DB/WAL SHA256 before/after helper call, no Accounting constructor and no os.kill/os.killpg calls. SHM hashes can change after a newer committed native snapshot because SQLite updates its existing read marks.",
+    "not_claimed": "No promise that all kernel locking/shared-memory bookkeeping bytes remain immutable, and no claim of race-free permanent group membership."
+  },
+  "helper_validation": {
+    "runtime": "Canonical Python3.12.14 on macOS; actual native gate processes, no browser",
+    "cases": [
+      "default self inside real native gate",
+      "explicit same PID",
+      "another existing PID in same group (the gate parent)",
+      "foreign PID/group rejected without adoption",
+      "caller outside any registered gate rejected",
+      "inactive attempt rejected",
+      "malformed reservation binding rejected",
+      "reused exact anchor birth identity rejected",
+      "dead guardian rejected",
+      "dead real gate anchor rejected while a surviving child still has that PGID/SID",
+      "missing environment/boolean PID rejected",
+      "missing SHM rejected without opening SQLite or creating it",
+      "non-POSIX explicitly unsupported"
+    ],
+    "test_command": "PATH=RUNTIME_BIN:$PATH python3 -B -m unittest discover -s tests -p 'test_evidence_managed_group_identity.py' -v",
+    "result": {
+      "tests": 13,
+      "result": "PASS",
+      "seconds": 2.982
+    }
+  },
+  "independent_review_followup": {
+    "problem": "Normal nonempty cleanup problems previously updated only mutable recovery_problem; a later successful recovery cleared it and lost the original returned failure.",
+    "change": "Preserve first_recovery_failure problem/time for returned stop/verify/cleanup errors as well as exceptions. Later successful cleanup clears only current recovery_problem; original failure record remains unchanged.",
+    "test": "test_returned_cleanup_error_preserves_first_failure_after_success uses a returned cleanup failure then real successful cleanup; terminal assertion preserved and full floor/hold/sentinel checks remain.",
+    "abandoned_test_result": {
+      "tests": 4,
+      "result": "PASS",
+      "seconds": 0.227
+    }
+  },
+  "authoring_failures": [
+    {
+      "observation": "First malformed-binding fixture tried to violate SQLite foreign key constraints before invoking helper.",
+      "resolution": "Use a bounded malformed native reservation binding for the inspection interval and restore it before the gate publishes its own exit code."
+    },
+    {
+      "observation": "First fixture assumed mutation callbacks only returned restoration functions; native update returned a dict.",
+      "resolution": "Only call a callback result when callable."
+    },
+    {
+      "observation": "Initial all-file-byte equality check failed on SQLite SHM read marks despite zero SQL changes and unchanged DB/WAL.",
+      "resolution": "Root explicitly approved normal existing SHM bookkeeping; test now enforces the precise logical/DB/WAL/no-new-sidecar contract and records the limitation."
+    }
+  ],
+  "boundaries": "Only authorized runtime helper/test/report plus regranted producer returned-failure preservation/test changed. No Git, installer, network, live private ledger, old archive, browser or subagent operations. Prior native terminal acceptance assertion remains unchanged. Full suite/cross-platform CI and actual harness binding remain root-owned.",
+  "producer_regression_result": {
+    "command": "PATH=RUNTIME_BIN:$PATH python3 -B -m unittest discover -s tests -p 'test_evidence_producer*.py' -q",
+    "tests": 44,
+    "result": "PASS",
+    "seconds": 14.498
+  }
+}

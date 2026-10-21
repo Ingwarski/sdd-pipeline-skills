@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -106,6 +107,104 @@ def _environment_ledger():
     finally:
         connection.close()
     return Accounting(path, policy['project_id'], policy), attempt
+
+
+def managed_group_identity(pid=None):
+    """Inspect membership in this producer's existing POSIX launch gate.
+
+    This is a current observation, not registration, adoption or containment.
+    The target must share the caller's existing group/session. Exact native
+    identities and membership are checked again immediately before return;
+    ordinary process-exit/group-change races remain possible after the return.
+    SQL records and database/WAL bytes are not mutated. SQLite may update read
+    locks/read marks in its existing SHM; missing sidecars are never created.
+    """
+    if os.name != 'posix':
+        raise EvidenceError('managed group inspection requires POSIX process groups')
+    path, attempt = os.environ.get('SDD_PRODUCER_LEDGER'), os.environ.get('SDD_PRODUCER_ATTEMPT')
+    if not path or not attempt:
+        raise EvidenceError('managed group inspection requires an active producer session')
+    path = Path(path)
+    if not path.is_absolute() or '..' in path.parts:
+        raise EvidenceError('managed group inspection requires the original absolute ledger path')
+    _parents(path)
+    # An active native ledger is in WAL mode with existing sidecars. Requiring
+    # those files avoids a read-only open creating missing SQLite WAL/SHM files.
+    for candidate in (path, Path(str(path) + '-wal'), Path(str(path) + '-shm')):
+        try:
+            info = candidate.lstat()
+        except OSError as exc:
+            raise EvidenceError('active producer ledger/sidecar is unavailable') from exc
+        if _is_link(info) or not stat.S_ISREG(info.st_mode):
+            raise EvidenceError('unsafe producer ledger/sidecar path')
+    import sqlite3
+    from types import SimpleNamespace
+    connection = None
+    try:
+        connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, isolation_level=None)
+        allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_TRANSACTION}
+        connection.set_authorizer(lambda action, *_: sqlite3.SQLITE_OK if action in allowed else sqlite3.SQLITE_DENY)
+        connection.execute('BEGIN')
+        row = connection.execute('SELECT record FROM producer_sessions WHERE id=?', (attempt,)).fetchone()
+        if row is None or not isinstance(row[0], str) or len(row[0].encode('utf-8')) > MAX_RECORD:
+            raise EvidenceError('missing or oversized producer ownership record')
+        policy = validate_policy(json.loads(row[0])['policy'])
+        view = SimpleNamespace(connection=connection, policy=policy)
+
+        def active_record():
+            value = read(view, attempt)
+            identity = dict(connection.execute("SELECT key,value FROM identity WHERE key IN ('project_id','version')"))
+            reservation = connection.execute('SELECT state FROM reservations WHERE id=?', (value['reservation_id'],)).fetchone()
+            run = connection.execute('SELECT unit_id FROM runs WHERE id=?', (value['run_id'],)).fetchone()
+            if (identity != {'project_id': policy['project_id'], 'version': '1'} or value['status'] != 'running'
+                    or reservation is None or reservation[0] != 'pending' or value.get('output_id') is None
+                    or run is None or run[0] != value['unit_id']):
+                raise EvidenceError('managed group inspection requires original running producer bindings')
+            if (process_identity.state(value.get('guardian')) != 'alive'
+                    or process_identity.state(value['coordinator']) != 'alive'):
+                raise EvidenceError('managed group inspection cannot verify live producer owners')
+            if directory_identity(value['output_dir']) != value['output_identity']:
+                raise EvidenceError('managed group inspection output identity changed')
+            return value
+
+        value = active_record()
+        owner = process_identity.identity(os.getpid() if pid is None else pid)
+        caller_group, caller_session = os.getpgrp(), os.getsid(0)
+        if os.getpgid(owner['pid']) != caller_group or os.getsid(owner['pid']) != caller_session:
+            raise EvidenceError('target is outside the caller managed process group/session')
+        candidates = [item for item in value['processes'].values() if item['group'] == caller_group]
+        if len(candidates) != 1:
+            raise EvidenceError('caller has no unique recorded managed launch gate')
+        anchor = candidates[0]['identity']
+
+        def live_membership():
+            if (process_identity.state(owner) != 'alive' or process_identity.state(anchor) != 'alive'
+                    or anchor['pid'] != caller_group or caller_group != caller_session
+                    or os.getpgrp() != caller_group or os.getsid(0) != caller_session
+                    or os.getpgid(owner['pid']) != caller_group or os.getsid(owner['pid']) != caller_session
+                    or os.getpgid(anchor['pid']) != caller_group or os.getsid(anchor['pid']) != caller_session):
+                raise EvidenceError('managed owner/anchor identity or kernel group membership changed')
+
+        live_membership()
+        connection.execute('ROLLBACK')
+        # Read the current journal again after releasing the initial snapshot,
+        # so a concurrently stopped attempt cannot rely solely on stale running
+        # metadata. This is still a read-only SQLite connection.
+        latest = active_record()
+        keys = ('run_id', 'unit_id', 'reservation_id', 'output_id', 'output_dir', 'output_identity', 'guardian', 'coordinator')
+        latest_anchors = [item['identity'] for item in latest['processes'].values() if item['group'] == caller_group]
+        if any(latest[key] != value[key] for key in keys) or latest_anchors != [anchor]:
+            raise EvidenceError('managed group inspection binding changed during observation')
+        live_membership()
+        return {'version': 1, 'attempt_id': attempt, 'owner': owner, 'anchor': anchor,
+                'group_id': caller_group, 'session_id': caller_session}
+    except (sqlite3.Error, OSError, KeyError, TypeError, ValueError) as exc:
+        if isinstance(exc, EvidenceError):
+            raise
+        raise EvidenceError('cannot inspect current managed group: ' + str(exc)) from exc
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 class ManagedChild:

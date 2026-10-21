@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "kind": "producer-disposition",
+  "attempt_id": "55471474-44b9-48ae-a486-833beca16465",
+  "original_record_sha256": "00b7bba3a7a217e23dda5ddc058337c80d7456a1c649b98eaa10f4843fd40604",
+  "verifier": "Codex root execution lead; independently reviewed current disposition audit by scoped_receipt_review",
+  "observed_at": "2026-10-21T15:33:15.892211+00:00",
+  "external_disposition": {
+    "coverage": "all-unregistered-helpers-and-resources",
+    "journal": {
+      "path": "/Users/ingwar/.sdd-pipeline/evidence/projects/6576cc96-a5ae-43fa-a6d0-1f7f85c1bfd3/captures/unit00-current-20261021-r1-3ec4aa2d/identity-pre/owned-resources.json",
+      "sha256": "61347beeab760550f39e6c69f99adbe689329f25d5d267b5ba57653e91c421c1"
+    },
+    "proof": {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-live-disposition-audit.json",
+      "sha256": "ca351a44c9e696f72284f0074253e78543c55a1b139fc27362fa7086b0e68051"
+    },
+    "limitations": "Named operator assertion over recorded external helpers/resources. All recorded PIDs and exact paths are currently absent; no exact refs in current user process/lsof observations. Original external ps creation times have second resolution, not kernel identity precision; visibility is current-user scoped, short-lived/unrecorded past helpers cannot be reconstructed. This does not reconstruct missing gross generation, certify historical completeness or release any failed reservation."
+  }
+}

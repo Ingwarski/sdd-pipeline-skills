@@ -1,0 +1,331 @@
+{
+  "kind": "independent final frozen managed group SDK and returned-error fix review",
+  "observed_at": "2026-10-21T15:59:04.412055+00:00",
+  "scope": [
+    "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py",
+    "tests/test_evidence_managed_group_identity.py",
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py",
+    "tests/test_evidence_abandoned_accounting.py"
+  ],
+  "source_sha256": {
+    "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": "81ac24626435c06959d79ac02219a0e1e0b316a469c952eab0e8ebd34755b4cb",
+    "tests/test_evidence_managed_group_identity.py": "8300edf55e9f7fbef8948d6559aed82cf12cc5643e886b7e67a72723120a2f3e",
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py": "0b12eb0ea2f2401c4c154946f2ee8e6686e6685b87c36e141da85134cb8185af",
+    "tests/test_evidence_abandoned_accounting.py": "cb1ea7d8b1e2a7983b5db50158ef7bd90401aaaef00c64b0444d737bd1d6e762"
+  },
+  "owner_freeze_hashes_match": true,
+  "source_unchanged_at_end": true,
+  "included_usage": {
+    "used_percent": 58,
+    "ordinary_usage_allowed": true,
+    "no_extra_API_reset_requested": true
+  },
+  "findings": [],
+  "readonly_contract": "No SQL/schema/accounting/session or database/WAL mutation; existing SQLite SHM read-lock/read-mark bookkeeping permitted. No new sidecars or immutable-mode stale reads. This helper reports current membership only and does not register/adopt/contain or authorize termination.",
+  "source_review": [
+    "POSIX only. Requires original absolute non-link ledger path and existing regular DB/WAL/SHM files before opening; missing sidecars reject before sqlite.connect. Uses URI mode=ro, never Accounting or immutable=1. SQL authorizer permits only SELECT/READ/transaction actions.",
+    "Checks original project/version, running producer session, original pending reservation/run/unit/output bindings, live native guardian/coordinator and unchanged output directory identity. Shared read validation rejects mismatched reservation/output/policy/helper identities.",
+    "Target must already belong to caller group/session. Requires exactly one recorded live native gate identity for that group, group=session=anchor PID, and matching caller/target/anchor current native kernel membership. Checks native birth identities/membership twice.",
+    "Releases first read transaction and reads current active bindings again, comparing original run/unit/reservation/output/owner identities and the exact unique gate. This prevents relying only on the first stale running snapshot.",
+    "No SQL mutation, producer registration/adoption, signals, process launch, resource cleanup or accounting declaration occurs inside managed_group_identity. All opened read connections close in finally on success or rejection.",
+    "Tests source verifies real POSIX gate membership/default or explicit target, foreign/unregistered target rejection, inactive/malformed/reused/dead owners, unsupported Windows behavior, and missing-sidecar pre-open failure. Trace/total_changes and DB/WAL hash comparisons permit only existing SHM bookkeeping."
+  ],
+  "pure_actual_function_probes": [
+    {
+      "case": "baseline",
+      "actual": "accepted",
+      "expected": "accepted",
+      "passed": true,
+      "error": null,
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "explicit-same-group-target",
+      "actual": "accepted",
+      "expected": "accepted",
+      "passed": true,
+      "error": null,
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "foreign-target",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "target is outside the caller managed process group/session",
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "dead-anchor",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "managed owner/anchor identity or kernel group membership changed",
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "dead-guardian",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "managed group inspection cannot verify live producer owners",
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "dead-coordinator",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "managed group inspection cannot verify live producer owners",
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "initial-stopping",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "managed group inspection requires original running producer bindings",
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "latest-stopping",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "managed group inspection requires original running producer bindings",
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "latest-binding-changed",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "managed group inspection binding changed during observation",
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "duplicate-anchor",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "caller has no unique recorded managed launch gate",
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "changed-output-identity",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "managed group inspection output identity changed",
+      "connect_calls": [
+        {
+          "args": [
+            "file:///synthetic/accounting.sqlite?mode=ro"
+          ],
+          "kwargs": {
+            "uri": true,
+            "isolation_level": null
+          }
+        }
+      ],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "missing-sidecar",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "active producer ledger/sidecar is unavailable",
+      "connect_calls": [],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    },
+    {
+      "case": "non-posix",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "managed group inspection requires POSIX process groups",
+      "connect_calls": [],
+      "all_connections_closed": true,
+      "all_SQL_readonly": true,
+      "authorizer_denies_unlisted_action": true
+    }
+  ],
+  "all_probe_expectations_met": true,
+  "resolved_ci_finding": {
+    "id": "CI-RECOVERY-HISTORY-01",
+    "status": "fixed and independently rechecked",
+    "path": "skills/to-sdd-pipeline/scripts/evidence/producer.py",
+    "lines": [
+      443,
+      450
+    ],
+    "fix": "Normally returned problems now save first_recovery_failure with setdefault before persisting current status/problem. Later healthy cleanup clears only current problem, retaining the immutable first error.",
+    "pure_actual_AST_probe": {
+      "original_problem": "original returned cleanup error",
+      "after_success": {
+        "status": "terminal",
+        "recovery_owner": null,
+        "recovery_problem": null,
+        "first_recovery_failure": {
+          "problem": "original returned cleanup error",
+          "observed_at": "2026-10-21T15:59:04.411702+00:00"
+        }
+      },
+      "passed": true
+    },
+    "new_regression_source": "test_returned_cleanup_error_preserves_first_failure_after_success; four abandoned-accounting tests source reviewed, not executed by this reviewer."
+  },
+  "limitations": [
+    "Pure SDK probes replace filesystem/OS/native identity/SQLite operations entirely with in-memory doubles and execute only the actual SDK function. They test guards and read-only call intent; they do not establish actual kernel identity or SQLite file behavior.",
+    "Source uses a pre-open existence/type check for active native sidecars, not an atomic filesystem sandbox against hostile concurrent replacement. Ordinary process/group exit races after return remain explicit in the SDK contract.",
+    "Real group and cleanup tests, actual SQLite read locks/bytes, Windows fixture execution and full CI remain root-owned; this report does not relabel source review or pure probes as those executions."
+  ],
+  "not_run": [
+    "unit tests or real processes",
+    "actual filesystem mutation/SQLite connection",
+    "private ledger",
+    "network",
+    "Git",
+    "browser/resource cleanup"
+  ],
+  "writes": [
+    "reports/evidence-recovery-20261021/group-review.json",
+    "reports/evidence-recovery-20261021/ci-followup-review.json (append resolved note only)"
+  ],
+  "resources_created": []
+}

@@ -1,0 +1,122 @@
+{
+  "kind": "independent read-only semantic review of frozen CI follow-up",
+  "observed_at": "2026-10-21T15:48:18.251475+00:00",
+  "scope": [
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py",
+    "tests/test_evidence_abandoned_accounting.py",
+    "tests/test_evidence_quarantine.py",
+    "tests/test_evidence_producer_recovery.py"
+  ],
+  "source_sha256": {
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py": "fff451fb6db873f34864af472d001dd4f0d32d3ef19915e6ef0da6271e3a7e73",
+    "tests/test_evidence_abandoned_accounting.py": "6dabfb4de497b79a5cc631353c61ecbdbd992ef66665e90fa0e1cf54e043bf9d",
+    "tests/test_evidence_quarantine.py": "21a74a07c2e80b3609b054faac2b1f9a53444c32db72736cc22578666735f180",
+    "tests/test_evidence_producer_recovery.py": "13bb040d1b29ec9f314fed3c462a51c3297391c0ea79758078fb6c74bf60eee9"
+  },
+  "excluded": "Changing evidence/producer_runtime.py helper implementation was not reviewed.",
+  "included_usage": {
+    "used_percent": 58,
+    "ordinary_usage_allowed": true,
+    "no_extra_API_reset_requested": true
+  },
+  "findings": [
+    {
+      "id": "CI-RECOVERY-HISTORY-01",
+      "priority": 2,
+      "path": "skills/to-sdd-pipeline/scripts/evidence/producer.py",
+      "lines": [
+        443,
+        445
+      ],
+      "title": "Preserve the first normally returned cleanup problem before later successful recovery clears it",
+      "detail": "The normal recovery path accepts a nonempty problems list from stop_registered, verify_stopped or cleanup_directories and stores only mutable recovery_problem. A later successful recovery clears that field to None. first_recovery_failure is added only in the thrown-exception branch, so normally returned cleanup failures lose their original diagnostic history after cleanup succeeds.",
+      "impact": "Diagnostic-history preservation gap. The new pre-cleanup accounting order still preserves incomplete status, observed charge floor and full reservation; this probe does not show an accounting or acceptance bypass.",
+      "reproduction": "Compile only the actual runtime.update lambda from line443 as a pure AST fragment. Apply it to an in-memory record first with problems=[original returned cleanup error], then with problems=[]. The first record is stopping/recovery_problem set; the second is terminal/recovery_problem None, with no first_recovery_failure.",
+      "probe_source_sha256": "fff451fb6db873f34864af472d001dd4f0d32d3ef19915e6ef0da6271e3a7e73",
+      "recommended_fix": "When the normal problems list is nonempty, save the first bounded failure observation with setdefault using the same original-preservation semantics as thrown errors; add a returned-error-then-success regression.",
+      "status": "Reported to root; fix/recheck not yet included in this report."
+    }
+  ],
+  "review_conclusions": [
+    {
+      "area": "cleanup exception accounting order",
+      "lines": [
+        428,
+        440
+      ],
+      "conclusion": "After verified guardian/owner disappearance and recovery-claim acquisition, pending uncertainty and run incomplete status are durably recorded before stop/verify/directory cleanup begins. Therefore a later cleanup exception cannot leave the run active merely because cleanup failed before the old accounting step."
+    },
+    {
+      "area": "holds and repeat recovery",
+      "conclusion": "Recovery does not settle/cancel pending producer reservations. record_uncertain receives the same original observed floor; accounting owner remains responsible for idempotent max-floor updates. New tests assert original gross 230 bytes/3 files, complete 65536-byte/20-file/local hold, unchanged raw bytes and original session fields across repeats, successful eventual cleanup and unsafe retry rejection."
+    },
+    {
+      "area": "thrown failure history",
+      "lines": [
+        447,
+        465
+      ],
+      "conclusion": "Thrown expected cleanup errors produce retained/incomplete actions, status stopping and first_recovery_failure through setdefault; later healthy cleanup clears only current recovery_problem. Claim release is in finally. Unavailable diagnostic persistence is reported explicitly rather than presented as saved history."
+    },
+    {
+      "area": "Windows root replacement fixture",
+      "path": "tests/test_evidence_quarantine.py",
+      "lines": [
+        403,
+        428
+      ],
+      "conclusion": "Fixture performs an actual rename/recreate through a cleanup callback only after verify_stopped returns no errors and real registered cleanup completes. It asserts callback execution, distinct replacement identity, preserved original directory identity and original bytes. It then requires explicit final identity-change failure, incomplete final proof and full pending reservation. This is a legitimate post-exit replacement exercise without assuming Windows allows moving an open output root."
+    },
+    {
+      "area": "lost guardian and coordinator workflow fixture",
+      "path": "tests/test_evidence_producer_recovery.py",
+      "conclusion": "Fallback barrier preserves real startup recovery but holds the coordinator immediately before its second applied recovery. Parent verifies live coordinator identity and barrier phase/count before deliberately losing the coordinator, so the double-owner-loss test cannot accidentally pass through prior coordinator recovery. A separate surviving-coordinator test exercises real unmodified fallback and validates no successful result artifact, failed run, full hold and blocked retry. Timeout allowance remains finite and actual timeout assertions remain."
+    },
+    {
+      "area": "target diagnostic scope",
+      "lines": [
+        470,
+        479
+      ],
+      "conclusion": "New diagnostic extracts only the requested attempt action and limited problem fields, with finite string bounds; unrelated action context is excluded. It is not a product acceptance result."
+    }
+  ],
+  "verification": {
+    "source_review_only_tests": {
+      "tests/test_evidence_abandoned_accounting.py": 3,
+      "tests/test_evidence_quarantine.py": 27,
+      "tests/test_evidence_producer_recovery.py": 8
+    },
+    "pure_probe": {
+      "method": "Only actual normal-record-update AST executed against a dictionary and memory callback; no runtime implementation or ledger called.",
+      "outcome": "Returned-error then success erases original diagnostic as reported.",
+      "first_attempt_failure": "TypeError required field lineno missing from stmt; probe compilation repaired with ast.fix_missing_locations. No production edit."
+    },
+    "not_run": [
+      "unit tests",
+      "product/producer runtime",
+      "helper cleanup",
+      "actual Windows exercise",
+      "network",
+      "private or synthetic SQLite ledger",
+      "Git"
+    ],
+    "source_unchanged_at_report_end": true
+  },
+  "remaining": "Fix or explicitly resolve CI-RECOVERY-HISTORY-01, then rerun focused recovery regressions and root-owned platform CI/full suite against final exact source. This review does not establish actual platform/test execution.",
+  "writes": [
+    "reports/evidence-recovery-20261021/ci-followup-review.json"
+  ],
+  "resources_created": [],
+  "resolved_followup_notes": [
+    {
+      "observed_at": "2026-10-21T15:59:04.412055+00:00",
+      "finding_id": "CI-RECOVERY-HISTORY-01",
+      "status": "fixed and independently rechecked",
+      "producer_sha256": "0b12eb0ea2f2401c4c154946f2ee8e6686e6685b87c36e141da85134cb8185af",
+      "group_review_ref": "reports/evidence-recovery-20261021/group-review.json",
+      "pure_AST_probe_passed": true,
+      "original_findings_preserved": true
+    }
+  ]
+}

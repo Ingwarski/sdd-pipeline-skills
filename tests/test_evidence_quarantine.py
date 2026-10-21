@@ -402,8 +402,25 @@ class QuarantineTests(unittest.TestCase):
 
     def test_replaced_output_root_cannot_claim_complete_final_observation(self):
         attempt, reservation, output, run = self.monitored_attempt(
-            "from pathlib import Path; p=Path.cwd(); p.rename(p.with_name('preserved-original-output')); p.mkdir()")
-        result = run()
+            "from pathlib import Path; Path('preserved.txt').write_bytes(b'original')")
+        original_identity = producer_runtime.directory_identity(output)
+        preserved = output.with_name('preserved-original-output')
+        actual_cleanup = producer_runtime.cleanup_directories
+        replacements = []
+        def replace_after_exit(ledger, current_attempt):
+            self.assertEqual([], producer_runtime.verify_stopped(ledger, current_attempt))
+            problems = actual_cleanup(ledger, current_attempt)
+            self.assertEqual([], problems)
+            output.rename(preserved)
+            output.mkdir()
+            replacements.append(producer_runtime.directory_identity(output))
+            return problems
+        with patch.object(producer_runtime, 'cleanup_directories', side_effect=replace_after_exit):
+            result = run()
+        self.assertEqual(1, len(replacements), 'the replacement prerequisite did not execute')
+        self.assertNotEqual(original_identity, replacements[0])
+        self.assertEqual(original_identity, producer_runtime.directory_identity(preserved))
+        self.assertEqual(b'original', (preserved / 'preserved.txt').read_bytes())
         self.assertFalse(result["final_observation_complete"], result)
         self.assertIn("identity changed", result["final_observation_problem"])
         proof = producer_runtime.read(self.ledger, attempt)["final_observation"]

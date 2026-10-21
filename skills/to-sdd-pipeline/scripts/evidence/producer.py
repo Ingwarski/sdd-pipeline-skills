@@ -425,6 +425,14 @@ def recover_producers(ledger, *, dry_run=True):
                     action.update(action='retained', incomplete=True, problem='producer recovery already active or ownership unknown')
                 else:
                     try:
+                        reservation = ledger.connection.execute('SELECT state FROM reservations WHERE id=?', (value['reservation_id'],)).fetchone()
+                        pending = reservation is None or reservation[0] == 'pending'
+                        if pending:
+                            # The monitor is verified gone and this caller owns
+                            # the recovery claim. Preserve its known floor before
+                            # cleanup can fail; cleanup never refunds this hold.
+                            ledger.record_uncertain(value['reservation_id'], value.get('observed_bytes', 0), value.get('observed_files', 0))
+                        ledger.mark_incomplete(value['run_id'])
                         problems = runtime.stop_registered(ledger, value['attempt_id'])
                         problems += runtime.verify_stopped(ledger, value['attempt_id'])
                         if not problems:
@@ -432,19 +440,29 @@ def recover_producers(ledger, *, dry_run=True):
                                 problems += runtime.cleanup_directories(ledger, value['attempt_id'])
                             except (EvidenceError, OSError) as exc:
                                 problems.append(str(exc))
-                        reservation = ledger.connection.execute('SELECT state FROM reservations WHERE id=?', (value['reservation_id'],)).fetchone()
-                        pending = reservation is None or reservation[0] == 'pending'
-                        if pending:
-                            # No surviving monitor can certify deleted/overwritten
-                            # bytes. Keep the held capacity and durable lower bound.
-                            ledger.record_uncertain(value['reservation_id'], value.get('observed_bytes', 0), value.get('observed_files', 0))
-                        ledger.mark_incomplete(value['run_id'])
-                        runtime.update(ledger, value['attempt_id'], lambda v: v.update(
-                            status='terminal' if not problems else 'stopping', recovery_owner=None,
-                            recovery_problem='; '.join(problems) or None))
+                        def completed(v):
+                            problem = '; '.join(problems) or None
+                            v.update(status='terminal' if not problems else 'stopping', recovery_owner=None,
+                                     recovery_problem=problem)
+                            if problem:
+                                v.setdefault('first_recovery_failure', {
+                                    'problem': problem[:2048], 'observed_at': datetime.now(timezone.utc).isoformat()})
+                        runtime.update(ledger, value['attempt_id'], completed)
                         action.update(action='retained' if pending or problems else 'cleaned', incomplete=bool(pending or problems), problems=problems)
                     except (EvidenceError, OSError, ValueError) as exc:
-                        action.update(action='retained', incomplete=True, problem=str(exc))
+                        message = str(exc)[:2048] or type(exc).__name__
+                        action.update(action='retained', incomplete=True, problem=message)
+                        def failed(v):
+                            v.update(status='stopping', recovery_problem=message)
+                            # Keep the first failed recovery as an observation;
+                            # later successful cleanup may clear only the current
+                            # problem, never this original failure record.
+                            v.setdefault('first_recovery_failure', {
+                                'problem': message, 'observed_at': datetime.now(timezone.utc).isoformat()})
+                        try:
+                            runtime.update(ledger, value['attempt_id'], failed)
+                        except (EvidenceError, OSError, ValueError) as record_error:
+                            action['problem'] = message + '; recovery diagnostic persistence failed: ' + str(record_error)[:512]
                     finally:
                         def release(v):
                             if v.get('recovery_owner') == claim:
@@ -452,6 +470,18 @@ def recover_producers(ledger, *, dry_run=True):
                         runtime.update(ledger, value['attempt_id'], release)
         actions.append(action)
     return {'actions': actions, 'incomplete': any(a['incomplete'] for a in actions)}
+
+
+def _recovery_failure_diagnostic(recovered, attempt):
+    """Bound the target's actual recovery result without exposing session data."""
+    target = next((item for item in recovered['actions'] if item.get('attempt_id') == attempt), None)
+    if target is None:
+        return json.dumps({'attempt_id': attempt[:128], 'problem': 'target recovery action is missing'}, sort_keys=True)
+    problem = target.get('problem') or '; '.join(str(item) for item in target.get('problems', []))
+    return json.dumps({'attempt_id': str(target.get('attempt_id', ''))[:128],
+                       'action': str(target.get('action', ''))[:32],
+                       'incomplete': bool(target.get('incomplete')),
+                       'problem': str(problem)[:768]}, sort_keys=True, ensure_ascii=True)
 
 
 def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
@@ -541,7 +571,8 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
     value = runtime.read(ledger, attempt)
     if value.get('result') is None:
         recovered = recover_producers(ledger, dry_run=False)
-        raise EvidenceError('producer guardian stopped without a terminal result; recovery incomplete=' + str(recovered['incomplete']))
+        raise EvidenceError('producer guardian stopped without a terminal result; recovery incomplete=' + str(recovered['incomplete'])
+                            + '; recovery action=' + _recovery_failure_diagnostic(recovered, attempt))
     result = value['result']
     if result.pop('observations_in_final_observation', False):
         result['observations'] = value['final_observation']['observations']

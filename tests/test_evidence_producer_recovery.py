@@ -349,6 +349,7 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
         log = (self.root / "coordinator.log").read_text(encoding="utf-8", errors="replace")
         self.assertNotEqual(coordinator.returncode, 0, log)
         self.assertIn("producer guardian stopped without a terminal result", log)
+        self.assertIn("recovery action=", log)
         self.assertFalse((self.root / "result.json").exists(), log)
         snapshot = self.ledger.snapshot()
         diagnostic = (snapshot, self._record(), log[-2500:])

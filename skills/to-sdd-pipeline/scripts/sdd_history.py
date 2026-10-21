@@ -932,10 +932,24 @@ def attempt_refs(manifest):
 
 
 def continuation_inventory(context, attempt, reviewed):
-    ignored = {"environment", "runtime_observation_ref", "canonical_hashes", "review"}
-    require(same({k: v for k, v in attempt["input_inventory"].items() if k not in ignored},
+    ignored = {"environment", "runtime_observation_ref", "canonical_hashes", "review",
+               "execution_inputs", "execution_fingerprints"}
+    original = attempt["input_inventory"]
+    require(same({k: v for k, v in original.items() if k not in ignored},
                  {k: v for k, v in reviewed.items() if k not in ignored}),
             "continuation changed relevant acceptance definitions or preserved work")
+    # A fresh attempt may add reviewed executor inputs, retaining the exact old
+    # selections and bytes. It never edits earlier work or reuses its results.
+    for inventory in (original, reviewed):
+        selections, fingerprints = inventory.get("execution_inputs"), inventory.get("execution_fingerprints")
+        require(isinstance(selections, dict) and selections and isinstance(fingerprints, dict)
+                and set(selections) == set(fingerprints),
+                "continuation execution inputs require every exact fingerprint")
+    for path, selection in original["execution_inputs"].items():
+        require(path in reviewed["execution_inputs"]
+                and same(selection, reviewed["execution_inputs"][path])
+                and same(original["execution_fingerprints"][path], reviewed["execution_fingerprints"][path]),
+                "continuation changed or removed preserved execution input: " + path)
     require(api().timestamp(reviewed["review"]["reviewed_at"]) >= api().timestamp(attempt["captured_at"]),
             "continuation needs a fresh owner review after attempt capture")
     attempt_authority(context["manifest"], attempt["post_manifest"])
