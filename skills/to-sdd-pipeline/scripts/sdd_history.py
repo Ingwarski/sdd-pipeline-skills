@@ -17,6 +17,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import socket
+import stat
 import subprocess
 import sys
 import uuid
@@ -158,8 +159,13 @@ def physical(project, path):
     current = root
     for part in parts.parts:
         current /= part
-        if current.exists() or current.is_symlink():
-            require(not api().is_link(current), "history cannot follow links: " + path)
+        try:
+            info = current.lstat()
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        require(not (stat.S_ISLNK(info.st_mode) or
+                     getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)),
+                "history cannot follow links: " + path)
     require(current.resolve().is_relative_to(root), "history path escapes project")
     return current
 

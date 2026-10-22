@@ -1,0 +1,83 @@
+{
+  "recorded_at": "2026-10-22T04:27:14.659228+00:00",
+  "parent_revision": "b46a364d5606f24dbd8865426130a1ae9671df8e",
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": "ff630e9c30302cdd6ed2daed0ee0466852abc65cc23cbf16b952feeb811f14b7",
+    "tests/test_physical_path_metadata.py": "fe1e5f69f730a06377a110a8673a73783c804a11e4fcac65ca45adc4ce1a0bb2"
+  },
+  "problem": "Completed pre-index-fix profile recorded955338 physical()calls and37186351 statcalls. Existing code repeated existence, lstat and symlink probes for each component. This is a source-backed duplicate-work correction, not a new post-index timing measurement.",
+  "change": "One fresh lstat per component per invocation; use same metadata for symlink/reparse classification. Tolerate only missing/non-directory components. Preserve lexical path checks, resolved root, final containment and all other history behavior. No cross-call metadata cache.",
+  "independent_review": {
+    "reviewer": "parent_gone_review",
+    "requested_model": "gpt-6.1-sol",
+    "requested_reasoning": "high",
+    "result": "No blocking findings; exact hashes stable; readonly source/test review only",
+    "limits": [
+      "Synthetic reparse attributes are not native Windows execution",
+      "Replacement test is between calls, not atomic lookup; existing TOCTOU limits remain",
+      "One explicit lstat in component loop; resolve can perform additional metadata lookups"
+    ]
+  },
+  "verification": {
+    "complete_suite": {
+      "tests": 1111,
+      "seconds": 353.091,
+      "skips": 11,
+      "failures": 0,
+      "return_code": 0
+    },
+    "focused_tests": 7,
+    "shell_suites": {
+      "install": {
+        "initial_exit": 1,
+        "corrected_exit": 0
+      },
+      "retirement": {
+        "initial_exit": 1,
+        "corrected_exit": 0
+      },
+      "update": {
+        "initial_exit": 1,
+        "corrected_exit": 0
+      }
+    },
+    "raw_results": [
+      {
+        "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry5/engine-physical-full-v11.stdout.json",
+        "sha256": "179d836f4a876f748b3a7a9c558e96a277f4be43e9e436feb00fe583a7d9e254"
+      },
+      {
+        "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry5/engine-physical-full-v11.stderr.txt",
+        "sha256": "2809b2be9479ea17183d0ca7452fd6277ff9a29bf6258ae99a22e394dea39adb"
+      },
+      {
+        "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry5/engine-physical-full-v11.accounting.json",
+        "sha256": "92895437c0c57555a711d08e443002b92cfdcd92b6b9e01336f735a5a79ce73f"
+      }
+    ],
+    "shell_settlement": {
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261022-retry7/root-engine-shell-settlement.json",
+      "sha256": "f704f9136ee749a7c5671f3e87391b675de66ce52f96ca7fff4803dd3423e917"
+    }
+  },
+  "preserved_failures": [
+    "Initial focused6/7: spy counted Path.stat calls delegated internally by lstat; corrected only test instrumentation, source unchanged",
+    "Initial three shell commands exited1 before suites: TMPDIR separator omitted; original errors retained and corrected outputs appended",
+    "Worker wrote six new logs in wrong recovery folder; root verified birthtime/hash/no prior file, moved to granted paths after ownership release; original provenance retained",
+    "Initial root settlement read expected granted paths before relocation and stopped before SDK settlement; hold retained until final verified settlement",
+    "All earlier CI/test/recovery failures and accounting remain unchanged"
+  ],
+  "cleanup": "All three exact shell temp children and parent verified removed; no personal installation or browser touched",
+  "unchanged": [
+    "No authority/approval/unit/check semantics or schema change",
+    "No existing test removed",
+    "No failed run, retry ordinal, generation counter or held reservation cleared",
+    "Immutable installed-v10 unchanged during project preservation"
+  ],
+  "pending": [
+    "Exact-commit Linux/macOS/Windows Python3.12/3.14 CI",
+    "Supported immutable installation and13Codex/13Claude target/resource verification",
+    "Actual current native gates and product UNIT00 QA/DoD"
+  ],
+  "no_merge": true
+}
