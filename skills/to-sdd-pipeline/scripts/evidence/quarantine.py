@@ -12,8 +12,10 @@ import json
 import math
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 from .io import EvidenceError, hash_file, safe_relative
+from .policy import resolve_historical_policy
 
 
 UNKNOWN_REASON = "managed output inventory is unknown; observed charges are lower bounds and its reservation remains held"
@@ -94,9 +96,10 @@ def validate_quarantine_descriptor(value, policy=None):
             raise EvidenceError("invalid quarantine hash: " + key)
     if digest({key: item for key, item in value.items() if key != "digest"}) != value["digest"]:
         raise EvidenceError("immutable quarantine descriptor digest changed")
-    if policy is not None and (value["project_id"] != policy["project_id"] or value["store_id"] != policy["store_id"]
-                               or value["policy_sha256"] != digest(policy)):
-        raise EvidenceError("quarantine project/store/policy binding changed")
+    if policy is not None:
+        if value["project_id"] != policy["project_id"] or value["store_id"] != policy["store_id"]:
+            raise EvidenceError("quarantine project/store/policy binding changed")
+        resolve_historical_policy(policy, value["policy_sha256"])
     uncertain = value["uncertain"]
     if (not isinstance(uncertain, dict) or set(uncertain) != {"reservation_id", "gross_bytes", "logical_files"}
             or uncertain["reservation_id"] != value["reservation_id"]
@@ -158,10 +161,14 @@ def current_inventory(ledger, record):
     return inventory
 
 
-def original_state(ledger, attempt):
+def original_state(ledger, attempt, *, original_policy=None):
     from . import process_identity, producer_runtime as runtime
     from .producer import _group_exists
-    record = runtime.read(ledger, attempt)
+    # Existing quarantine validation reads through its exact historical policy.
+    # No mutation or temporary reassignment of the live accounting policy occurs;
+    # runtime.read retains every original session/reservation/ownership check.
+    reader = ledger if original_policy is None else SimpleNamespace(connection=ledger.connection, policy=original_policy)
+    record = runtime.read(reader, attempt)
     raw = ledger.connection.execute("SELECT record FROM producer_sessions WHERE id=?", (attempt,)).fetchone()[0]
     if record["status"] not in ("stopping", "terminal"):
         raise EvidenceError("quarantine requires an inactive failed producer record")
@@ -209,7 +216,8 @@ def build(ledger, attempt, proof):
 
 def validate_current(ledger, value):
     validate_quarantine_descriptor(value, ledger.policy)
-    record, raw, run, reservation, uncertain = original_state(ledger, value["attempt_id"])
+    original_policy = resolve_historical_policy(ledger.policy, value["policy_sha256"])
+    record, raw, run, reservation, uncertain = original_state(ledger, value["attempt_id"], original_policy=original_policy)
     if (value["ledger_id"] != ledger._ledger_id or hashlib.sha256(raw.encode()).hexdigest() != value["original_record_sha256"]
             or value["run_id"] != run["id"] or value["unit_id"] != run["unit_id"] or value["ordinal"] != run["ordinal"]
             or value["reservation"] != reservation or value["uncertain"] != uncertain or value["run"] != run

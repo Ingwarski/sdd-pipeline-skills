@@ -19,7 +19,7 @@ import uuid
 
 from .archive import build_pack, verify_pack, capture
 from .io import EvidenceError, atomic_json, hash_file, read_json, safe_relative, _open_regular, _verify_stable, _is_link
-from .policy import validate_policy
+from .policy import validate_policy, resolve_historical_policy, LINEAGE_FIELD
 from .identity import same_reference, same_imported_original
 from . import process_identity
 
@@ -593,9 +593,9 @@ class Manager:
             self._transport_call("get", locator, target, size)
             return read_json(target, maximum), hash_file(target)
 
-    def _catalog(self, *, mutation=False, recover_policy=False):
+    def _catalog(self, *, mutation=False, recover_policy=False, allow_policy_transition=False):
         with self.locked():
-            return self._catalog_locked(mutation=mutation, recover_policy=recover_policy)
+            return self._catalog_locked(mutation=mutation, recover_policy=recover_policy, allow_policy_transition=allow_policy_transition)
 
     def _catalog_inventory(self, prefix):
         # Reuse only this fresh listing's object identity, never its sizes for
@@ -603,7 +603,7 @@ class Manager:
         method = "inventory" if callable(getattr(self.transport, "inventory", None)) else "keys"
         return self._transport_call(method, prefix)
 
-    def _catalog_locked(self, *, mutation=False, recover_policy=False):
+    def _catalog_locked(self, *, mutation=False, recover_policy=False, allow_policy_transition=False):
         roots = self._catalog_inventory(self.prefix + "roots/")
         authorities = self._catalog_inventory(self.prefix + "authority/")
         authority_bytes = sum(self._transport_call("stat", item)["size"] for item in authorities)
@@ -613,6 +613,8 @@ class Manager:
         if len(roots) + len(authorities) > self.limits["metadata_stop_files"] or authority_bytes > self.limits["metadata_stop_bytes"]:
             raise EvidenceError("combined catalog object count exhausted")
         if not roots:
+            if mutation and LINEAGE_FIELD in self.policy and not allow_policy_transition:
+                raise EvidenceError("policy lineage is not committed; finish explicit evidence setup first")
             return {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"],
                     "sequence": 0, "coordinator": authority["coordinator"] if authority else self.coordinator, "segments": [], "refs": {}, "packs": {},
                     "generation": {}, "generation_intents": {}, "generation_quarantines": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
@@ -635,6 +637,13 @@ class Manager:
             self.policy, self.limits = recovered, recovered["limits"]
         if mutation and root.get("coordinator") != self.coordinator:
             raise EvidenceError("this clone has incomplete coordinator authority; cold recovery is read-only; explicitly transfer coordinator authority before mutation/pruning")
+        if mutation and (LINEAGE_FIELD in self.policy or isinstance(root.get("policy"), dict) and LINEAGE_FIELD in root["policy"]):
+            head = validate_policy(root.get("policy"))
+            if head != self.policy:
+                if not allow_policy_transition:
+                    raise EvidenceError("portable policy differs from committed lineage head; finish explicit evidence setup before mutation")
+                self._require_policy_successor(head)
+
         if not isinstance(root.get("segments"), list) or len(root["segments"]) > self.limits["metadata_stop_files"]:
             raise EvidenceError("invalid catalog segment closure")
         total = authority_bytes
@@ -823,7 +832,17 @@ class Manager:
                 raise EvidenceError("catalog independent readback corrupt")
         return {"locator": locator, "sha256": digest, "size": len(data)}
 
-    def _publish(self, catalog, segment):
+    def _publish(self, catalog, segment, *, allow_policy_transition=False):
+        head = catalog.get("policy")
+        if LINEAGE_FIELD in self.policy or isinstance(head, dict) and LINEAGE_FIELD in head:
+            current = validate_policy(self.policy)
+            if head is None:
+                if not allow_policy_transition or catalog["sequence"] != 0 or len(current[LINEAGE_FIELD]["steps"]) != 1:
+                    raise EvidenceError("uncommitted policy lineage requires explicit setup publication")
+            elif validate_policy(head) != current:
+                if not allow_policy_transition:
+                    raise EvidenceError("publication policy differs from committed lineage head")
+                self._require_policy_successor(validate_policy(head))
         segment_bytes = len(canonical(segment))
         segments = catalog["segments"] + [{"sha256": "0" * 64, "size": segment_bytes, "locator": {"object_id": "pending", "key": "pending", "size": segment_bytes}}]
         root = {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"], "policy": self.policy,
@@ -1418,14 +1437,24 @@ class Manager:
             raise EvidenceError("invalid generation coordinator authority")
         return value
 
+    def _require_policy_successor(self, head):
+        lineage = self.policy.get(LINEAGE_FIELD)
+        if not lineage or lineage["steps"][-1]["from_policy_sha256"] != hashlib.sha256(canonical(head)).hexdigest():
+            raise EvidenceError("explicit policy transition requires the exact committed immediate predecessor")
+        if resolve_historical_policy(self.policy, hashlib.sha256(canonical(head)).hexdigest()) != head:
+            raise EvidenceError("policy transition predecessor differs from full committed policy")
+
     def initialize_generation_authority(self):
-        """Explicit setup selects one coordinator; another home cannot take it over."""
+        """Explicit setup commits a same-owner policy transition before local setup."""
         with self.locked():
-            catalog = self._catalog(mutation=True)
-            value = self._generation_authority()
+            catalog = self._catalog(mutation=True, allow_policy_transition=True)
+            value = self._generation_authority()  # Independent fresh authority read.
             expected = {"version": 1, "project_id": self.policy["project_id"],
                         "store_id": self.policy["store_id"], "coordinator": self.coordinator}
+            lineage = self.policy.get(LINEAGE_FIELD)
             if value is None:
+                if lineage:
+                    raise EvidenceError("policy lineage cannot create generation authority; original setup must remain provable")
                 data = canonical(expected)
                 with self._working(len(data) * 2, metadata_bytes=len(data), metadata_files=1), tempfile.TemporaryDirectory(dir=self.staging, prefix="authority-") as temp:
                     source, readback = Path(temp) / "claim.json", Path(temp) / "verified.json"
@@ -1437,6 +1466,20 @@ class Manager:
                 value = self._generation_authority()
             if value != expected:
                 raise EvidenceError("generation requires the designated coordinator and shared accounting home; cold recovery is read-only")
+            if lineage:
+                head = validate_policy(catalog["policy"]) if "policy" in catalog else None
+                if head is None:
+                    if catalog["sequence"] != 0 or len(lineage["steps"]) != 1:
+                        raise EvidenceError("first policy lineage requires one transition and existing exact authority")
+                elif head != self.policy:
+                    self._require_policy_successor(head)
+                if head != self.policy:
+                    # A unique policy-only segment avoids duplicate immutable index
+                    # descriptors while retaining ordinary publication fences/readback.
+                    self._publish(catalog, {"version": 1, "policy_transition": lineage["steps"][-1]["digest"]}, allow_policy_transition=True)
+                    verified = self._catalog(mutation=True)
+                    if validate_policy(verified.get("policy")) != self.policy:
+                        raise EvidenceError("policy transition independent catalog readback differs")
             return {"coordinator_authorized": True, "coordinator": self.coordinator,
                     "project_id": self.policy["project_id"]}
 

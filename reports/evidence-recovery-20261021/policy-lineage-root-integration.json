@@ -1,0 +1,66 @@
+{
+  "at": "2026-10-22T00:47:44.421556+00:00",
+  "baseline_commit": "cc31e82909c16161f995c87572a0af2dbdaa4221",
+  "integration_owner": "root",
+  "source_hashes": {
+    "docs/evidence-storage.md": "5287d01420dd09a9f521274b0d2434fec39c760e256678a71e9994411f0f2205",
+    "scripts/evidence_setup.py": "e855f016faeea293f6200b6bb9c39b961b4a77619794dc8bc9916ab80db15314",
+    "skills/to-sdd-pipeline/scripts/evidence/policy.py": "4a59143344bbe689a3792fe43be02965d1b79f3258169a25e0a2fa1578a4d02b",
+    "skills/to-sdd-pipeline/scripts/evidence/quarantine.py": "60759c01fa8c0c4164c23c1306aa49bf7a90e7fc96a21e3dbe69159994d5dcd0",
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py": "3c630e16d7d8c1663e30f11bf09fc71bf621b3c2dd779e1a2bea2a6be55fe037",
+    "tests/test_evidence_policy_lineage.py": "100a84928a06fbf77acc9c2a14be1c304bf9cd0d8847051ef32dddc9a978709d",
+    "tests/test_evidence_setup_policy_lineage.py": "0b9cf00bb6772ce608e65b72781875bde293f1e47cfe61c6c8eeddbc9c51538d"
+  },
+  "complete_regression": {
+    "tests_run": 1085,
+    "skipped": 11,
+    "failures": 0,
+    "errors": 0,
+    "return_code": 0,
+    "log": "policy-lineage-root-full-tests.log",
+    "scope": "engine regression, not actual HappyPro QA"
+  },
+  "shell_tests": {
+    "actual_commands": [
+      {
+        "command": [
+          "bash",
+          "tests/test-install.sh"
+        ],
+        "started_at": "2026-10-22T00:40:56.609394+00:00",
+        "finished_at": "2026-10-22T00:40:59.823782+00:00",
+        "return_code": 0,
+        "log_sha256": "dda71bed1bdc6ab47f49b10673ea16ad23f927e4ef1320292c39249232c523aa"
+      },
+      {
+        "command": [
+          "bash",
+          "tests/test-retirement.sh"
+        ],
+        "started_at": "2026-10-22T00:40:59.824455+00:00",
+        "finished_at": "2026-10-22T00:41:05.644311+00:00",
+        "return_code": 0,
+        "log_sha256": "c841765532d9af1aa8dc16a5c5654ea5f7478f1f860851ab8185fca815307686"
+      },
+      {
+        "command": [
+          "bash",
+          "tests/test-update.sh"
+        ],
+        "started_at": "2026-10-22T00:41:05.644669+00:00",
+        "finished_at": "2026-10-22T00:41:10.548571+00:00",
+        "return_code": 0,
+        "log_sha256": "c9718987eb2d41efddf73bc6fd9bddf92708f5c2b67c84a27395c3d9b31f38f3"
+      }
+    ],
+    "scope": "isolated installer fixtures, no personal installation"
+  },
+  "independent_review": {
+    "path": "policy-lineage-independent-review.json",
+    "sha256": "88068446408338ad60619a5a644021282bc214f9d101bf62b3e0c3f84efed19e",
+    "remaining_material_findings": []
+  },
+  "actual_live_configuration": "not yet executed; next frozeninstall and before/afteraccounting audit",
+  "product_unit": "UNIT-EXP-00 incomplete, allthreecanonicalchecks not_run; no nextunit started",
+  "bloat": "38unique newmethods, no duplicated imported/inheritedtestclasses; source and resource tests retain failures. No originalaccounting orhistoricalrecord edits."
+}

@@ -25,7 +25,7 @@ sys.dont_write_bytecode = True
 SCRIPT_ROOT = Path(__file__).resolve().parent
 ENGINE_ROOT = SCRIPT_ROOT.parent / "skills/to-sdd-pipeline/scripts"
 sys.path.insert(0, str(ENGINE_ROOT))
-from evidence.policy import load_defaults, validate_policy
+from evidence.policy import load_defaults, validate_policy, append_policy_transition, LINEAGE_FIELD
 from evidence.io import EvidenceError
 
 
@@ -53,6 +53,28 @@ def _read(path):
         return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique)
     except (json.JSONDecodeError, UnicodeError) as exc:
         raise SetupError("malformed setup file: " + str(path)) from exc
+
+
+def _portable_source(path):
+    # Reuse existing path/read bounds, then parse the exact bytes which lineage
+    # will retain. Never mix a prior semantic read with a different raw snapshot.
+    _read(path)
+    with path.open("rb") as stream:
+        raw = stream.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
+        raise SetupError("setup file exceeds 1 MiB: " + str(path))
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise SetupError("duplicate setup field: " + key)
+            result[key] = value
+        return result
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+    except (json.JSONDecodeError, UnicodeError) as error:
+        raise SetupError("malformed setup file: " + str(path)) from error
+    return validate_policy(value), raw
 
 
 def _write(path, value):
@@ -348,7 +370,7 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
     home = evidence_home(home)
     _outside(home, project)
     policy_path = _policy_path(project) if project else None
-    existing_policy = validate_policy(_read(policy_path)) if policy_path and policy_path.exists() else None
+    existing_policy, previous_raw = _portable_source(policy_path) if policy_path and policy_path.exists() else (None, None)
     old_config_path = home / "bindings" / (existing_policy["project_id"] + ".json") if existing_policy else None if project else home / "default.json"
     old_config = _read(old_config_path) if old_config_path and old_config_path.exists() else None
     previous_policy = existing_policy
@@ -412,12 +434,25 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
         policy["retention"]["local_days"] = retention_days
     if drive_retention_days != "unset":
         policy["retention"]["drive_days"] = None if drive_retention_days == "never" else int(drive_retention_days)
-    policy = validate_policy(policy)
+    if existing_policy is not None:
+        same_identity = all(policy[key] == existing_policy[key] for key in ("project_id", "store_id", "provider"))
+        limits_changed = policy["limits"] != existing_policy["limits"]
+        if LINEAGE_FIELD in existing_policy or same_identity and limits_changed:
+            policy = append_policy_transition(previous_raw, policy)
+        else:
+            policy = validate_policy(policy)
+    else:
+        policy = validate_policy(policy)
     if project:
         config["project_id"] = project_id
     with _checkpoint_setup(config, policy, project, fixed_project=existing_policy is not None,
                            fixed_store=bool(same_store or existing_policy and not old_config), reconfigure=reconfigure) as pending_path:
         project_id, store_id = policy["project_id"], policy["store_id"]
+        def unchanged_policy():
+            if project and ((previous_raw is None and policy_path.exists())
+                            or previous_raw is not None and policy_path.read_bytes() != previous_raw):
+                raise SetupError("portable policy changed during explicit setup; preserve checkpoint and retry the original selection")
+        unchanged_policy()
         if acknowledge_missing_upload is not None:
             _acknowledge_setup_upload(config, policy, project, acknowledge_missing_upload, host_session=host_session)
         receipt = probe(config, project) if probe else _probe(config, project, **({"host_session": host_session} if host_session is not None else {}))
@@ -426,7 +461,9 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
         config["setup_receipt"] = receipt
         config["configured_at"] = datetime.now(timezone.utc).isoformat()
         if project:
+            unchanged_policy()
             _initialize_authority(config, policy, project, host_session=host_session)
+            unchanged_policy()
         config_path = home / "bindings" / (project_id + ".json") if project else home / "default.json"
         _write(home / "stores" / (store_id + ".json"), config)
         _write(config_path, config)
