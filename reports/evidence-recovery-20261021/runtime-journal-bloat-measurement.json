@@ -1,0 +1,178 @@
+{
+  "report_type": "bounded_runtime_journal_bloat_measurement",
+  "source_revision": "Current frozen engine worktree at measurement; source-only review, no Git operations.",
+  "scope": {
+    "actual_output_root": "~/.sdd-pipeline/evidence/projects/6576cc96-a5ae-43fa-a6d0-1f7f85c1bfd3/captures/unit00-current-20261022-r4-a17109ce",
+    "phase_directories": [
+      "identity-pre",
+      "identity-post"
+    ],
+    "read_method": "One metadata-only walk per phase directory (lstat regular-file lengths; no symlink following); native gross/version counts are copied from the task-supplied phase metadata.",
+    "mutation_or_rerun": false,
+    "secret_control_file_accessed": false,
+    "exception_payloads_reproduced": false,
+    "old_archives_or_history_payloads_read": false
+  },
+  "measured_current_files": {
+    "identity-pre": {
+      "regular_files": 62,
+      "directories": 0,
+      "symlinks": 0,
+      "logical_bytes": 477441,
+      "categories": {
+        "process_candidate_json": {
+          "files": 47,
+          "logical_bytes": 66139
+        },
+        "working_observation_ndjson_segments": {
+          "files": 8,
+          "logical_bytes": 157973
+        },
+        "owned_resources_resource_journal": {
+          "files": 1,
+          "logical_bytes": 83061
+        },
+        "other_files": {
+          "files": 6,
+          "logical_bytes": 170268
+        }
+      }
+    },
+    "identity-post": {
+      "regular_files": 63,
+      "directories": 0,
+      "symlinks": 0,
+      "logical_bytes": 489469,
+      "categories": {
+        "process_candidate_json": {
+          "files": 48,
+          "logical_bytes": 68034
+        },
+        "working_observation_ndjson_segments": {
+          "files": 8,
+          "logical_bytes": 164218
+        },
+        "owned_resources_resource_journal": {
+          "files": 1,
+          "logical_bytes": 84082
+        },
+        "other_files": {
+          "files": 6,
+          "logical_bytes": 173135
+        }
+      }
+    },
+    "delta_post_minus_pre": {
+      "regular_files": 1,
+      "logical_bytes": 12028,
+      "logical_percent": 2.52,
+      "process_candidate_json": {
+        "files": 1,
+        "logical_bytes": 1895
+      },
+      "working_observation_ndjson_segments": {
+        "files": 0,
+        "logical_bytes": 6245
+      },
+      "owned_resources_resource_journal": {
+        "files": 0,
+        "logical_bytes": 1021
+      },
+      "other_files": {
+        "files": 0,
+        "logical_bytes": 2867
+      }
+    },
+    "logical_bytes_definition": "Sum of regular files st_size within each exact phase directory. This is a logical size sum, not unique inode bytes, allocated physical blocks, cloud storage, or actual write I/O. Hard-link counts and physical allocation were not measured."
+  },
+  "native_gross_version_counters": {
+    "identity_pre": {
+      "gross_bytes": 3398178,
+      "versions": 136,
+      "gross_bytes_per_version": 24986.6
+    },
+    "identity_post": {
+      "gross_bytes": 3440101,
+      "versions": 136,
+      "gross_bytes_per_version": 25294.9
+    },
+    "combined": {
+      "gross_bytes": 6838279,
+      "versions": 272,
+      "gross_bytes_per_version": 25140.7
+    },
+    "delta_pre_to_post": {
+      "gross_bytes": 41923,
+      "percent": 1.23,
+      "versions": 0
+    },
+    "interpretation": "These are native gross/version counters supplied for the two phases, not elapsed-time throughput, a physical disk-write counter, or proof of speedup. They do not directly equal the current output-directory logical-byte sums."
+  },
+  "source_backed_retained_metadata_paths": [
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "lines": "211-214, 604-624",
+      "finding": "store_record writes a separate immutable record.json; capture_context embeds a deep copy of the manifest, reviewed inventory, and frozen-file references. Repeated contexts can therefore retain growing manifest/inventory metadata."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "lines": "722-749, 1001-1021",
+      "finding": "Each completion and each unfinished attempt stores run/check data, input inventory and a post-manifest copy, then freezes its selected files. These records preserve distinct execution evidence and cannot be treated as disposable duplicates."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "lines": "1682-1705",
+      "finding": "A manifest_candidate record retains the complete candidate manifest plus pending mapping, canonical source hashes, observed hashes and validation report. Re-staging produces another immutable record."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "lines": "1708-1752",
+      "finding": "Activation validates the candidate and writes immutable before/after manifests plus an activation journal before replacing the live manifest; these copies provide recovery evidence."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "lines": "185-208",
+      "finding": "Frozen snapshot blobs are content-addressed and hard-linked into logical snapshot paths. The record JSON around them is still separately written; logical path totals may count shared blob bytes multiple times."
+    }
+  ],
+  "capacity_scenario": {
+    "basis": "The supplied 4-11 MB figures describe observed document sizes, not measured per-unit growth. The following 23-unit arithmetic is explicitly hypothetical and is not a forecast.",
+    "hypothetical_future_units": 23,
+    "hypothetical_increment_per_unit_mib": {
+      "low": 4,
+      "high": 11
+    },
+    "hypothetical_increment_total_mib": {
+      "low": 92,
+      "high": 253
+    },
+    "known_existing_native_metadata_bytes": 87361101,
+    "known_existing_native_metadata_as_of": "Earlier post-final snapshot; not asserted to be current.",
+    "known_existing_native_metadata_mib": 83.27,
+    "combined_native_history_cap_bytes": 134217728,
+    "combined_native_history_cap_mib": 128,
+    "remaining_at_that_snapshot_bytes": 46856627,
+    "remaining_at_that_snapshot_mib": 44.69,
+    "hypothetical_total_including_existing_mib": {
+      "low": 175.27,
+      "high": 336.27
+    },
+    "hypothetical_cap_overrun_mib": {
+      "low": 47.31,
+      "high": 208.27
+    },
+    "separate_pending_working_hold_mib": 8,
+    "pending_hold_qualification": "Root reported an approximately 8 MiB pending working hold separately; it is not included in the prior snapshot occupancy or remaining-cap arithmetic above.",
+    "soft_manifest_review_target_mib": 1,
+    "soft_target_qualification": "The 1 MiB manifest review target is a soft review threshold, distinct from the 128 MiB combined native history cap.",
+    "implication": "This is scenario arithmetic only. Observed document sizes do not establish future per-unit growth; actual future metadata, retries, deduplication and cap allocation can differ. The earlier occupancy snapshot is not current-state proof."
+  },
+  "limits_and_safety": [
+    "No benchmark rerun, new generation, historical archive read, or cleanup was performed.",
+    "The process-candidate files in the measured phase outputs are not asserted to be the same objects as sdd_history manifest_candidate records.",
+    "No history bytes were deleted, compressed, or rewritten. Fresh integrity and safety checks were not evaluated for removal.",
+    "The supplied 4-11 MB figures describe observed document sizes; they are not measured per-unit growth or a forecast. The 23-unit values are explicitly hypothetical increments.",
+    "The known 87,361,101-byte occupancy and 46,856,627-byte remaining capacity refer to an earlier post-final snapshot, not the current state; the separately reported pending working hold is not included.",
+    "No separately comparable saved-byte or elapsed-time benchmark was run in this task."
+  ]
+}
