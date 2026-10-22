@@ -1,0 +1,82 @@
+{
+  "command": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_markdown_section_index",
+  "coverage": {
+    "distinct_headings_one_build": 80,
+    "exact_old_new_outcomes": 247,
+    "generated_nested_extent_comparisons": 16,
+    "legacy_oracle": "Exact installed immutablev9/5651687 section_from_bytes source embedded and SHA asserted; no dependency on future installed path at test execution.",
+    "meaningful_guards": [
+      "mapping immutability",
+      "sameSHA different physical paths and finalunion registration",
+      "nested owner reuse and fresh top run",
+      "outside scope fresh/no retained hashes or index",
+      "wrong identity cachehit",
+      "same-length mutation/restoredmtime",
+      "equalbytes replacement parent",
+      "immediate symlink denial plus finalaudit denial",
+      "initial read wrongbytes",
+      "mutation between read and posthash",
+      "child-only source outeraudit",
+      "exception path audit/cacheclear/no stale owner revival",
+      "invalidheading precedence over invalidUTF8",
+      "bytearray returns detachedbytes; generic builder fresh"
+    ]
+  },
+  "final_run": {
+    "errors": 0,
+    "exit_code": 0,
+    "failures": 0,
+    "passed": 17,
+    "result": "OK",
+    "skips": 0,
+    "tests": 17,
+    "tool_wall_seconds": 0.08592075,
+    "unittest_seconds": 0.051
+  },
+  "fixture_correction": "Preflight symlink availability before registering source; retain the replaced symlink through scope exit. Assert immediate repeated-heading rejection separately from final audit rejection; restore original file only after final audit. No source/gate relaxation.",
+  "frozen_core": {
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": {
+      "bytes": 176512,
+      "sha256": "03a2a74cc01073b898e223732ff263a7b1d7be9470c49ad292622d63bb0f8f46"
+    },
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": {
+      "bytes": 125003,
+      "sha256": "ce1f8c45173bf0e2fec6790f04ff0c0d8af9c3de7b84b892232379aa58718c94"
+    }
+  },
+  "initial_failure_analysis": "16 tests passed,1 fixture error. The attempted restore of an exact original inode after rename changed its metadata and final union audit truthfully rejected it. This was a test fixture expectation issue, not a core failure.",
+  "initial_run": {
+    "chunk_id": "0916b2",
+    "exit_code": 1,
+    "original_token_count": 1147,
+    "output": "test_checker_repeated_heading_still_checks_file_and_parent_links (test_markdown_section_index.AuditedSectionIndexTests.test_checker_repeated_heading_still_checks_file_and_parent_links) ... ERROR\ntest_child_only_indexed_source_mutation_is_caught_by_outer_union_audit (test_markdown_section_index.AuditedSectionIndexTests.test_child_only_indexed_source_mutation_is_caught_by_outer_union_audit) ... ok\ntest_exception_exit_audits_and_clears_index_without_reviving_owner (test_markdown_section_index.AuditedSectionIndexTests.test_exception_exit_audits_and_clears_index_without_reviving_owner) ... ok\ntest_initial_read_bytes_must_match_supplied_verified_sha (test_markdown_section_index.AuditedSectionIndexTests.test_initial_read_bytes_must_match_supplied_verified_sha) ... ok\ntest_invalid_heading_precedes_full_file_utf8_decode (test_markdown_section_index.AuditedSectionIndexTests.test_invalid_heading_precedes_full_file_utf8_decode) ... ok\ntest_many_headings_share_one_build_and_every_source_joins_final_union (test_markdown_section_index.AuditedSectionIndexTests.test_many_headings_share_one_build_and_every_source_joins_final_union) ... ok\ntest_mutation_after_initial_read_before_registration_is_rejected (test_markdown_section_index.AuditedSectionIndexTests.test_mutation_after_initial_read_before_registration_is_rejected) ... ok\ntest_nested_checker_reuses_owner_but_new_top_level_run_is_fresh (test_markdown_section_index.AuditedSectionIndexTests.test_nested_checker_reuses_owner_but_new_top_level_run_is_fresh) ... ok\ntest_outside_scope_owner_reads_fresh_and_retains_nothing (test_markdown_section_index.AuditedSectionIndexTests.test_outside_scope_owner_reads_fresh_and_retains_nothing) ... ok\ntest_replaced_parent_directory_with_equal_bytes_is_rejected (test_markdown_section_index.AuditedSectionIndexTests.test_replaced_parent_directory_with_equal_bytes_is_rejected) ... ok\ntest_same_length_changed_bytes_with_restored_mtime_are_rejected (test_markdown_section_index.AuditedSectionIndexTests.test_same_length_changed_bytes_with_restored_mtime_are_rejected) ... ok\ntest_same_sha_distinct_physical_paths_keep_separate_verified_indexes (test_markdown_section_index.AuditedSectionIndexTests.test_same_sha_distinct_physical_paths_keep_separate_verified_indexes) ... ok\ntest_wrong_identity_on_cached_hit_is_not_trusted (test_markdown_section_index.AuditedSectionIndexTests.test_wrong_identity_on_cached_hit_is_not_trusted) ... ok\ntest_differential_bytes_extents_fences_duplicates_heading_errors_and_utf8 (test_markdown_section_index.ParserEquivalenceTests.test_differential_bytes_extents_fences_duplicates_heading_errors_and_utf8) ... ok\ntest_generated_nested_extent_matrix_matches_original (test_markdown_section_index.ParserEquivalenceTests.test_generated_nested_extent_matrix_matches_original) ... ok\ntest_generic_parser_is_fresh_and_mutable_bytes_are_detached (test_markdown_section_index.ParserEquivalenceTests.test_generic_parser_is_fresh_and_mutable_bytes_are_detached) ... ok\ntest_oracle_is_exact_verified_5651687_function (test_markdown_section_index.ParserEquivalenceTests.test_oracle_is_exact_verified_5651687_function) ... ok\n\n======================================================================\nERROR: test_checker_repeated_heading_still_checks_file_and_parent_links (test_markdown_section_index.AuditedSectionIndexTests.test_checker_repeated_heading_still_checks_file_and_parent_links)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_markdown_section_index.py\", line 166, in test_checker_repeated_heading_still_checks_file_and_parent_links\n    with history.snapshot_hash_scope() as owner:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/contextlib.py\", line 144, in __exit__\n    next(self.gen)\n  File \"/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_history.py\", line 56, in snapshot_hash_scope\n    owner.audit()\n  File \"/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_check.py\", line 689, in audit\n    raise ValueError(\"historical snapshot changed during checker invocation: \" + str(path))\nValueError: historical snapshot changed during checker invocation: /private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-section-index-9o9u19se/docs/source.md\n\n----------------------------------------------------------------------\nRan 17 tests in 0.052s\n\nFAILED (errors=1)\n",
+    "wall_time_seconds": 0.132227958
+  },
+  "limits": [
+    "Actual run on macOS canonicalPython3.12 only; nativeWindowsCI remains required.",
+    "These tests use synthetic Checker._run bodies to exercise actual scope/section paths; they do not substitute for native gate acceptance.",
+    "Core owner's133 existing checks and reviewer6004 differential/9 probes are independently reported to root, not counted in this worker's17."
+  ],
+  "negative_controls_expected": "Disabling owner identity/union guards or omitting Checker.section path guards causes the corresponding adversarial assertions to fail. No core mutation experiment was run.",
+  "no_private_or_runtime_activity": true,
+  "oracle": {
+    "baseline_path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery-installed-v9/skills/to-sdd-pipeline/scripts/sdd_check.py",
+    "baseline_sha256": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f",
+    "lines": [
+      520,
+      549
+    ],
+    "oracle": "def section_from_bytes(data, heading):\n    \"\"\"The same exact section rules for a verified immutable archived source.\"\"\"\n    if not isinstance(heading, str) or not re.match(r\"^#{1,6} \\S\", heading):\n        raise ValueError(\"fragment requires an exact Markdown heading, including #\")\n    lines = data.splitlines(keepends=True)\n    headings, fence = [], None\n    for index, line in enumerate(lines):\n        text = line.decode(\"utf-8\").rstrip(\"\\r\\n\").lstrip(\"\\ufeff\")\n        marker = re.match(r\"^ {0,3}(`{3,}|~{3,})\", text)\n        if marker:\n            run = marker[1]\n            if fence is None:\n                fence = run\n            elif run[0] == fence[0] and len(run) >= len(fence):\n                fence = None\n            continue\n        match = re.match(r\"^(#{1,6})[ \\t]+\", text) if fence is None else None\n        if match:\n            headings.append((index, len(match[1]), text))\n    matches = [index for index, _, text in headings if text == heading]\n    if len(matches) != 1:\n        raise ValueError(\"fragment heading must occur exactly once: \" + heading)\n    start = matches[0]\n    level = len(heading.split(\" \", 1)[0])\n    end = len(lines)\n    for index, depth, _ in headings:\n        if index > start and depth <= level:\n            end = index\n            break\n    return b\"\".join(lines[start:end])\n",
+    "oracle_sha256": "89efe58d38471dac413b3c89dfb8380aa9665e8d16f3e8c26295f61b7ee33a7e"
+  },
+  "scope": "Independent isolated tests of frozen section-index change; no product acceptance.",
+  "test_file": {
+    "bytes": 13846,
+    "foreign_TestCase_imports": false,
+    "path": "tests/test_markdown_section_index.py",
+    "sha256": "9fc654e4a7baefe7e2b5564b715022b8c9ee951a76a04c6d1bf54442ccc8e54b",
+    "unique_methods": 17
+  },
+  "version": 1,
+  "writing_status": "Test source frozen; report final. No further writes planned."
+}

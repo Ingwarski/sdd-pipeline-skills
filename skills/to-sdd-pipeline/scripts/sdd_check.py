@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 from datetime import datetime
+from types import MappingProxyType
 from urllib.parse import unquote, urlsplit
 
 # Resource-local imports also work when a host loads this script through importlib.
@@ -519,11 +520,20 @@ def section_bytes(path, heading):
 
 def section_from_bytes(data, heading):
     """The same exact section rules for a verified immutable archived source."""
+    _section_heading(heading)
+    return _indexed_section(_section_index(data), heading)
+
+
+def _section_heading(heading):
     if not isinstance(heading, str) or not re.match(r"^#{1,6} \S", heading):
         raise ValueError("fragment requires an exact Markdown heading, including #")
-    lines = data.splitlines(keepends=True)
-    headings, fence = [], None
-    for index, line in enumerate(lines):
+
+
+def _section_index(data):
+    """Private immutable byte extents; scan the entire source exactly once."""
+    headings, fence, offset = [], None, 0
+    for line in data.splitlines(keepends=True):
+        start, offset = offset, offset + len(line)
         text = line.decode("utf-8").rstrip("\r\n").lstrip("\ufeff")
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})", text)
         if marker:
@@ -535,18 +545,25 @@ def section_from_bytes(data, heading):
             continue
         match = re.match(r"^(#{1,6})[ \t]+", text) if fence is None else None
         if match:
-            headings.append((index, len(match[1]), text))
-    matches = [index for index, _, text in headings if text == heading]
+            headings.append((start, len(match[1]), text))
+    ends, stack = {}, []
+    for start, depth, _ in headings:
+        while stack and stack[-1][1] >= depth:
+            ends[stack.pop()[0]] = start
+        stack.append((start, depth))
+    extents = {}
+    for start, _, text in headings:
+        extents.setdefault(text, []).append((start, ends.get(start, len(data))))
+    return (bytes(data), MappingProxyType({text: tuple(values) for text, values in extents.items()}))
+
+
+def _indexed_section(index, heading):
+    data, extents = index
+    matches = extents.get(heading, ())
     if len(matches) != 1:
         raise ValueError("fragment heading must occur exactly once: " + heading)
-    start = matches[0]
-    level = len(heading.split(" ", 1)[0])
-    end = len(lines)
-    for index, depth, _ in headings:
-        if index > start and depth <= level:
-            end = index
-            break
-    return b"".join(lines[start:end])
+    start, end = matches[0]
+    return data[start:end]
 
 
 def timestamp(value):
@@ -622,6 +639,7 @@ class SnapshotFileHashes:
         self.depth = 0
         self.history_results = []
         self.legacy_files = {}
+        self.section_indexes = {}
 
     def history_result(self, cache, key, remember=False):
         # The semantic cache stays with its caller. Only a result validated in
@@ -642,6 +660,28 @@ class SnapshotFileHashes:
 
     def file_hash(self, path):
         return _cached_file_hash(path, self.hashes)
+
+    def section(self, path, identity, heading):
+        _section_heading(heading)
+        path = Path(path)
+        # Every active indexed source joins the final union audit, including
+        # live canonical documents first encountered by a projection child.
+        checked_hash = self.file_hash if self.depth else lambda target: _cached_file_hash(target, {})
+        if checked_hash(path) != identity:
+            raise ValueError("source fragment changed during checker invocation")
+        key = (path, identity)
+        index = self.section_indexes.get(key) if self.depth else None
+        if index is None:
+            data = path.read_bytes()
+            if digest(data) != identity or checked_hash(path) != identity:
+                raise ValueError("source fragment changed during checker invocation")
+            index = _section_index(data)
+            if self.depth:
+                self.section_indexes[key] = index
+        value = _indexed_section(index, heading)
+        if checked_hash(path) != identity:
+            raise ValueError("source fragment changed during checker invocation")
+        return value
 
     def audit(self):
         for path, (signature, _) in self.hashes.items():
@@ -771,7 +811,12 @@ class Checker:
         path = self.path(relative, no_links=True)
         identity = self.file_hash(path)
         key = (path, heading)
-        if key not in self.section_cache:
+        owner = getattr(self, "_history_hash_owner", None)
+        if owner is not None and owner.depth:
+            indexed = owner.section(path, identity, heading)
+            if key not in self.section_cache:
+                self.section_cache[key] = (identity, indexed)
+        elif key not in self.section_cache:
             self.section_cache[key] = (identity, section_bytes(path, heading))
         saved, value = self.section_cache[key]
         if saved != identity or self.file_hash(path) != identity:

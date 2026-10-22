@@ -60,6 +60,7 @@ def snapshot_hash_scope(owner=None, *, audit=False):
                 owner.hashes.clear()
                 owner.history_results.clear()
                 owner.legacy_files.clear()
+                owner.section_indexes.clear()
             _snapshot_hash_owner.reset(token)
 
 
