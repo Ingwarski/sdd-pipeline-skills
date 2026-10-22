@@ -49,9 +49,7 @@ Current-format projects retain immutable history and applicability checks. Rever
 
 ## Worked example
 
-Login completed under plan A with real passing checks. Profile and Notifications remain pending. The plan owner revises Profile twice and splits Notifications, retaining all obligations and mappings. Each revised-plan assessment refers directly to Login's original completion. Login remains applicable only while its relevant requirements, code, checks and evidence remain valid. Added Profile/Login integration checks belong to the new integration work. If a shared session-security requirement changes, the affected Login acceptance requires named revalidation; its original completion record remains unchanged.
-
-The user sees: “Login remains complete. Profile and the two Notifications units remain pending. The revised plan is valid and awaits its implementation prompt.” That message must reflect actual validation, not be copied as an assumed outcome.
+Login passed plan A; revise pending Profile twice and split Notifications, retaining obligations and mappings. Assess Login directly from its original completion against current requirements, code, checks and evidence. New integration belongs to new work; session-security changes require named revalidation preserving history. Report actual applicability, pending work, plan validity and permission separately.
 
 ## Records and helper
 
@@ -99,13 +97,7 @@ preserved failure/interruption; the source manifest and archive keep original
 outcomes. Changed acceptance definitions, corrupt/missing evidence and changed
 authority still block capture. A fresh continuation must rerun required checks.
 
-A supported portable-policy limits successor may change only the policy input
-fingerprint during unfinished-attempt recovery. Validate the complete lineage and
-exact frozen raw-policy ancestry; retain all other input selections, fingerprints,
-acceptance definitions and authority. Owner reconciliation may inspect this drift
-without accepting the old attempt. Starting or completing that stale attempt stays
-blocked. Capture a fresh reviewed continuation and runtime observation, bind the
-current policy, and rerun its checks; never rewrite or reuse the old results.
+Only validated limits-only `forge/evidence-policy.json` lineage may replace its exact frozen raw-ancestor fingerprint during reconciliation and fresh continuation. Preserve other inputs, acceptance, authority and original records. Stale starts and completions remain blocked until fresh review, runtime and checks.
 
 The continuation probe follows attempt capture and precedes context capture.
 After the actual new start, probe the execution session again and bind that receipt

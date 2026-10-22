@@ -1,0 +1,21 @@
+{
+  "actual_failed_job": "content fullinstructionloadsabsolute+reviewedgrowthceilings",
+  "at": "2026-10-22T06:03:49.919933+00:00",
+  "change": "Two completion-preservation paragraphs compacted; no acceptance/security/authority/recovery duty removed",
+  "failed_CI": 39730953967,
+  "failed_revision": "c548244c73b434c7d15d8464273a91fcba5c652d",
+  "fullsuite_scope": "1139tests11skips0fail previouslyexecutedc548; all executable/testbytesremainexact. CompactedfinalinstructionbyteCImeasurement+newCIregressionpending, not claimedpassed.",
+  "independent_semantic_review": "scoped_receipt_review no material loss, alladjacentexactinput/newruntime/newrun/reset/currentstartguardsretained",
+  "local_focused_check": {
+    "command": "python3 -B -m unittest discover -s tests -p test_skill_contracts.py -v",
+    "failures": 0,
+    "passed": 5,
+    "run": 6,
+    "skip_reason": "PyYAMLtestonlyabsent",
+    "skipped": 1
+  },
+  "new_contract_sha256": "575a1fff78f17b30b4e61cbc6712e37f98356ab9969e39615752c9eb101f2e33",
+  "no_unapproved_dependency_install": true,
+  "policy_and_measurement": "ceilings,baselines,all5scenarios,seeds,retries,invocationorder,tokenizerversion/method/resources unchanged",
+  "raw_failure_log": "root-ci-c548-content-failed.log"
+}
