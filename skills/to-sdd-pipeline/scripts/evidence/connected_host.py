@@ -370,9 +370,14 @@ class ConnectedHostAdapter:
         atomic_json(self.path / "request.json", request)
         deadline = time.monotonic() + self.timeout_seconds
         target = self.path / "response.json"
-        while not target.exists():
-            if time.monotonic() >= deadline:
+        while True:
+            # The host rejects wall-expired requests; the monotonic bound also
+            # prevents a backward clock change from extending this wait.
+            # Check both before accepting even an already-present response.
+            if time.time() >= request["expires_at"] or time.monotonic() >= deadline:
                 raise EvidenceError("connected Drive is waiting for the active agent to service evidence_host.py next/respond; request timed out and was retained")
+            if target.exists():
+                break
             time.sleep(0.05)
         response = read_json(target, self.maximum)
         self._response_bytes += len(_bounded(response))
