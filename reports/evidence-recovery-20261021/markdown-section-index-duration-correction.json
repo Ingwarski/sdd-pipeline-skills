@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-22T01:57:07.060089+00:00",
+  "event": "report_transcription_correction",
+  "previous_commit": "de6b1663b25dee05bf80ba0decb9b2aeaabbf366",
+  "field": "verification.complete_suite.seconds",
+  "previous_value": 385.122,
+  "actual_raw_log_value": 384.913,
+  "original_log_sha256": "d8430db2fa62828466f358fac70f97daf6a142c8fd56fdd100f1a162207985ec",
+  "reason": "Root manually transcribed duration incorrectly; corrected from exact unittest summary. No source/test/result/status/time/original log changed.",
+  "new_execution": false
+}

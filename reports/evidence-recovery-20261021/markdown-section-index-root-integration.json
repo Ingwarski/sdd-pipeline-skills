@@ -14,7 +14,7 @@
       "skips": 11,
       "failures": 0,
       "return_code": 0,
-      "seconds": 385.122
+      "seconds": 384.913
     },
     "shell_suites_passed": 3,
     "new_focused_tests_passed": 17,
