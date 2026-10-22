@@ -79,7 +79,11 @@ def update(ledger, attempt, change):
         encoded = json.dumps(value, ensure_ascii=True, sort_keys=True)
         if len(encoded) > MAX_RECORD:
             raise EvidenceError('producer ownership record exceeds metadata bound')
-        ledger.connection.execute('UPDATE producer_sessions SET record=? WHERE id=?', (encoded, attempt))
+        # Compare the stored bytes, not cached/normalized state. Keep validation,
+        # the callback and the transaction even when no row write is needed.
+        current = ledger.connection.execute('SELECT record FROM producer_sessions WHERE id=?', (attempt,)).fetchone()
+        if current is None or current[0] != encoded:
+            ledger.connection.execute('UPDATE producer_sessions SET record=? WHERE id=?', (encoded, attempt))
     return value
 
 

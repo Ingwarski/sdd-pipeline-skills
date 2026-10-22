@@ -573,7 +573,8 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
         attempt, original = validate_attempt(project, context["prior_attempt_ref"], stack, cache, evidence_cache=evidence_cache)
         require(attempt["unit_id"] == unit_id, "continuation context belongs to another attempted unit")
         attempt_authority(original["manifest"], manifest)
-        continuation_inventory(original, attempt, context["input_inventory"])
+        continuation_inventory(original, attempt, context["input_inventory"], project=project,
+                               current_record=context, current_manifest=manifest)
         references = manifest.get("attempt_history", {}).get(unit_id, [])
         require(any(same(context["prior_attempt_ref"], item) for item in references), "continuation omitted its original attempt")
         for inherited in attempt_refs(attempt["post_manifest"]).get(unit_id, []):
@@ -1037,7 +1038,74 @@ def attempt_refs(manifest):
     return references
 
 
-def continuation_inventory(context, attempt, reviewed):
+def _policy_successor(project, attempt, reviewed, *, current_record=None, current_manifest=None):
+    """Only exact portable-policy ancestry can replace one preserved file input.
+
+    This permits no execution/acceptance and never changes the old envelope.
+    Historical validation reads the new context's frozen policy, not today's file.
+    """
+    from evidence import policy as policies
+    from evidence.io import _open_regular, _verify_stable
+
+    logical = "forge/evidence-policy.json"
+    original = attempt["input_inventory"]
+    for inventory in (original, reviewed):
+        require(same(inventory.get("execution_inputs", {}).get(logical), {"mode": "file"}),
+                "policy successor requires the canonical file selection")
+        for name, selection in inventory["execution_inputs"].items():
+            require(not (selection.get("mode") == "tree" and logical.startswith(name.rstrip("/") + "/")),
+                    "policy successor cannot replace a tree-selected policy")
+        fingerprint = inventory.get("execution_fingerprints", {}).get(logical)
+        require(isinstance(fingerprint, dict) and set(fingerprint) == {"mode", "exists", "content_hash"}
+                and fingerprint.get("mode") == "file" and fingerprint.get("exists") is True
+                and isinstance(fingerprint.get("content_hash"), str)
+                and re.fullmatch(r"[a-f0-9]{64}", fingerprint["content_hash"]),
+                "policy successor requires an exact existing-file fingerprint")
+    for manifest in (attempt["post_manifest"], current_manifest or {}):
+        storage = manifest.get("evidence_storage", {})
+        require(isinstance(storage, dict) and storage.get("policy_path", logical) == logical,
+                "policy successor cannot substitute another policy path")
+
+    def read_policy(record, fingerprint):
+        if record is None:
+            target = physical(project, logical)
+        else:
+            reference = record.get("files", {}).get(logical)
+            require(isinstance(reference, dict) and set(reference) == REF_KEYS
+                    and reference["path"] == record["snapshot_root"] + "/" + logical
+                    and reference["content_hash"] == fingerprint["content_hash"],
+                    "policy successor requires exact frozen original bytes")
+            target = physical(project, reference["path"])
+        path, descriptor, info = _open_regular(target)
+        with os.fdopen(descriptor, "rb") as stream:
+            require(info.st_size <= policies.MAX_POLICY_BYTES, "policy successor exceeds policy byte bound")
+            raw = stream.read(policies.MAX_POLICY_BYTES + 1)
+            _verify_stable(path, stream.fileno(), info)
+        require(len(raw) <= policies.MAX_POLICY_BYTES and sha(raw) == fingerprint["content_hash"],
+                "policy successor raw bytes differ from the observed fingerprint")
+        owner = _snapshot_hash_owner.get()
+        if owner is not None:
+            require(owner.file_hash(target) == fingerprint["content_hash"], "policy successor changed during validation")
+        return raw
+
+    before_raw = read_policy(attempt, original["execution_fingerprints"][logical])
+    after_raw = read_policy(current_record, reviewed["execution_fingerprints"][logical])
+    before = policies.validate_policy(policies._raw_policy(before_raw))
+    after = policies.validate_policy(policies._raw_policy(after_raw))
+    require("policy_lineage" in after and not same(before, after), "policy replacement is not a strict lineage successor")
+    ancestor = policies.resolve_historical_policy(after, policies._digest(before))
+    require(same(ancestor, before), "policy successor does not preserve the full original policy")
+    if "policy_lineage" in ancestor:
+        require(before_raw == policies._setup_bytes(ancestor), "original policy differs from supported ancestor serialization")
+    else:
+        base = after["policy_lineage"]["base"]
+        require(before_raw == base["raw_utf8"].encode("utf-8") and sha(before_raw) == base["raw_sha256"],
+                "policy successor differs from the exact original raw anchor")
+    require(after_raw == policies._setup_bytes(after), "current policy differs from supported successor serialization")
+    return True
+
+
+def continuation_inventory(context, attempt, reviewed, *, project=None, current_record=None, current_manifest=None):
     ignored = {"environment", "runtime_observation_ref", "canonical_hashes", "review",
                "execution_inputs", "execution_fingerprints"}
     original = attempt["input_inventory"]
@@ -1053,9 +1121,12 @@ def continuation_inventory(context, attempt, reviewed):
                 "continuation execution inputs require every exact fingerprint")
     for path, selection in original["execution_inputs"].items():
         require(path in reviewed["execution_inputs"]
-                and same(selection, reviewed["execution_inputs"][path])
-                and same(original["execution_fingerprints"][path], reviewed["execution_fingerprints"][path]),
+                and same(selection, reviewed["execution_inputs"][path]),
                 "continuation changed or removed preserved execution input: " + path)
+        if not same(original["execution_fingerprints"][path], reviewed["execution_fingerprints"][path]):
+            require(path == "forge/evidence-policy.json" and project is not None,
+                    "continuation changed or removed preserved execution input: " + path)
+            _policy_successor(project, attempt, reviewed, current_record=current_record, current_manifest=current_manifest)
     require(api().timestamp(reviewed["review"]["reviewed_at"]) >= api().timestamp(attempt["captured_at"]),
             "continuation needs a fresh owner review after attempt capture")
     attempt_authority(context["manifest"], attempt["post_manifest"])
@@ -1072,7 +1143,7 @@ def capture_continuation(project, manifest, unit_id, attempt_ref, run_id, invent
                 and same(attempt_checks(manifest, unit_id), attempt["checks"]), "continuation must preserve the actual current attempt")
         attempt_authority(original["manifest"], manifest)
         reviewed = prepare_inventory(api().Checker(project, manifest, evidence_cache=evidence_cache), unit_id, inventory)
-        continuation_inventory(original, attempt, reviewed)
+        continuation_inventory(original, attempt, reviewed, project=project, current_manifest=manifest)
         observation = validate_runtime_observation(project, inventory.get("runtime_observation_ref"))
         require(api().timestamp(observation["started_at"]) >= api().timestamp(attempt["captured_at"]),
                 "continuation requires a new runtime observation after attempt capture")
@@ -1242,13 +1313,26 @@ class HistoryView:
                     require(same(manifest.get("execution_contexts", {}).get(key), attempted["context_ref"]),
                             "current attempt binds another context")
                     attempt_authority(context["manifest"], manifest)
-                    require(same(prepare_inventory(checker, key, attempted["input_inventory"]), attempted["input_inventory"]),
-                            "current attempt inventory is stale; preserve it and capture a reviewed continuation")
+                    observed = prepare_inventory(checker, key, attempted["input_inventory"])
+                    policy_successor = not same(observed, attempted["input_inventory"])
+                    if policy_successor:
+                        unchanged = copy.deepcopy(observed)
+                        logical = "forge/evidence-policy.json"
+                        require(logical in unchanged["execution_fingerprints"]
+                                and logical in attempted["input_inventory"]["execution_fingerprints"],
+                                "current attempt inventory is stale; preserve it and capture a reviewed continuation")
+                        unchanged["execution_fingerprints"][logical] = attempted["input_inventory"]["execution_fingerprints"][logical]
+                        require(same(unchanged, attempted["input_inventory"]),
+                                "current attempt inventory is stale; preserve it and capture a reviewed continuation")
+                        frozen = ({"files": checker._history_overlay, "snapshot_root": checker._history_snapshot_root}
+                                  if hasattr(checker, "_history_overlay") else None)
+                        _policy_successor(checker.project, attempted, observed,
+                                          current_record=frozen, current_manifest=manifest)
                     self.canonical_evidence.update(canonical_alternatives(context, attempted))
                     self.attempts[key] = attempted
                     require(not (action == "complete" and unit_id == key),
                             "archived unfinished attempt cannot complete; use capture-continuation before fresh qualification")
-                    if attempted["observation_validity"] == "unverified_stale_inputs":
+                    if attempted["observation_validity"] == "unverified_stale_inputs" or policy_successor:
                         # The raw manifest and immutable archive keep actual outcomes;
                         # the validation view cannot borrow them as current acceptance.
                         for index, check in enumerate(manifest["verification"]["checks"]):
@@ -1256,7 +1340,10 @@ class HistoryView:
                                 manifest["verification"]["checks"][index] = {name: value for name, value in check.items()
                                                                             if name not in EXECUTION_KEYS or name == "findings"}
                                 manifest["verification"]["checks"][index]["execution_status"] = "not_run"
-                        checker.warnings.append(key + ": original " + attempted["outcome"] + " attempt preserved; stale input observations are unverified and grant no current acceptance")
+                        checker.warnings.append(key + (": validated policy successor; original unfinished attempt remains nonaccepting and requires a fresh continuation"
+                                                       if policy_successor else ": original " + attempted["outcome"] + " attempt preserved; stale input observations are unverified and grant no current acceptance"))
+                    require(not (policy_successor and action == "start" and unit_id == key),
+                            "archived unfinished attempt with a policy successor cannot start; capture a fresh continuation")
                 except (ValueError, OSError, KeyError, TypeError) as error:
                     checker.issue("unit_history", "development-plan", key + ": invalid unfinished attempt: " + str(error))
                 continue

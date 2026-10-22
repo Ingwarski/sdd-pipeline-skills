@@ -1,0 +1,104 @@
+{
+  "at": "2026-10-22T05:48:59.915058+00:00",
+  "bloat_before_after": {
+    "discovery_unique_ids": 1139,
+    "duplicates": 0,
+    "each3identical_operations": {
+      "new_SQLite_rowchanges": 0,
+      "old_SQLite_rowchanges": 1
+    },
+    "record": "root-noop-write-before-after.json"
+  },
+  "changed_files": {
+    "skills/to-sdd-pipeline/references/completion-preservation.md": {
+      "bytes": 22955,
+      "sha256": "7d0f5f20d3e77077b3c056c34d18d4b96dc3db0774bebb39c817c705ce985db4"
+    },
+    "skills/to-sdd-pipeline/scripts/evidence/accounting.py": {
+      "bytes": 84799,
+      "sha256": "e99081e0e4279cfb28fa73cc80882b903bdd96ee3cbdd057b3be2cdc1a828faa"
+    },
+    "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": {
+      "bytes": 25856,
+      "sha256": "3ef092364e0688cde5640b6a7a8fdc47670748509be0cf37731bb65b97d2c931"
+    },
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": {
+      "bytes": 131531,
+      "sha256": "ed29abb3b5d8ab97ba69a004854668258c2f6d0001b08386ef94f50f6a219343"
+    },
+    "tests/test_attempt_policy_lineage.py": {
+      "bytes": 16143,
+      "sha256": "dcbe3a8fc159baf60462da91c4b28d216eed174b917f24b240d1099f109f10a1"
+    },
+    "tests/test_evidence_noop_writes.py": {
+      "bytes": 14320,
+      "sha256": "1eaa830f87aec10a88a70340197c0d5fe625340d70495a752ec34dcaa20ecc9e"
+    }
+  },
+  "history_fix": {
+    "existing_seconds": 88.881,
+    "existing_tests": 19,
+    "findings": "none",
+    "frozen_e675_negative_control": [
+      "beforeguardrails currentattemptstale",
+      "capturecontinuation changedpolicyinput"
+    ],
+    "independent_additive_cache": 10,
+    "independent_existing_attempt": 11,
+    "independent_fault_probes": 11,
+    "independent_new": 13,
+    "independent_reviewer": "scoped_receipt_review Sol/highrequestedunverified",
+    "new_seconds": 59.769,
+    "new_test_writer": "retry5_budget Sol/highrequestedunverified",
+    "new_tests": 13,
+    "preservation": "exactoldattempt/context/rawsnapshots/results; noauthoracceptancebypass",
+    "writer": "engine_recovery_analysis Sol/highrequestedunverified"
+  },
+  "no_op_write_fix": {
+    "existing_tests": 9,
+    "independent_review": {
+      "extra_probes": 3,
+      "findings": "none",
+      "newtests": 15,
+      "reviewer": "engine_recovery_analysis Sol/highrequestedunverified",
+      "scope": "isolatedSQLchangecountersnotphysicalWALcost",
+      "seconds": 0.167
+    },
+    "initial_errors": "twofixturedefects correctedwithoutproductionedits; actualtooloutputsretained",
+    "normal_new_tests": 15,
+    "optimized_new_tests": 15,
+    "writer": "parent_gone_review Sol/highrequestedunverified"
+  },
+  "preservation": "allfailedruns/accountingretained; 11protectedtables schema+rowscheckedexact againstliveRO; independentearlier2669workingrowsexact; ownmetadataholdssettledactualonly",
+  "root_consolidated": {
+    "python": {
+      "failed": 0,
+      "inputs_unchanged_after": true,
+      "return_code": 0,
+      "seconds": 491.7238678339927,
+      "skipped": 11,
+      "skips": "5nativeWindowsonmacOS;1PyYAMLoptional;5tokenizeroptional",
+      "stderr": {
+        "bytes": 203343,
+        "path": "root-engine-full.stderr.txt",
+        "sha256": "47485a2465d909922ecbaa0d4cfe557199346303da670f7cf75c10958c6d62c5"
+      },
+      "stdout": {
+        "bytes": 1773,
+        "path": "root-engine-full.stdout.txt",
+        "sha256": "179d836f4a876f748b3a7a9c558e96a277f4be43e9e436feb00fe583a7d9e254"
+      },
+      "temporary_resources_verified_gone": true,
+      "tests": 1139
+    },
+    "shells": {
+      "all_return_codes_zero": true,
+      "report": "root-engine-shell-report.json",
+      "report_sha256": "99fe844142f5bdf37c0d5a04327922d291b3ee5bc09f4ae87d62fa0a29f07051",
+      "temp_children_removed": true
+    }
+  },
+  "scope": "Engineisolatedregression; actualcurrentproductQA all3not_run; no production merge/deploy/actual savings claim",
+  "source_base": "e675d3845c6d04d9b41c8f0885a549137bb64dbe",
+  "verification_qualification": "LocalmacOS/Python3.12actualfullsuite+3shells; Windows/Linux/Python3.14CI notrunforthisnewrevisionyet. No productQA or physicalIOclaim."
+}

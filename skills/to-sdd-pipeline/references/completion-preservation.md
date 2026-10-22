@@ -99,6 +99,14 @@ preserved failure/interruption; the source manifest and archive keep original
 outcomes. Changed acceptance definitions, corrupt/missing evidence and changed
 authority still block capture. A fresh continuation must rerun required checks.
 
+A supported portable-policy limits successor may change only the policy input
+fingerprint during unfinished-attempt recovery. Validate the complete lineage and
+exact frozen raw-policy ancestry; retain all other input selections, fingerprints,
+acceptance definitions and authority. Owner reconciliation may inspect this drift
+without accepting the old attempt. Starting or completing that stale attempt stays
+blocked. Capture a fresh reviewed continuation and runtime observation, bind the
+current policy, and rerun its checks; never rewrite or reuse the old results.
+
 The continuation probe follows attempt capture and precedes context capture.
 After the actual new start, probe the execution session again and bind that receipt
 as each executed check's `runtime_observation_ref`, before its `executed_at`.

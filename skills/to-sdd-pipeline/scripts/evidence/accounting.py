@@ -849,7 +849,9 @@ class Accounting:
         if kind not in ("capture", "cache", "staging", "readback", "restore", "durable"):
             raise EvidenceError("unknown local storage classification")
         with self._transaction():
-            self.connection.execute("INSERT OR REPLACE INTO local_usage VALUES(?,?,?)", (key, kind, byte_count))
+            current = self.connection.execute("SELECT kind,bytes FROM local_usage WHERE key=?", (key,)).fetchone()
+            if current is None or tuple(current) != (kind, byte_count):
+                self.connection.execute("INSERT OR REPLACE INTO local_usage VALUES(?,?,?)", (key, kind, byte_count))
             totals = self._totals()
             violations = self._violations(totals)
             if totals["cache_bytes"] > self.policy["limits"]["cache_stop_bytes"]:
@@ -859,7 +861,9 @@ class Accounting:
     def reconcile_metadata(self, key: str, byte_count: int, file_count=1):
         _identity(key, "metadata allocation"); _amount(byte_count, "metadata bytes"); _amount(file_count, "metadata files")
         with self._transaction():
-            self.connection.execute("INSERT OR REPLACE INTO metadata_usage VALUES(?,?,?)", (key, byte_count, file_count))
+            current = self.connection.execute("SELECT bytes,files FROM metadata_usage WHERE key=?", (key,)).fetchone()
+            if current is None or tuple(current) != (byte_count, file_count):
+                self.connection.execute("INSERT OR REPLACE INTO metadata_usage VALUES(?,?,?)", (key, byte_count, file_count))
             totals = self._totals()
             return {"violations": self._violations(totals), "totals": totals}
 
