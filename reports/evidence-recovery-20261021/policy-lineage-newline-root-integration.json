@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-22T01:30:10.255951+00:00",
+  "parent_revision": "6c1fec38a4d1353837b7147b18302b9afda8baf4",
+  "source_hashes": {
+    "scripts/evidence_setup.py": "f11266bb5564185de5471dc69f1e466cb49c9474f200d5008d3dbfba5e0a5540",
+    "tests/test_evidence_setup_policy_lineage.py": "e9bfed3cc43b018e071a590aed4b57605570e6eb9563a3fe533c7642886fd419"
+  },
+  "fix": "Explicit LF serialization in supported setup atomic writer; original CRLF anchors remain exact",
+  "verification": {
+    "complete_suite": {
+      "tests": 1087,
+      "skips": 11,
+      "failures": 0,
+      "return_code": 0,
+      "receipt": "policy-lineage-newline-root-supported-path-full-tests.json"
+    },
+    "isolated_shell_suites_passed": 3,
+    "new_regressions": 2,
+    "focused_setup_passes": 40,
+    "independent_new_regressions_pass": 2,
+    "independent_exact_legacy_negative_fail": 2
+  },
+  "preserved_failure": "Initial1087suite had8 installer-subprocess failures due oldPython on PATH; rawlog/receipt retained; sources unchanged before corrected fullrerun",
+  "independent_report_sha256": "5456db4f1d7505424f6fa04beff85355f60f32b5b995354d5ae8af9de5c2fc71",
+  "limits": [
+    "Mac plus real text translation simulation; exact commit nativeWindows CI still needed",
+    "Not HappyPro UNIT00 product QA/DoD",
+    "No failed ledger rows/history changed by newline patch"
+  ],
+  "no_merge": true,
+  "raw_log_whitespace_exception": {
+    "initial_diff_check_return_code": 2,
+    "path": "reports/evidence-recovery-20261021/policy-lineage-newline-root-full-tests.log",
+    "lines": [
+      833,
+      837
+    ],
+    "reason": "Exact failed unittest output emits trailing spaces before subtest failure lines. Original failed bytes/hashes retained; no log cleanup/rewriting. All other staged paths checked with exact one-file exclusion."
+  }
+}

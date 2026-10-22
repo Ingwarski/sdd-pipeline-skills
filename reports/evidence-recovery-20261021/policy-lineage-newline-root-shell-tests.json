@@ -1,0 +1,35 @@
+{
+  "actual_commands": [
+    {
+      "command": [
+        "bash",
+        "tests/test-install.sh"
+      ],
+      "started_at": "2026-10-22T01:14:59.220036+00:00",
+      "finished_at": "2026-10-22T01:15:02.652772+00:00",
+      "return_code": 0,
+      "log_sha256": "7e6e8654c4a070c9ad2877cd72ff7d59f1a9d85f56ee5f2f863f36d3d5c641ce"
+    },
+    {
+      "command": [
+        "bash",
+        "tests/test-retirement.sh"
+      ],
+      "started_at": "2026-10-22T01:15:02.653077+00:00",
+      "finished_at": "2026-10-22T01:15:10.723486+00:00",
+      "return_code": 0,
+      "log_sha256": "c841765532d9af1aa8dc16a5c5654ea5f7478f1f860851ab8185fca815307686"
+    },
+    {
+      "command": [
+        "bash",
+        "tests/test-update.sh"
+      ],
+      "started_at": "2026-10-22T01:15:10.723642+00:00",
+      "finished_at": "2026-10-22T01:15:15.624539+00:00",
+      "return_code": 0,
+      "log_sha256": "c9718987eb2d41efddf73bc6fd9bddf92708f5c2b67c84a27395c3d9b31f38f3"
+    }
+  ],
+  "scope": "Isolated temporary installer fixtures"
+}

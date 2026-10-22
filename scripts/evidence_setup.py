@@ -79,7 +79,7 @@ def _portable_source(path):
 
 def _write(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=".setup-", delete=False) as stream:
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n", dir=path.parent, prefix=".setup-", delete=False) as stream:
         temporary = Path(stream.name)
         try:
             os.chmod(temporary, 0o600)

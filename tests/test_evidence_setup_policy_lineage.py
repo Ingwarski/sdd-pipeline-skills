@@ -15,9 +15,9 @@ import evidence_setup as setup
 from evidence.io import EvidenceError
 from evidence.manager import Manager
 from evidence.policy import append_policy_transition, resolve_historical_policy
-from evidence.quarantine import digest
+from evidence.quarantine import digest, validate_quarantine_descriptor
 from evidence.transports import LocalTransport
-from test_evidence_policy_lineage import setup_bytes, effective
+from test_evidence_policy_lineage import setup_bytes, effective, descriptor_fixture
 
 
 class FaultTransport(LocalTransport):
@@ -101,6 +101,48 @@ class SetupPolicyLineageTests(unittest.TestCase):
 
     def next_limit(self):
         return {'max_unit_retries': self.current()['limits']['max_unit_retries'] + 1}
+
+    def windows_text_defaults(self):
+        # Exercise real text-stream translation on every host. Binary streams stay
+        # binary, and an explicit writer newline retains its normal semantics.
+        original = tempfile.NamedTemporaryFile
+        def translated(*args, **kwargs):
+            mode = kwargs.get('mode', args[0] if args else 'w+b')
+            if 'b' not in mode:
+                kwargs.setdefault('newline', '\r\n')
+            return original(*args, **kwargs)
+        return patch.object(tempfile, 'NamedTemporaryFile', translated)
+
+    def test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation(self):
+        project = self.base / 'new-project'; project.mkdir()
+        home = self.base / 'new-machine'
+        with self.windows_text_defaults():
+            result = setup.configure(project, home=home, provider='folder', destination=str(self.store),
+                                     limits={'free_space_reserve_bytes': 0}, probe=self.probe)
+        self.assertEqual(result['result'], 'configured')
+        raw = (project / 'forge/evidence-policy.json').read_bytes()
+        self.assertEqual(raw, setup_bytes(json.loads(raw)))
+        self.assertNotIn(b'\r\n', raw)
+        self.assertNotIn('policy_lineage', json.loads(raw))
+
+    def test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor(self):
+        original_raw = setup_bytes(self.original).replace(b'\n', b'\r\n')
+        self.policy_path.write_bytes(original_raw)
+        descriptor = descriptor_fixture(self.original); saved_descriptor = setup_bytes(descriptor)
+        with self.windows_text_defaults():
+            self.configure(limits=self.next_limit())
+            first_raw = self.policy_path.read_bytes(); first = self.current()
+            self.assertEqual(first_raw, setup_bytes(first))
+            self.assertNotIn(b'\r\n', first_raw)
+            self.configure(limits=self.next_limit())
+        second_raw = self.policy_path.read_bytes(); second = self.current()
+        self.assertEqual(second_raw, setup_bytes(second)); self.assertNotIn(b'\r\n', second_raw)
+        self.assertEqual(len(second['policy_lineage']['steps']), 2)
+        self.assertEqual(second['policy_lineage']['base']['raw_utf8'].encode(), original_raw)
+        self.assertEqual(second['policy_lineage']['base']['raw_sha256'], hashlib.sha256(original_raw).hexdigest())
+        self.assertEqual(resolve_historical_policy(second, digest(first)), first)
+        self.assertEqual(validate_quarantine_descriptor(descriptor, second), descriptor)
+        self.assertEqual(setup_bytes(descriptor), saved_descriptor)
 
     def test_existing_empty_plain_authority_can_publish_first_transition_then_local_policy(self):
         self.assertEqual(self.roots(), [])
