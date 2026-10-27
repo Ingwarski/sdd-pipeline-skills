@@ -322,32 +322,83 @@ class Manager:
                 action["verified"] = True
             return [action]
 
-    def _usage(self, *, include_ledger=True, include_checkpoints=True):
-        """Account all local capture/cache/staging/readback/restoration, without following links."""
-        count = 0
-        for directory, dirs, files in os.walk(self.state, followlinks=False):
+    def _usage(self, *, include_ledger=True, include_checkpoints=True, seen=None):
+        """Count distinct regular inode lengths across owned local state.
+
+        Hardlink aliases share one payload charge; independent copies do not.
+        This is neither logical generation accounting nor allocated disk blocks.
+        No source-view subtree, receipt or unregistered regular file is exempt.
+        """
+        checkpoint_root = self._checkpoint_root()
+        def excluded(path):
+            return (not include_ledger and (path.name.startswith("accounting.sqlite") or
+                (self.state / "accounting.sqlite.recovery") in path.parents) or
+                not include_checkpoints and checkpoint_root is not None and
+                (path == checkpoint_root or checkpoint_root in path.parents))
+        seen = set() if seen is None else seen
+        count = self._occupancy_bytes(self._workspace_records(self.state, excluded=excluded), seen=seen)
+        count += self._occupancy_bytes(self._transport_records(), seen=seen)
+        if include_checkpoints and checkpoint_root is not None and self.state not in checkpoint_root.parents and checkpoint_root != self.state:
+            count += self._occupancy_bytes(self._checkpoint_records(), seen=seen)
+        return count
+
+    @staticmethod
+    def _workspace_records(root, *, excluded=lambda path: False):
+        """Inventory regular paths without following links, including orphan views."""
+        root_info = root.lstat()
+        if _is_link(root_info) or not stat.S_ISDIR(root_info.st_mode):
+            raise EvidenceError("linked or non-directory evidence workspace: " + str(root))
+        records = []
+        def failed(error):
+            raise error
+        for directory, dirs, files in os.walk(root, followlinks=False, onerror=failed):
             for name in dirs + files:
                 path = Path(directory) / name
-                if not include_ledger and (path.name.startswith("accounting.sqlite") or (self.state / "accounting.sqlite.recovery") in path.parents):
-                    continue
-                checkpoint_root = self._checkpoint_root()
-                if not include_checkpoints and checkpoint_root is not None and (path == checkpoint_root or checkpoint_root in path.parents):
+                if excluded(path):
                     continue
                 try:
                     info = path.lstat()
                 except FileNotFoundError:
                     continue  # A managed sibling completed its reserved temporary work.
-                if stat.S_ISLNK(info.st_mode):
+                if _is_link(info):
                     raise EvidenceError("unregistered link in evidence workspace: " + str(path))
                 if stat.S_ISREG(info.st_mode):
-                    count += info.st_size
+                    records.append(path)
                 elif not stat.S_ISDIR(info.st_mode):
                     raise EvidenceError("special file in evidence workspace")
-        count += self._existing_bytes(self._transport_records())
-        checkpoint_root = self._checkpoint_root()
-        if include_checkpoints and checkpoint_root is not None and self.state not in checkpoint_root.parents and checkpoint_root != self.state:
-            count += self._existing_bytes(self._checkpoint_records())
-        return count
+        return records
+
+    @staticmethod
+    def _occupancy_bytes(paths, *, seen=None):
+        seen = set() if seen is None else seen
+        total = 0
+        for path in paths:
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                continue  # Its in-flight peak remains reserved separately.
+            if _is_link(info):
+                raise EvidenceError("unregistered link in evidence workspace: " + str(path))
+            if not stat.S_ISREG(info.st_mode):
+                raise EvidenceError("special file in evidence workspace")
+            identity = info.st_dev, info.st_ino
+            if identity not in seen:
+                seen.add(identity)
+                total += info.st_size
+        return total
+
+    def _cache_bytes(self, *, seen=None):
+        # Retained aliases remain cache occupancy even after objects/SHA is gone.
+        # Counting the entire safe tree conservatively includes receipt metadata.
+        return self._occupancy_bytes(self._workspace_records(self.cache), seen=seen)
+
+    def _local_occupancy(self):
+        """Attribute each owned inode once, including cross-bucket aliases."""
+        seen = set()
+        cache = self._cache_bytes(seen=seen)
+        working = self._usage(include_ledger=False, include_checkpoints=False, seen=seen)
+        checkpoints = self._occupancy_bytes(self._checkpoint_records(), seen=seen)
+        return cache, working, checkpoints
 
     @staticmethod
     def _existing_bytes(paths):
@@ -384,12 +435,14 @@ class Manager:
                     raise EvidenceError("transfer checkpoint directory contains an unsafe entry")
         return records
 
-    def _checkpoint_allocations(self, ledger):
+    def _checkpoint_allocations(self, ledger, *, actual_bytes=None):
         if self._checkpoint_root() is None:
             return
         records = self._checkpoint_records()
         metadata = [path for path in records if path.suffix == ".json"]
-        ledger.reconcile_local("transport-checkpoints", self._existing_bytes(records), "staging")
+        if actual_bytes is None:
+            actual_bytes = self._local_occupancy()[2]
+        ledger.reconcile_local("transport-checkpoints", actual_bytes, "staging")
         ledger.reconcile_metadata("transport-checkpoints", self._existing_bytes(metadata), len(metadata))
 
     @contextmanager
@@ -411,7 +464,7 @@ class Manager:
                 records = self._checkpoint_records()
                 metadata = [path for path in records if path.suffix == ".json"]
                 result = ledger.finish_working(ident, local_key="transport-checkpoints",
-                    actual_bytes=self._existing_bytes(records), kind="staging", metadata_key="transport-checkpoints",
+                    actual_bytes=self._local_occupancy()[2], kind="staging", metadata_key="transport-checkpoints",
                     actual_metadata_bytes=self._existing_bytes(metadata), actual_metadata_files=len(metadata))
                 violations = [value for value in result["violations"] if not value.startswith("combined cache")]
                 if violations and not failed:
@@ -458,12 +511,12 @@ class Manager:
             raise EvidenceError("measured staging/restoration peak plus preserved free-space reserve unavailable")
 
     def _local_records(self, ledger):
-        cache_bytes = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
+        cache_bytes, working_bytes, checkpoint_bytes = self._local_occupancy()
         ledger.reconcile_local("cache", cache_bytes, "cache")
-        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache_bytes), "staging")
+        ledger.reconcile_local("manager-working", working_bytes, "staging")
         records = self._metadata_records(include_checkpoints=False)
         ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
-        self._checkpoint_allocations(ledger)
+        self._checkpoint_allocations(ledger, actual_bytes=checkpoint_bytes)
 
     def _metadata_records(self, *, include_checkpoints=True):
         recovery = self.state / "accounting.sqlite.recovery"
@@ -524,15 +577,16 @@ class Manager:
                 raise
             finally:
                 try:
-                    cache = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
+                    cache, working, checkpoints = self._local_occupancy()
                     records = self._metadata_records(include_checkpoints=False)
                     allocations = {"metadata_key": "local-journals-receipts", "actual_metadata_bytes": self._existing_bytes(p for p in records),
                         "actual_metadata_files": len(records)}
                     if nested and additional_peak and not (metadata_bytes or metadata_files):
                         allocations = {}  # The enclosing operation owns persistent control metadata.
                     if not nested:
-                        allocations.update(local_key="manager-working", actual_bytes=max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache),
+                        allocations.update(local_key="manager-working", actual_bytes=working,
                             kind="staging", cache_key="cache", actual_cache_bytes=cache)
+                        self._checkpoint_allocations(ledger, actual_bytes=checkpoints)
                     result = ledger.finish_working(ident, **allocations)
                     violations = [v for v in result["violations"] if not
                         (not metadata_bytes and not metadata_files and v.startswith("combined metadata")) and not
@@ -798,10 +852,10 @@ class Manager:
         ledger.reconcile_metadata("remote-catalog", catalog["metadata_bytes"], catalog["metadata_files"])
         records = self._metadata_records(include_checkpoints=False)
         ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
-        self._checkpoint_allocations(ledger)
-        cache_bytes = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
+        cache_bytes, working_bytes, checkpoint_bytes = self._local_occupancy()
+        self._checkpoint_allocations(ledger, actual_bytes=checkpoint_bytes)
         ledger.reconcile_local("cache", cache_bytes, "cache")
-        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache_bytes), "staging")
+        ledger.reconcile_local("manager-working", working_bytes, "staging")
         ledger.reconcile_quarantines(catalog.get("generation_quarantines", {}))
         ledger.reconcile_generation(catalog["generation"])
 
@@ -1193,7 +1247,7 @@ class Manager:
         if len(intent["entries"]) != len(refs):
             raise EvidenceError("deletion intent/reference association count mismatch")
         if not permanent:
-            self.prepare([ref for entry, ref in zip(intent["entries"], refs) if not entry["done"]])
+            self.prepare([ref for entry, ref in zip(intent["entries"], refs) if not entry["done"]], reverify_durable=True)
         for entry, ref in zip(intent["entries"], refs):
             if (entry["sha256"], entry["size"]) != (ref["sha256"], ref["size"]):
                 raise EvidenceError("deletion intent does not identify the verified original bytes")
@@ -1217,21 +1271,73 @@ class Manager:
             if journal.name.startswith("archive-"):
                 ledger.reconcile_local("source:" + journal.stem.removeprefix("archive-"), 0)
 
-    def prepare(self, refs, *, catalog=None):
-        """Reuse one verified shared pack within this invocation, then remove staging."""
-        self._session_pack = None
-        try:
-            with tempfile.TemporaryDirectory(dir=self.staging, prefix="verified-pack-") as temp:
-                self._session_path = Path(temp).resolve()
-                return self._prepare(refs, catalog=catalog)
-        finally:
-            self._preparing.clear()
-            self._session_pack = None
-            from .accounting import Accounting
-            with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-                self._local_records(ledger)
+    def prepare(self, refs, *, catalog=None, reverify_durable=False):
+        """Serialize cache mutation; reuse freshly verified objects without replacement.
 
-    def _prepare(self, refs, *, catalog=None):
+        Deletion callers explicitly retain independent durable payload readback.
+        Ordinary reuse still checks current catalog, closure and remote identity.
+        """
+        with self.locked():
+            self._session_pack = None
+            try:
+                with tempfile.TemporaryDirectory(dir=self.staging, prefix="verified-pack-") as temp:
+                    self._session_path = Path(temp).resolve()
+                    return self._prepare(refs, catalog=catalog, reverify_durable=reverify_durable)
+            finally:
+                self._preparing.clear()
+                self._session_pack = None
+                from .accounting import Accounting
+                with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                    self._local_records(ledger)
+
+    @staticmethod
+    def _cache_object_info(target):
+        try:
+            info = target.lstat()
+        except FileNotFoundError:
+            return None
+        if _is_link(info):
+            raise EvidenceError("linked cache object")
+        if not stat.S_ISREG(info.st_mode):
+            raise EvidenceError("special file in evidence cache object")
+        return info
+
+    def _missing_object_aliases(self, target):
+        # Source views retain a digest-named blob as well as their logical links.
+        # Even a malformed/unregistered digest-named file is retained, never
+        # interpreted as authority to rebuild or delete a source view.
+        return [path for path in self._workspace_records(self.cache)
+            if path != target and path.name == target.name]
+
+    def _prepared_cache_resolver(self, ref, supplied, catalog, *, reverify_durable):
+        from .resolver import EvidenceResolver, payload_references, JSON_LIMIT
+        target = self.cache / "objects" / ref["sha256"]
+        if ref["schema"] not in ("evidence-bytes-v1", "archive-attachment-v1"):
+            try:
+                if hash_file(target) != (ref["sha256"], ref["size"]):
+                    return None, "prepared original bytes hash/size mismatch"
+                nested = list(payload_references(read_json(target, min(JSON_LIMIT,
+                    self.limits["metadata_stop_bytes"])), ref["schema"]))
+            except ValueError as error:
+                return None, str(error)
+            for dependency in nested:
+                self._prepare([dependency], catalog=catalog, reverify_durable=reverify_durable)
+        try:
+            # A new resolver hashes current bytes and validates ordinary receipt,
+            # exact reference/bindings, verified archive and dependency closure.
+            resolver = EvidenceResolver(self.cache)
+            resolver.resolve(ref)
+            resolver.resolve(supplied)
+            return resolver, None
+        except ValueError as error:
+            return None, str(error)
+
+    @staticmethod
+    def _shared_rebuild_required(target, problem):
+        raise EvidenceError("cache object has retained source aliases; explicit source-view rebuild required before replacement: "
+            + str(target) + "; " + str(problem))
+
+    def _prepare(self, refs, *, catalog=None, reverify_durable=False):
         """Network and cache writes live here, never in the checker."""
         from .resolver import payload_references, JSON_LIMIT
         catalog = catalog if catalog is not None else self._catalog()
@@ -1256,7 +1362,7 @@ class Manager:
             if not matching:
                 raise EvidenceError("reference is missing/mismatched in authoritative durable catalog")
             for dependency in ref.get("dependencies", []):
-                self._prepare([dependency], catalog=catalog)
+                self._prepare([dependency], catalog=catalog, reverify_durable=reverify_durable)
             locator = ref["locator"]
             segments = locator.get("segments") or [{**locator, "offset": 0, "length": ref["size"], "sha256": ref["sha256"]}]
             packs = []
@@ -1265,19 +1371,48 @@ class Manager:
                 if pack is None or pack["locator"]["object_id"] != seg["object_id"] or pack["size"] != seg["pack_size"]:
                     raise EvidenceError("archive object identity closure mismatch")
                 packs.append(pack)
+            target = objects / ref["sha256"]
+            existing = self._cache_object_info(target)
+            reusable = None
+            if existing is not None:
+                reusable, problem = self._prepared_cache_resolver(ref, supplied, catalog,
+                    reverify_durable=reverify_durable)
+                current = self._cache_object_info(target)
+                if reusable is None and (current is not None and current.st_nlink > 1 or
+                        self._missing_object_aliases(target)):
+                    self._shared_rebuild_required(target, problem)
+            elif self._missing_object_aliases(target):
+                self._shared_rebuild_required(target, "canonical object is missing while digest-named aliases remain")
+            if reusable is not None and not reverify_durable:
+                for pack in packs:
+                    actual = self._transport_call("stat", pack["locator"])
+                    if (actual["object_id"], actual["size"]) != (pack["locator"]["object_id"], pack["size"]):
+                        raise EvidenceError("durable archive object identity/size changed before cache reuse")
+                self._capacity(0)
+                if self._cache_bytes() > self.limits["cache_stop_bytes"]:
+                    raise EvidenceError("bounded evidence cache full; explicitly evict replaceable cache bytes")
+                # Detect replacement/mutation during current-identity/capacity
+                # checks; never refresh an already accepted resolver baseline.
+                reusable.resolve(ref)
+                reusable.resolve(supplied)
+                self._preparing.remove(supplied["artifact_id"])
+                continue
             if self._session_pack is not None and any(pack["sha256"] != self._session_pack["sha256"] for pack in packs):
                 shutil.rmtree(self._session_path / "members")
                 self._session_pack = None
             peak = ref["size"] + max((pack["size"] + pack["original_bytes"] for pack in packs
                 if self._session_pack is None or pack["sha256"] != self._session_pack["sha256"]), default=0)
             self._capacity(peak)
-            cache_bytes = self._existing_bytes(p for p in objects.iterdir() if p.is_file())
-            if cache_bytes + (0 if (objects / ref["sha256"]).exists() else ref["size"]) > self.limits["cache_stop_bytes"]:
-                raise EvidenceError("bounded evidence cache full; explicitly evict replaceable cache bytes")
             proofs, offset = [], 0
-            receipt_peak = (local_json_size(ref) + local_json_size(aliases) + len(segments) * 1024 + 4096) * 2
+            receipt_peak = 0 if reusable is not None else (local_json_size(ref) + local_json_size(aliases) + len(segments) * 1024 + 4096) * 2
+            existing = self._cache_object_info(target)
+            if reusable is None and existing is not None and existing.st_nlink > 1:
+                self._shared_rebuild_required(target, "aliases appeared before preparation")
+            cache_growth = 0 if reusable is not None else max(0, ref["size"] - (existing.st_size if existing else 0)) + receipt_peak
+            if self._cache_bytes() + cache_growth > self.limits["cache_stop_bytes"]:
+                raise EvidenceError("bounded evidence cache full; explicitly evict replaceable cache bytes")
             with self._working(peak + receipt_peak, metadata_bytes=receipt_peak, metadata_files=0 if (receipts / (ref["artifact_id"] + ".json")).exists() else 1,
-                cache_bytes=0 if (objects / ref["sha256"]).exists() else ref["size"]), tempfile.TemporaryDirectory(dir=self.staging, prefix="prepare-") as temp:
+                cache_bytes=cache_growth), tempfile.TemporaryDirectory(dir=self.staging, prefix="prepare-") as temp:
                 temp = Path(temp).resolve()
                 whole = temp / "whole"
                 with whole.open("xb") as output:
@@ -1318,18 +1453,26 @@ class Manager:
                         offset += member["size"]
                 if hash_file(whole) != (ref["sha256"], ref["size"]):
                     raise EvidenceError("reassembled original hash or length mismatch")
-                target = objects / ref["sha256"]
-                if target.is_symlink():
-                    raise EvidenceError("linked cache object")
-                whole.replace(target)
-                receipt = {**ref, "verified_archive": proofs}
-                if aliases:
-                    receipt["original_references"] = aliases
-                atomic_json(receipts / (ref["artifact_id"] + ".json"), receipt)
+                current = self._cache_object_info(target)
+                if reusable is not None:
+                    reusable.resolve(ref)
+                    reusable.resolve(supplied)
+                    # Independent durable readback succeeded; keep the verified
+                    # canonical inode and receipt, including all retained links.
+                else:
+                    if current is not None and current.st_nlink > 1:
+                        self._shared_rebuild_required(target, "aliases appeared during preparation")
+                    if current is None and self._missing_object_aliases(target):
+                        self._shared_rebuild_required(target, "canonical object disappeared while aliases remain")
+                    whole.replace(target)
+                    receipt = {**ref, "verified_archive": proofs}
+                    if aliases:
+                        receipt["original_references"] = aliases
+                    atomic_json(receipts / (ref["artifact_id"] + ".json"), receipt)
             if ref["schema"] not in ("evidence-bytes-v1", "archive-attachment-v1"):
                 value = read_json(target, min(JSON_LIMIT, self.limits["metadata_stop_bytes"]))
                 for nested in payload_references(value, ref["schema"]):
-                    self._prepare([nested], catalog=catalog)
+                    self._prepare([nested], catalog=catalog, reverify_durable=reverify_durable)
             self._preparing.remove(supplied["artifact_id"])
         return self.cache
 
@@ -1799,6 +1942,66 @@ class Manager:
             actions.append(action)
         return actions
 
+    def _evict_cache(self, ref, *, dry_run):
+        """Never remove another link's canonical object or claim its bytes freed."""
+        target = self.cache / "objects" / ref["sha256"]
+        def retained(info):
+            return {"artifact_id": ref["artifact_id"], "action": "retain-cache-aliases", "dry_run": dry_run,
+                "retained_bytes": info.st_size, "freed_bytes": 0, "other_link_count": info.st_nlink - 1,
+                "remaining_cache_bytes": self._cache_bytes(),
+                "occupancy_scope": "distinct regular inode lengths under owned cache; not logical membership or allocated disk blocks",
+                "reason": "retained aliases require explicit source-view rebuild/removal before cache eviction; other link ownership is unknown"}
+        info = self._cache_object_info(target)
+        if info is None:
+            aliases = self._missing_object_aliases(target)
+            if aliases:
+                return {"artifact_id": ref["artifact_id"], "action": "retain-cache-aliases", "dry_run": dry_run,
+                    "canonical_missing": True, "retained_bytes": self._occupancy_bytes(aliases), "freed_bytes": 0,
+                    "remaining_cache_bytes": self._cache_bytes(),
+                    "occupancy_scope": "distinct regular inode lengths under owned cache; digest-named orphan paths conservatively retained",
+                    "reason": "canonical object is missing; retained digest-named aliases require explicit source-view rebuild"}
+            return None
+        if info.st_nlink > 1:
+            return retained(info)
+        released_bytes = 0
+        if not dry_run:
+            # Fresh ordinary reuse must not substitute for destructive cleanup's
+            # independent current durable original-byte readback.
+            self.prepare([ref], reverify_durable=True)
+            if hash_file(target) != (ref["sha256"], ref["size"]):
+                raise EvidenceError("cache changed before eviction")
+            path, descriptor, before = _open_regular(target)
+            try:
+                _verify_stable(path, descriptor, before)
+                if before.st_nlink > 1:
+                    return retained(before)
+                if os.name == "nt":
+                    # The Windows stable-read handle intentionally denies delete
+                    # sharing. Release it only after verification, then repeat
+                    # the regular-inode/link-count guard under manager ownership.
+                    os.close(descriptor)
+                    descriptor = None
+                    current = self._cache_object_info(path)
+                    if current is None or (current.st_dev, current.st_ino, current.st_size) != (before.st_dev, before.st_ino, before.st_size):
+                        raise EvidenceError("cache changed before eviction")
+                    if current.st_nlink > 1:
+                        return retained(current)
+                path.unlink()
+                if path.exists() or path.is_symlink():
+                    raise EvidenceError("cache deletion failed: " + str(path))
+                if descriptor is not None and os.fstat(descriptor).st_nlink:
+                    raise EvidenceError("cache alias appeared during eviction; retained bytes require explicit source-view rebuild")
+                released_bytes = before.st_size
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
+                from .accounting import Accounting
+                with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                    self._local_records(ledger)
+        return {"artifact_id": ref["artifact_id"], "action": "evict-cache", "dry_run": dry_run,
+            "freed_bytes": released_bytes, "remaining_cache_bytes": self._cache_bytes(),
+            "occupancy_scope": "distinct regular inode lengths under owned cache; not allocated disk blocks"}
+
     def cleanup(self, *, now=None, dry_run=True, expire=False, protected_refs=(), reference_snapshot_complete=False):
         now = now or datetime.now(timezone.utc)
         with self.locked():
@@ -1866,16 +2069,9 @@ class Manager:
                     retired.append(ref["artifact_id"])
                     results.append({"artifact_id": ref["artifact_id"], "action": "retire", "dry_run": dry_run})
                 else:
-                    path = self.cache / "objects" / ref["sha256"]
-                    if path.exists() or path.is_symlink():
-                        # Cache is replaceable only after independently reading the durable copy now.
-                        if not dry_run:
-                            self.prepare([ref])
-                            hash_file(path)
-                            path.unlink()
-                            if path.exists() or path.is_symlink():
-                                raise EvidenceError("cache deletion failed: " + str(path))
-                        results.append({"artifact_id": ref["artifact_id"], "action": "evict-cache", "dry_run": dry_run})
+                    action = self._evict_cache(ref, dry_run=dry_run)
+                    if action is not None:
+                        results.append(action)
             if retired and not dry_run:
                 remaining = {k: v for k, v in catalog["refs"].items() if k not in retired}
                 used_packs = {seg["pack_sha256"] for ref in remaining.values() for seg in (ref["locator"].get("segments") or [ref["locator"]])}
@@ -1920,14 +2116,13 @@ class Manager:
                     for ref in catalog["refs"].values():
                         if now - timestamp(ref["retention"]["sealed_at"]) < timedelta(days=self.policy["retention"]["local_days"]):
                             continue
-                        path = self.cache / "objects" / ref["sha256"]
-                        if path.exists() or path.is_symlink():
-                            self.prepare([ref])
-                            if hash_file(path) != (ref["sha256"], ref["size"]):
-                                raise EvidenceError("cache changed before final eviction")
-                            path.unlink()
-                            if path.exists() or path.is_symlink():
-                                raise EvidenceError("final cache eviction failed: " + str(path))
+                        action = self._evict_cache(ref, dry_run=False)
+                        if action is not None and not any(item.get("artifact_id") == action["artifact_id"] and
+                                item["action"] == action["action"] for item in results):
+                            results.append(action)
+                from .accounting import Accounting
+                with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                    self._local_records(ledger)
             return results
 
     def _resume_pruning(self, catalog, intent, journal, results):

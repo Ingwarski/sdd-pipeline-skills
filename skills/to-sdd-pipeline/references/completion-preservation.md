@@ -72,6 +72,21 @@ Also supply `execution_inputs`, mapping relevant code/test/configuration/depende
 
 Use Python 3.12+ and the bundled `scripts/sdd_history.py` with `--project PROJECT`. For storage-backed evidence, prepare verified original bytes using the [storage contract](evidence-storage-contract.md), then pass the global `--evidence-cache PATH` before the command, as with the checker. History retains external references, compact receipts and source snapshots without copying archived bulky evidence into Git. Missing prepared originals, dependency closure or required accounting block accepted history. Migration may preserve unavailable legacy references as unverified history; they require genuine current revalidation. Storage and history preserve existing authority only.
 
+Frozen source payloads may use an optional `source_archive_index_ref` pointing to
+an immutable `unit_source_archive_index`. It binds original record references,
+snapshot roots, paths and hashes to ordinary managed evidence references; it
+never rewrites original contexts, attempts or results. `create-source-archive-index --mapping FILE` accepts the reviewed mapping. Its optional `--encoding sha_objects_v1`
+stores one exact reference per SHA while retaining every logical source member.
+Use explicit `prepare-source-views --index-ref REF_JSON --max-bytes N --max-files N`
+to materialize bounded external views before checking; the checker never prepares
+or fetches them. Default `private_copy` views use independent verified payload
+inodes. Explicit `--view-strategy shared_cache_links` avoids duplicate payload
+allocation using verified cache hardlinks, followed by fresh integrity checks.
+Shared views cannot claim private-copy isolation: retain their referenced cache
+objects, account physical occupancy once and logical generation separately, and
+fail on missing or changed bytes. Neither mode establishes test execution or
+completion. Reserve measured preparation capacity before either operation.
+
 Its commands are:
 
 - `capture-context --unit ID --inventory reviewed.json`: returns the pre-start reference; index it in `execution_contexts` before the normal checker start boundary.

@@ -758,12 +758,12 @@ class Checker:
             raise ValueError("path escapes project: " + relative)
         if observation and hasattr(self, "_history_observation_overlay"):
             reference = self._history_observation_overlay.get(relative)
-            destination = reference["path"] if reference else self._history_observation_snapshot_root + "/" + relative
-            return history_api().physical(self.project, destination)
+            return history_api().source_view_path(self.project, self._history_observation_snapshot_root,
+                                                  self._history_observation_overlay, relative, getattr(self, "_history_source_archive", None))
         if hasattr(self, "_history_overlay"):
             reference = self._history_overlay.get(relative)
-            destination = reference["path"] if reference else self._history_snapshot_root + "/" + relative
-            return history_api().physical(self.project, destination)
+            return history_api().source_view_path(self.project, self._history_snapshot_root,
+                                                  self._history_overlay, relative, getattr(self, "_history_source_archive", None))
         resolved = (self.project / relative).resolve()
         if not resolved.is_relative_to(self.project):
             raise ValueError("link escapes project: " + relative)
@@ -789,6 +789,9 @@ class Checker:
     def file_hash(self, path):
         """Memoize stable regular files; any later mutation blocks this invocation."""
         path = Path(path)
+        prepared = history_api().source_view_hash(path, getattr(self, "_history_source_archive", None))
+        if prepared is not None:
+            return prepared
         owner = getattr(self, "_history_hash_owner", None)
         if owner is not None and owner.depth and path in owner.hashes:
             return owner.file_hash(path)

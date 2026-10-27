@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from functools import wraps
 import hashlib
 import importlib.util
+import inspect
+import shutil
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -22,16 +24,20 @@ import subprocess
 import sys
 import uuid
 
-from evidence.resolver import EvidenceResolver, INACTIVE_HISTORY_KEYS, evidence_reference, validate_reference
+from evidence.resolver import EvidenceResolver, INACTIVE_HISTORY_KEYS, evidence_reference, validate_reference, _regular, JSON_LIMIT
+from evidence.io import safe_relative, _parents, _open_regular, _verify_stable, hash_file
 
 VERSION = 2
 CONTRACT = "sdd-unit-history-v2"
 HISTORY = "forge/unit-history"
 REF_KEYS = {"path", "content_hash"}
+SOURCE_INDEX_MAX_BYTES = 64 * 1024 * 1024  # Native read_ref/read_json consumer ceiling.
+SOURCE_VIEW_RECEIPT_MAX_BYTES = JSON_LIMIT  # Ordinary prepared _json consumer ceiling.
 EXECUTION_KEYS = {"execution_status", "executor", "executed_at", "evidence", "execution_mode", "evaluated_plan_hash", "evaluated_source_hashes", "evaluated_execution_inputs", "findings", "rationale", "source_inventory_ref", "revalidation_ref", "run_id", "runtime_observation_ref"}
-V2_KEYS = {"execution_contexts", "completion_ref", "applicability_ref", "unit_history", "completion_history", "legacy_history", "evaluated_execution_inputs", "context_ref", "attempt_ref", "attempt_history", "prior_attempt_ref"}
+V2_KEYS = {"execution_contexts", "completion_ref", "applicability_ref", "unit_history", "completion_history", "legacy_history", "evaluated_execution_inputs", "context_ref", "attempt_ref", "attempt_history", "prior_attempt_ref", "source_archive_index_ref"}
 _snapshot_hash_owner = ContextVar("sdd_history_snapshot_hash_owner", default=None)
 _checker_audit_lease = ContextVar("sdd_history_checker_audit_lease", default=None)
+_source_archive = ContextVar("sdd_history_source_archive", default=None)
 
 
 @contextmanager
@@ -68,7 +74,9 @@ def snapshot_hash_scope(owner=None, *, audit=False):
 @contextmanager
 def _checker_run_hash_scope(checker):
     """An unexported, expiring lease backed by a mandatory checker-end audit."""
-    with snapshot_hash_scope(getattr(checker, "_history_hash_owner", None), audit=True) as owner:
+    with source_archive_scope(checker.project, getattr(checker, "_history_source_archive_index_ref",
+                              checker._source_manifest.get("source_archive_index_ref")),
+                              checker.evidence_resolver.cache), snapshot_hash_scope(getattr(checker, "_history_hash_owner", None), audit=True) as owner:
         lease = {"checker": checker, "owner": owner, "active": True}
         token = _checker_audit_lease.set(lease)
         try:
@@ -79,9 +87,30 @@ def _checker_run_hash_scope(checker):
 
 
 def snapshot_hash_invocation(function):
+    return source_archive_invocation(_snapshot_hash_invocation(function))
+
+
+def _snapshot_hash_invocation(function):
     @wraps(function)
     def scoped(*args, **kwargs):
         with snapshot_hash_scope():
+            return function(*args, **kwargs)
+    return scoped
+
+
+def source_archive_invocation(function):
+    signature = inspect.signature(function)
+    @wraps(function)
+    def scoped(*args, **kwargs):
+        explicit = kwargs.pop("source_archive_index_ref", None)
+        values = signature.bind(*args, **kwargs).arguments
+        manifest = values.get("candidate_manifest", values.get("candidate", values.get("manifest", {})))
+        if function.__name__ == "activate_candidate":
+            manifest = read_ref(values["project"], values["candidate_ref"])["manifest"]
+        reference = explicit
+        if reference is None and _source_archive.get() is None:
+            reference = manifest.get("source_archive_index_ref") if isinstance(manifest, dict) else None
+        with source_archive_scope(values.get("project"), reference, values.get("evidence_cache")):
             return function(*args, **kwargs)
     return scoped
 
@@ -222,6 +251,9 @@ def store_record(project, kind, record, directory=None):
 
 def snapshot_or_file_hash(checker, path):
     """Reuse registered snapshots only; other inventory reads retain their behavior."""
+    prepared = source_view_hash(path, getattr(checker, "_history_source_archive", None))
+    if prepared is not None:
+        return prepared
     owner = getattr(checker, "_history_hash_owner", None)
     if owner is not None and owner.depth and path in owner.hashes:
         return checker.file_hash(path)
@@ -481,18 +513,447 @@ def freeze_files(project, manifest, directory, execution_inputs=None, *, checker
     return files
 
 
+
+SOURCE_ARCHIVE_EVENTS = frozenset({"unit_execution_context", "unit_completion", "unit_attempt", "legacy_execution_archive"})
+
+
+class SourceArchive:
+    """One explicitly selected native index; original envelopes always stay local."""
+    def __init__(self, project, reference, evidence_cache, *, _document=None):
+        self.project, self.reference = Path(project).resolve(), copy.deepcopy(reference)
+        self.resolver = EvidenceResolver(evidence_cache)
+        require(self.resolver.cache is not None and not self.resolver.cache.resolve().is_relative_to(self.project),
+                "source archive requires prepared evidence cache outside the repository")
+        self.record = read_ref(project, reference) if _document is None else copy.deepcopy(_document)
+        require(isinstance(self.record, dict), "native source archive index object required")
+        required = {"event", "version", "records"}
+        require(required <= set(self.record) <= required | {"view_strategy", "encoding", "objects"}
+                and self.record["event"] == "unit_source_archive_index"
+                and type(self.record["version"]) is int and self.record["version"] == 1,
+                "unsupported native source archive index")
+        self.view_strategy = self.record.get("view_strategy", "private_copy")
+        self.encoding = self.record.get("encoding", "inline")
+        require(self.view_strategy in ("private_copy", "shared_cache_links"), "unsupported source view strategy")
+        require(self.encoding in ("inline", "sha_objects_v1"), "unsupported source archive encoding")
+        objects = self.record.get("objects", {})
+        require((self.encoding == "sha_objects_v1") == ("objects" in self.record),
+                "compact source archive requires its objects table exclusively")
+        require(isinstance(objects, dict) and (objects or self.encoding == "inline"), "compact source objects required")
+        for key, ref in objects.items():
+            require(isinstance(key, str) and re.fullmatch(r"[a-f0-9]{64}", key), "invalid compact source object key")
+            validate_reference(ref)
+            require(ref["sha256"] == key and ref["schema"] == "evidence-bytes-v1",
+                    "compact source object hash/schema mismatch")
+        used_objects = set()
+        entries = self.record["records"]
+        require(isinstance(entries, list) and entries and len(entries) <= 100000, "bounded source archive records required")
+        self.originals, self.sources, self.views = {}, {}, {}
+        self.view_memos, self.private_blobs, self.view_files = {}, {}, {}
+        self.active_scopes, self.membership = 0, set()
+        for entry in entries:
+            require(isinstance(entry, dict) and set(entry) == {"record_ref", "snapshot_root", "sources"}, "invalid source archive record binding")
+            original = read_ref(project, entry["record_ref"])
+            require(original.get("event") in SOURCE_ARCHIVE_EVENTS and original.get("version") == VERSION,
+                    "source archive requires original native history envelope")
+            root = entry["snapshot_root"]
+            safe_relative(root)
+            require(root.startswith(HISTORY + "/") and root == original.get("snapshot_root"), "changed source archive snapshot root")
+            require(root not in self.originals, "duplicate source archive snapshot root")
+            require(isinstance(original.get("files"), dict), "original snapshot membership required")
+            self.originals[root] = original
+            files = original["files"]
+            for logical, frozen in files.items():
+                safe_relative(logical)
+                require(isinstance(frozen, dict) and set(frozen) == REF_KEYS and frozen["path"] == root + "/" + logical,
+                        "original snapshot path must preserve literal logical identity")
+            self.membership.update((logical, frozen["path"], frozen["content_hash"]) for logical, frozen in files.items())
+            literal_files = {frozen["path"]: frozen for frozen in files.values()}
+            require(isinstance(entry["sources"], list) and entry["sources"], "source archive mappings required")
+            mapped_paths = set()
+            for item in entry["sources"]:
+                keys = {"path", "content_hash", "object_key"} if self.encoding == "sha_objects_v1" else {"path", "content_hash", "evidence_ref"}
+                require(isinstance(item, dict) and set(item) == keys, "invalid source archive mapping")
+                if self.encoding == "sha_objects_v1":
+                    key = item["object_key"]
+                    require(isinstance(key, str) and key in objects, "missing compact source object")
+                    source = {"path": item["path"], "content_hash": item["content_hash"], "evidence_ref": objects[key]}
+                    used_objects.add(key)
+                else:
+                    source = item
+                frozen = {key: source[key] for key in REF_KEYS}
+                safe_relative(source["path"])
+                require(same(frozen, literal_files.get(source["path"])), "foreign source archive membership or changed original hash")
+                require(source["path"] not in self.sources, "duplicate source archive mapping")
+                ref = validate_reference(source["evidence_ref"])
+                require(ref["schema"] == "evidence-bytes-v1" and api().hash_matches(source["content_hash"], ref["sha256"]),
+                        "source archive original hash/schema mismatch")
+                self.sources[source["path"]] = copy.deepcopy(source)
+                mapped_paths.add(source["path"])
+            if self.encoding == "sha_objects_v1" or self.view_strategy == "shared_cache_links":
+                require(mapped_paths == set(literal_files), "complete source archive membership required for compact/shared views")
+        require(used_objects == set(objects), "unused or foreign compact source objects")
+
+    def source_inventory(self):
+        references, contents = set(), {}
+        dependencies = False
+        for source in self.sources.values():
+            ref = source["evidence_ref"]
+            references.add(ref["artifact_id"])
+            require(ref["sha256"] not in contents or contents[ref["sha256"]] == ref["size"],
+                    "source archive content hash has conflicting declared sizes")
+            contents[ref["sha256"]] = ref["size"]
+            dependencies = dependencies or bool(ref.get("dependencies"))
+        return {"mapping_count": len(self.sources), "unique_refs": len(references),
+                "unique_sha256": len(contents), "declared_unique_bytes": sum(contents.values()),
+                "declared_dependencies_present": dependencies,
+                "reference_count_scope": "direct source references; dependencies retain ordinary resolver validation"}
+
+    def audit(self):
+        require(same(read_ref(self.project, self.reference), self.record), "source archive index changed during validation")
+        self.audit_inputs()
+
+    def audit_inputs(self):
+        for entry in self.record["records"]:
+            require(same(read_ref(self.project, entry["record_ref"]), self.originals[entry["snapshot_root"]]),
+                    "source archive original envelope changed during validation")
+        for ref in tuple(self.resolver.references.values()):
+            self.resolver.resolve(ref)
+        for key, descriptor in tuple(self.views.items()):
+            require(same(descriptor[1], self.view_memos[key][1]), "source view overlay changed during validation")
+            self.validate_view(*descriptor, force=True)
+
+    def source(self, frozen):
+        source = self.sources.get(frozen["path"])
+        if source is None:
+            return physical(self.project, frozen["path"])
+        require(same({key: source[key] for key in REF_KEYS}, frozen), "source archive path/hash binding changed")
+        return self.resolver.resolve(source["evidence_ref"])
+
+    def directories(self, root, files):
+        """Recover only membership actually recorded by native source metadata."""
+        require(root in self.originals, "source view root is not indexed")
+        directories = set()
+        for logical in files:
+            safe_relative(logical)
+            directories.update(str(parent) for parent in PurePosixPath(logical).parents if str(parent) != ".")
+        inventory = self.originals[root].get("input_inventory", {}).get("execution_fingerprints", {})
+        for logical, selection in inventory.items():
+            if selection.get("mode") == "tree" and selection.get("exists"):
+                safe_relative(logical)
+                directories.add(logical)
+                directories.update(str(parent) for parent in PurePosixPath(logical).parents if str(parent) != ".")
+                for member in selection.get("members", {}):
+                    if member.endswith("/"):
+                        name = logical + "/" + member[:-1]
+                        safe_relative(name)
+                        directories.add(name)
+        return sorted(directories)
+
+    def descriptor(self, root, files):
+        directories = self.directories(root, files)
+        # Every overlay source must be the literal member of a bound original.
+        for logical, frozen in files.items():
+            require((logical, frozen["path"], frozen["content_hash"]) in self.membership,
+                    "source view has foreign original membership")
+        return {"snapshot_root": root, "files": files, "directories": directories}
+
+    def view_receipt(self, descriptor):
+        receipt = {"event": "unit_source_view", "version": 1, "index_ref": self.reference, "view": descriptor}
+        if "view_strategy" in self.record:
+            receipt["view_strategy"] = self.view_strategy
+        return receipt
+
+    def location(self, descriptor):
+        key = sha(encoded(descriptor))
+        return self.cache_path("source-views/" + self.reference["content_hash"] + "/views/" + key)
+
+    def cache_path(self, relative):
+        safe_relative(relative)
+        path = self.resolver.cache / relative
+        _parents(self.resolver.cache / ".source-view-parent-check")
+        current = self.resolver.cache
+        for part in PurePosixPath(relative).parts:
+            current /= part
+            if current.exists() or current.is_symlink():
+                require(not api().is_link(current), "source view cannot follow links")
+        return path
+
+    def view_blob_signature(self, blob, source):
+        signature, original = _regular(blob), _regular(source)
+        if self.view_strategy == "shared_cache_links":
+            require(signature == original, "shared source view blob must be the verified ordinary source inode")
+        else:
+            require(signature[:2] != original[:2],
+                    "source view private blob must be independent of the ordinary source object")
+        return signature
+
+    def validate_view(self, root, files, *, force=False):
+        key = (root, id(files))
+        prior = self.view_memos.get(key)
+        if prior is not None and not force:
+            tree, original_files = prior
+            require(len(files) == len(original_files), "source view overlay membership changed")
+            return tree
+        descriptor = self.descriptor(root, files)
+        directory = self.location(descriptor)
+        require(directory.is_dir() and not api().is_link(directory), "complete prepared source view required; run prepare-source-views")
+        receipt = self.resolver._json(directory / "receipt.json")
+        require(same(receipt, self.view_receipt(descriptor)),
+                "prepared source view receipt/index mismatch")
+        require({path.name for path in directory.iterdir()} == {"receipt.json", "files"}, "source view directory membership changed")
+        tree = directory / "files"
+        require(tree.is_dir() and not api().is_link(tree), "prepared source view tree required")
+        actual_files, actual_dirs = set(), set()
+        for parent, dirs, names in os.walk(tree, followlinks=False):
+            for name in dirs + names:
+                path = Path(parent) / name
+                require(not api().is_link(path), "source view cannot follow links")
+                relative = path.relative_to(tree).as_posix()
+                if path.is_dir():
+                    actual_dirs.add(relative)
+                else:
+                    require(path.is_file(), "source view must contain regular files only")
+                    actual_files.add(relative)
+        require(actual_files == set(files) and actual_dirs == set(descriptor["directories"]), "source view directory membership changed")
+        for logical, frozen in files.items():
+            source = self.source(frozen)  # Revalidates cache receipt and bytes, even with a complete view.
+            source_ref = self.sources.get(frozen["path"])
+            expected = ((source_ref["evidence_ref"]["sha256"], source_ref["evidence_ref"]["size"])
+                        if source_ref else hash_file(source))
+            blob = self.cache_path("source-views/" + self.reference["content_hash"] + "/blobs/" + expected[0])
+            signature = self.view_blob_signature(blob, source)
+            if blob not in self.private_blobs:
+                # Shared mode proves the same inode/signature as the freshly
+                # resolved ordinary original, whose hash/size was just checked.
+                actual = expected if self.view_strategy == "shared_cache_links" else hash_file(blob)
+                self.private_blobs[blob] = (signature, actual)
+            saved, actual = self.private_blobs[blob]
+            require(signature == saved and _regular(blob) == saved and actual == expected
+                    and api().hash_matches(frozen["content_hash"], actual[0]) and _regular(tree / logical) == saved,
+                    "prepared source view hash/size/private-link mismatch: " + logical)
+            self.view_files[tree / logical] = (blob, saved, actual[0], source)
+        self.views[key] = (root, files)
+        self.view_memos[key] = (tree, copy.deepcopy(files))
+        return tree
+
+
+@contextmanager
+def source_archive_scope(project, reference=None, evidence_cache=None):
+    active = _source_archive.get()
+    if active is not None:
+        require(project is None or Path(project).resolve() == active.project, "conflicting source archive project scope")
+        require(reference is None or same(reference, active.reference), "conflicting source archive index scope")
+        yield active
+        return
+    archive = SourceArchive(project, reference, evidence_cache) if reference is not None else None
+    token = _source_archive.set(archive)
+    if archive is not None:
+        archive.active_scopes += 1
+    try:
+        yield archive
+        if archive is not None:
+            archive.audit()
+    finally:
+        if archive is not None:
+            archive.active_scopes -= 1
+        _source_archive.reset(token)
+
+
+def archived_source_path(project, frozen):
+    archive = _source_archive.get()
+    return archive.source(frozen) if archive is not None else physical(project, frozen["path"])
+
+
+def source_view_path(project, root, files, logical, archive=None):
+    archive = _source_archive.get() or archive
+    if archive is not None and root in archive.originals:
+        safe_relative(logical)
+        tree = archive.validate_view(root, files, force=not archive.active_scopes)
+        prior_files = archive.view_memos[(root, id(files))][1]
+        require(same(files.get(logical), prior_files.get(logical)), "source view overlay path changed")
+        path = archive.cache_path((tree / logical).relative_to(archive.resolver.cache).as_posix())
+        if logical in files:
+            source_path = archive.source(files[logical])
+            frozen = files[logical]
+            source = archive.sources.get(frozen["path"])
+            digest = source["evidence_ref"]["sha256"] if source else hash_file(archive.source(frozen))[0]
+            blob = archive.cache_path("source-views/" + archive.reference["content_hash"] + "/blobs/" + digest)
+            require(blob in archive.private_blobs and archive.view_blob_signature(blob, source_path) == archive.private_blobs[blob][0]
+                    and _regular(path) == archive.private_blobs[blob][0], "source view bytes/private-link changed")
+        return path
+    frozen = files.get(logical)
+    return physical(project, frozen["path"] if frozen else root + "/" + logical)
+
+
+
+def source_view_hash(path, archive=None):
+    """Only proven index-bound hardlinks can share their verified blob's digest."""
+    archive = _source_archive.get() or archive
+    if archive is None or Path(path) not in archive.view_files:
+        return None
+    blob, signature, digest, source = archive.view_files[Path(path)]
+    require(archive.view_blob_signature(blob, source) == signature and _regular(Path(path)) == signature,
+            "prepared source view bytes/private-link changed")
+    return digest
+
+
+def create_source_archive_index(project, records, *, evidence_cache=None, view_strategy="private_copy", encoding="inline"):
+    """Append validated metadata; explicit compact encoding preserves all aliases."""
+    require(view_strategy in ("private_copy", "shared_cache_links"), "unsupported source view strategy")
+    require(encoding in ("inline", "sha_objects_v1"), "unsupported source archive encoding")
+    document = {"event": "unit_source_archive_index", "version": 1, "records": copy.deepcopy(records)}
+    if view_strategy != "private_copy":
+        document["view_strategy"] = view_strategy
+    if encoding == "sha_objects_v1":
+        document["encoding"], document["objects"] = encoding, {}
+        require(isinstance(document["records"], list), "source archive record list required")
+        for entry in document["records"]:
+            require(isinstance(entry, dict) and isinstance(entry.get("sources"), list), "source archive mappings required")
+            compact = []
+            for source in entry["sources"]:
+                require(isinstance(source, dict) and set(source) == {"path", "content_hash", "evidence_ref"}, "full source mapping required for compact creation")
+                ref = validate_reference(source["evidence_ref"])
+                key = ref["sha256"]
+                require(key not in document["objects"] or same(document["objects"][key], ref),
+                        "conflicting compact source references for SHA " + key + "; reuse one exact ordinary reference for matching aliases")
+                document["objects"][key] = copy.deepcopy(ref)
+                compact.append({"path": source["path"], "content_hash": source["content_hash"], "object_key": key})
+            entry["sources"] = compact
+    data = encoded(document)
+    require(len(data) <= SOURCE_INDEX_MAX_BYTES,
+            "source archive index has " + str(len(data)) + " bytes; native consumer byte limit is " + str(SOURCE_INDEX_MAX_BYTES))
+    directory = HISTORY + "/source-indexes/" + uuid.uuid4().hex
+    reference = {"path": directory + "/record.json", "content_hash": sha(data)}
+    archive = SourceArchive(project, reference, evidence_cache, _document=document)
+    for source in archive.sources.values():
+        path = archive.source({key: source[key] for key in REF_KEYS})
+        require(api().hash_matches(source["content_hash"], hash_file(path)[0]), "source archive prepared bytes changed")
+        local = physical(project, source["path"])
+        if local.exists():
+            require(api().hash_matches(source["content_hash"], hash_file(local)[0]), "existing original snapshot is corrupt")
+    archive.audit_inputs()
+    return write_new(project, reference["path"], data)
+
+
+def prepare_source_views(project, index_ref, *, evidence_cache, max_bytes, max_files):
+    """Explicit bounded assembly; immutable index selects copy or shared links."""
+    require(_source_archive.get() is None and _snapshot_hash_owner.get() is None,
+            "prepare source views outside active read-only history validation")
+    require(type(max_bytes) is int and max_bytes >= 0 and type(max_files) is int and max_files >= 0,
+            "explicit source view byte/file capacity required")
+    archive = SourceArchive(project, index_ref, evidence_cache)
+    views = []
+    for root, original in archive.originals.items():
+        views.append((root, original["files"]))
+        if original.get("event") in ("unit_completion", "unit_attempt"):
+            context = read_ref(project, original["context_ref"])
+            require(context["snapshot_root"] in archive.originals, "prepare source views requires indexed pre-start context")
+            files = dict(original["files"])
+            for artifact in context["manifest"]["artifacts"].values():
+                if artifact["path"] in context["files"]:
+                    files[artifact["path"]] = context["files"][artifact["path"]]
+            views.append((root, files))
+    descriptors = {sha(encoded(archive.descriptor(root, files))): (root, files) for root, files in views}
+    sources = {}
+    logical_members = sum(len(files) for _, files in descriptors.values())
+    require(logical_members <= max_files, "source view logical file capacity exceeded")
+    for root, files in descriptors.values():
+        for frozen in files.values():
+            path = archive.source(frozen)
+            mapped = archive.sources.get(frozen["path"])
+            digest, size = ((mapped["evidence_ref"]["sha256"], mapped["evidence_ref"]["size"]) if mapped else hash_file(path))
+            require(api().hash_matches(frozen["content_hash"], digest), "original snapshot changed before source view preparation")
+            sources.setdefault(digest, (path, size))
+    receipts = {}
+    for key, (root, files) in descriptors.items():
+        data = encoded(archive.view_receipt(archive.descriptor(root, files)))
+        require(len(data) <= SOURCE_VIEW_RECEIPT_MAX_BYTES,
+                "source view receipt has " + str(len(data)) + " bytes; prepared consumer byte limit is "
+                + str(SOURCE_VIEW_RECEIPT_MAX_BYTES) + "; view=" + key)
+        receipts[key] = data
+    metadata = sum(len(data) for data in receipts.values())
+    source_bytes = sum(size for _, size in sources.values())
+    copied = 0 if archive.view_strategy == "shared_cache_links" else source_bytes
+    require(copied + metadata <= max_bytes, "source view unique byte/metadata capacity exceeded")
+    base = archive.cache_path("source-views/" + index_ref["content_hash"])
+    require(not base.exists(), "prepared source views already exist; validate or select a fresh cache")
+    require(shutil.disk_usage(archive.resolver.cache).free >= copied + metadata, "insufficient free space for source views")
+    base.mkdir(parents=True, exist_ok=False)
+    try:
+        blobroot = base / "blobs"
+        blobroot.mkdir()
+        for digest, (path, size) in sources.items():
+            if archive.view_strategy == "shared_cache_links":
+                _regular(path)
+                try:
+                    os.link(path, blobroot / digest)
+                except OSError as error:
+                    raise ValueError("source views require shared-cache hardlink support") from error
+            else:
+                source, descriptor, info = _open_regular(path)
+                try:
+                    with (blobroot / digest).open("xb") as output:
+                        with os.fdopen(os.dup(descriptor), "rb") as stream:
+                            shutil.copyfileobj(stream, output, 1024 * 1024)
+                    _verify_stable(source, descriptor, info)
+                finally:
+                    os.close(descriptor)
+                require(hash_file(blobroot / digest) == (digest, size), "source changed during view copy")
+        for key, (root, files) in descriptors.items():
+            descriptor = archive.descriptor(root, files)
+            destination = archive.location(descriptor)
+            tree = destination / "files"
+            tree.mkdir(parents=True)
+            for relative in descriptor["directories"]:
+                (tree / relative).mkdir(parents=True, exist_ok=True)
+            for logical, frozen in files.items():
+                mapped = archive.sources.get(frozen["path"])
+                source_digest = mapped["evidence_ref"]["sha256"] if mapped else hash_file(archive.source(frozen))[0]
+                try:
+                    origin = sources[source_digest][0] if archive.view_strategy == "shared_cache_links" else blobroot / source_digest
+                    _regular(origin)
+                    os.link(origin, tree / logical)
+                except OSError as error:
+                    raise ValueError("source views require regular hardlink support for " + archive.view_strategy + "; no unbounded copy fallback") from error
+            with (destination / "receipt.json").open("xb") as output:
+                output.write(receipts[key])
+        # Link assembly deliberately changes ctime/nlink. Discard all pre-link
+        # evidence and view memos, then independently resolve bytes and receipts
+        # with a fresh ordinary resolver after every link has been created.
+        archive.resolver = EvidenceResolver(evidence_cache)
+        archive.view_memos.clear()
+        archive.private_blobs.clear()
+        archive.view_files.clear()
+        archive.views.clear()
+        for source in archive.sources.values():
+            archive.source({key: source[key] for key in REF_KEYS})
+        for root, files in descriptors.values():
+            archive.validate_view(root, files)
+        archive.audit()
+    except BaseException:
+        # Only this operation's exclusive, nofollow tree is removed on failure.
+        shutil.rmtree(base)
+        raise
+    return {"status": "prepared", "index_ref": index_ref, "view_strategy": archive.view_strategy,
+            "unique_copied_bytes": copied, "unique_linked_bytes": source_bytes if archive.view_strategy == "shared_cache_links" else 0,
+            "metadata_bytes": metadata, "logical_members": logical_members, "views": len(descriptors),
+            "source_inventory": archive.source_inventory()}
+
 def validate_files(project, record, *, hash_owner=None):
     with snapshot_hash_scope(hash_owner) as owner:
         require(isinstance(record.get("files"), dict) and (record["files"] or record.get("event") == "legacy_execution_archive"), "historical snapshots required")
         for logical, ref in record["files"].items():
             physical(project, logical)
             require(ref.get("path") == record["snapshot_root"] + "/" + logical, "snapshot path must preserve logical identity")
-            path = physical(project, ref["path"])
+            path = archived_source_path(project, ref)
             require(path.is_file() and api().hash_matches(ref.get("content_hash"), owner.file_hash(path)), "historical snapshot changed: " + logical)
 
 
 def _checker_legacy_files(checker, reference, record):
     """Reuse only frozen validation inside an actual audited Checker.run body."""
+    if _source_archive.get() is not None:
+        validate_files(checker.project, record)
+        return
     lease, owner = _checker_audit_lease.get(), _snapshot_hash_owner.get()
     if (lease is None or not lease["active"] or lease["checker"] is not checker
             or lease["owner"] is not owner or not owner.depth or not checker._invocation_active):
@@ -530,6 +991,10 @@ def historical_checker(project, manifest, context, completion=None, stack=(), ca
                     files[logical] = context["files"][logical]
     checker = api().Checker(project, copy.deepcopy(manifest), evidence_cache=evidence_cache)
     checker._history_hash_owner = owner
+    archive = _source_archive.get()
+    if archive is not None:
+        checker._history_source_archive_index_ref = copy.deepcopy(archive.reference)
+        checker._history_source_archive = archive
     checker._history_snapshot_records = copy.deepcopy((context, completion) if completion else (context,))
     checker._history_overlay = files
     checker._history_snapshot_root = (completion or context)["snapshot_root"]
@@ -609,6 +1074,7 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
     return context
 
 
+@source_archive_invocation
 def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=None, prior_attempt_ref=None, _cache=None):
     require(manifest.get("unit_contract_version") == VERSION, "migrate legacy records before capturing current execution")
     require(manifest.get("unit_runs", {}).get(unit_id, {}).get("status", "pending") == "pending", "capture context before starting the unit")
@@ -727,6 +1193,7 @@ def validate_completion_inventory(context, current, checks):
         require(api().timestamp(current["review"]["reviewed_at"]) >= threshold, "canonical owner output changed; supply a fresh current inventory review after the check evidence")
 
 
+@source_archive_invocation
 def capture_completion(project, manifest, unit_id, context_ref, run_id, inventory=None, *, evidence_cache=None):
     context = validate_context(project, context_ref, unit_id, evidence_cache=evidence_cache)
     run = manifest.get("unit_runs", {}).get(unit_id, {})
@@ -1006,6 +1473,7 @@ def validate_attempt(project, reference, stack=(), cache=None, *, evidence_cache
     return record, context
 
 
+@source_archive_invocation
 def capture_attempt(project, manifest, unit_id, context_ref, run_id, outcome, inventory=None, *, evidence_cache=None):
     cache = {}
     context = validate_context(project, context_ref, unit_id, cache=cache, evidence_cache=evidence_cache)
@@ -1075,7 +1543,7 @@ def _policy_successor(project, attempt, reviewed, *, current_record=None, curren
                     and reference["path"] == record["snapshot_root"] + "/" + logical
                     and reference["content_hash"] == fingerprint["content_hash"],
                     "policy successor requires exact frozen original bytes")
-            target = physical(project, reference["path"])
+            target = archived_source_path(project, reference)
         path, descriptor, info = _open_regular(target)
         with os.fdopen(descriptor, "rb") as stream:
             require(info.st_size <= policies.MAX_POLICY_BYTES, "policy successor exceeds policy byte bound")
@@ -1132,6 +1600,7 @@ def continuation_inventory(context, attempt, reviewed, *, project=None, current_
     attempt_authority(context["manifest"], attempt["post_manifest"])
 
 
+@source_archive_invocation
 def capture_continuation(project, manifest, unit_id, attempt_ref, run_id, inventory, *, evidence_cache=None):
     # One read-only preflight shares memoized dependencies; audit it before
     # capture_context creates new snapshot hard links and changes inode ctime.
@@ -1237,6 +1706,7 @@ def applicability(checker, completed, context, inventory, mapping, previous_mani
     return reasons
 
 
+@source_archive_invocation
 def assess_completion(project, manifest, completion_ref, inventory, pending_unit_map, *, evidence_cache=None):
     completed, context = validate_completion(project, completion_ref, evidence_cache=evidence_cache)
     checker = api().Checker(project, copy.deepcopy(manifest), evidence_cache=evidence_cache)
@@ -1465,6 +1935,7 @@ class HistoryView:
                 checker.issue("unit_history", "development-plan", "capture a valid execution context before start: " + str(error))
 
 
+@source_archive_invocation
 def candidate_hashes(project, manifest, *, evidence_cache=None, include_external=True, checker=None):
     """Optimistic guard covers executable/evidence/history inputs as well as docs."""
     external_refs = []
@@ -1504,12 +1975,17 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
     visit(manifest)
     result = {}
     for path in sorted(paths):
-        target = physical(project, path)
+        archive = _source_archive.get()
+        source = archive.sources.get(path) if archive is not None else None
+        target = archived_source_path(project, {key: source[key] for key in REF_KEYS}) if source else physical(project, path)
         result[path] = sha(target.read_bytes()) if target.is_file() else "directory" if target.is_dir() else None
     if include_external:
         # Bind prepared originals and readback receipts, including dependency
         # closure, without storing external machine paths or copying payloads.
         resolver = EvidenceResolver(evidence_cache)
+        archive = _source_archive.get()
+        if archive is not None:
+            external_refs.extend(source["evidence_ref"] for source in archive.sources.values())
         if checker is not None:
             external_refs.extend(checker.evidence_resolver.references.values())
             external_refs.extend(getattr(checker, "_history_cache", {}).get("evidence_references", {}).values())
@@ -1724,6 +2200,7 @@ def adopt_legacy(project, expected_manifest_hash, *, evidence_cache=None):
     return stage_candidate(project, candidate, expected_manifest_hash, adoption_mode=mode, evidence_cache=evidence_cache)
 
 
+@source_archive_invocation
 def observe_execution_inputs(project, manifest, unit_id, inventory=None, *, evidence_cache=None):
     """Observe bytes only; the actual executor must bind this to its real check event."""
     if inventory is None:
@@ -1773,6 +2250,7 @@ def candidate_report(checker, migration):
     return report
 
 
+@source_archive_invocation
 def stage_candidate(project, candidate_manifest, expected_manifest_hash, pending_unit_map=None, adoption_mode=None, *, evidence_cache=None):
     live = physical(project, "forge/sdd-manifest.json")
     require(live.is_file() and api().hash_matches(expected_manifest_hash, sha(live.read_bytes())), "active manifest changed before staging")
@@ -1799,6 +2277,7 @@ def stage_candidate(project, candidate_manifest, expected_manifest_hash, pending
     return store_record(project, "candidates", record)
 
 
+@source_archive_invocation
 def activate_candidate(project, candidate_ref, expected_manifest_hash, *, evidence_cache=None):
     candidate = read_ref(project, candidate_ref)
     require(candidate.get("event") == "manifest_candidate" and candidate.get("version") == VERSION, "invalid staged candidate")
@@ -1868,7 +2347,7 @@ def main():
     parser.add_argument("--evidence-cache", type=Path, help="read-only prepared evidence cache outside the project")
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "observe-runtime",
-                    "assess", "stage", "activate", "recover", "adopt-legacy", "observe-inputs"):
+                    "assess", "stage", "activate", "recover", "adopt-legacy", "observe-inputs", "create-source-archive-index", "prepare-source-views"):
         child = sub.add_parser(command)
         if command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "observe-inputs"):
             child.add_argument("--unit", required=True)
@@ -1899,13 +2378,27 @@ def main():
             child.add_argument("--candidate-ref", required=True)
         if command == "recover":
             child.add_argument("--journal-ref", required=True)
+        if command == "create-source-archive-index":
+            child.add_argument("--mapping", required=True, help="JSON list of immutable record_ref, snapshot_root and full sources mappings")
+            child.add_argument("--view-strategy", choices=("private_copy", "shared_cache_links"), default="private_copy")
+            child.add_argument("--encoding", choices=("inline", "sha_objects_v1"), default="inline")
+        if command == "prepare-source-views":
+            child.add_argument("--index-ref", required=True)
+            child.add_argument("--max-bytes", required=True, type=int)
+            child.add_argument("--max-files", required=True, type=int)
     args = parser.parse_args()
     def read(path):
         return api().read_json(physical(args.project, path))
     try:
         require(sys.version_info >= (3, 12), "Python 3.12+ required")
         manifest = read(args.manifest)
-        if args.command == "capture-context":
+        if args.command == "create-source-archive-index":
+            result = create_source_archive_index(args.project, read(args.mapping), evidence_cache=args.evidence_cache,
+                                                 view_strategy=args.view_strategy, encoding=args.encoding)
+        elif args.command == "prepare-source-views":
+            result = prepare_source_views(args.project, read(args.index_ref), evidence_cache=args.evidence_cache,
+                                          max_bytes=args.max_bytes, max_files=args.max_files)
+        elif args.command == "capture-context":
             result = capture_context(args.project, manifest, args.unit, read(args.inventory), evidence_cache=args.evidence_cache)
         elif args.command == "capture-completion":
             result = capture_completion(args.project, manifest, args.unit, read(args.context_ref), args.run_id, read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache)

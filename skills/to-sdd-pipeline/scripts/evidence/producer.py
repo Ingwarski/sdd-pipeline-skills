@@ -299,6 +299,8 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
         inventory_known = False
     stable_files, current_bytes = {}, 0
     try:
+        if not writers_stopped and attempt is not None and runtime.read(ledger, attempt)['version'] == 2:
+            raise EvidenceError('observed writer closure must precede stable hashes/settlement')
         for name in last_inventory:
             digest, size = hash_file(root / name)
             stable_files[name] = {"content_hash": digest, "size": size}
@@ -398,7 +400,11 @@ def recover_producers(ledger, *, dry_run=True):
         action = {key: value.get(key) for key in ('attempt_id', 'run_id', 'intent_id', 'reservation_id')}
         if value['status'] == 'terminal':
             pending = ledger.connection.execute("SELECT state FROM reservations WHERE id=?", (value['reservation_id'],)).fetchone()
-            action.update(action='terminal', incomplete=pending is None or pending[0] == 'pending')
+            from .observed_writers import disposition_problems
+            external_problems = disposition_problems(value, ledger=ledger)
+            action.update(action='terminal', incomplete=bool(external_problems) or pending is None or pending[0] == 'pending')
+            if external_problems:
+                action['problems'] = external_problems
         else:
             owner = value.get('guardian') or value['coordinator']
             status = process_identity.state(owner)

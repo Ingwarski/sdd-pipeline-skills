@@ -33,8 +33,16 @@ def read(ledger, attempt):
     if len(row[0]) > MAX_RECORD:
         raise EvidenceError("producer ownership record exceeds metadata bound")
     value = json.loads(row[0])
-    if not isinstance(value, dict) or value.get('attempt_id') != attempt or value.get('version') != 1:
+    if not isinstance(value, dict) or value.get('attempt_id') != attempt or value.get('version') not in (1, 2):
         raise EvidenceError('invalid producer ownership record; recovery required')
+    observed_keys = {'observation_session', 'observed_writers', 'observation_roots', 'observation_sessions', 'observation_history'}
+    if value['version'] == 1 and any(key in value for key in observed_keys):
+        raise EvidenceError('observed obligations require producer record version2')
+    if value['version'] == 2:
+        from .observed_writers import validate_registry
+        validate_registry(value)
+        if observed_keys.intersection(value) - {'observation_session', 'observation_history'}:
+            raise EvidenceError('unknown observation registry fields')
     required = ('run_id', 'unit_id', 'reservation_id', 'coordinator', 'policy', 'output_dir',
                 'output_identity', 'processes', 'resources', 'status')
     if (any(key not in value for key in required)
@@ -343,6 +351,10 @@ def stop_registered(ledger, attempt):
     identity-check-to-killpg race on POSIX; this is cooperative ownership, not an
     OS sandbox against malicious PID/session replacement.
     """
+    # Latch loss before stopping the original managed group containing the
+    # observer. External rows are never added to processes or signal targets.
+    from .observed_writers import lose_history
+    lose_history(ledger, attempt, 'managed groups stopped before observer durable closure')
     value = update(ledger, attempt, lambda v: v.update(status='stopping'))
     problems = []
     for key, item in sorted(value['processes'].items(), key=lambda pair: pair[1].get('sequence', 0), reverse=True):
@@ -398,7 +410,10 @@ def stop_registered(ledger, attempt):
 
 def cleanup_directories(ledger, attempt):
     value = read(ledger, attempt)
-    problems = []
+    from .observed_writers import disposition_problems
+    problems = disposition_problems(value, ledger=ledger)
+    if problems:
+        return problems
     if directory_identity(value['output_dir']) != value['output_identity']:
         raise EvidenceError('managed output directory identity changed')
     for item in reversed(value['resources']):
@@ -496,6 +511,8 @@ def verify_stopped(ledger, attempt, timeout=3):
                 except OSError as exc:
                     problems.append(_helper_problem('verify.group-exists', key, item, exc))
                     uncertain = True
+        from .observed_writers import disposition_problems
+        problems += disposition_problems(read(ledger, attempt), ledger=ledger, timeout=max(.001, deadline - time.monotonic()))
         # A denied/unknown probe remains a failed observation. Only a new
         # explicit recovery may supersede it with current native absence proof.
         if uncertain or not problems or time.monotonic() >= deadline:

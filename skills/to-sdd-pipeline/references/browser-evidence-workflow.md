@@ -32,6 +32,20 @@ observations. They do not grant acceptance or implementation permission.
    producer. Record exact PID plus creation identity, task/run, profile path,
    resolved user temp root and every separately created IPC path as they appear.
 
+On supported Darwin hosts, the SDK's optional observed-writer adapter uses an
+opt-in version-2 producer session and a protected direct-child observer. A
+pre-exec gate registers the exact native browser root before launch continues;
+the observer retains kernel birth, unique-ID and original-parent observations
+for detached helpers. Submitted process listings or caller-authored witness JSON
+cannot establish membership. Detached observations confer no signaling authority.
+Missing ancestry, lost acknowledgments, observer loss or unresolved candidates
+remain durable obligations for finalization and recovery. Keep the separate
+working-capacity hold active through native process/handle checks, exact cleanup
+and the final closed acknowledgment. A pre-cleanup acknowledgment permits only
+verified owned cleanup; it does not establish final closure or acceptance. The
+adapter is optional and platform-specific; ordinary managed children and other
+hosts retain their existing process-group/Job contract.
+
 The evidence reservation measures registered generation. Browser-profile
 occupancy and OS temporary writes require separate capacity planning and
 monitoring. A sampled peak is neither total bytes written nor a hard disk quota;

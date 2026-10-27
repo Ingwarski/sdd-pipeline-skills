@@ -169,6 +169,10 @@ def original_state(ledger, attempt, *, original_policy=None):
     # runtime.read retains every original session/reservation/ownership check.
     reader = ledger if original_policy is None else SimpleNamespace(connection=ledger.connection, policy=original_policy)
     record = runtime.read(reader, attempt)
+    from .observed_writers import disposition_problems
+    external_problems = disposition_problems(record, ledger=reader)
+    if external_problems:
+        raise EvidenceError('quarantine observed writer disposition incomplete: ' + '; '.join(external_problems))
     raw = ledger.connection.execute("SELECT record FROM producer_sessions WHERE id=?", (attempt,)).fetchone()[0]
     if record["status"] not in ("stopping", "terminal"):
         raise EvidenceError("quarantine requires an inactive failed producer record")
