@@ -309,6 +309,43 @@ class RegistryTests(unittest.TestCase):
             matched = observer.request(dict(command='observe_pid', pid=101, include_image=True))['image']
         self.assertTrue(matched['target_match']); self.assertEqual(matched['executable'], str(self.target))
 
+    def test_forced_root_image_reprojects_existing_descendants_without_mutating_observations(self):
+        observer = self.registered_target()
+        self.nodes[102] = snapshot(102, 1100, 1000, birth=103, version=20, parent_version=10, ppid=101, pgid=555)
+        self.nodes[103] = snapshot(103, 1200, 1100, birth=104, version=30, parent_version=20, ppid=1, pgid=666)
+        self.assertTrue(observer.observe(102)); self.assertTrue(observer.observe(103))
+        prefix = copy.deepcopy(observer.value['observations'])
+        leaf_sequences = {key: writer['observation_sequence'] for key, writer in observer.value['writers'].items()}
+        for _ in range(2):
+            image = observer.request(dict(command='observe_pid', pid=101, include_image=True))['image']
+            self.assertGreater(image['observation_sequence'], len(prefix))
+            self.assertEqual(observer.value['observations'][:len(prefix)], prefix)
+            record = self.record_now(); session = record['observation_session']
+            observed.validate_registry(record)
+            for key, writer in session['writers'].items():
+                self.assertEqual(writer['observation_sequence'], leaf_sequences[key])
+                self.assertEqual(writer['lineage_observation_sequences'], observed.exact_chain_sequences(session, '1000', leaf_sequences[key]))
+                self.assertEqual(writer['lineage_observation_sequences'][0], image['observation_sequence'])
+                self.assertEqual(writer['authority'], observed.AUTHORITY)
+        # Ordinary same-epoch parent changes require the same reprojection too.
+        self.nodes[102]['pgid'] = 556; observer.observe(102)
+        session = self.record_now()['observation_session']
+        grandchild = session['writers']['1200']
+        self.assertEqual(grandchild['lineage_observation_sequences'], observed.exact_chain_sequences(session, '1000', grandchild['observation_sequence']))
+        self.assertEqual(observer.value['observations'][:len(prefix)], prefix)
+        for pid in (101, 102, 103): self.nodes.pop(pid)
+        observer.prepare_cleanup(3); observer.close(3)
+        record = self.record_now(); observed.validate_registry(record)
+        self.assertEqual(observed.disposition_problems(record, ledger=self.ledger), [])
+        runtime.update(self.ledger, self.attempt, lambda value: value.update(status='terminal'))
+        with patch.object(observed.process_identity, 'state', return_value='gone'):
+            # A completed fixture is not a quarantinable failed accounting gap;
+            # reaching this guard proves its shared observed-writer read passed.
+            with self.assertRaisesRegex(EvidenceError, 'original failed accounting binding'):
+                quarantine.original_state(self.ledger, self.attempt)
+        self.ledger.settle(self.reservation, 0, 0)
+        self.assertFalse(producer.recover_producers(self.ledger, dry_run=True)['incomplete'])
+
     def test_image_legacy_no_target_and_strict_nonroot_phase_flag_and_witness_rejection(self):
         observer = self.registered()
         image = observer.request(dict(command='observe_pid', pid=101, include_image=True))['image']
@@ -1440,6 +1477,20 @@ class PortableReceiptTests(unittest.TestCase):
         self.assertNotIn(diagnostic['raw'], [item['snapshot'] for item in self.session['observations']])
         self.assertEqual(diagnostic['path_status'], 'unobserved')
         self.assertEqual(diagnostic['image_status'], 'nonqualifying')
+
+    def test_same_epoch_root_refresh_requires_new_projection_with_immutable_prefix(self):
+        session = copy.deepcopy(self.session); prefix = copy.deepcopy(session['observations'])
+        refreshed = self.at(session['observations'][0]['snapshot'], 6000)
+        session['observations'].append(dict(sequence=4, snapshot=refreshed, executable='/fixture/wrapper'))
+        session['sequence'] = 4
+        with self.assertRaisesRegex(EvidenceError, 'exact predecessor observation references'):
+            observed.validate_session(session)
+        for writer in session['writers'].values():
+            writer['lineage_observation_sequences'] = observed.exact_chain_sequences(session, writer['root'], writer['observation_sequence'])
+        observed.validate_session(session)
+        self.assertEqual(session['observations'][:len(prefix)], prefix)
+        self.assertEqual(session['writers']['1100']['lineage_observation_sequences'], [4, 3])
+        self.assertEqual(session['writers']['1100']['observation_sequence'], 3)
 
     def test_mixed_immutable_epoch_order_and_status_reject_with_rebound_digest(self):
         for field in ('birth', 'uid', 'boot', 'parent', 'parent_epoch', 'epoch', 'uuid', 'order', 'status'):

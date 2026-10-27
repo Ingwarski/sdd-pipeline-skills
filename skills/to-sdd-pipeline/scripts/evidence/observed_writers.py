@@ -1588,6 +1588,11 @@ class Observer:
                             identity=node['identity'], unique_id=node['unique_id'], observation_sequence=prior['sequence'],
                             lineage_observation_sequences=exact_chain_sequences(session, root, prior['sequence']))
                         session['pending'].pop('pid:' + str(node['identity']['pid']), None)
+            # Full parent refreshes can select a newer receipt for the same
+            # native exec epoch. Refresh current projections, never witnesses.
+            for writer in session['writers'].values():
+                writer['lineage_observation_sequences'] = exact_chain_sequences(
+                    session, writer['root'], writer['observation_sequence'])
         self._commit(commit)
         self.latest[unique] = semantic(snapshot)
         return bool(resolved)
