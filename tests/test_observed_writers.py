@@ -1,5 +1,7 @@
 """Isolated SDK registry fixtures: no shared ledger, browser, provider or signals."""
 import copy
+import ctypes
+import errno
 from contextlib import contextmanager
 import json
 import os
@@ -36,13 +38,17 @@ def snapshot(pid, unique, parent, *, birth=100, version=10, parent_version=9, pp
                 observed=dict(wall_time_ns='2000000000000', monotonic_ns='1000'))
 
 
+@unittest.skipUnless(os.name == 'posix', 'Registry integration requires real POSIX 0700 roots and directory-FD nofollow operations')
 class RegistryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='sdd-observed-fixture-')
+        self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         self.output = self.root / 'output'; self.output.mkdir()
         self.policy = load_defaults(); self.policy.update(project_id=str(uuid.uuid4()), store_id=str(uuid.uuid4()), provider='local')
         self.ledger = Accounting(self.root / 'machine/ledger.sqlite', self.policy['project_id'], self.policy)
+        # Close before TemporaryDirectory even if the rest of setUp fails.
+        self.addCleanup(self.ledger.close)
         self.reservation = self.ledger.reserve('run', 'unit', 65536, 20, local_bytes=65536,
                                               metadata_bytes=runtime.MAX_RECORD * 3, capacity_path=self.output)
         self.output_id = self.ledger.register_output('run', 'unit', self.output)
@@ -64,7 +70,7 @@ class RegistryTests(unittest.TestCase):
         self.stamp = 1000
         self.patches = [patch.object(observed.os, 'getppid', return_value=99),
                         patch.object(observed.os, 'getpid', return_value=200),
-                        patch.object(observed.os, 'getsid', return_value=100),
+                        patch.object(observed.os, 'getsid', return_value=100, create=True),
                         patch.object(runtime, 'managed_group_identity', return_value=self.membership),
                         patch.object(observed.process_identity, 'identity', side_effect=self.identity),
                         patch.object(observed.process_identity, 'state', return_value='alive'),
@@ -73,7 +79,12 @@ class RegistryTests(unittest.TestCase):
                         patch.object(observed, 'candidate_pids', side_effect=lambda: tuple(self.nodes)),
                         patch.object(observed, 'child_pids', return_value=()),
                         patch.object(observed, '_no_handles')]
-        for item in self.patches: item.start()
+        # Only this fixture emulates Darwin OS hooks; runtime platform checks stay real.
+        self.fixture_uid = self.root.stat().st_uid
+        uid_hook = patch.object(observed.os, 'geteuid', return_value=self.fixture_uid, create=True)
+        uid_hook.start(); self.addCleanup(uid_hook.stop)
+        for item in self.patches:
+            item.start(); self.addCleanup(item.stop)
         self.created = []
         self.observer = None
         self.addCleanup(self.cleanup)
@@ -475,7 +486,7 @@ class RegistryTests(unittest.TestCase):
             for file in files: file.unlink()
 
     def test_sequential_node_sessions_preserve_closed_history_and_all_dispositions(self):
-        first = self.registered(); del self.nodes[101]; first.close(.1)
+        first = self.registered(); del self.nodes[101]; first.close(3)
         frozen = copy.deepcopy(first.value); del self.nodes[200]
         self.created[0].rmdir()  # Prior CLOSED session's allocated root was cleaned.
         second_owner = snapshot(199, 1900, 800, birth=200, version=19, parent_version=8, ppid=98)
@@ -492,7 +503,7 @@ class RegistryTests(unittest.TestCase):
             browser = snapshot(202, 2200, 1900, birth=202, version=21, parent_version=19, ppid=199)
             self.nodes[202] = browser
             second.register_root(202, browser['identity'], '/fixture/python', [allocation['ref']])
-            del self.nodes[202]; second.close(.1)
+            del self.nodes[202]; second.close(3)
             self.assertTrue(observed._no_handles.call_args_list[-2].kwargs['allow_absent'])
             self.assertFalse(observed._no_handles.call_args_list[-1].kwargs['allow_absent'])
             self.assertFalse(observed.disposition_problems(self.record_now(), ledger=self.ledger))
@@ -854,6 +865,191 @@ class RegistryTests(unittest.TestCase):
         after['idversion'] = 20; self.assertFalse(observed._exec_pair(before, after))
         after['idversion'] = 19; self.assertFalse(observed._exec_pair(before, after))
 
+    def mixed_helper_boundary(self, observer, pid=102):
+        old_uuid = '4c4c44c3-5555-3144-a137-125a1864d84f'
+        new_uuid = '4c4c44f2-5555-3144-a199-123b8f619b55'
+        self.nodes[pid] = snapshot(pid, 10000 + pid, 1000, birth=103, version=721350, parent_version=10, ppid=101, pgid=555)
+        self.nodes[pid]['executable_uuid'] = old_uuid
+        observer.observe(pid)
+        def executable(target):
+            if target == pid:
+                if self.nodes[pid]['idversion'] == 721351:
+                    self.nodes[pid]['executable_uuid'] = new_uuid
+                return '/fixture/GPU'
+            return '/fixture/node' if target == 99 else '/fixture/python'
+        with patch.object(observed, 'executable_path', side_effect=executable):
+            self.nodes[pid]['idversion'] = 721351  # Raw tuple still holds OLD UUID.
+            observer.observe(pid)
+        return next(item for item in observer.value['native_sampler']['helper_diagnostics'] if item['pid'] == pid)
+
+    def path_gap(self, observer, pid=102, *, query_errno=errno.ESRCH, post='gone'):
+        self.nodes[pid] = snapshot(pid, 20000 + pid, 1000, birth=103 + pid, version=721383, parent_version=10, ppid=101, pgid=555)
+        observer.observe(pid)
+        def unavailable(target):
+            if target == pid:
+                query = dict(version=1, api='libproc.proc_pidpath', stage='query', pid=pid, returned_size=0,
+                             errno=query_errno, buffer_size=4096, outcome='unavailable', monotonic_ns=str(self.stamp))
+                if post == 'gone': self.nodes.pop(pid, None)
+                elif post == 'zombie':
+                    self.nodes[pid]['status'] = 'zombie'; self.nodes[pid]['query']['native_status'] = 5
+                raise observed._PathQueryError('controlled structured path gap', query)
+            return '/fixture/node' if target == 99 else '/fixture/python'
+        with patch.object(observed, 'executable_path', side_effect=unavailable):
+            self.nodes[pid]['current_ppid'] = 1
+            observer.observe(pid)
+        return next(item for item in observer.value['native_sampler']['helper_diagnostics'] if item['pid'] == pid)
+
+    def test_actual3_mixed_image_boundary_is_diagnostic_only_with_full_brackets(self):
+        observer = self.registered(); diagnostic = self.mixed_helper_boundary(observer)
+        self.assertEqual(diagnostic['raw']['idversion'], 721351)
+        self.assertEqual(diagnostic['raw']['executable_uuid'], '4c4c44c3-5555-3144-a137-125a1864d84f')
+        self.assertEqual(diagnostic['image_status'], 'nonqualifying')
+        qualification = diagnostic['qualification']; self.assertIsNotNone(qualification)
+        before = observer.value['observations'][qualification['before_observation_sequence'] - 1]
+        after = observer.value['observations'][qualification['after_observation_sequence'] - 1]
+        self.assertEqual(before['snapshot']['idversion'], 721350)
+        self.assertEqual(after['snapshot']['idversion'], 721351)
+        self.assertEqual(after['snapshot']['executable_uuid'], '4c4c44f2-5555-3144-a199-123b8f619b55')
+        self.assertFalse(any(item['snapshot']['idversion'] == 721351 and item['snapshot']['executable_uuid'] == diagnostic['raw']['executable_uuid']
+                             for item in observer.value['observations']))
+        self.assertEqual(observer.graphs['1000']._nodes['10102']['executable_uuid'], after['snapshot']['executable_uuid'])
+        self.nodes.pop(102); self.nodes.pop(101)
+        observer.prepare_cleanup(3); self.assertTrue(observer.close(3)['closed'])
+
+    def test_mixed_diagnostic_rejects_wrong_endpoint_identity_epoch_root_or_order(self):
+        observer = self.registered(); self.mixed_helper_boundary(observer); original = self.record_now()
+        for field in ('uuid', 'epoch', 'birth', 'parent', 'parent_epoch', 'uid', 'boot', 'status', 'order', 'before_ref', 'after_ref', 'root'):
+            changed = copy.deepcopy(original); item = changed['observation_session']['native_sampler']['helper_diagnostics'][0]
+            if field == 'uuid': item['raw']['executable_uuid'] = '56565656-5656-4565-8565-565656565656'
+            elif field == 'epoch': item['raw']['idversion'] = 721350
+            elif field == 'birth': item['raw']['identity']['created']['microseconds'] += 1
+            elif field == 'parent': item['raw']['original_parent_unique_id'] = '9999'
+            elif field == 'parent_epoch': item['raw']['original_parent_idversion'] += 1
+            elif field == 'uid': item['raw']['uid'] += 1
+            elif field == 'boot': item['raw']['boot_uuid'] = '56565656-5656-4565-8565-565656565656'
+            elif field == 'status':
+                item['raw']['status'] = 'zombie'; item['raw']['query']['native_status'] = 5
+            elif field == 'order': item['raw']['observed']['monotonic_ns'] = '1'
+            elif field == 'before_ref': item['qualification']['before_observation_sequence'] = None
+            elif field == 'after_ref': item['qualification']['after_observation_sequence'] = item['qualification']['before_observation_sequence']
+            else: item['qualification']['root'] = '9999'
+            # Reach semantic qualification validation, not only byte integrity.
+            changed['observation_session']['native_sampler']['helper_diagnostic_bindings'][str(item['capture_sequence'])] = observed._helper_raw_digest(item)
+            self.save(changed)
+            with self.subTest(field=field):
+                with self.assertRaises(EvidenceError): self.record_now()
+        self.save(original)
+
+    def test_actual3_known_epoch_path_exit_gap_needs_structured_esrch_followup(self):
+        observer = self.registered(); diagnostic = self.path_gap(observer)
+        self.assertEqual(diagnostic['raw']['current_ppid'], 1)
+        self.assertEqual(diagnostic['path_query']['errno'], errno.ESRCH)
+        self.assertEqual(diagnostic['followup']['outcome'], 'numeric_esrch')
+        self.assertEqual(diagnostic['qualification']['mode'], 'known_epoch_exit_gap')
+        self.assertEqual(diagnostic['path_status'], 'unobserved')
+        self.assertNotIn('executable', diagnostic)
+        self.nodes.pop(101); observer.prepare_cleanup(3); observer.close(3)
+
+    def test_known_zombie_path_gap_still_requires_numeric_absence(self):
+        observer = self.registered(); diagnostic = self.path_gap(observer, post='zombie')
+        self.assertIsNotNone(diagnostic['qualification'])
+        self.assertEqual(diagnostic['followup']['snapshot']['status'], 'zombie')
+        self.nodes.pop(101)
+        with self.assertRaisesRegex(EvidenceError, 'numeric ESRCH'): observer.prepare_cleanup(.1)
+        self.nodes.pop(102); observer.prepare_cleanup(3); observer.close(3)
+
+    def test_permitted_same_epoch_gap_requires_later_genuine_full_receipt(self):
+        observer = self.registered(); diagnostic = self.path_gap(observer, post='alive')
+        self.assertIsNone(diagnostic['qualification'])  # PPID1/alive is not exit proof.
+        self.nodes[102]['pgid'] = 556  # A genuine later full same-epoch observation.
+        observer.observe(102)
+        diagnostic = observer.value['native_sampler']['helper_diagnostics'][0]
+        self.assertEqual(diagnostic['qualification']['mode'], 'bounded_same_epoch_gap')
+        self.assertIsNone(diagnostic['qualification']['before_observation_sequence'])
+        self.nodes.pop(102); self.nodes.pop(101); observer.prepare_cleanup(3); observer.close(3)
+
+    def test_path_gap_raw_zombie_cannot_regress_to_alive_even_with_rebound_digest(self):
+        observer = self.registered(); self.path_gap(observer, post='alive')
+        self.nodes[102]['pgid'] = 556
+        observer.observe(102)
+        value = self.record_now(); session = value['observation_session']
+        diagnostic = session['native_sampler']['helper_diagnostics'][0]
+        self.assertEqual(diagnostic['qualification']['mode'], 'bounded_same_epoch_gap')
+        diagnostic['raw']['status'] = 'zombie'
+        diagnostic['raw']['query']['native_status'] = 5
+        session['native_sampler']['helper_diagnostic_bindings'][str(diagnostic['capture_sequence'])] = observed._helper_raw_digest(diagnostic)
+        self.save(value)
+        with self.assertRaises(EvidenceError): self.record_now()
+        self.assertTrue(producer.recover_producers(self.ledger, dry_run=True)['incomplete'])
+        with self.assertRaises(EvidenceError): quarantine.original_state(self.ledger, self.attempt)
+
+    def test_permission_unknown_and_malformed_path_gaps_never_resolve_by_absence(self):
+        observer = self.registered()
+        for index, error in enumerate((errno.EPERM, errno.EACCES, 0, errno.EINVAL, errno.ENOTSUP)):
+            diagnostic = self.path_gap(observer, pid=102 + index, query_errno=error)
+            self.assertIsNone(diagnostic['qualification'])
+        self.nodes.pop(101)
+        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(.1)
+        value = self.record_now(); value['status'] = 'terminal'; self.save(value)
+        self.assertTrue(producer.recover_producers(self.ledger, dry_run=True)['incomplete'])
+        with self.assertRaisesRegex(EvidenceError, 'observed writer'): quarantine.original_state(self.ledger, self.attempt)
+
+    def test_helper_diagnostic_cannot_masquerade_root_or_clear_unknown_followup(self):
+        observer = self.registered(); self.path_gap(observer); original = self.record_now()
+        for mode in ('root', 'unknown', 'wrong_epoch', 'wrong_birth', 'wrong_parent', 'wrong_uid', 'wrong_boot', 'wrong_uuid'):
+            value = copy.deepcopy(original); diagnostic = value['observation_session']['native_sampler']['helper_diagnostics'][0]
+            if mode == 'root': diagnostic['qualification']['before_observation_sequence'] = 1
+            elif mode == 'unknown': diagnostic['followup'] = dict(outcome='unavailable', snapshot=None, problem='unsupported native query')
+            else:
+                raw = copy.deepcopy(diagnostic['raw']); raw['status'] = 'zombie'; raw['query']['native_status'] = 5
+                raw['observed']['monotonic_ns'] = str(int(raw['observed']['monotonic_ns']) + 1)
+                raw['observed']['wall_time_ns'] = str(int(raw['observed']['wall_time_ns']) + 1)
+                if mode == 'wrong_epoch': raw['idversion'] += 1
+                elif mode == 'wrong_birth': raw['identity']['created']['microseconds'] += 1
+                elif mode == 'wrong_parent': raw['original_parent_unique_id'] = '9999'
+                elif mode == 'wrong_uid': raw['uid'] += 1
+                elif mode == 'wrong_boot': raw['boot_uuid'] = '45454545-4545-4545-8545-454545454545'
+                else: raw['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
+                diagnostic['followup'] = dict(outcome='snapshot', snapshot=raw, problem=None)
+            value['observation_session']['native_sampler']['helper_diagnostic_bindings'][str(diagnostic['capture_sequence'])] = observed._helper_raw_digest(diagnostic)
+            self.save(value)
+            with self.subTest(mode=mode):
+                with self.assertRaises(EvidenceError): self.record_now()
+        self.save(original)
+
+    def test_removed_raw_helper_receipts_or_bindings_are_rejected_by_all_readers(self):
+        observer = self.registered(); self.path_gap(observer); self.nodes.pop(101)
+        observer.prepare_cleanup(3); observer.close(3)
+        original = self.record_now()
+        for field in ('helper_diagnostics', 'helper_diagnostic_bindings'):
+            value = copy.deepcopy(original)
+            value['observation_session']['native_sampler'][field].clear()
+            self.save(value)
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(EvidenceError, 'diagnostic'): self.record_now()
+                self.assertTrue(producer.recover_producers(self.ledger, dry_run=True)['incomplete'])
+                with self.assertRaises(EvidenceError): quarantine.original_state(self.ledger, self.attempt)
+        self.save(original)
+        value = copy.deepcopy(original); value['observation_session']['closure']['helper_diagnostics_sha256'] = '0' * 64
+        self.save(value)
+        with self.assertRaisesRegex(EvidenceError, 'integrity binding'): self.record_now()
+        self.save(original)
+
+    def test_proc_pidpath_errno_is_captured_before_any_later_native_call(self):
+        library = Mock()
+        def failure(pid, buffer, size): ctypes.set_errno(errno.ESRCH); return 0
+        library.proc_pidpath.side_effect = failure
+        def later_clock(): ctypes.set_errno(errno.EACCES); return 12345
+        self.patches[-4].stop()  # Exercise the actual wrapper, not setUp's path mock.
+        try:
+            with patch.object(native, '_library', return_value=library), patch.object(observed.time, 'monotonic_ns', side_effect=later_clock):
+                with self.assertRaises(observed._PathQueryError) as error: observed.executable_path(102)
+        finally:
+            self.patches[-4].start()
+        self.assertEqual(error.exception.receipt['returned_size'], 0)
+        self.assertEqual(error.exception.receipt['errno'], errno.ESRCH)
+        self.assertEqual(error.exception.receipt['stage'], 'query')
+
     def test_collector_stopped_joined_drained_before_closed_ack(self):
         observer = self.registered(); self.nodes.pop(101)
         observer.close(.5)
@@ -891,6 +1087,189 @@ class RegistryTests(unittest.TestCase):
                 self.assertEqual(worker.run(99, 3, 4, self.working), 1)
                 self.assertTrue(fake.fail.call_args.kwargs['lost'])
                 self.assertIn(message, fake.fail.call_args.args[0])
+
+
+class PortableReceiptTests(unittest.TestCase):
+    """Literal synthetic receipts only: no Observer, OS hooks, paths or ledger I/O."""
+    @staticmethod
+    def at(node, tick):
+        node = copy.deepcopy(node)
+        node['observed'] = dict(monotonic_ns=str(tick), wall_time_ns=str(2000000000000 + tick))
+        return node
+
+    def setUp(self):
+        owner = snapshot(99, 900, 800, birth=99, version=9, parent_version=8, ppid=98)
+        mine = snapshot(200, 2000, 900, birth=102, ppid=99)
+        root = self.at(snapshot(101, 1000, 900, birth=101, ppid=99), 1000)
+        before = self.at(snapshot(102, 1100, 1000, birth=103, version=20, parent_version=10, ppid=101, pgid=555), 2000)
+        raw = self.at(before, 3000); raw['idversion'] = 21
+        after = self.at(raw, 5000)
+        after['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
+        follow = self.at(after, 4000)
+        diagnostic = dict(version=1, kind='helper_native_metadata_gap', capture_sequence=3,
+                          subtype='mixed_image_boundary', pid=102, raw=raw, path_status='unobserved',
+                          image_status='nonqualifying', path_query=None,
+                          followup=dict(outcome='snapshot', snapshot=follow, problem=None),
+                          qualification=dict(version=1, mode='mixed_image_bracket', root='1000',
+                                             before_observation_sequence=2, after_observation_sequence=3))
+        self.session = dict(version=1, capability=observed.CAPABILITY, state='observing',
+                            observer=mine['identity'], owner=owner['identity'],
+                            membership=dict(version=1, attempt_id='portable-receipts', owner=owner['identity'],
+                                            anchor=snapshot(100, 950, 800)['identity'], group_id=100, session_id=100),
+                            source_sha256={key: 'a' * 64 for key in observed.SOURCE_FILES},
+                            roots={'1000': dict(pid=101, identity=root['identity'], unique_id='1000',
+                                                observation_sequence=1, writable_root_refs=['private-root'])},
+                            observations=[dict(sequence=index, snapshot=node, executable=executable)
+                                          for index, node, executable in ((1, root, '/fixture/wrapper'),
+                                                                         (2, before, '/fixture/helper-before'),
+                                                                         (3, after, '/fixture/helper-after'))],
+                            writers={'1100': dict(authority=copy.deepcopy(observed.AUTHORITY), root='1000',
+                                                  identity=after['identity'], unique_id='1100',
+                                                  observation_sequence=3, lineage_observation_sequences=[1, 3])},
+                            pending={}, working_roots={'private-root': dict(ref='private-root',
+                                path='/fixture/sdd-observed-portable', parent='/fixture', identity=[1, 2],
+                                parent_identity=[1, 1], uid=501, mode=0o700, purpose='literal receipt only', budget_bytes=4096)},
+                            errors=[], lost_history=False, sequence=3, closure=None, warnings=list(observed.WARNINGS),
+                            observer_snapshot=mine, owner_snapshot=owner, owner_executable='/fixture/node',
+                            observer_executable='/fixture/python', observer_python_version='synthetic', ipc_paths={},
+                            native_sampler=dict(version=2, state='running', roots=['1000'], durable_sequence=4,
+                                stopped_sequence=None, unresolved=[], statuses={}, exec_transitions=[],
+                                helper_diagnostics=[diagnostic], helper_diagnostic_bindings={}))
+        self.rebind(self.session)
+        self.assertIs(observed.validate_session(self.session), self.session)
+
+    @staticmethod
+    def diagnostic(session):
+        return session['native_sampler']['helper_diagnostics'][0]
+
+    @classmethod
+    def rebind(cls, session):
+        diagnostic = cls.diagnostic(session)
+        session['native_sampler']['helper_diagnostic_bindings'][str(diagnostic['capture_sequence'])] = observed._helper_raw_digest(diagnostic)
+
+    def path_gap(self, *, recovered=False):
+        session = copy.deepcopy(self.session); diagnostic = self.diagnostic(session)
+        # A complete, genuine same-epoch helper receipt precedes the query gap.
+        raw = self.at(session['observations'][2]['snapshot'], 6000)
+        diagnostic.update(subtype='known_epoch_path_gap', raw=raw,
+                          path_query=dict(version=1, api='libproc.proc_pidpath', stage='query', pid=102,
+                                          returned_size=0, errno=errno.ESRCH, buffer_size=4096,
+                                          outcome='unavailable', monotonic_ns='6001'),
+                          followup=dict(outcome='numeric_esrch', snapshot=None, problem=None),
+                          qualification=dict(version=1, mode='known_epoch_exit_gap', root='1000',
+                                             before_observation_sequence=3, after_observation_sequence=None))
+        if recovered:
+            later = self.at(raw, 8000)
+            session['observations'].append(dict(sequence=4, snapshot=later, executable='/fixture/helper-after'))
+            session['sequence'] = 4
+            session['writers']['1100'].update(observation_sequence=4, lineage_observation_sequences=[1, 4])
+            diagnostic['followup'] = dict(outcome='snapshot', snapshot=self.at(raw, 7000), problem=None)
+            diagnostic['qualification'].update(mode='bounded_same_epoch_gap',
+                                               before_observation_sequence=None, after_observation_sequence=4)
+        self.rebind(session)
+        self.assertIs(observed.validate_session(session), session)
+        return session
+
+    def test_mixed_bracket_is_nonqualifying_raw_with_exact_full_chain(self):
+        diagnostic = self.diagnostic(self.session)
+        self.assertTrue(observed._valid_helper_qualification(self.session, diagnostic, diagnostic['qualification']))
+        self.assertEqual(observed.exact_chain_sequences(self.session, '1000', 3), [1, 3])
+        self.assertNotIn(diagnostic['raw'], [item['snapshot'] for item in self.session['observations']])
+        self.assertEqual(diagnostic['path_status'], 'unobserved')
+        self.assertEqual(diagnostic['image_status'], 'nonqualifying')
+
+    def test_mixed_immutable_epoch_order_and_status_reject_with_rebound_digest(self):
+        for field in ('birth', 'uid', 'boot', 'parent', 'parent_epoch', 'epoch', 'uuid', 'order', 'status'):
+            session = copy.deepcopy(self.session); raw = self.diagnostic(session)['raw']
+            if field == 'birth': raw['identity']['created']['microseconds'] += 1
+            elif field == 'uid': raw['uid'] += 1
+            elif field == 'boot': raw['boot_uuid'] = '56565656-5656-4565-8565-565656565656'
+            elif field == 'parent': raw['original_parent_unique_id'] = '9999'
+            elif field == 'parent_epoch': raw['original_parent_idversion'] += 1
+            elif field == 'epoch': raw['idversion'] -= 1
+            elif field == 'uuid': raw['executable_uuid'] = '56565656-5656-4565-8565-565656565656'
+            elif field == 'order': raw['observed']['monotonic_ns'] = '1'
+            else: raw['status'] = 'zombie'; raw['query']['native_status'] = 5
+            self.rebind(session)
+            with self.subTest(field=field), self.assertRaises(EvidenceError): observed.validate_session(session)
+
+    def test_root_exclusion_missing_chain_and_wrong_full_references_reject(self):
+        for variant in ('root_before', 'no_after', 'wrong_root', 'missing_parent_epoch'):
+            session = copy.deepcopy(self.session); diagnostic = self.diagnostic(session)
+            if variant == 'root_before': diagnostic['qualification']['before_observation_sequence'] = 1
+            elif variant == 'no_after': diagnostic['qualification']['after_observation_sequence'] = None
+            elif variant == 'wrong_root': diagnostic['qualification']['root'] = '9999'
+            else:
+                for node in [item['snapshot'] for item in session['observations'][1:]] + [diagnostic['raw'], diagnostic['followup']['snapshot']]:
+                    node['original_parent_idversion'] = 999
+            self.rebind(session)
+            with self.subTest(variant=variant), self.assertRaises(EvidenceError): observed.validate_session(session)
+
+    def test_path_gap_exit_and_later_same_epoch_positive_proofs(self):
+        self.path_gap(); self.path_gap(recovered=True)
+
+    def test_permissions_unknown_malformed_and_unsupported_path_results_block(self):
+        original = self.path_gap()
+        for field, value in (('errno', errno.EPERM), ('errno', errno.EACCES), ('errno', 0),
+                             ('errno', errno.ENOTSUP), ('returned_size', -1), ('returned_size', 4096),
+                             ('stage', 'decode'), ('outcome', 'malformed'), ('api', 'unknown')):
+            session = copy.deepcopy(original); self.diagnostic(session)['path_query'][field] = value
+            self.rebind(session)
+            with self.subTest(field=field, value=value), self.assertRaises(EvidenceError): observed.validate_session(session)
+
+    def test_path_followup_identity_status_and_unknown_native_result_block(self):
+        original = self.path_gap(recovered=True)
+        for field in ('birth', 'uid', 'boot', 'parent_epoch', 'epoch', 'uuid', 'order', 'raw_zombie', 'unknown'):
+            session = copy.deepcopy(original); diagnostic = self.diagnostic(session); follow = diagnostic['followup']['snapshot']
+            if field == 'birth': follow['identity']['created']['microseconds'] += 1
+            elif field == 'uid': follow['uid'] += 1
+            elif field == 'boot': follow['boot_uuid'] = '56565656-5656-4565-8565-565656565656'
+            elif field == 'parent_epoch': follow['original_parent_idversion'] += 1
+            elif field == 'epoch': follow['idversion'] += 1
+            elif field == 'uuid': follow['executable_uuid'] = '56565656-5656-4565-8565-565656565656'
+            elif field == 'order': follow['observed']['monotonic_ns'] = '1'
+            elif field == 'raw_zombie': diagnostic['raw']['status'] = 'zombie'; diagnostic['raw']['query']['native_status'] = 5
+            else: diagnostic['followup'] = dict(outcome='unavailable', snapshot=None, problem='unknown native query')
+            self.rebind(session)
+            with self.subTest(field=field), self.assertRaises(EvidenceError): observed.validate_session(session)
+
+    def test_raw_receipt_removal_mutation_and_schema_downgrade_reject(self):
+        for variant in ('raw', 'receipt', 'binding', 'downgrade'):
+            session = copy.deepcopy(self.session); sampler = session['native_sampler']
+            if variant == 'raw': self.diagnostic(session)['raw']['current_ppid'] = 1
+            elif variant == 'receipt': sampler['helper_diagnostics'].clear()
+            elif variant == 'binding': sampler['helper_diagnostic_bindings'].clear()
+            else: sampler['version'] = 1
+            with self.subTest(variant=variant), self.assertRaises(EvidenceError): observed.validate_session(session)
+
+    def test_closed_receipt_digest_and_pending_lost_history_are_not_completion(self):
+        session = copy.deepcopy(self.session); sampler = session['native_sampler']
+        sampler.update(state='stopped', stopped_sequence=sampler['durable_sequence'])
+        session.update(state='closed', closure=dict(sequence=session['sequence'], numeric_absent=True, roots_no_handles=True,
+            helper_diagnostics_sha256=observed.hashlib.sha256(observed.canonical(sampler['helper_diagnostic_bindings']).encode()).hexdigest()))
+        observed.validate_session(session)
+        for variant in ('digest', 'pending', 'lost_history', 'unqualified'):
+            changed = copy.deepcopy(session)
+            if variant == 'digest': changed['closure']['helper_diagnostics_sha256'] = '0' * 64
+            elif variant == 'pending': changed['pending']['pid:999'] = dict(pid=999, reason='unseen ancestry')
+            elif variant == 'lost_history': changed['lost_history'] = True
+            else: self.diagnostic(changed)['qualification'] = None
+            with self.subTest(variant=variant), self.assertRaises(EvidenceError): observed.validate_session(changed)
+
+    def test_external_native_receipt_never_grants_signal_group_or_adoption(self):
+        self.assertEqual(self.session['observations'][2]['snapshot']['pgid'], 555)
+        for field in ('signal', 'group', 'adoption', 'class'):
+            session = copy.deepcopy(self.session)
+            session['writers']['1100']['authority'][field] = True if field != 'class' else 'native_group'
+            with self.subTest(field=field), self.assertRaises(EvidenceError): observed.validate_session(session)
+
+    def test_exec_pair_semantic_dedup_and_unsupported_sampler_versions(self):
+        before = self.session['observations'][1]['snapshot']; after = self.session['observations'][2]['snapshot']
+        self.assertTrue(observed._exec_pair(before, after))
+        self.assertEqual(observed.semantic(before), observed.semantic(self.at(before, 9000)))
+        for version in (0, 3, True, '2'):
+            session = copy.deepcopy(self.session); session['native_sampler']['version'] = version
+            with self.subTest(version=version), self.assertRaises(EvidenceError): observed.validate_session(session)
 
 
 class NativeCollectorTests(unittest.TestCase):
@@ -1017,6 +1396,7 @@ class NativeCollectorTests(unittest.TestCase):
 
 
 class ControlDescriptorTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'darwin', 'Actual Darwin POSIX socket descriptors; Windows sockets are not POSIX FDs')
     def test_anonymous_stream_socketpair_accepted_without_closing_originals(self):
         left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
@@ -1034,6 +1414,30 @@ class ControlDescriptorTests(unittest.TestCase):
         finally:
             os.close(read_fd); os.close(write_fd)
 
+    def test_socket_metadata_boundaries_are_portable_mocks(self):
+        control = Mock(family=socket.AF_UNIX)
+        control.getsockopt.return_value = socket.SOCK_STREAM
+        control.getsockname.return_value = ''
+        control.getpeername.return_value = b''
+        wrapped = Mock()
+        wrapped.__enter__ = Mock(return_value=control)
+        wrapped.__exit__ = Mock(return_value=False)
+        with patch.object(worker.os, 'fstat', return_value=Mock(st_mode=stat.S_IFSOCK)), \
+             patch.object(worker.os, 'dup', return_value=17) as duplicate, \
+             patch.object(worker.socket, 'socket', return_value=wrapped) as constructor:
+            worker.validate_control_fd(7)
+            duplicate.assert_called_once_with(7)
+            constructor.assert_called_once_with(fileno=17)
+            for method, value in ((control.getsockname, '/named'),
+                                  (control.getpeername, '/named'),
+                                  (control.getsockopt, socket.SOCK_DGRAM)):
+                original = method.return_value; method.return_value = value
+                with self.assertRaises(EvidenceError): worker.validate_control_fd(7)
+                method.return_value = original
+            control.family = socket.AF_INET
+            with self.assertRaises(EvidenceError): worker.validate_control_fd(7)
+        wrapped.__exit__.assert_called()
+
     def test_fifo_metadata_boundary_is_portable_without_assuming_linux_nlink(self):
         with patch.object(worker.os, 'fstat', return_value=Mock(st_mode=stat.S_IFIFO | 0o600, st_nlink=0)):
             worker.validate_control_fd(3)
@@ -1042,6 +1446,7 @@ class ControlDescriptorTests(unittest.TestCase):
         with patch.object(worker.os, 'fstat', return_value=Mock(st_mode=stat.S_IFIFO | 0o600, st_nlink=1)):
             with self.assertRaisesRegex(EvidenceError, 'named'): worker.validate_control_fd(3)
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Actual Darwin filesystem and POSIX socket descriptors')
     def test_regular_file_named_fifo_named_socket_and_datagram_rejected(self):
         with tempfile.TemporaryDirectory(prefix='sdd-control-fixture-') as temp:
             path = Path(temp) / 'regular'; path.write_text('private')
@@ -1141,7 +1546,9 @@ sys.stdin.readline()
             self.assertEqual(middle['original_parent_unique_id'], root['unique_id'])
             self.assertEqual(grandchild['original_parent_unique_id'], middle['unique_id'])
             self.assertEqual(grandchild['original_parent_idversion'], middle['idversion'])
-            pending = {event['pid'] for event in events if event['kind'] == 'pending'}
+            pending = {event['pid'] for event in events if event['kind'] in ('pending', 'helper_metadata', 'exec_transition')}
+            # Collector-only typed candidates remain unqualified here; only the
+            # authenticated SDK main thread can bind full-witness references.
             for row in rows[1:]:
                 self.assertTrue(row['middle'] in by_pid or row['middle'] in pending)
             durations = []
@@ -1155,7 +1562,8 @@ sys.stdin.readline()
                 durations.append(upper)
             result = dict(kind='owned-native-fork-window-result', trials=24,
                           complete_captured=sum(row['middle'] in by_pid for row in rows[1:]),
-                          pending=sum(row['middle'] in pending for row in rows[1:]),
+                          pending=sum(row['middle'] in pending and row['middle'] not in by_pid for row in rows[1:]),
+                          unqualified_diagnostic_events=sum(event['kind'] == 'helper_metadata' for event in events),
                           measured_lifetime_upper_bound_ns=durations,
                           proven_submillisecond_windows=sum(0 < duration < 1000000 for duration in durations),
                           positive_exact_three_process_chain=True,

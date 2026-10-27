@@ -9,6 +9,7 @@ import select
 import socket
 import sys
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -19,6 +20,7 @@ from evidence import process_identity
 
 BOOT = "12121212-1212-4212-8212-121212121212"
 EXE = "23232323-2323-4323-8323-232323232323"
+FIXTURE_UID = 501
 
 
 def receipt(pid=100, unique="1000", parent="900", *, birth=100, version=10, parent_version=9, stamp=1000):
@@ -87,6 +89,7 @@ class NativeQueryTests(unittest.TestCase):
     def query(self, callback, pid=100, include_zombie=True):
         library = Mock();library.proc_pidinfo.side_effect = callback
         with patch.object(native.sys, "platform", "darwin"), patch.object(native, "_boot_uuid", return_value=BOOT), \
+                patch.object(native.os, "geteuid", return_value=FIXTURE_UID, create=True), \
                 patch.object(native, "_library", return_value=library):
             return native.read_snapshot(pid, include_zombie)
 
@@ -94,7 +97,7 @@ class NativeQueryTests(unittest.TestCase):
     def fill(pid, flavor, arg, pointer, size):
         data = pointer._obj
         data.bsd.pid, data.bsd.ppid, data.bsd.pgid = pid, 99, 100
-        data.bsd.uid, data.bsd.status = os.geteuid(), 2
+        data.bsd.uid, data.bsd.status = FIXTURE_UID, 2
         data.bsd.seconds, data.bsd.microseconds = 100, 123
         data.unique.unique_id, data.unique.parent_unique_id = 1000, 900
         data.unique.idversion, data.unique.parent_idversion = 10, 9
@@ -114,6 +117,16 @@ class NativeQueryTests(unittest.TestCase):
         self.assertEqual(item["query"]["returned_size"], 192)
         self.assertNotIn("sid", item)
         self.assertNotIn("original_parent_pid", item)
+
+    def test_missing_uid_hook_is_scoped_to_synthetic_query(self):
+        # Windows has no geteuid: emulate only the Darwin ABI under test.
+        host_os = SimpleNamespace()
+        with patch.object(native, "os", host_os):
+            self.assertEqual(self.query(self.fill)["uid"], FIXTURE_UID)
+            self.assertFalse(hasattr(host_os, "geteuid"))
+            with self.assertRaisesRegex(RuntimeError, "fixture callback failure"):
+                self.query(Mock(side_effect=RuntimeError("fixture callback failure")))
+            self.assertFalse(hasattr(host_os, "geteuid"))
 
     def test_only_zero_count_esrch_is_none(self):
         def missing(*args):
@@ -136,7 +149,7 @@ class NativeQueryTests(unittest.TestCase):
             native.read_snapshot(100)
 
     def test_rejects_pid_uid_birth_reserved_and_unknown_status(self):
-        mutations = [("bsd", "pid", 101), ("bsd", "uid", os.geteuid() + 1),
+        mutations = [("bsd", "pid", 101), ("bsd", "uid", FIXTURE_UID + 1),
                      ("bsd", "microseconds", 1000000), ("bsd", "seconds", 0),
                      ("bsd", "status", 99), ("bsd", "reserved", 1),
                      ("unique", "unique_id", 0), ("unique", "parent_unique_id", 0),

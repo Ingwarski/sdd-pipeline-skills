@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -219,6 +220,118 @@ def _valid_exec_resolution(session, transition, resolution):
     return True
 
 
+def _same_native_key(left, right):
+    return (native.valid_snapshot(left) and native.valid_snapshot(right) and all(left[field] == right[field]
+            for field in ('identity', 'unique_id', 'boot_uuid', 'uid', 'original_parent_unique_id', 'original_parent_idversion')))
+
+
+def _native_order(left, right):
+    return all(int(right['observed'][key]) > int(left['observed'][key]) for key in ('monotonic_ns', 'wall_time_ns'))
+
+
+def _valid_path_query(query, pid):
+    return (type(query) is dict and set(query) == {'version', 'api', 'stage', 'pid', 'returned_size', 'errno', 'buffer_size', 'outcome', 'monotonic_ns'}
+            and type(query['version']) is int and query['version'] == 1 and query['api'] == 'libproc.proc_pidpath'
+            and query['stage'] in ('query', 'decode', 'result') and type(query['pid']) is int and query['pid'] == pid
+            and type(query['returned_size']) is int and -2**31 <= query['returned_size'] < 2**31
+            and type(query['errno']) is int and 0 <= query['errno'] < 2**31 and query['buffer_size'] == 4096
+            and query['outcome'] in ('unavailable', 'error', 'malformed')
+            and type(query['monotonic_ns']) is str and 0 < len(query['monotonic_ns']) <= 20 and query['monotonic_ns'].isascii()
+            and query['monotonic_ns'].isdecimal() and 0 < int(query['monotonic_ns']) < 2**64)
+
+
+def _helper_full(session, sequence, raw):
+    if type(sequence) is not int or not 1 <= sequence <= len(session['observations']):
+        return None
+    item = session['observations'][sequence - 1]
+    node = item['snapshot']
+    if not _same_native_key(node, raw) or node['status'] != 'alive' or node['unique_id'] in session['roots']:
+        return None  # This optional metadata lane can NEVER admit a root.
+    writer = session['writers'].get(node['unique_id'])
+    if writer is None or writer['identity'] != node['identity']:
+        return None
+    try:
+        exact_chain_sequences(session, writer['root'], sequence)
+    except EvidenceError:
+        return None
+    return item, writer['root']
+
+
+def _valid_helper_qualification(session, diagnostic, qualification):
+    fields = {'version', 'mode', 'root', 'before_observation_sequence', 'after_observation_sequence'}
+    if (type(qualification) is not dict or set(qualification) != fields
+            or type(qualification['version']) is not int or qualification['version'] != 1
+            or qualification['root'] not in session['roots']):
+        return False
+    raw = diagnostic['raw']
+    prior = _helper_full(session, qualification['before_observation_sequence'], raw)
+    later = _helper_full(session, qualification['after_observation_sequence'], raw)
+    if prior is not None and prior[1] != qualification['root'] or later is not None and later[1] != qualification['root']:
+        return False
+    if diagnostic['subtype'] == 'mixed_image_boundary':
+        if qualification['mode'] != 'mixed_image_bracket' or prior is None or later is None:
+            return False
+        before, after = prior[0]['snapshot'], later[0]['snapshot']
+        follow = diagnostic['followup']
+        return (diagnostic['path_query'] is None and before['status'] == raw['status'] == after['status'] == 'alive'
+                and _native_order(before, raw) and _native_order(raw, after)
+                and before['idversion'] < after['idversion'] == raw['idversion']
+                and raw['executable_uuid'] == before['executable_uuid'] != after['executable_uuid']
+                and follow['outcome'] == 'snapshot' and _same_native_key(raw, follow['snapshot'])
+                and follow['snapshot']['status'] == 'alive' and _native_order(raw, follow['snapshot'])
+                and _native_order(follow['snapshot'], after)
+                and follow['snapshot']['idversion'] == after['idversion']
+                and follow['snapshot']['executable_uuid'] == after['executable_uuid'])
+    query, follow = diagnostic['path_query'], diagnostic['followup']
+    # Narrow positive policy: only an actual ESRCH return from proc_pidpath can
+    # be bounded as an exit/transient metadata race. Permission, malformed,
+    # unsupported and unknown0 results remain blocking even after later absence.
+    if not (raw['status'] == 'alive' and _valid_path_query(query, raw['identity']['pid']) and query['stage'] == 'query'
+            and query['returned_size'] == 0 and query['errno'] == errno.ESRCH and query['outcome'] == 'unavailable'
+            and int(query['monotonic_ns']) >= int(raw['observed']['monotonic_ns'])):
+        return False
+    def same_epoch(item):
+        return item is not None and item[0]['snapshot']['idversion'] == raw['idversion'] and item[0]['snapshot']['executable_uuid'] == raw['executable_uuid']
+    if follow['outcome'] == 'snapshot':
+        post = follow['snapshot']
+        if (not _same_native_key(raw, post) or post['idversion'] != raw['idversion']
+                or post['executable_uuid'] != raw['executable_uuid'] or not _native_order(raw, post)
+                or int(post['observed']['monotonic_ns']) <= int(query['monotonic_ns'])):
+            return False
+    elif follow['outcome'] != 'numeric_esrch':
+        return False  # Unknown/denied/unsupported native followup is not evidence.
+    if qualification['mode'] == 'known_epoch_exit_gap':
+        return (same_epoch(prior) and qualification['after_observation_sequence'] is None
+                and _native_order(prior[0]['snapshot'], raw)
+                and (follow['outcome'] == 'numeric_esrch' or follow['snapshot']['status'] == 'zombie'))
+    if qualification['mode'] == 'bounded_same_epoch_gap':
+        return (same_epoch(later) and qualification['before_observation_sequence'] is None
+                and _native_order(raw, later[0]['snapshot'])
+                and int(later[0]['snapshot']['observed']['monotonic_ns']) > int(query['monotonic_ns'])
+                and follow['outcome'] == 'snapshot' and follow['snapshot']['status'] == 'alive')
+    return False
+
+
+def _helper_raw_digest(diagnostic):
+    # Byte-integrity binding only, never a native signature or source authority.
+    return hashlib.sha256(canonical({key: value for key, value in diagnostic.items() if key != 'qualification'}).encode()).hexdigest()
+
+
+def _valid_sampler_shape(collector):
+    if type(collector) is not dict or type(collector.get('version')) is not int:
+        return False
+    base = {'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses'}
+    if collector['version'] == 1:
+        return set(collector) in (base, base | {'exec_transitions'})
+    if collector['version'] == 2:
+        return set(collector) == base | {'exec_transitions', 'helper_diagnostics', 'helper_diagnostic_bindings'}
+    return False
+
+
+def _unresolved_helpers(session):
+    return any(item['qualification'] is None for item in session.get('native_sampler', {}).get('helper_diagnostics', ()))
+
+
 def _unresolved_exec(session):
     return any(item['resolution'] is None for item in session.get('native_sampler', {}).get('exec_transitions', ()))
 
@@ -325,9 +438,8 @@ def validate_session(value, *, current_sources=False):
     if 'native_sampler' in value and collector is None:
         raise EvidenceError('native sampler obligation cannot be null')
     if collector is not None:
-        if (type(collector) is not dict or set(collector) not in ({'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses'},
-                                        {'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses', 'exec_transitions'})
-                or collector['version'] != 1 or collector['state'] not in ('arming', 'running', 'stopped', 'failed')
+        if (not _valid_sampler_shape(collector)
+                or collector['state'] not in ('arming', 'running', 'stopped', 'failed')
                 or type(collector['roots']) is not list or collector['roots'] != sorted(value['roots'])
                 or type(collector['durable_sequence']) is not int or not 0 <= collector['durable_sequence'] <= 4096
                 or type(collector['statuses']) is not dict or len(collector['statuses']) > MAX_NODES
@@ -374,7 +486,47 @@ def validate_session(value, *, current_sources=False):
                     raise EvidenceError('unqualified exec transition lost its pending obligation')
             elif key in value['pending'] or not _valid_exec_resolution(value, transition, transition['resolution']):
                 raise EvidenceError('invalid qualified exec transition resolution')
-        if value['state'] == 'closed' and (collector['state'] != 'stopped' or collector['unresolved'] or _unresolved_exec(value)):
+        diagnostics = collector.get('helper_diagnostics', [])
+        if (type(diagnostics) is not list or len(diagnostics) + len(transitions) + len(collector['unresolved']) > MAX_PENDING):
+            raise EvidenceError('aggregate native diagnostic bound exceeded')
+        bindings = collector.get('helper_diagnostic_bindings', {})
+        if type(bindings) is not dict or len(bindings) > MAX_PENDING:
+            raise EvidenceError('invalid helper raw-receipt integrity bindings')
+        seen_diagnostics = set()
+        for diagnostic in diagnostics:
+            required = {'version', 'kind', 'capture_sequence', 'subtype', 'pid', 'raw', 'path_status', 'image_status', 'path_query', 'followup', 'qualification'}
+            if (type(diagnostic) is not dict or set(diagnostic) != required
+                    or type(diagnostic['version']) is not int or diagnostic['version'] != 1
+                    or diagnostic['kind'] != 'helper_native_metadata_gap'
+                    or diagnostic['subtype'] not in ('mixed_image_boundary', 'known_epoch_path_gap')
+                    or type(diagnostic['capture_sequence']) is not int
+                    or not 1 <= diagnostic['capture_sequence'] <= collector['durable_sequence']
+                    or diagnostic['capture_sequence'] in seen_diagnostics
+                    or not native.valid_snapshot(diagnostic['raw']) or diagnostic['pid'] != diagnostic['raw']['identity']['pid']
+                    or diagnostic['path_status'] != 'unobserved' or diagnostic['image_status'] != 'nonqualifying'):
+                raise EvidenceError('invalid nonqualifying helper image/status diagnostic')
+            seen_diagnostics.add(diagnostic['capture_sequence'])
+            if bindings.get(str(diagnostic['capture_sequence'])) != _helper_raw_digest(diagnostic):
+                raise EvidenceError('helper raw diagnostic bytes were changed or removed')
+            follow = diagnostic['followup']
+            if (type(follow) is not dict or set(follow) != {'outcome', 'snapshot', 'problem'}
+                    or follow['outcome'] not in ('snapshot', 'numeric_esrch', 'unavailable')
+                    or follow['outcome'] == 'snapshot' and not native.valid_snapshot(follow['snapshot'])
+                    or follow['outcome'] != 'snapshot' and follow['snapshot'] is not None
+                    or follow['outcome'] != 'unavailable' and follow['problem'] is not None
+                    or follow['outcome'] == 'unavailable' and (type(follow['problem']) is not str or not 0 < len(follow['problem']) <= 512)
+                    or diagnostic['subtype'] == 'mixed_image_boundary' and diagnostic['path_query'] is not None
+                    or diagnostic['subtype'] == 'known_epoch_path_gap' and not _valid_path_query(diagnostic['path_query'], diagnostic['pid'])):
+                raise EvidenceError('invalid structured helper metadata query/followup')
+            key = 'helper-meta:' + str(diagnostic['capture_sequence'])
+            if diagnostic['qualification'] is None:
+                if key not in value['pending'] or value['pending'][key]['pid'] != diagnostic['pid']:
+                    raise EvidenceError('helper diagnostic lost blocking pending obligation')
+            elif key in value['pending'] or not _valid_helper_qualification(value, diagnostic, diagnostic['qualification']):
+                raise EvidenceError('invalid helper diagnostic full-witness qualification')
+        if set(bindings) != {str(sequence) for sequence in seen_diagnostics}:
+            raise EvidenceError('helper raw diagnostic receipt was removed')
+        if value['state'] == 'closed' and (collector['state'] != 'stopped' or collector['unresolved'] or _unresolved_exec(value) or _unresolved_helpers(value)):
             raise EvidenceError('closed observer lacks joined/drained native sampler')
     if 'working_binding' in value:
         _validate_binding_shape(value['working_binding'])
@@ -516,11 +668,17 @@ def validate_session(value, *, current_sources=False):
     if value['state'] == 'closed' and (value['lost_history'] or value['errors'] or value['pending']
                                       or not value['roots'] or value['closure'] is None):
         raise EvidenceError('closed observer retains unresolved obligations')
+    closure_keys = {'sequence', 'numeric_absent', 'roots_no_handles'}
+    if collector is not None and collector['version'] == 2:
+        closure_keys.add('helper_diagnostics_sha256')
     if value['closure'] is not None and (type(value['closure']) is not dict
-            or set(value['closure']) != {'sequence', 'numeric_absent', 'roots_no_handles'}
+            or set(value['closure']) != closure_keys
             or value['closure']['sequence'] != value['sequence'] or value['closure']['numeric_absent'] is not True
             or value['closure']['roots_no_handles'] is not True):
         raise EvidenceError('invalid observer closure barrier')
+    if value['closure'] is not None and collector is not None and collector['version'] == 2:
+        if value['closure']['helper_diagnostics_sha256'] != hashlib.sha256(canonical(collector['helper_diagnostic_bindings']).encode()).hexdigest():
+            raise EvidenceError('closed helper diagnostic integrity binding changed')
     # Rebuild only from immutable SDK witnesses. A writer row cannot bypass a
     # missing original-parent version merely by naming an existing root.
     for root, item in value['roots'].items():
@@ -535,6 +693,12 @@ def validate_session(value, *, current_sources=False):
     return value
 
 
+class _PathQueryError(EvidenceError):
+    def __init__(self, message, receipt):
+        super().__init__(message)
+        self.receipt = copy.deepcopy(receipt)
+
+
 def executable_path(pid):
     _pid(pid)
     library = native._library()
@@ -543,11 +707,21 @@ def executable_path(pid):
     buffer = ctypes.create_string_buffer(4096)
     ctypes.set_errno(0)
     count = function(pid, buffer, len(buffer))
-    if count <= 0 or count >= len(buffer) or ctypes.get_errno():
-        raise EvidenceError('native executable observation unavailable')
-    result = os.fsdecode(buffer.value)
-    if not result.startswith('/') or '\0' in result:
-        raise EvidenceError('invalid native executable path')
+    error = ctypes.get_errno()  # MUST immediately follow the actual native call.
+    receipt = dict(version=1, api='libproc.proc_pidpath', stage='query', pid=pid,
+                   returned_size=count, errno=error, buffer_size=4096,
+                   outcome='unavailable' if count == 0 else 'error',
+                   monotonic_ns=str(time.monotonic_ns()))
+    if count <= 0 or count >= len(buffer) or error:
+        raise _PathQueryError('native executable observation unavailable', receipt)
+    try:
+        result = buffer.value.decode('utf-8', 'strict')
+    except UnicodeError as exc:
+        receipt.update(stage='decode', outcome='malformed')
+        raise _PathQueryError('invalid native executable path encoding', receipt) from exc
+    if not result.startswith('/') or '\0' in result or len(buffer.value) != count:
+        receipt.update(stage='result', outcome='malformed')
+        raise _PathQueryError('invalid native executable path', receipt)
     return result
 
 
@@ -875,9 +1049,9 @@ class _NativeSampler:
                 raise EvidenceError('native collector final cycle missing')
             return self._sequence
 
-    def _emit(self, kind, pid, *, snapshot=None, executable=None, reason=None, successor=None):
+    def _emit(self, kind, pid, *, snapshot=None, executable=None, reason=None, successor=None, diagnostic=None):
         # Raw receipts remain local SDK data; there is no caller witness JSON API.
-        event = dict(kind=kind, pid=pid, snapshot=snapshot, executable=executable, reason=reason, successor=successor)
+        event = dict(kind=kind, pid=pid, snapshot=snapshot, executable=executable, reason=reason, successor=successor, diagnostic=diagnostic)
         with self._condition:
             event['sequence'] = self._sequence + 1
             size = len(canonical(event).encode())
@@ -933,8 +1107,26 @@ class _NativeSampler:
                 self._emit('exec_transition', pid, snapshot=snapshot, successor=confirmed)
                 self._last[pid] = current
                 return snapshot
+            if (previous is not None and _same_native_key(previous, snapshot) and _same_native_key(snapshot, confirmed)
+                    and previous['idversion'] < snapshot['idversion'] == confirmed['idversion']
+                    and previous['executable_uuid'] == snapshot['executable_uuid'] != confirmed['executable_uuid']):
+                self._emit('helper_metadata', pid, snapshot=snapshot, diagnostic=dict(
+                    subtype='mixed_image_boundary', path_query=None,
+                    followup=dict(outcome='snapshot', snapshot=confirmed, problem=None)))
+                self._last[pid] = current
+                return snapshot
             if confirmed is None or semantic(confirmed) != current or executable_path(pid) != exe:
                 raise EvidenceError('native executable/birth changed during fast capture')
+        except _PathQueryError as exc:
+            try:
+                post = native.read_snapshot(pid, include_zombie=True)
+                followup = dict(outcome='numeric_esrch' if post is None else 'snapshot', snapshot=post, problem=None)
+            except (EvidenceError, OSError) as error:
+                followup = dict(outcome='unavailable', snapshot=None, problem=(str(error) or type(error).__name__)[:512])
+            self._emit('helper_metadata', pid, snapshot=snapshot, diagnostic=dict(
+                subtype='known_epoch_path_gap', path_query=exc.receipt, followup=followup))
+            self._last[pid] = current
+            return snapshot
         except (EvidenceError, OSError) as exc:
             self._emit('pending', pid, snapshot=snapshot, reason=('incomplete native/executable capture: ' + str(exc))[:256])
             self._last[pid] = current
@@ -1043,7 +1235,7 @@ class Observer:
                        observer_python_version=sys.version[:256], ipc_paths={}, working_binding=binding,
                        runtime_file_limit=runtime_file_limit, session_id=str(uuid.uuid4()),
                        cleanup_barrier=None, excluded_candidates={},
-                       native_sampler=dict(version=1, state='arming', roots=[], durable_sequence=0, stopped_sequence=None, unresolved=[], statuses={}, exec_transitions=[]))
+                       native_sampler=dict(version=2, state='arming', roots=[], durable_sequence=0, stopped_sequence=None, unresolved=[], statuses={}, exec_transitions=[], helper_diagnostics=[], helper_diagnostic_bindings={}))
         validate_session(initial, current_sources=True)
         def arm(current):
             stable = ('version', 'run_id', 'unit_id', 'reservation_id', 'coordinator', 'guardian',
@@ -1205,7 +1397,7 @@ class Observer:
             self._active()
             if (self.value['native_sampler']['durable_sequence'] < ready_watermark
                     or self.value['pending'] or self.value['errors'] or self.value['lost_history']
-                    or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value)):
+                    or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value) or _unresolved_helpers(self.value)):
                 raise EvidenceError('root readiness has pending/errors/lost/unresolved native evidence')
             current_root = native.read_snapshot(pid)
             if (current_root is None or current_root['status'] != 'alive'
@@ -1283,7 +1475,12 @@ class Observer:
         pid, unique = snapshot['identity']['pid'], snapshot['unique_id']
         key = 'pid:' + str(pid)
         matches = list(self.graphs)
-        if self.latest.get(unique) == semantic(snapshot):
+        recovering_gap = any(item['qualification'] is None and item['subtype'] == 'known_epoch_path_gap'
+            and _same_native_key(item['raw'], snapshot) and item['path_query']['errno'] == errno.ESRCH
+            and item['path_query']['stage'] == 'query' and item['path_query']['returned_size'] == 0
+            and item['followup']['outcome'] == 'snapshot' and item['followup']['snapshot']['status'] == 'alive'
+            for item in self.value['native_sampler'].get('helper_diagnostics', ()))
+        if self.latest.get(unique) == semantic(snapshot) and not recovering_gap:
             return any(graph.lineage(unique) is not None for graph in self.graphs.values())
         if unique in self.value['roots'] and 'target_executable' in self.value['roots'][unique]:
             target = self.value['roots'][unique]['target_executable']
@@ -1344,6 +1541,31 @@ class Observer:
                     self._commit(resolve)
                     break
 
+    def _resolve_helper_diagnostics(self):
+        for diagnostic in self.value['native_sampler'].get('helper_diagnostics', ()):
+            if diagnostic['qualification'] is not None:
+                continue
+            raw = diagnostic['raw']
+            refs = [item['sequence'] for item in self.value['observations'] if _helper_full(self.value, item['sequence'], raw) is not None]
+            if diagnostic['subtype'] == 'mixed_image_boundary':
+                candidates = (dict(version=1, mode='mixed_image_bracket', root=_helper_full(self.value, before, raw)[1],
+                                   before_observation_sequence=before, after_observation_sequence=after)
+                              for before in refs for after in refs)
+            else:
+                candidates = [dict(version=1, mode='known_epoch_exit_gap', root=_helper_full(self.value, ref, raw)[1],
+                                   before_observation_sequence=ref, after_observation_sequence=None) for ref in refs]
+                candidates += [dict(version=1, mode='bounded_same_epoch_gap', root=_helper_full(self.value, ref, raw)[1],
+                                    before_observation_sequence=None, after_observation_sequence=ref) for ref in refs]
+            for qualification in candidates:
+                if _valid_helper_qualification(self.value, diagnostic, qualification):
+                    sequence = diagnostic['capture_sequence']
+                    def qualify(session):
+                        target = next(item for item in session['native_sampler']['helper_diagnostics'] if item['capture_sequence'] == sequence)
+                        target['qualification'] = qualification
+                        session['pending'].pop('helper-meta:' + str(sequence), None)
+                    self._commit(qualify)
+                    break
+
     def _drain_native(self, *, through=None):
         self._sampler.check()
         if self.value['source_sha256'] != sources():
@@ -1372,6 +1594,19 @@ class Observer:
                             session['pending']['exec:' + str(event['sequence'])] = dict(
                                 pid=event['pid'], reason='unobserved executable during exec; awaiting qualified complete writer')
                         self._commit(transition)
+                    elif event['kind'] == 'helper_metadata':
+                        payload = event['diagnostic']
+                        def helper_metadata(session):
+                            session['native_sampler']['helper_diagnostics'].append(dict(
+                                version=1, kind='helper_native_metadata_gap', capture_sequence=event['sequence'],
+                                subtype=payload['subtype'], pid=event['pid'], raw=event['snapshot'],
+                                path_status='unobserved', image_status='nonqualifying', path_query=payload['path_query'],
+                                followup=payload['followup'], qualification=None))
+                            diagnostic = session['native_sampler']['helper_diagnostics'][-1]
+                            session['native_sampler']['helper_diagnostic_bindings'][str(event['sequence'])] = _helper_raw_digest(diagnostic)
+                            session['pending']['helper-meta:' + str(event['sequence'])] = dict(
+                                pid=event['pid'], reason='helper image/status metadata gap awaiting positive full-witness qualification')
+                        self._commit(helper_metadata)
                     elif event['kind'] == 'status':
                         snapshot = event['snapshot']
                         matches = [item for item in staged['observations'] if all(
@@ -1392,6 +1627,7 @@ class Observer:
                         raise EvidenceError('unknown private native capture event')
                     staged['native_sampler']['durable_sequence'] = event['sequence']
                     self._resolve_exec_transitions()
+                    self._resolve_helper_diagnostics()
                 validate_session(staged, current_sources=True)
                 self.value, self._batching = original, False
                 self._commit(lambda session: (session.clear(), session.update(staged)))
@@ -1496,7 +1732,7 @@ class Observer:
         record = read(self.ledger, self.attempt)
         working_binding(self.ledger, record, session=self.value)
         if (not self.value['roots'] or self.value['pending'] or self.value['errors'] or self.value['lost_history']
-                or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value)
+                or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value) or _unresolved_helpers(self.value)
                 or self.value['state'] not in ('observing', 'closing')):
             raise EvidenceError('cleanup preparation retains pending/errors/lost history')
         deadline = time.monotonic() + timeout
@@ -1562,7 +1798,8 @@ class Observer:
                 self._commit(lambda session: session['native_sampler'].update(state='stopped', stopped_sequence=stopped))
                 self.sample(force_census=True, deadline=deadline)
                 self._cleanup_checks(_remaining(deadline), require_empty=True)
-                closure = dict(sequence=self.value['sequence'], numeric_absent=True, roots_no_handles=True)
+                closure = dict(sequence=self.value['sequence'], numeric_absent=True, roots_no_handles=True,
+                               helper_diagnostics_sha256=hashlib.sha256(canonical(self.value['native_sampler']['helper_diagnostic_bindings']).encode()).hexdigest())
                 self._commit(lambda s: s.update(state='closed', closure=closure))
                 return dict(closed=True, durable=True, sequence=self.value['sequence'])
             except (EvidenceError, OSError) as exc:
