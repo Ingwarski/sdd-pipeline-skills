@@ -179,6 +179,50 @@ def exact_chain_sequences(session, root, leaf_sequence):
     raise EvidenceError('exact retained lineage depth bound exceeded')
 
 
+def _exec_pair(before, after):
+    """Genuine kernel epochs only; never asserts an unobserved executable path."""
+    immutable = ('identity', 'unique_id', 'boot_uuid', 'uid', 'original_parent_unique_id', 'original_parent_idversion')
+    return (native.valid_snapshot(before) and native.valid_snapshot(after)
+            and before['status'] == after['status'] == 'alive'
+            and all(before[key] == after[key] for key in immutable)
+            and after['idversion'] > before['idversion']
+            and all(int(after['observed'][key]) > int(before['observed'][key]) for key in ('monotonic_ns', 'wall_time_ns')))
+
+
+def _valid_exec_resolution(session, transition, resolution):
+    if (type(resolution) is not dict or set(resolution) != {'version', 'observation_sequence', 'root'}
+            or type(resolution['version']) is not int or resolution['version'] != 1 or type(resolution['observation_sequence']) is not int
+            or not 1 <= resolution['observation_sequence'] <= len(session['observations'])
+            or resolution['root'] not in session['roots']):
+        return False
+    item = session['observations'][resolution['observation_sequence'] - 1]
+    node, before, after = item['snapshot'], transition['before'], transition['after']
+    immutable = ('identity', 'unique_id', 'boot_uuid', 'uid', 'original_parent_unique_id', 'original_parent_idversion')
+    if (node['status'] != 'alive' or any(node[key] != before[key] for key in immutable)
+            or node['idversion'] < after['idversion'] or node['idversion'] <= before['idversion']
+            or node['idversion'] == after['idversion'] and node['executable_uuid'] != after['executable_uuid']
+            or any(int(node['observed'][key]) <= int(after['observed'][key]) for key in ('monotonic_ns', 'wall_time_ns'))):
+        return False
+    if node['unique_id'] in session['roots']:
+        root = session['roots'][node['unique_id']]
+        if (resolution['root'] != node['unique_id'] or 'target_executable' not in root
+                or item['executable'] != root['target_executable']['path']):
+            return False  # Roots still need actual declared target and wrapper proofs.
+    else:
+        writer = session['writers'].get(node['unique_id'])
+        if writer is None or writer['root'] != resolution['root'] or writer['identity'] != node['identity']:
+            return False
+    try:
+        exact_chain_sequences(session, resolution['root'], resolution['observation_sequence'])
+    except EvidenceError:
+        return False
+    return True
+
+
+def _unresolved_exec(session):
+    return any(item['resolution'] is None for item in session.get('native_sampler', {}).get('exec_transitions', ()))
+
+
 def _birth(snapshot):
     created = snapshot['identity']['created']
     return created['seconds'], created['microseconds']
@@ -278,8 +322,11 @@ def validate_session(value, *, current_sources=False):
             or current_sources and value['source_sha256'] != sources()):
         raise EvidenceError('invalid observed-writer session/source binding')
     collector = value.get('native_sampler')
+    if 'native_sampler' in value and collector is None:
+        raise EvidenceError('native sampler obligation cannot be null')
     if collector is not None:
-        if (type(collector) is not dict or set(collector) != {'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses'}
+        if (type(collector) is not dict or set(collector) not in ({'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses'},
+                                        {'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses', 'exec_transitions'})
                 or collector['version'] != 1 or collector['state'] not in ('arming', 'running', 'stopped', 'failed')
                 or type(collector['roots']) is not list or collector['roots'] != sorted(value['roots'])
                 or type(collector['durable_sequence']) is not int or not 0 <= collector['durable_sequence'] <= 4096
@@ -307,7 +354,27 @@ def validate_session(value, *, current_sources=False):
             if any(predecessor[field] != status['snapshot'][field] for field in
                    ('identity', 'unique_id', 'idversion', 'executable_uuid', 'boot_uuid', 'uid')):
                 raise EvidenceError('zombie status lacks exact genuine executable predecessor')
-        if value['state'] == 'closed' and (collector['state'] != 'stopped' or collector['unresolved']):
+        transitions = collector.get('exec_transitions', [])
+        if type(transitions) is not list or len(transitions) > MAX_PENDING:
+            raise EvidenceError('typed exec transition bound exceeded')
+        seen_transitions = set()
+        for transition in transitions:
+            if (type(transition) is not dict or set(transition) != {'version', 'kind', 'capture_sequence', 'path_status', 'before', 'after', 'resolution'}
+                    or type(transition['version']) is not int or transition['version'] != 1 or transition['kind'] != 'kernel_lineage_exec_transition'
+                    or transition['path_status'] != 'unobserved_during_exec'
+                    or type(transition['capture_sequence']) is not int
+                    or not 1 <= transition['capture_sequence'] <= collector['durable_sequence']
+                    or transition['capture_sequence'] in seen_transitions
+                    or not _exec_pair(transition['before'], transition['after'])):
+                raise EvidenceError('invalid typed kernel-only exec transition')
+            seen_transitions.add(transition['capture_sequence'])
+            key = 'exec:' + str(transition['capture_sequence'])
+            if transition['resolution'] is None:
+                if key not in value['pending'] or value['pending'][key]['pid'] != transition['before']['identity']['pid']:
+                    raise EvidenceError('unqualified exec transition lost its pending obligation')
+            elif key in value['pending'] or not _valid_exec_resolution(value, transition, transition['resolution']):
+                raise EvidenceError('invalid qualified exec transition resolution')
+        if value['state'] == 'closed' and (collector['state'] != 'stopped' or collector['unresolved'] or _unresolved_exec(value)):
             raise EvidenceError('closed observer lacks joined/drained native sampler')
     if 'working_binding' in value:
         _validate_binding_shape(value['working_binding'])
@@ -808,9 +875,9 @@ class _NativeSampler:
                 raise EvidenceError('native collector final cycle missing')
             return self._sequence
 
-    def _emit(self, kind, pid, *, snapshot=None, executable=None, reason=None):
+    def _emit(self, kind, pid, *, snapshot=None, executable=None, reason=None, successor=None):
         # Raw receipts remain local SDK data; there is no caller witness JSON API.
-        event = dict(kind=kind, pid=pid, snapshot=snapshot, executable=executable, reason=reason)
+        event = dict(kind=kind, pid=pid, snapshot=snapshot, executable=executable, reason=reason, successor=successor)
         with self._condition:
             event['sequence'] = self._sequence + 1
             size = len(canonical(event).encode())
@@ -862,6 +929,10 @@ class _NativeSampler:
         try:
             exe = executable_path(pid)
             confirmed = native.read_snapshot(pid, include_zombie=True)
+            if _exec_pair(snapshot, confirmed):
+                self._emit('exec_transition', pid, snapshot=snapshot, successor=confirmed)
+                self._last[pid] = current
+                return snapshot
             if confirmed is None or semantic(confirmed) != current or executable_path(pid) != exe:
                 raise EvidenceError('native executable/birth changed during fast capture')
         except (EvidenceError, OSError) as exc:
@@ -972,7 +1043,7 @@ class Observer:
                        observer_python_version=sys.version[:256], ipc_paths={}, working_binding=binding,
                        runtime_file_limit=runtime_file_limit, session_id=str(uuid.uuid4()),
                        cleanup_barrier=None, excluded_candidates={},
-                       native_sampler=dict(version=1, state='arming', roots=[], durable_sequence=0, stopped_sequence=None, unresolved=[], statuses={}))
+                       native_sampler=dict(version=1, state='arming', roots=[], durable_sequence=0, stopped_sequence=None, unresolved=[], statuses={}, exec_transitions=[]))
         validate_session(initial, current_sources=True)
         def arm(current):
             stable = ('version', 'run_id', 'unit_id', 'reservation_id', 'coordinator', 'guardian',
@@ -1130,8 +1201,24 @@ class Observer:
         self._commit(commit)  # ACK is permitted only after this transaction commits.
         self.graphs[key], self.latest[key] = graph, semantic(snapshot)
         self._drain_native(through=ready_watermark)
-        if self.value['native_sampler']['durable_sequence'] < ready_watermark:
-            raise EvidenceError('root capture readiness was not durably drained')
+        try:
+            self._active()
+            if (self.value['native_sampler']['durable_sequence'] < ready_watermark
+                    or self.value['pending'] or self.value['errors'] or self.value['lost_history']
+                    or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value)):
+                raise EvidenceError('root readiness has pending/errors/lost/unresolved native evidence')
+            current_root = native.read_snapshot(pid)
+            if (current_root is None or current_root['status'] != 'alive'
+                    or any(current_root[field] != snapshot[field] for field in
+                           ('identity', 'unique_id', 'uid', 'boot_uuid', 'original_parent_unique_id',
+                            'original_parent_idversion', 'pgid', 'idversion', 'executable_uuid'))
+                    or current_root['current_ppid'] != self.owner_pid
+                    or os.getsid(pid) != self.value['membership']['session_id']
+                    or executable_path(pid) != expected_executable):
+                raise EvidenceError('held root wrapper changed before clean ACK')
+        except (EvidenceError, OSError) as exc:
+            self.fail('root ACK refused: ' + str(exc), lost=True)
+            raise EvidenceError('root ACK refused: ' + str(exc)) from exc
         return dict(root=key, sequence=self.value['sequence'], durable=True)
 
     def _potential_candidate(self, snapshot):
@@ -1233,6 +1320,30 @@ class Observer:
         self.latest[unique] = semantic(snapshot)
         return bool(resolved)
 
+    def _resolve_exec_transitions(self):
+        transitions = self.value['native_sampler'].get('exec_transitions', ())
+        for transition in transitions:
+            if transition['resolution'] is not None:
+                continue
+            for item in self.value['observations']:
+                node = item['snapshot']
+                if node['unique_id'] in self.value['roots']:
+                    root = node['unique_id']
+                else:
+                    writer = self.value['writers'].get(node['unique_id'])
+                    if writer is None:
+                        continue
+                    root = writer['root']
+                resolution = dict(version=1, observation_sequence=item['sequence'], root=root)
+                if _valid_exec_resolution(self.value, transition, resolution):
+                    sequence = transition['capture_sequence']
+                    def resolve(session):
+                        target = next(entry for entry in session['native_sampler']['exec_transitions'] if entry['capture_sequence'] == sequence)
+                        target['resolution'] = resolution
+                        session['pending'].pop('exec:' + str(sequence), None)
+                    self._commit(resolve)
+                    break
+
     def _drain_native(self, *, through=None):
         self._sampler.check()
         if self.value['source_sha256'] != sources():
@@ -1251,6 +1362,16 @@ class Observer:
                         raise EvidenceError('native capture sequence gap/lost history')
                     if event['kind'] == 'snapshot':
                         self._ingest_capture(event['snapshot'], event['executable'])
+                    elif event['kind'] == 'exec_transition':
+                        if not _exec_pair(event['snapshot'], event['successor']):
+                            raise EvidenceError('invalid private forward-exec witness')
+                        def transition(session):
+                            session['native_sampler']['exec_transitions'].append(dict(
+                                version=1, kind='kernel_lineage_exec_transition', capture_sequence=event['sequence'],
+                                path_status='unobserved_during_exec', before=event['snapshot'], after=event['successor'], resolution=None))
+                            session['pending']['exec:' + str(event['sequence'])] = dict(
+                                pid=event['pid'], reason='unobserved executable during exec; awaiting qualified complete writer')
+                        self._commit(transition)
                     elif event['kind'] == 'status':
                         snapshot = event['snapshot']
                         matches = [item for item in staged['observations'] if all(
@@ -1270,6 +1391,7 @@ class Observer:
                     elif event['kind'] != 'absent':
                         raise EvidenceError('unknown private native capture event')
                     staged['native_sampler']['durable_sequence'] = event['sequence']
+                    self._resolve_exec_transitions()
                 validate_session(staged, current_sources=True)
                 self.value, self._batching = original, False
                 self._commit(lambda session: (session.clear(), session.update(staged)))
@@ -1374,7 +1496,7 @@ class Observer:
         record = read(self.ledger, self.attempt)
         working_binding(self.ledger, record, session=self.value)
         if (not self.value['roots'] or self.value['pending'] or self.value['errors'] or self.value['lost_history']
-                or self.value['native_sampler']['unresolved']
+                or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value)
                 or self.value['state'] not in ('observing', 'closing')):
             raise EvidenceError('cleanup preparation retains pending/errors/lost history')
         deadline = time.monotonic() + timeout

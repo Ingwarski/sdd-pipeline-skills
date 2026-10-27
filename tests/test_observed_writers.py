@@ -727,6 +727,133 @@ class RegistryTests(unittest.TestCase):
         self.assertTrue(self.record_now()['observation_session']['lost_history'])
         with self.assertRaisesRegex(EvidenceError, 'lost unflushed'): observer.prepare_cleanup(.1)
 
+    def typed_helper_exec(self, observer, pid=102, before_version=718685, after_version=718686, *, parent='1000'):
+        self.nodes[pid] = snapshot(pid, 10000 + pid, parent, birth=103, version=before_version,
+                                   parent_version=10, ppid=101, pgid=555)
+        original_uuid = self.nodes[pid]['executable_uuid']
+        def executable(target):
+            if target == pid:
+                if self.nodes[pid]['idversion'] == before_version:
+                    self.nodes[pid]['idversion'] = after_version
+                    self.nodes[pid]['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
+                return '/fixture/complete-helper'
+            return '/fixture/node' if target == 99 else '/fixture/python'
+        with patch.object(observed, 'executable_path', side_effect=executable):
+            observer.observe(pid)
+        return original_uuid
+
+    def test_runtime_exec_epochs_qualify_only_new_typed_same_birth_witnesses(self):
+        # Exact epoch pairs from runtime fixture2, replayed as isolated SDK
+        # native calls. This does not repair that preserved failed session.
+        observer = self.registered()
+        for pid, before, after in ((102, 718685, 718686), (103, 718687, 718688)):
+            old_uuid = self.typed_helper_exec(observer, pid, before, after)
+            transition = next(item for item in observer.value['native_sampler']['exec_transitions']
+                              if item['before']['identity']['pid'] == pid)
+            self.assertEqual(transition['before']['executable_uuid'], old_uuid)
+            self.assertEqual(transition['before']['idversion'], before)
+            self.assertEqual(transition['after']['idversion'], after)
+            self.assertEqual(transition['path_status'], 'unobserved_during_exec')
+            self.assertIsNotNone(transition['resolution'])
+            full = observer.value['observations'][transition['resolution']['observation_sequence'] - 1]
+            self.assertEqual(full['snapshot']['idversion'], after)
+            self.assertEqual(full['executable'], '/fixture/complete-helper')
+            self.assertNotIn('executable', transition)  # No invented pre-exec path.
+        self.assertFalse(observer.value['native_sampler']['unresolved'])
+        self.assertFalse(observer.value['pending'])
+        self.nodes.pop(101); self.nodes.pop(102); self.nodes.pop(103)
+        self.assertTrue(observer.prepare_cleanup(.5)['ready'])
+        self.assertTrue(observer.close(.5)['closed'])
+        self.assertFalse(observed.disposition_problems(self.record_now(), ledger=self.ledger))
+
+    def test_typed_exec_resolution_rejects_wrong_birth_parent_uid_boot_or_epoch(self):
+        observer = self.registered(); self.typed_helper_exec(observer)
+        original = self.record_now()
+        for field in ('identity', 'unique_id', 'original_parent_unique_id', 'original_parent_idversion', 'uid', 'boot_uuid', 'idversion'):
+            changed = copy.deepcopy(original)
+            before = changed['observation_session']['native_sampler']['exec_transitions'][0]['before']
+            if field == 'identity': before[field]['created']['microseconds'] += 1
+            elif field in ('uid', 'idversion', 'original_parent_idversion'): before[field] += 100
+            elif field == 'boot_uuid': before[field] = '56565656-5656-4565-8565-565656565656'
+            else: before[field] = '999999'
+            self.save(changed)
+            with self.subTest(field=field):
+                with self.assertRaises(EvidenceError): self.record_now()
+        self.save(original)
+        changed = copy.deepcopy(original)
+        changed['observation_session']['native_sampler']['exec_transitions'][0]['resolution']['observation_sequence'] = 1
+        self.save(changed)
+        with self.assertRaisesRegex(EvidenceError, 'exec transition resolution'): self.record_now()
+        self.save(original)
+
+    def test_missing_native_ancestry_does_not_resolve_typed_exec(self):
+        observer = self.registered()
+        self.typed_helper_exec(observer, parent='9999')
+        transition = observer.value['native_sampler']['exec_transitions'][0]
+        self.assertIsNone(transition['resolution'])
+        self.assertIn('exec:' + str(transition['capture_sequence']), observer.value['pending'])
+        self.assertFalse(observer.value['writers'])
+        self.nodes.pop(101); self.nodes.pop(102)
+        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(.1)
+
+    def test_all_terminal_consumers_reject_unqualified_typed_exec(self):
+        observer = self.registered(); self.typed_helper_exec(observer, parent='9999')
+        runtime.update(self.ledger, self.attempt, lambda record: record.update(status='terminal'))
+        recovered = producer.recover_producers(self.ledger, dry_run=True)
+        self.assertTrue(recovered['incomplete'])
+        self.assertTrue(recovered['actions'][0]['problems'])
+        with self.assertRaisesRegex(EvidenceError, 'observed writer'): quarantine.original_state(self.ledger, self.attempt)
+        # A forged closed flag or cleared pending map cannot bypass the shared
+        # validator used by every runtime/recovery/quarantine reader.
+        value = self.record_now(); session = value['observation_session']
+        session['state'] = 'closed'; session['pending'] = {}
+        session['closure'] = dict(sequence=session['sequence'], numeric_absent=True, roots_no_handles=True)
+        session['native_sampler'].update(state='stopped', stopped_sequence=session['native_sampler']['durable_sequence'])
+        self.save(value)
+        with self.assertRaisesRegex(EvidenceError, 'pending obligation'): self.record_now()
+
+    def test_generic_permission_failure_is_never_retyped_by_later_exec(self):
+        observer = self.registered()
+        self.nodes[102] = snapshot(102, 1100, 1000, birth=103, version=20, parent_version=10, ppid=101)
+        def denied(pid):
+            if pid == 102: raise EvidenceError('controlled permission failure')
+            return '/fixture/python'
+        with patch.object(observed, 'executable_path', side_effect=denied):
+            observer.observe(102)
+        self.nodes[102]['idversion'] = 21
+        self.nodes[102]['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
+        observer.observe(102)
+        self.assertTrue(observer.value['native_sampler']['unresolved'])
+        self.assertFalse(observer.value['native_sampler']['exec_transitions'])
+        self.nodes.pop(101); self.nodes.pop(102)
+        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(.1)
+
+    def test_root_executable_lookup_failure_cannot_ack_or_release_go(self):
+        observer = self.arm(); allocation = observer.allocate('held wrapper', 4096)
+        self.created.append(Path(allocation['path']))
+        def executable(pid):
+            if pid == 101 and threading.current_thread().name == 'sdd-native-observation':
+                raise EvidenceError('controlled held-root executable query failure')
+            return '/fixture/node' if pid == 99 else '/fixture/python'
+        with patch.object(observed, 'executable_path', side_effect=executable):
+            with self.assertRaisesRegex(EvidenceError, 'root ACK refused'):
+                observer.register_root(101, self.browser['identity'], '/fixture/python', [allocation['ref']])
+        session = self.record_now()['observation_session']
+        self.assertEqual(session['state'], 'failed')
+        self.assertTrue(session['lost_history'])
+        self.assertTrue(session['native_sampler']['unresolved'])
+        self.assertIn('pid:101', session['pending'])
+
+    def test_kernel_exec_pair_rejects_equal_backward_and_missing_native_birth(self):
+        before = snapshot(102, 1100, 1000, birth=103, version=20, parent_version=10, ppid=101)
+        after = copy.deepcopy(before); after['idversion'] = 21
+        after['observed']['monotonic_ns'] = '1001'; after['observed']['wall_time_ns'] = '2000000000001'
+        self.assertTrue(observed._exec_pair(before, after))
+        self.assertFalse(observed._exec_pair(None, after))
+        self.assertFalse(observed._exec_pair(before, None))
+        after['idversion'] = 20; self.assertFalse(observed._exec_pair(before, after))
+        after['idversion'] = 19; self.assertFalse(observed._exec_pair(before, after))
+
     def test_collector_stopped_joined_drained_before_closed_ack(self):
         observer = self.registered(); self.nodes.pop(101)
         observer.close(.5)
