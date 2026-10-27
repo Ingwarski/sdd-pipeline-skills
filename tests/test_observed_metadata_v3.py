@@ -339,6 +339,73 @@ class MetadataV3Tests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, 'closed FULL'): self.record_now()
         self.save(closed)
 
+    def initial_exec(self, *, missing_parent=False):
+        observer = self.registered(); self.helper(); phase = [0]
+        if missing_parent: self.nodes[102]['original_parent_idversion'] = 999
+        def path(pid):
+            if pid == 102 and phase[0] == 0:
+                self.nodes[102]['idversion'] += 1; phase[0] = 1
+            return '/fixture/node' if pid == 99 else '/fixture/python'
+        def read(pid, include_zombie=True):
+            result = self.native(pid, include_zombie)
+            if pid == 102 and phase[0] == 1:
+                # Preserve the actual old-UUID after-frame, then present the
+                # independent new-image snapshot on the NEXT native capture.
+                phase[0] = 2; self.nodes[102]['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
+            return result
+        with patch.object(observed, 'executable_path', side_effect=path), patch.object(observed.native, 'read_snapshot', side_effect=read):
+            observer.observe(102)
+        return observer
+
+    def test_real_collector_resolver_atomic_pending_update_and_all_terminal_consumers(self):
+        observer = self.initial_exec(); session = observer.value; transition = session['native_sampler']['exec_transitions'][0]
+        self.assertEqual(transition['resolution']['version'], 3); self.assertFalse(session['pending'])
+        self.assertEqual(transition['before']['executable_uuid'], transition['after']['executable_uuid'])
+        self.assertEqual(observer.graphs['1000']._versions['1100'], {self.nodes[102]['idversion']})
+        raw = {k: copy.deepcopy(v) for k, v in transition.items() if k != 'resolution'}
+        full = copy.deepcopy(session['observations'][transition['resolution']['observation_sequence'] - 1])
+        observer.request(dict(command='observe_pid', pid=101, include_image=True))
+        self.assertEqual({k: v for k, v in observer.value['native_sampler']['exec_transitions'][0].items() if k != 'resolution'}, raw)
+        self.assertEqual(observer.value['observations'][full['sequence'] - 1], full)
+        self.nodes.pop(102); self.nodes.pop(101)
+        observer.prepare_cleanup(3); observer.close(3)
+        record = self.record_now(); observed.validate_registry(record)
+        self.assertEqual(observed.disposition_problems(record, ledger=self.ledger), [])
+        closed = record['observation_session']; self.assertEqual(closed['closure']['metadata_capture_sha256'], observed._metadata_capture_digest(closed))
+        for variant in ('raw', 'resolution', 'ref', 'digest', 'kind', 'removal'):
+            value = copy.deepcopy(record); current = value['observation_session']; event = current['native_sampler']['exec_transitions'][0]
+            if variant == 'raw': event['after']['pgid'] += 1
+            elif variant == 'resolution': event['resolution']['transition_sha256'] = '0' * 64
+            elif variant == 'ref': event['resolution']['full_capture_reference']['capture_sequence'] += 1
+            elif variant == 'digest': current['closure']['metadata_capture_sha256'] = '0' * 64
+            elif variant == 'kind': event['resolution']['kind'] = 'unknown'
+            else: current['native_sampler']['exec_transitions'].clear()
+            self.save(value)
+            with self.subTest(variant=variant), self.assertRaises(EvidenceError): self.record_now()
+            self.assertTrue(fixtures.producer.recover_producers(self.ledger, dry_run=True)['incomplete'])
+            with self.assertRaises(EvidenceError): fixtures.quarantine.original_state(self.ledger, self.attempt)
+        self.save(record)
+
+    def test_generic_failure_and_missing_full_parent_are_not_resolved_or_reopened(self):
+        observer = self.initial_exec(missing_parent=True)
+        transition = observer.value['native_sampler']['exec_transitions'][0]
+        self.assertIsNone(transition['resolution']); self.assertIn('exec:' + str(transition['capture_sequence']), observer.value['pending'])
+        observer.fail('preserved prior failed sampler3', lost=True)
+        prior = self.record_now(); self.assertIsNone(prior['observation_session']['native_sampler']['exec_transitions'][0]['resolution'])
+        with self.assertRaisesRegex(EvidenceError, 'prior closure'):
+            observed.Observer(self.ledger, self.attempt, 99, self.working, helper_metadata_version=3)
+        self.assertEqual(self.record_now(), prior)
+
+    def test_valid_exec_resolution_never_clears_generic_native_failures(self):
+        observer = self.initial_exec(); transition = observer.value['native_sampler']['exec_transitions'][0]
+        observer._sampler._emit('pending', 102, snapshot=copy.deepcopy(self.nodes[102]), reason='unknown native/path failure')
+        observer._drain_native()
+        self.assertEqual(transition['resolution']['version'], 3)
+        self.assertEqual(len(observer.value['native_sampler']['unresolved']), 1)
+        self.assertIn('pid:102', observer.value['pending'])
+        self.nodes.pop(102); self.nodes.pop(101)
+        with self.assertRaises(EvidenceError): observer.prepare_cleanup(3)
+
 
 class MetadataV3ReceiptTests(unittest.TestCase):
     def setUp(self):
@@ -613,6 +680,193 @@ class MetadataV3ReceiptTests(unittest.TestCase):
             with self.subTest(variant=variant), self.assertRaises(EvidenceError): observed.validate_session(session)
 
 
+_FROZEN_510_EXEC_V1 = "def _valid_exec_resolution(session, transition, resolution):\n    if (type(resolution) is not dict or set(resolution) != {'version', 'observation_sequence', 'root'}\n            or type(resolution['version']) is not int or resolution['version'] != 1 or type(resolution['observation_sequence']) is not int\n            or not 1 <= resolution['observation_sequence'] <= len(session['observations'])\n            or resolution['root'] not in session['roots']):\n        return False\n    item = session['observations'][resolution['observation_sequence'] - 1]\n    node, before, after = item['snapshot'], transition['before'], transition['after']\n    immutable = ('identity', 'unique_id', 'boot_uuid', 'uid', 'original_parent_unique_id', 'original_parent_idversion')\n    if (node['status'] != 'alive' or any(node[key] != before[key] for key in immutable)\n            or node['idversion'] < after['idversion'] or node['idversion'] <= before['idversion']\n            or node['idversion'] == after['idversion'] and node['executable_uuid'] != after['executable_uuid']\n            or any(int(node['observed'][key]) <= int(after['observed'][key]) for key in ('monotonic_ns', 'wall_time_ns'))):\n        return False\n    if node['unique_id'] in session['roots']:\n        root = session['roots'][node['unique_id']]\n        if (resolution['root'] != node['unique_id'] or 'target_executable' not in root\n                or item['executable'] != root['target_executable']['path']):\n            return False  # Roots still need actual declared target and wrapper proofs.\n    else:\n        writer = session['writers'].get(node['unique_id'])\n        if writer is None or writer['root'] != resolution['root'] or writer['identity'] != node['identity']:\n            return False\n    try:\n        exact_chain_sequences(session, resolution['root'], resolution['observation_sequence'])\n    except EvidenceError:\n        return False\n    return True"
+
+
+class InitialHelperExecResolutionTests(unittest.TestCase):
+    setUp = MetadataV3ReceiptTests.setUp
+    diagnostic = staticmethod(MetadataV3ReceiptTests.diagnostic)
+    rebind = MetadataV3ReceiptTests.rebind
+
+    @staticmethod
+    def raw_digest(transition):
+        return observed.hashlib.sha256(observed.canonical({k: v for k, v in transition.items() if k != 'resolution'}).encode()).hexdigest()
+
+    def make(self):
+        session = MetadataV3ReceiptTests.session(self, 'b'); sampler = session['native_sampler']
+        sampler['helper_diagnostics'] = []; sampler['helper_diagnostic_bindings'] = {}
+        full = session['observations'][1]['snapshot']
+        after = self.base.at(full, 4000); after['executable_uuid'] = '56565656-5656-4565-8565-565656565656'
+        before = self.base.at(after, 2000); before['idversion'] -= 1
+        transition = dict(version=1, kind='kernel_lineage_exec_transition', capture_sequence=4,
+            path_status='unobserved_during_exec', before=before, after=after, resolution=None)
+        sampler['exec_transitions'] = [transition]
+        session['pending'] = {'exec:4': dict(pid=102, reason='unobserved executable during exec')}
+        observed.validate_session(session)
+        return session, transition
+
+    def resolution(self, session, transition, sequence=2):
+        return dict(version=3, kind='initial_helper_post_transition_full', observation_sequence=sequence, root='1000',
+            full_capture_reference=copy.deepcopy(session['native_sampler']['full_capture_sequences'][str(sequence)]),
+            transition_sha256=self.raw_digest(transition))
+
+    def test_initial_helper_exact_first_full_resolves_without_raw_graph_or_image(self):
+        session, transition = self.make(); prefix = copy.deepcopy(session['observations']); raw = copy.deepcopy(transition)
+        resolution = self.resolution(session, transition)
+        self.assertTrue(observed._valid_exec_resolution(session, transition, resolution))
+        transition['resolution'] = resolution; session['pending'].pop('exec:4')
+        observed.validate_session(session)
+        self.assertEqual(session['observations'], prefix)
+        self.assertEqual({k: v for k, v in transition.items() if k != 'resolution'}, {k: v for k, v in raw.items() if k != 'resolution'})
+        self.assertEqual(session['writers']['1100']['authority'], observed.AUTHORITY)
+        self.assertFalse(observed._valid_exec_resolution(session, transition, dict(version=1, observation_sequence=2, root='1000')))
+
+    def qualified(self):
+        session, transition = self.make(); transition['resolution'] = self.resolution(session, transition)
+        session['pending'].pop('exec:4'); observed.validate_session(session)
+        return session, transition
+
+    def test_strict_new_resolution_shape_scalars_and_digest_rejection(self):
+        for variant in ('version_bool', 'version_float', 'version_string', 'kind', 'extra', 'missing', 'obs_bool', 'obs_float',
+                        'obs_zero', 'obs_foreign', 'root', 'ref_bool', 'ref_float', 'ref_hash', 'ref_extra', 'raw_type', 'raw_shape', 'raw_hash'):
+            session, transition = self.make(); resolution = self.resolution(session, transition)
+            if variant == 'version_bool': resolution['version'] = True
+            elif variant == 'version_float': resolution['version'] = 3.0
+            elif variant == 'version_string': resolution['version'] = '3'
+            elif variant == 'kind': resolution['kind'] = 'unversioned_image_gap'
+            elif variant == 'extra': resolution['unknown'] = None
+            elif variant == 'missing': resolution.pop('kind')
+            elif variant == 'obs_bool': resolution['observation_sequence'] = True
+            elif variant == 'obs_float': resolution['observation_sequence'] = 2.0
+            elif variant == 'obs_zero': resolution['observation_sequence'] = 0
+            elif variant == 'obs_foreign': resolution['observation_sequence'] = 1
+            elif variant == 'root': resolution['root'] = 'foreign'
+            elif variant == 'ref_bool': resolution['full_capture_reference']['capture_sequence'] = True
+            elif variant == 'ref_float': resolution['full_capture_reference']['capture_sequence'] = 5.0
+            elif variant == 'ref_hash': resolution['full_capture_reference']['full_sha256'] = '0' * 64
+            elif variant == 'ref_extra': resolution['full_capture_reference']['untrusted'] = 1
+            elif variant == 'raw_type': resolution['transition_sha256'] = 1
+            elif variant == 'raw_shape': resolution['transition_sha256'] = 'A' * 64
+            else: resolution['transition_sha256'] = '0' * 64
+            with self.subTest(variant=variant): self.assertFalse(observed._valid_exec_resolution(session, transition, resolution))
+            transition['resolution'] = resolution; session['pending'].clear()
+            with self.subTest(variant=variant), self.assertRaises(EvidenceError): observed.validate_session(session)
+
+    def test_rebound_native_core_epoch_state_clock_and_root_inverse_table(self):
+        for variant in ('birth', 'unique', 'uid', 'boot', 'parent', 'parent_epoch', 'epoch', 'pgid', 'ppid', 'query',
+                        'zombie', 'wall_tie', 'mono_regress', 'raw_bad_query', 'raw_zombie', 'raw_backwards', 'root_pid', 'root_key', 'missing_writer'):
+            session, transition = self.make(); full = session['observations'][1]['snapshot']
+            if variant == 'birth': full['identity']['created']['microseconds'] += 1
+            elif variant == 'unique': full['unique_id'] = '1199'
+            elif variant == 'uid': full['uid'] += 1
+            elif variant == 'boot': full['boot_uuid'] = '67676767-6767-4676-8676-676767676767'
+            elif variant == 'parent': full['original_parent_unique_id'] = '9999'
+            elif variant == 'parent_epoch': full['original_parent_idversion'] += 1
+            elif variant == 'epoch': full['idversion'] += 1
+            elif variant == 'pgid': full['pgid'] += 1
+            elif variant == 'ppid': full['current_ppid'] = 1
+            elif variant == 'query': full['query']['native_status'] = 3
+            elif variant == 'zombie': full['status'] = 'zombie'; full['query']['native_status'] = 5
+            elif variant == 'wall_tie': full['observed']['wall_time_ns'] = transition['after']['observed']['wall_time_ns']
+            elif variant == 'mono_regress': full['observed']['monotonic_ns'] = '1'
+            elif variant == 'raw_bad_query': transition['after']['query']['errno'] = fixtures.errno.EACCES
+            elif variant == 'raw_zombie': transition['after']['status'] = 'zombie'; transition['after']['query']['native_status'] = 5
+            elif variant == 'raw_backwards': transition['after']['observed'] = copy.deepcopy(transition['before']['observed'])
+            elif variant == 'root_pid': session['roots']['1000']['pid'] = 102
+            elif variant == 'root_key': session['roots']['1100'] = copy.deepcopy(session['roots']['1000'])
+            else: session['writers'].clear()
+            session['native_sampler']['full_capture_sequences']['2'] = observed._full_capture_binding(session['observations'][1], 5)
+            resolution = self.resolution(session, transition)
+            with self.subTest(variant=variant): self.assertFalse(observed._valid_exec_resolution(session, transition, resolution))
+
+    def test_first_actual_capture_and_prior_full_are_never_filtered_by_clocks_or_epoch(self):
+        session, transition = self.make()
+        session['native_sampler']['full_capture_sequences']['2'] = observed._full_capture_binding(session['observations'][1], 3)
+        self.assertTrue(observed._valid_full_captures(session))
+        self.assertFalse(observed._valid_exec_resolution(session, transition, self.resolution(session, transition)))
+        for conflicting_epoch in (False, True):
+            session, transition = self.make(); selected = session['observations'][1]; selected['sequence'] = 3
+            prior = self.base.at(transition['before'], 9000)  # Clock appears later but actual event is earlier.
+            if not conflicting_epoch: prior['idversion'] = transition['after']['idversion']
+            session['observations'] = [session['observations'][0], dict(sequence=2, snapshot=prior, executable='/fixture/prior'), selected]
+            session['sequence'] = 3; session['writers']['1100'].update(observation_sequence=3, lineage_observation_sequences=[1, 3])
+            session['native_sampler']['full_capture_sequences'] = {'2': observed._full_capture_binding(session['observations'][1], 1), '3': observed._full_capture_binding(selected, 5)}
+            self.assertTrue(observed._valid_full_captures(session))
+            self.assertFalse(observed._valid_exec_resolution(session, transition, self.resolution(session, transition, 3)))
+
+    def test_frozen_actual_reader_and_legacy_digest_bytes_are_preserved(self):
+        namespace = dict(vars(observed)); exec(compile(_FROZEN_510_EXEC_V1, '<frozen510_exec_validator>', 'exec'), namespace)
+        frozen = namespace['_valid_exec_resolution']
+        session, transition = self.make(); resolution = self.resolution(session, transition)
+        self.assertFalse(frozen(session, transition, resolution))
+        old_payload = dict(full_capture_sequences=session['native_sampler']['full_capture_sequences'], helper_diagnostic_bindings={})
+        old_digest = observed.hashlib.sha256(observed.canonical(old_payload).encode()).hexdigest()
+        self.assertEqual(observed._metadata_capture_digest(session), old_digest)
+        transition['after']['executable_uuid'] = session['observations'][1]['snapshot']['executable_uuid']
+        transition['resolution'] = dict(version=1, observation_sequence=2, root='1000'); session['pending'].clear()
+        self.assertTrue(frozen(session, transition, transition['resolution']))
+        self.assertEqual(observed._metadata_capture_digest(session), old_digest)
+        session['state'] = 'closed'; session['native_sampler'].update(state='stopped', stopped_sequence=5)
+        session['closure'] = dict(sequence=2, numeric_absent=True, roots_no_handles=True, metadata_capture_sha256=old_digest)
+        observed.validate_session(session)
+        qualified, event = self.qualified()
+        frozen_globals = dict(observed.validate_session.__globals__, _valid_exec_resolution=frozen)
+        frozen_reader = type(observed.validate_session)(observed.validate_session.__code__, frozen_globals)
+        with self.assertRaises(EvidenceError): frozen_reader(qualified, current_sources=False)
+        for version in (1, 2):
+            qualified['native_sampler']['version'] = version
+            self.assertFalse(observed._valid_exec_resolution(qualified, event, event['resolution']))
+
+    def test_conditional_digest_recomputes_raw_and_entire_resolution_and_future_root_refresh(self):
+        session, transition = self.qualified(); raw = copy.deepcopy(transition); full = copy.deepcopy(session['observations'][1])
+        payload = dict(full_capture_sequences=session['native_sampler']['full_capture_sequences'], helper_diagnostic_bindings={},
+            exec_resolution3_bindings={'4': dict(version=1, transition_sha256=self.raw_digest(transition),
+                resolution_sha256=observed.hashlib.sha256(observed.canonical(transition['resolution']).encode()).hexdigest())})
+        self.assertEqual(observed._metadata_capture_digest(session), observed.hashlib.sha256(observed.canonical(payload).encode()).hexdigest())
+        root = dict(sequence=3, snapshot=self.base.at(session['observations'][0]['snapshot'], 9000), executable='/fixture/root')
+        session['observations'].append(root); session['sequence'] = 3; session['native_sampler']['durable_sequence'] = 6
+        session['native_sampler']['full_capture_sequences']['3'] = observed._full_capture_binding(root, 6)
+        session['writers']['1100']['lineage_observation_sequences'] = [3, 2]
+        observed.validate_session(session); self.assertEqual(transition, raw); self.assertEqual(session['observations'][1], full)
+        old_digest = observed._metadata_capture_digest(session)
+        transition['before']['executable_uuid'] = '78787878-7878-4787-8787-787878787878'
+        transition['resolution']['transition_sha256'] = self.raw_digest(transition)
+        observed.validate_session(session)  # Before UUID need not equal after UUID; neither is a FULL image.
+        self.assertNotEqual(observed._metadata_capture_digest(session), old_digest)
+
+    def test_new_resolution_raw_and_rebound_refs_invalidate_barrier_and_closed_digest(self):
+        session, transition = self.qualified(); session['state'] = 'closing'; session['excluded_candidates'] = {}
+        digest = observed._metadata_capture_digest(session)
+        session['cleanup_barrier'] = dict(valid=True, sequence=2, root_refs=['private-root'], numeric_absent=True,
+                                         roots_no_handles=True, closed=False, metadata_capture_sha256=digest)
+        observed.validate_session(session)
+        original = copy.deepcopy(session)
+        def change(value):
+            event = value['native_sampler']['exec_transitions'][0]
+            event['before']['executable_uuid'] = '78787878-7878-4787-8787-787878787878'
+            event['resolution']['transition_sha256'] = self.raw_digest(event)
+        observed.Observer._mutate(session, change)
+        self.assertEqual(session['state'], 'failed'); self.assertFalse(session['cleanup_barrier']['valid'])
+        observed.validate_session(session)
+        closed = copy.deepcopy(original); closed['state'] = 'closed'
+        closed['native_sampler'].update(state='stopped', stopped_sequence=5)
+        closed['closure'] = dict(sequence=2, numeric_absent=True, roots_no_handles=True, metadata_capture_sha256=digest)
+        observed.validate_session(closed)
+        change(closed)
+        self.assertTrue(observed._valid_exec_resolution(closed, closed['native_sampler']['exec_transitions'][0],
+                                                       closed['native_sampler']['exec_transitions'][0]['resolution']))
+        with self.assertRaisesRegex(EvidenceError, 'pre-cleanup FULL'): observed.validate_session(closed)
+        closed['cleanup_barrier']['metadata_capture_sha256'] = observed._metadata_capture_digest(closed)
+        with self.assertRaisesRegex(EvidenceError, 'closed FULL'): observed.validate_session(closed)
+
+    def test_raw_transition_still_cannot_be_promoted_into_full_graph(self):
+        session, transition = self.make(); root = session['observations'][0]['snapshot']
+        graph = native.LineageGraph(8); graph.add_root(root, expected_identity=root['identity'], expected_unique_id='1000')
+        graph.ingest(transition['before']); graph.ingest(transition['after'])
+        with self.assertRaisesRegex(native.ObservationError, 'exec version chronology inconsistent'):
+            graph.ingest(session['observations'][1]['snapshot'])
+
+
 class MetadataV3CaptureTests(unittest.TestCase):
     def setUp(self):
         self.now, self.tick, self.phase, self.path_count = 100.0, 1000, 0, 0
@@ -622,6 +876,7 @@ class MetadataV3CaptureTests(unittest.TestCase):
         self.contexts = [patch.object(observed.time, 'monotonic', side_effect=lambda: self.now),
                          patch.object(observed.time, 'monotonic_ns', side_effect=self.clock),
                          patch.object(observed.native, 'read_snapshot', side_effect=self.read),
+                         patch.object(observed, 'child_pids', return_value=()),
                          patch.object(observed, 'executable_path', side_effect=self.path)]
         for item in self.contexts: item.start(); self.addCleanup(item.stop)
         self.sampler = ManualSampler(helper_metadata_version=3); self.addCleanup(self.sampler.stop)

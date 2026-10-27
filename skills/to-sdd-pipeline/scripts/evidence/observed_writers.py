@@ -194,6 +194,8 @@ def _exec_pair(before, after):
 
 
 def _valid_exec_resolution(session, transition, resolution):
+    if type(resolution) is dict and type(resolution.get('version')) is int and resolution['version'] == 3:
+        return _valid_exec_resolution3(session, transition, resolution)
     if (type(resolution) is not dict or set(resolution) != {'version', 'observation_sequence', 'root'}
             or type(resolution['version']) is not int or resolution['version'] != 1 or type(resolution['observation_sequence']) is not int
             or not 1 <= resolution['observation_sequence'] <= len(session['observations'])
@@ -469,6 +471,50 @@ def _valid_metadata3_qualification(session, diagnostic, qualification):
             and _native_order(post, first['snapshot']))
 
 
+def _exec_raw_digest(transition):
+    return hashlib.sha256(canonical({key: value for key, value in transition.items() if key != 'resolution'}).encode()).hexdigest()
+
+
+def _valid_exec_resolution3(session, transition, resolution):
+    collector = session.get('native_sampler', {})
+    fields = {'version', 'kind', 'observation_sequence', 'root', 'full_capture_reference', 'transition_sha256'}
+    if (type(collector.get('version')) is not int or collector['version'] != 3
+            or type(resolution) is not dict or set(resolution) != fields
+            or type(resolution['version']) is not int or resolution['version'] != 3
+            or resolution['kind'] != 'initial_helper_post_transition_full'
+            or type(resolution['observation_sequence']) is not int
+            or not 1 <= resolution['observation_sequence'] <= len(session['observations'])
+            or type(resolution['root']) is not str or resolution['root'] not in session['roots']
+            or type(transition) is not dict or set(transition) != {'version', 'kind', 'capture_sequence', 'path_status', 'before', 'after', 'resolution'}
+            or type(transition['version']) is not int or transition['version'] != 1
+            or transition['kind'] != 'kernel_lineage_exec_transition' or transition['path_status'] != 'unobserved_during_exec'
+            or type(transition['capture_sequence']) is not int or not 1 <= transition['capture_sequence'] <= collector['durable_sequence']
+            or not _exec_pair(transition['before'], transition['after']) or _metadata_root(session, transition['before'])
+            or not _valid_full_captures(session)):
+        return False
+    reference = resolution['full_capture_reference']
+    if (type(reference) is not dict or set(reference) != {'capture_sequence', 'full_sha256'}
+            or type(reference['capture_sequence']) is not int or reference['capture_sequence'] <= 0
+            or any(type(value) is not str or len(value) != 64 or any(c not in '0123456789abcdef' for c in value)
+                   for value in (reference['full_sha256'], resolution['transition_sha256']))
+            or resolution['transition_sha256'] != _exec_raw_digest(transition)):
+        return False
+    fulls = _lifetime_fulls(session, transition['before'])
+    if not fulls:
+        return False
+    mapping = collector['full_capture_sequences']
+    first = min(fulls, key=lambda item: mapping[str(item['sequence'])]['capture_sequence'])
+    node, after = first['snapshot'], transition['after']
+    witness = _helper_full(session, first['sequence'], transition['before'])
+    return (resolution['observation_sequence'] == first['sequence'] and reference == mapping[str(first['sequence'])]
+            and reference['capture_sequence'] > transition['capture_sequence']
+            and witness is not None and witness[1] == resolution['root']
+            and node['status'] == after['status'] == 'alive' and _native_order(after, node)
+            and node['executable_uuid'] != after['executable_uuid']
+            and {key: value for key, value in semantic(node).items() if key != 'executable_uuid'}
+                == {key: value for key, value in semantic(after).items() if key != 'executable_uuid'})
+
+
 def _helper_raw_digest(diagnostic):
     # Byte-integrity binding only, never a native signature or source authority.
     return hashlib.sha256(canonical({key: value for key, value in diagnostic.items() if key != 'qualification'}).encode()).hexdigest()
@@ -483,8 +529,15 @@ def _helper_binding(diagnostic):
 
 def _metadata_capture_digest(session):
     collector = session['native_sampler']
-    return hashlib.sha256(canonical(dict(full_capture_sequences=collector['full_capture_sequences'],
-        helper_diagnostic_bindings=collector['helper_diagnostic_bindings'])).encode()).hexdigest()
+    payload = dict(full_capture_sequences=collector['full_capture_sequences'],
+                   helper_diagnostic_bindings=collector['helper_diagnostic_bindings'])
+    bindings = {str(item['capture_sequence']): dict(version=1, transition_sha256=_exec_raw_digest(item),
+                resolution_sha256=hashlib.sha256(canonical(item['resolution']).encode()).hexdigest())
+                for item in collector['exec_transitions'] if type(item['resolution']) is dict
+                and type(item['resolution'].get('version')) is int and item['resolution']['version'] == 3}
+    if bindings:
+        payload['exec_resolution3_bindings'] = bindings
+    return hashlib.sha256(canonical(payload).encode()).hexdigest()
 
 
 def _valid_sampler_shape(collector):
@@ -1984,6 +2037,13 @@ class Observer:
                         continue
                     root = writer['root']
                 resolution = dict(version=1, observation_sequence=item['sequence'], root=root)
+                if (not _valid_exec_resolution(self.value, transition, resolution)
+                        and self.value['native_sampler']['version'] == 3
+                        and node['unique_id'] == transition['before']['unique_id']):
+                    resolution = dict(version=3, kind='initial_helper_post_transition_full',
+                        observation_sequence=item['sequence'], root=root,
+                        full_capture_reference=copy.deepcopy(self.value['native_sampler']['full_capture_sequences'].get(str(item['sequence']))),
+                        transition_sha256=_exec_raw_digest(transition))
                 if _valid_exec_resolution(self.value, transition, resolution):
                     sequence = transition['capture_sequence']
                     def resolve(session):
