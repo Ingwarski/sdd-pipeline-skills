@@ -1181,6 +1181,7 @@ class _NativeSampler:
             self._emit('status', pid, snapshot=snapshot)
             self._last[pid] = current
             return snapshot
+        completed_reparent = False
         try:
             exe = executable_path(pid)
             confirmed = native.read_snapshot(pid, include_zombie=True)
@@ -1200,15 +1201,13 @@ class _NativeSampler:
                 raise EvidenceError('native executable/birth changed during fast capture')
             if semantic(confirmed) != current:
                 if (expected is not None or force_ticket is not None
-                        or snapshot['unique_id'] in self._roots
-                        or any(root['identity']['pid'] == pid for root in self._roots.values())
                         or not _reparent_pair(snapshot, confirmed, pid)):
                     raise EvidenceError('native executable/birth changed during fast capture')
                 second_exe = executable_path(pid)
                 if (type(exe) is not str or not exe.startswith('/') or '\x00' in exe or len(exe) >= 4096
                         or type(second_exe) is not str or second_exe != exe):
                     raise EvidenceError('native executable/birth changed during fast capture')
-                snapshot, current = confirmed, semantic(confirmed)  # Retain the actual endpoint, never edit the raw read.
+                completed_reparent = True
             elif executable_path(pid) != exe:
                 raise EvidenceError('native executable/birth changed during fast capture')
         except _PathQueryError as exc:
@@ -1223,6 +1222,19 @@ class _NativeSampler:
             return snapshot
         except (EvidenceError, OSError) as exc:
             self._emit('pending', pid, snapshot=snapshot, reason=('incomplete native/executable capture: ' + str(exc))[:256])
+            self._last[pid] = current
+            return snapshot
+        if completed_reparent:
+            # add_root uses this same reentrant condition. Registration cannot
+            # cross the final helper-only check and its successful FULL enqueue.
+            with self._condition:
+                if (snapshot['unique_id'] not in self._roots
+                        and not any(root['identity']['pid'] == pid for root in self._roots.values())):
+                    snapshot, current = confirmed, semantic(confirmed)  # Untouched actual endpoint, never a stitched receipt.
+                    self._emit('snapshot', pid, snapshot=snapshot, executable=exe, force_full=False)
+                    self._complete[pid], self._last[pid] = snapshot, current
+                    return snapshot
+            self._emit('pending', pid, snapshot=snapshot, reason='reparent capture conflicts with registered root')
             self._last[pid] = current
             return snapshot
         sequence = self._emit('snapshot', pid, snapshot=snapshot, executable=exe, force_full=force_ticket is not None)

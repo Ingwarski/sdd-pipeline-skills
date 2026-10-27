@@ -1663,7 +1663,8 @@ class PureReparentCaptureTests(unittest.TestCase):
         self.previous['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
 
     def capture(self, *, before=None, after=None, initial=False, root_kind=None, expected=None, force_ticket=None,
-                paths=None, native_error=None, native_error_at=1, absent_confirm=False):
+                paths=None, native_error=None, native_error_at=1, absent_confirm=False,
+                setup=None, on_path=None, on_emit=None, actual_queue=False):
         before = copy.deepcopy(self.before if before is None else before)
         after = copy.deepcopy(self.after if after is None else after)
         sampler = observed._NativeSampler.__new__(observed._NativeSampler)
@@ -1678,16 +1679,30 @@ class PureReparentCaptureTests(unittest.TestCase):
             if root_kind == 'pid': root['unique_id'] = '9999'
             if root_kind == 'unique': root['identity']['pid'] = 999
             sampler._roots[root['unique_id']] = root
-        sampler._emit = Mock(return_value=7)
+        sampler.query_lock_states = []
+        if actual_queue:
+            sampler._events, sampler._bytes, sampler._sequence = observed.deque(), 0, 0
+            sampler.max_events, sampler.max_bytes = 256, 262144
+            enqueue = observed._NativeSampler._emit.__get__(sampler)
+        else:
+            enqueue = lambda *args, **kwargs: 7
+        def emit(*args, **kwargs):
+            if on_emit is not None: on_emit(sampler, *args, **kwargs)
+            return enqueue(*args, **kwargs)
+        sampler._emit = Mock(side_effect=emit)
+        if setup is not None: setup(sampler)
         events = []
         def read(pid, include_zombie=True):
+            sampler.query_lock_states.append(sampler._condition._is_owned())
             events.append('native')
             if native_error is not None and events.count('native') == native_error_at: raise native_error
             if absent_confirm and events.count('native') > 1: return None
             return copy.deepcopy(before if events.count('native') == 1 else after)
         values = list(paths if paths is not None else ['/fixture/crashpad', '/fixture/crashpad'])
         def path(pid):
+            sampler.query_lock_states.append(sampler._condition._is_owned())
             events.append('path')
+            if on_path is not None: on_path(sampler, events.count('path'))
             value = values.pop(0)
             if isinstance(value, BaseException): raise value
             return value
@@ -1710,6 +1725,52 @@ class PureReparentCaptureTests(unittest.TestCase):
                 self.assertEqual(sampler._last[102], observed.semantic(self.after))
                 self.assertEqual(sampler._known[102], self.before if initial else self.previous)
                 self.assertEqual(self.before['current_ppid'], 101)
+
+    def test_reparent_root_inserted_during_second_path_cannot_enqueue_helper_full(self):
+        def register(sampler, count):
+            if count == 2:
+                self.assertFalse(sampler._condition._is_owned())
+                with sampler._condition:
+                    sampler._roots[self.before['unique_id']] = copy.deepcopy(self.before)
+        sampler, result, problem, events = self.capture(on_path=register)
+        self.assertFalse(any(call.args[0] == 'snapshot' for call in sampler._emit.call_args_list))
+        self.assertEqual(sampler._emit.call_args.args[0], 'pending')
+        self.assertEqual(sampler._complete[102], self.previous)
+
+    def test_reparent_values_iteration_is_protected_against_registration_resize(self):
+        class InterleavedRoots(dict):
+            def values(mapping):
+                iterator = iter(super(InterleavedRoots, mapping).values())
+                def ordered():
+                    yield next(iterator)
+                    if not mapping.condition._is_owned():
+                        mapping['new-root'] = copy.deepcopy(self.before)
+                    else:
+                        mapping.registration_deferred = True
+                    yield from iterator
+                return ordered()
+        def setup(sampler):
+            unrelated = copy.deepcopy(self.before); unrelated['identity']['pid'] = 999; unrelated['unique_id'] = '9999'
+            roots = InterleavedRoots({'9999': unrelated}); roots.condition = sampler._condition
+            roots.registration_deferred = False; sampler._roots = roots
+        sampler, result, problem, events = self.capture(setup=setup)
+        self.assertIsNone(problem); self.assertEqual(result, self.after)
+        self.assertTrue(sampler._roots.registration_deferred)
+        self.assertEqual(sampler._emit.call_args.args[0], 'snapshot')
+        self.assertNotIn(self.before['unique_id'], sampler._roots)
+        with sampler._condition: sampler._roots[self.before['unique_id']] = copy.deepcopy(self.before)
+
+    def test_reparent_full_enqueue_holds_condition_without_locking_native_queries(self):
+        def inspect(sampler, kind, pid, **kwargs):
+            if kind == 'snapshot':
+                self.assertTrue(sampler._condition._is_owned())
+                self.assertNotIn(self.before['unique_id'], sampler._roots)
+        sampler, result, problem, events = self.capture(on_emit=inspect, actual_queue=True)
+        self.assertIsNone(problem); self.assertEqual(result, self.after)
+        self.assertEqual(sampler.query_lock_states, [False, False, False, False])
+        self.assertEqual(sampler._sequence, 1)
+        self.assertEqual(sampler._events[0][0]['snapshot'], self.after)
+        self.assertEqual(sampler._known[102], self.previous)
 
     def test_non_parent_native_mutations_never_enter_successful_reparent_branch(self):
         fields = ('birth', 'host', 'platform', 'identity_version', 'pid', 'unique', 'uid', 'boot', 'parent', 'parent_epoch',
