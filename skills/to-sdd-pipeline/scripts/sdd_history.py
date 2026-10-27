@@ -31,6 +31,7 @@ from evidence.policy import validate_policy, MAX_POLICY_BYTES
 VERSION = 2
 CONTRACT = "sdd-unit-history-v2"
 HISTORY = "forge/unit-history"
+_SCRIPT_PATH = Path(__file__).resolve()
 REF_KEYS = {"path", "content_hash"}
 SOURCE_INDEX_MAX_BYTES = 64 * 1024 * 1024  # Native read_ref/read_json consumer ceiling.
 SOURCE_VIEW_RECEIPT_MAX_BYTES = JSON_LIMIT  # Ordinary prepared _json consumer ceiling.
@@ -128,14 +129,24 @@ def utcnow():
 
 
 def api():
-    existing = sys.modules.get("_sdd_history_checker")
-    if existing:
+    name = "_sdd_history_checker"
+    path = _SCRIPT_PATH.with_name("sdd_check.py")
+    if name in sys.modules:
+        existing = sys.modules[name]
+        require(_module_at(existing, path), "conflicting checker module alias: " + name)
         return existing
-    spec = importlib.util.spec_from_file_location("_sdd_history_checker", Path(__file__).with_name("sdd_check.py"))
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _module_at(module, path):
+    try:
+        return module.__file__ == str(path) or Path(module.__file__).resolve() == path
+    except (AttributeError, TypeError, ValueError, OSError):
+        return False
 
 
 def require(condition, message):
@@ -2516,5 +2527,20 @@ def main():
         return 1
 
 
+def _cli_main():
+    # The checker loads this exact sibling under this name. Dispatch through
+    # that module so nested validation shares its ContextVars and audit owner.
+    name = "_sdd_unit_history"
+    if name not in sys.modules:
+        sys.modules[name] = sys.modules[__name__]
+    module = sys.modules[name]
+    if not _module_at(module, _SCRIPT_PATH) or not callable(getattr(module, "main", None)):
+        print(json.dumps({"result": "blocked", "detail": "conflicting history module alias: " + name}))
+        return 1
+    # A preloaded same-SDK helper may already own an active invocation; reuse
+    # its entry point without replacing that module or any of its state.
+    return module.main()
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_cli_main())
