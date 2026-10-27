@@ -477,13 +477,76 @@ class HistoryFileCacheTests(unittest.TestCase):
             self.check()  # The failed write left the original snapshot intact.
 
     def test_mutation_between_signature_and_first_stream_is_rejected(self):
-        native_hash = self.api.hash_file
+        native_hash, native_regular = self.api.hash_file, self.api._regular
+        owner = self.api.SnapshotFileHashes()
+        initial = native_regular(self.path)
+        streamed = []
         def change_then_hash(path):
-            self.changed()
-            return native_hash(path)
-        with mock.patch.object(self.api, "hash_file", side_effect=change_then_hash):
-            with self.assertRaisesRegex(ValueError, "changed during checker"):
+            self.assertEqual(self.path, Path(path))
+            self.assertEqual(initial, native_regular(path))
+            # An actual new inode makes this signature-change branch independent
+            # of the platform's timestamp resolution. Mutation still happens
+            # after the cache signature and before the first real streaming read.
+            replacement = self.path.with_name("signature-replacement.bin")
+            replacement.write_bytes(b"X" + self.payload[1:])
+            replacement.replace(self.path)
+            self.assertNotEqual(initial, native_regular(path))
+            result = native_hash(path)
+            streamed.append(result)
+            return result
+        with mock.patch.object(self.api, "hash_file", side_effect=change_then_hash), \
+                mock.patch.object(self.api, "SnapshotFileHashes", return_value=owner):
+            with self.assertRaises(ValueError) as raised:
                 self.check()
+        # The outer union audit preserves the original cache-signature failure
+        # as context, then fails its own fresh signature check on this exact file.
+        self.assertEqual("historical snapshot changed during checker invocation: " + str(self.path),
+                         str(raised.exception))
+        self.assertIsInstance(raised.exception.__context__, ValueError)
+        self.assertEqual("input changed during checker invocation: " + str(self.path),
+                         str(raised.exception.__context__))
+        self.assert_failed_mutation_cache_is_cleared(owner, streamed)
+
+    def test_same_signature_mutation_before_first_stream_is_rejected_by_expected_hash(self):
+        native_hash, native_regular = self.api.hash_file, self.api._regular
+        owner = self.api.SnapshotFileHashes()
+        initial = native_regular(self.path)
+        streamed, observations = [], []
+        def same_outer_signature(path):
+            # Model only an outer signature-observation collision. The real
+            # regular-file validator and stable streaming reader remain active;
+            # neither the returned digest nor the expected-hash guard is mocked.
+            actual = native_regular(path)
+            self.assertEqual(self.path, Path(path))
+            observations.append(actual)
+            return initial
+        def change_then_hash(path):
+            self.assertEqual(self.path, Path(path))
+            self.changed()
+            result = native_hash(path)
+            streamed.append(result)
+            return result
+        with mock.patch.object(self.api, "_regular", side_effect=same_outer_signature), \
+                mock.patch.object(self.api, "hash_file", side_effect=change_then_hash), \
+                mock.patch.object(self.api, "SnapshotFileHashes", return_value=owner):
+            with self.assertRaises(ValueError) as raised:
+                self.check()
+        self.assertEqual("historical snapshot changed: " + self.logical, str(raised.exception))
+        self.assertGreaterEqual(len(observations), 3)  # Before/after stream and mandatory final audit.
+        self.assert_failed_mutation_cache_is_cleared(owner, streamed)
+
+    def assert_failed_mutation_cache_is_cleared(self, owner, streamed):
+        changed = b"X" + self.payload[1:]
+        self.assertEqual(changed, self.path.read_bytes())
+        self.assertEqual([(sdd.digest(changed), len(changed))], streamed)
+        self.assertNotEqual(self.record["files"][self.logical]["content_hash"], streamed[0][0])
+        self.assertEqual({}, owner.hashes)  # No corrupted digest survives the failed scope.
+        self.assertEqual(0, owner.depth)
+        self.assertIsNone(self.history._snapshot_hash_owner.get())
+        self.path.write_bytes(self.payload)
+        with self.cache_reads() as hashing:
+            self.check()
+        self.assertEqual(1, self.payload_reads(hashing))  # Fresh original bytes are really streamed again.
 
     def test_error_path_audits_the_full_snapshot_union(self):
         with self.assertRaisesRegex(ValueError, "historical snapshot changed") as raised:

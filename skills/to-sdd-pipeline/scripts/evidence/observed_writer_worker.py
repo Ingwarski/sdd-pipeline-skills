@@ -34,16 +34,19 @@ def validate_control_fd(fd):
             raise EvidenceError('observer control socket must be anonymous connected AF_UNIX SOCK_STREAM')
 
 
-def run(owner_pid, read_fd, write_fd, working_reservation_id, runtime_file_limit=10000):
+def run(owner_pid, read_fd, write_fd, working_reservation_id, runtime_file_limit=10000, helper_metadata_version=2):
     observer, ledger = None, None
     try:
+        if type(helper_metadata_version) is not int or helper_metadata_version not in (2, 3):
+            raise EvidenceError('helper metadata version must be2 or3')
         if read_fd == write_fd or min(read_fd, write_fd) < 3:
             raise EvidenceError('observer requires separate private inherited pipe descriptors')
         for fd in (read_fd, write_fd):
             validate_control_fd(fd)
             os.set_blocking(fd, False)
         ledger, attempt = _environment_ledger()
-        observer = Observer(ledger, attempt, owner_pid, working_reservation_id, runtime_file_limit=runtime_file_limit)
+        observer = Observer(ledger, attempt, owner_pid, working_reservation_id, runtime_file_limit=runtime_file_limit,
+                            helper_metadata_version=helper_metadata_version)
         buffer = b''
         deadline = time.monotonic() + 30
         while True:
@@ -113,5 +116,7 @@ if __name__ == '__main__':
     parser.add_argument('--control-write-fd', type=int, required=True)
     parser.add_argument('--working-reservation-id', required=True)
     parser.add_argument('--runtime-file-limit', type=int, default=10000)
+    parser.add_argument('--helper-metadata-version', type=int, choices=(2, 3), default=2)
     args = parser.parse_args()
-    raise SystemExit(run(args.owner_pid, args.control_read_fd, args.control_write_fd, args.working_reservation_id, args.runtime_file_limit))
+    raise SystemExit(run(args.owner_pid, args.control_read_fd, args.control_write_fd, args.working_reservation_id,
+                         args.runtime_file_limit, args.helper_metadata_version))

@@ -308,6 +308,14 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
         self.assertIsNone(coordinator.poll(), diagnostics())
         self._force_coordinator(coordinator)
         self._gone(fallback["coordinator"])
+        # Losing both owners closes the launch gates' pipes. Their real EOF
+        # cleanup must finish before this positive recovery case expects a
+        # terminal record; an uncertain group probe still cannot prove exit.
+        self._gone(payload)
+        self._gone(helper)
+        self._wait(lambda: runtime.verify_stopped(self.ledger, record["attempt_id"]) == [],
+                   "owned launch-gate birth and group quiescence before recovery", timeout=8)
+        self.assertEqual(runtime.verify_stopped(self.ledger, record["attempt_id"]), [], diagnostics())
         before = self._record()
         self.assertEqual(before["status"], "running", diagnostics())
         preview = recover_producers(self.ledger, dry_run=True)

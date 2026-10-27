@@ -29,7 +29,7 @@ acceptance nor implementation permission.
 
 On supported Darwin hosts, the optional SDK observed-writer adapter uses opt-in
 version-2 sessions, a protected direct-child observer and pre-exec registration
-of the exact native browser root. Kernel birth, unique-ID and original-parent
+of the exact native browser root. Kernel birth, unique-ID and parent/epoch
 observations retain detached membership; process listings/caller witness JSON
 cannot establish it. Observation grants no signaling authority. Missing ancestry,
 lost acknowledgments/observer and unresolved candidates remain durable recovery
@@ -40,6 +40,10 @@ acceptance. Ordinary children/other hosts retain the process-group/Job contract.
 Opt-in `observation_scope` widens candidate discovery only to the nearest `.app`
 parent; `observe_pid` with `include_image:true` requires a fresh, durably recorded
 native root image. Neither supplies missing ancestry or additional authority.
+The worker's `--helper-metadata-version 3` enables bounded, deduplicated retries
+and nonqualifying helper-image gaps. Check `metadata_version:3` in registration
+ACK before GO. FULL graph admission, root-image proof and recovery stay strict;
+default 2 and failed legacy records keep their meaning.
 
 Reservations measure registered generation; plan and monitor profile/OS temporary
 capacity separately. Sampled peaks measure neither total writes nor hard quotas;

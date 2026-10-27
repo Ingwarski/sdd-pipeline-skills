@@ -1615,7 +1615,7 @@ class PortableReceiptTests(unittest.TestCase):
         before = self.session['observations'][1]['snapshot']; after = self.session['observations'][2]['snapshot']
         self.assertTrue(observed._exec_pair(before, after))
         self.assertEqual(observed.semantic(before), observed.semantic(self.at(before, 9000)))
-        for version in (0, 3, True, '2'):
+        for version in (0, 4, True, '2'):
             session = copy.deepcopy(self.session); session['native_sampler']['version'] = version
             with self.subTest(version=version), self.assertRaises(EvidenceError): observed.validate_session(session)
 

@@ -33,6 +33,9 @@ MAX_SESSIONS = 16
 DEFAULT_RUNTIME_FILES = 10000
 MAX_REQUEST = 16384
 SESSION_LIMIT = 768 * 1024
+METADATA_ATTEMPTS = 5
+METADATA_BACKOFF = (.002, .010, .025, .050)
+METADATA_DEADLINE = .250
 AUTHORITY = {'class': 'observe_only_no_signal', 'signal': False, 'group': False, 'adoption': False}
 SOURCE_FILES = ('observed_writers.py', 'observed_writer_worker.py', 'darwin_observation.py', 'producer_runtime.py')
 WARNINGS = ('Sampled discovery can miss fast forks or intermediary execs; missing chains block association.',
@@ -268,6 +271,8 @@ def _helper_full(session, sequence, raw):
 
 
 def _valid_helper_qualification(session, diagnostic, qualification):
+    if diagnostic.get('version') == 3:
+        return _valid_metadata3_qualification(session, diagnostic, qualification)
     fields = {'version', 'mode', 'root', 'before_observation_sequence', 'after_observation_sequence'}
     if (type(qualification) is not dict or set(qualification) != fields
             or type(qualification['version']) is not int or qualification['version'] != 1
@@ -322,6 +327,83 @@ def _valid_helper_qualification(session, diagnostic, qualification):
     return False
 
 
+def _metadata_root(session, raw):
+    return raw['unique_id'] in session['roots'] or any(root['pid'] == raw['identity']['pid'] for root in session['roots'].values())
+
+
+def _metadata_path(value):
+    return type(value) is str and value.startswith('/') and '\x00' not in value and 0 < len(value) < 4096
+
+
+def _initial_image_pair(before, after):
+    return (native.valid_snapshot(before) and native.valid_snapshot(after)
+            and before['status'] == after['status'] == 'alive' and _native_order(before, after)
+            and before['executable_uuid'] != after['executable_uuid']
+            and {key: value for key, value in semantic(before).items() if key != 'executable_uuid'}
+                == {key: value for key, value in semantic(after).items() if key != 'executable_uuid'})
+
+
+def _metadata3_capture_valid(diagnostic):
+    raw, follow, capture = diagnostic['raw'], diagnostic['followup'], diagnostic['capture']
+    if (type(capture) is not dict or type(capture.get('version')) is not int or capture['version'] != 1
+            or follow['outcome'] != 'snapshot' or not native.valid_snapshot(follow['snapshot'])):
+        return False
+    post = follow['snapshot']
+    if diagnostic['subtype'] == 'known_full_epoch_state_gap':
+        query = diagnostic['path_query']
+        return (set(capture) == {'version', 'failed_path'} and capture['failed_path'] in ('p1', 'p2')
+                and _valid_path_query(query, raw['identity']['pid']) and query['stage'] == 'query'
+                and query['returned_size'] == 0 and query['errno'] == errno.ESRCH and query['outcome'] == 'unavailable'
+                and raw['status'] == post['status'] == 'alive' and semantic(raw) == semantic(post)
+                and _native_order(raw, post)
+                and int(raw['observed']['monotonic_ns']) < int(query['monotonic_ns']) < int(post['observed']['monotonic_ns']))
+    if diagnostic['subtype'] != 'helper_initial_image_gap' or diagnostic['path_query'] is not None:
+        return False
+    if set(capture) != {'version', 'p1', 'p2'} or type(capture['p1']) is not dict or capture['p2'] != {'outcome': 'not_called'}:
+        return False
+    first = capture['p1']
+    return (set(first) == {'outcome', 'executable', 'monotonic_ns'} and first['outcome'] == 'success'
+            and _metadata_path(first['executable']) and type(first['monotonic_ns']) is str
+            and 0 < len(first['monotonic_ns']) <= 20 and first['monotonic_ns'].isascii() and first['monotonic_ns'].isdecimal()
+            and _initial_image_pair(raw, post)
+            and int(raw['observed']['monotonic_ns']) < int(first['monotonic_ns']) < int(post['observed']['monotonic_ns']))
+
+
+def _lifetime_fulls(session, raw):
+    return [item for item in session['observations'] if item['snapshot']['identity'] == raw['identity']
+            and item['snapshot']['unique_id'] == raw['unique_id']]
+
+
+def _valid_metadata3_qualification(session, diagnostic, qualification):
+    fields = {'version', 'mode', 'root', 'before_observation_sequence', 'after_observation_sequence'}
+    if (session.get('native_sampler', {}).get('version') != 3 or _metadata_root(session, diagnostic['raw'])
+            or type(qualification) is not dict or set(qualification) != fields
+            or type(qualification['version']) is not int or qualification['version'] != 3
+            or qualification['mode'] != diagnostic['subtype'] or qualification['root'] not in session['roots']
+            or not _metadata3_capture_valid(diagnostic)):
+        return False
+    raw, post = diagnostic['raw'], diagnostic['followup']['snapshot']
+    fulls = _lifetime_fulls(session, raw)
+    if diagnostic['subtype'] == 'known_full_epoch_state_gap':
+        prior = [item for item in fulls if _native_order(item['snapshot'], raw)]
+        if not prior or qualification['after_observation_sequence'] is not None:
+            return False
+        item = prior[-1]
+        if qualification['before_observation_sequence'] != item['sequence']:
+            return False
+        witness = _helper_full(session, item['sequence'], raw)
+        return (witness is not None and witness[1] == qualification['root'] and item['snapshot']['status'] == 'alive'
+                and {key: value for key, value in semantic(item['snapshot']).items() if key not in ('current_ppid', 'pgid')}
+                    == {key: value for key, value in semantic(raw).items() if key not in ('current_ppid', 'pgid')})
+    if not fulls or qualification['before_observation_sequence'] is not None:
+        return False
+    first = fulls[0]
+    witness = _helper_full(session, first['sequence'], raw)
+    return (qualification['after_observation_sequence'] == first['sequence'] and witness is not None
+            and witness[1] == qualification['root'] and semantic(first['snapshot']) == semantic(post)
+            and _native_order(post, first['snapshot']))
+
+
 def _helper_raw_digest(diagnostic):
     # Byte-integrity binding only, never a native signature or source authority.
     return hashlib.sha256(canonical({key: value for key, value in diagnostic.items() if key != 'qualification'}).encode()).hexdigest()
@@ -333,7 +415,7 @@ def _valid_sampler_shape(collector):
     base = {'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses'}
     if collector['version'] == 1:
         return set(collector) in (base, base | {'exec_transitions'})
-    if collector['version'] == 2:
+    if collector['version'] in (2, 3):
         return set(collector) == base | {'exec_transitions', 'helper_diagnostics', 'helper_diagnostic_bindings'}
     return False
 
@@ -568,10 +650,15 @@ def validate_session(value, *, current_sources=False):
         seen_diagnostics = set()
         for diagnostic in diagnostics:
             required = {'version', 'kind', 'capture_sequence', 'subtype', 'pid', 'raw', 'path_status', 'image_status', 'path_query', 'followup', 'qualification'}
+            new_metadata = type(diagnostic) is dict and diagnostic.get('version') == 3
+            if new_metadata:
+                required.add('capture')
             if (type(diagnostic) is not dict or set(diagnostic) != required
-                    or type(diagnostic['version']) is not int or diagnostic['version'] != 1
+                    or type(diagnostic['version']) is not int or diagnostic['version'] not in (1, 3)
+                    or new_metadata and collector['version'] != 3
                     or diagnostic['kind'] != 'helper_native_metadata_gap'
-                    or diagnostic['subtype'] not in ('mixed_image_boundary', 'known_epoch_path_gap')
+                    or diagnostic['subtype'] not in (('known_full_epoch_state_gap', 'helper_initial_image_gap') if new_metadata
+                                                     else ('mixed_image_boundary', 'known_epoch_path_gap'))
                     or type(diagnostic['capture_sequence']) is not int
                     or not 1 <= diagnostic['capture_sequence'] <= collector['durable_sequence']
                     or diagnostic['capture_sequence'] in seen_diagnostics
@@ -589,7 +676,8 @@ def validate_session(value, *, current_sources=False):
                     or follow['outcome'] != 'unavailable' and follow['problem'] is not None
                     or follow['outcome'] == 'unavailable' and (type(follow['problem']) is not str or not 0 < len(follow['problem']) <= 512)
                     or diagnostic['subtype'] == 'mixed_image_boundary' and diagnostic['path_query'] is not None
-                    or diagnostic['subtype'] == 'known_epoch_path_gap' and not _valid_path_query(diagnostic['path_query'], diagnostic['pid'])):
+                    or diagnostic['subtype'] == 'known_epoch_path_gap' and not _valid_path_query(diagnostic['path_query'], diagnostic['pid'])
+                    or new_metadata and not _metadata3_capture_valid(diagnostic)):
                 raise EvidenceError('invalid structured helper metadata query/followup')
             key = 'helper-meta:' + str(diagnostic['capture_sequence'])
             if diagnostic['qualification'] is None:
@@ -742,14 +830,14 @@ def validate_session(value, *, current_sources=False):
                                       or not value['roots'] or value['closure'] is None):
         raise EvidenceError('closed observer retains unresolved obligations')
     closure_keys = {'sequence', 'numeric_absent', 'roots_no_handles'}
-    if collector is not None and collector['version'] == 2:
+    if collector is not None and collector['version'] in (2, 3):
         closure_keys.add('helper_diagnostics_sha256')
     if value['closure'] is not None and (type(value['closure']) is not dict
             or set(value['closure']) != closure_keys
             or value['closure']['sequence'] != value['sequence'] or value['closure']['numeric_absent'] is not True
             or value['closure']['roots_no_handles'] is not True):
         raise EvidenceError('invalid observer closure barrier')
-    if value['closure'] is not None and collector is not None and collector['version'] == 2:
+    if value['closure'] is not None and collector is not None and collector['version'] in (2, 3):
         if value['closure']['helper_diagnostics_sha256'] != hashlib.sha256(canonical(collector['helper_diagnostic_bindings']).encode()).hexdigest():
             raise EvidenceError('closed helper diagnostic integrity binding changed')
     # Rebuild only from immutable SDK witnesses. A writer row cannot bypass a
@@ -1024,7 +1112,9 @@ class _NativeSampler:
     authenticates/commits these in-process receipts. A100us wait is a target,
     never a scheduler or fast-fork capture guarantee.
     """
-    def __init__(self, *, interval=.0001, max_events=256, max_bytes=262144):
+    def __init__(self, *, interval=.0001, max_events=256, max_bytes=262144, helper_metadata_version=2):
+        if type(helper_metadata_version) is not int or helper_metadata_version not in (2, 3):
+            raise EvidenceError('helper metadata version must be2 or3')
         if (type(interval) not in (int, float) or not 0 <= interval <= .01
                 or type(max_events) is not int or not 1 <= max_events <= 256
                 or type(max_bytes) is not int or not 1 <= max_bytes <= 262144):
@@ -1035,6 +1125,8 @@ class _NativeSampler:
         self._requests, self._armed, self._known, self._last = deque(), set(), {}, {}
         self._roots, self._seed, self._error = {}, None, None
         self._complete = {}
+        self._helper_metadata_version = helper_metadata_version
+        self._metadata_seen, self._metadata_budgets = set(), {}
         self._fence_request = self._fence_done = self._fence_sequence = 0
         self._stop = self._finished = False
         self._thread = threading.Thread(target=self._run, name='sdd-native-observation', daemon=True)
@@ -1143,6 +1235,98 @@ class _NativeSampler:
             self._condition.notify_all()
             return event['sequence']
 
+    def _metadata3(self):
+        return getattr(self, '_helper_metadata_version', 2) == 3
+
+    def _metadata_helper_locked(self, pid, snapshot):
+        return snapshot['unique_id'] not in self._roots and not any(root['identity']['pid'] == pid for root in self._roots.values())
+
+    @staticmethod
+    def _metadata_signature(snapshot):
+        return hashlib.sha256(canonical(semantic(snapshot)).encode()).hexdigest()
+
+    @staticmethod
+    def _metadata_fingerprint(value):
+        def stable(item):
+            if type(item) is dict:
+                return {key: stable(part) for key, part in item.items() if key not in ('observed', 'monotonic_ns')}
+            if type(item) is list:
+                return [stable(part) for part in item]
+            return item
+        return hashlib.sha256(canonical(stable(value)).encode()).hexdigest()
+
+    def _publish_metadata(self, pid, snapshot, payload):
+        if not self._metadata3():
+            self._emit('helper_metadata', pid, snapshot=snapshot, diagnostic=payload)
+            return True
+        fingerprint = self._metadata_fingerprint(dict(pid=pid, raw=snapshot, payload=payload))
+        with self._condition:
+            if payload.get('version') == 3 and not self._metadata_helper_locked(pid, snapshot):
+                return False
+            if fingerprint in self._metadata_seen:
+                return True
+            if len(self._metadata_seen) >= MAX_PENDING:
+                raise EvidenceError('native metadata semantic signature bound exceeded')
+            self._emit('helper_metadata', pid, snapshot=snapshot, diagnostic=payload)
+            self._metadata_seen.add(fingerprint)
+        return True
+
+    def _publish_retry_failure(self, pid, snapshot, reason, retry):
+        if not self._metadata3() or retry is not True:
+            self._emit('pending', pid, snapshot=snapshot, reason=reason)
+            return
+        fingerprint = self._metadata_fingerprint(dict(kind='pending', pid=pid, raw=snapshot, reason=reason))
+        if fingerprint not in self._metadata_seen:
+            if len(self._metadata_seen) >= MAX_PENDING:
+                raise EvidenceError('native metadata semantic signature bound exceeded')
+            self._emit('pending', pid, snapshot=snapshot, reason=reason)
+            self._metadata_seen.add(fingerprint)
+
+    def _plan_metadata_retry(self, pid, snapshot, *, raw=None):
+        if not self._metadata3():
+            return
+        with self._condition:
+            if not self._metadata_helper_locked(pid, snapshot):
+                return
+        keys = {self._metadata_signature(snapshot)}
+        if raw is not None:
+            keys.add(self._metadata_signature(raw))
+        states = [self._metadata_budgets[key] for key in keys if key in self._metadata_budgets]
+        if states:
+            state = states[0]
+            state.update(attempts=max(item['attempts'] for item in states), deadline=min(item['deadline'] for item in states),
+                         next=max(item['next'] for item in states), done=any(item['done'] for item in states))
+        else:
+            now = time.monotonic()
+            state = dict(attempts=1, next=now + METADATA_BACKOFF[0], deadline=now + METADATA_DEADLINE, done=False)
+        if len(set(self._metadata_budgets) | keys) > MAX_PENDING:
+            raise EvidenceError('metadata retry signature bound exceeded')
+        for key in keys:
+            self._metadata_budgets[key] = state
+
+    def _metadata_retry_gate(self, pid, snapshot, expected, force_ticket):
+        if not self._metadata3() or expected is not None or force_ticket is not None:
+            return None
+        with self._condition:
+            if not self._metadata_helper_locked(pid, snapshot):
+                return None
+        key = self._metadata_signature(snapshot)
+        state = self._metadata_budgets.get(key)
+        if state is None or state['done']:
+            return None
+        now = time.monotonic()
+        if state['attempts'] >= METADATA_ATTEMPTS or now >= state['deadline'] or now < state['next']:
+            return False
+        state['attempts'] += 1
+        state['next'] = now + METADATA_BACKOFF[min(state['attempts'] - 1, len(METADATA_BACKOFF) - 1)]
+        return True
+
+    def _metadata_full(self, pid, snapshot):
+        if self._metadata3():
+            state = self._metadata_budgets.get(self._metadata_signature(snapshot))
+            if state is not None:
+                state['done'] = True
+
     def _collect(self, pid, *, required=False, expected=None, force_ticket=None):
         snapshot = native.read_snapshot(pid, include_zombie=True)
         prior = self._known.get(pid)
@@ -1171,7 +1355,8 @@ class _NativeSampler:
             with self._condition:
                 self._known[pid] = copy.deepcopy(snapshot)
         current = semantic(snapshot)
-        if self._last.get(pid) == current and force_ticket is None:
+        retry = self._metadata_retry_gate(pid, snapshot, expected, force_ticket)
+        if retry is False or self._last.get(pid) == current and force_ticket is None and retry is not True:
             return snapshot
         previous = self._complete.get(pid)
         if snapshot['status'] == 'zombie' and previous is not None and all(
@@ -1182,13 +1367,26 @@ class _NativeSampler:
             self._last[pid] = current
             return snapshot
         completed_reparent = False
+        failed_path, first_path_time = 'p1', None
         try:
             exe = executable_path(pid)
+            if self._metadata3():
+                first_path_time = str(time.monotonic_ns())
             confirmed = native.read_snapshot(pid, include_zombie=True)
             if _exec_pair(snapshot, confirmed):
                 self._emit('exec_transition', pid, snapshot=snapshot, successor=confirmed)
                 self._last[pid] = current
                 return snapshot
+            if (self._metadata3() and expected is None and force_ticket is None and previous is None
+                    and _metadata_path(exe) and _initial_image_pair(snapshot, confirmed)):
+                payload = dict(version=3, subtype='helper_initial_image_gap', path_query=None,
+                    followup=dict(outcome='snapshot', snapshot=confirmed, problem=None),
+                    capture=dict(version=1, p1=dict(outcome='success', executable=exe, monotonic_ns=first_path_time), p2=dict(outcome='not_called')))
+                if self._publish_metadata(pid, snapshot, payload):
+                    self._last[pid] = current
+                    self._plan_metadata_retry(pid, confirmed, raw=snapshot)
+                    return snapshot
+                raise EvidenceError('initial image gap conflicts with registered root')
             if (previous is not None and _same_native_key(previous, snapshot) and _same_native_key(snapshot, confirmed)
                     and previous['idversion'] < snapshot['idversion'] == confirmed['idversion']
                     and previous['executable_uuid'] == snapshot['executable_uuid'] != confirmed['executable_uuid']):
@@ -1203,25 +1401,41 @@ class _NativeSampler:
                 if (expected is not None or force_ticket is not None
                         or not _reparent_pair(snapshot, confirmed, pid)):
                     raise EvidenceError('native executable/birth changed during fast capture')
+                failed_path = 'p2'
                 second_exe = executable_path(pid)
                 if (type(exe) is not str or not exe.startswith('/') or '\x00' in exe or len(exe) >= 4096
                         or type(second_exe) is not str or second_exe != exe):
                     raise EvidenceError('native executable/birth changed during fast capture')
                 completed_reparent = True
-            elif executable_path(pid) != exe:
-                raise EvidenceError('native executable/birth changed during fast capture')
+            else:
+                failed_path = 'p2'
+                if executable_path(pid) != exe:
+                    raise EvidenceError('native executable/birth changed during fast capture')
         except _PathQueryError as exc:
             try:
                 post = native.read_snapshot(pid, include_zombie=True)
                 followup = dict(outcome='numeric_esrch' if post is None else 'snapshot', snapshot=post, problem=None)
             except (EvidenceError, OSError) as error:
                 followup = dict(outcome='unavailable', snapshot=None, problem=(str(error) or type(error).__name__)[:512])
-            self._emit('helper_metadata', pid, snapshot=snapshot, diagnostic=dict(
-                subtype='known_epoch_path_gap', path_query=exc.receipt, followup=followup))
+            payload = dict(subtype='known_epoch_path_gap', path_query=exc.receipt, followup=followup)
+            stable_gap = (self._metadata3() and expected is None and force_ticket is None
+                and exc.receipt['stage'] == 'query' and exc.receipt['errno'] == errno.ESRCH and exc.receipt['returned_size'] == 0
+                and followup['outcome'] == 'snapshot' and native.valid_snapshot(followup['snapshot'])
+                and snapshot['status'] == followup['snapshot']['status'] == 'alive'
+                and semantic(snapshot) == semantic(followup['snapshot']) and _native_order(snapshot, followup['snapshot']))
+            known_state = (stable_gap and previous is not None and previous['status'] == 'alive' and _native_order(previous, snapshot)
+                and {key: value for key, value in semantic(previous).items() if key not in ('current_ppid', 'pgid')}
+                    == {key: value for key, value in current.items() if key not in ('current_ppid', 'pgid')})
+            if known_state:
+                payload.update(version=3, subtype='known_full_epoch_state_gap', capture=dict(version=1, failed_path=failed_path))
+            if not self._publish_metadata(pid, snapshot, payload):
+                self._emit('pending', pid, snapshot=snapshot, reason='metadata gap conflicts with registered root')
+            elif stable_gap and not known_state:
+                self._plan_metadata_retry(pid, followup['snapshot'])
             self._last[pid] = current
             return snapshot
         except (EvidenceError, OSError) as exc:
-            self._emit('pending', pid, snapshot=snapshot, reason=('incomplete native/executable capture: ' + str(exc))[:256])
+            self._publish_retry_failure(pid, snapshot, ('incomplete native/executable capture: ' + str(exc))[:256], retry)
             self._last[pid] = current
             return snapshot
         if completed_reparent:
@@ -1233,6 +1447,7 @@ class _NativeSampler:
                     snapshot, current = confirmed, semantic(confirmed)  # Untouched actual endpoint, never a stitched receipt.
                     self._emit('snapshot', pid, snapshot=snapshot, executable=exe, force_full=False)
                     self._complete[pid], self._last[pid] = snapshot, current
+                    self._metadata_full(pid, snapshot)
                     return snapshot
             self._emit('pending', pid, snapshot=snapshot, reason='reparent capture conflicts with registered root')
             self._last[pid] = current
@@ -1242,6 +1457,7 @@ class _NativeSampler:
             force_ticket.capture_sequence = sequence
         self._complete[pid] = snapshot
         self._last[pid] = current
+        self._metadata_full(pid, snapshot)
         return snapshot
 
     def _cycle(self):
@@ -1302,7 +1518,10 @@ class _NativeSampler:
 
 class Observer:
     """Internal worker only. No public interface accepts native witness JSON."""
-    def __init__(self, ledger, attempt, owner_pid, working_reservation_id, *, runtime_file_limit=DEFAULT_RUNTIME_FILES):
+    def __init__(self, ledger, attempt, owner_pid, working_reservation_id, *, runtime_file_limit=DEFAULT_RUNTIME_FILES, helper_metadata_version=2):
+        if type(helper_metadata_version) is not int or helper_metadata_version not in (2, 3):
+            raise EvidenceError('helper metadata version must be2 or3')
+        self._helper_metadata_version = helper_metadata_version
         from .producer_runtime import managed_group_identity, read, update
         self.ledger, self.attempt, self.owner_pid = ledger, attempt, _pid(owner_pid)
         if os.getppid() != owner_pid:
@@ -1344,7 +1563,7 @@ class Observer:
                        observer_python_version=sys.version[:256], ipc_paths={}, working_binding=binding,
                        runtime_file_limit=runtime_file_limit, session_id=str(uuid.uuid4()),
                        cleanup_barrier=None, excluded_candidates={},
-                       native_sampler=dict(version=2, state='arming', roots=[], durable_sequence=0, stopped_sequence=None, unresolved=[], statuses={}, exec_transitions=[], helper_diagnostics=[], helper_diagnostic_bindings={}))
+                       native_sampler=dict(version=helper_metadata_version, state='arming', roots=[], durable_sequence=0, stopped_sequence=None, unresolved=[], statuses={}, exec_transitions=[], helper_diagnostics=[], helper_diagnostic_bindings={}))
         validate_session(initial, current_sources=True)
         def arm(current):
             stable = ('version', 'run_id', 'unit_id', 'reservation_id', 'coordinator', 'guardian',
@@ -1366,7 +1585,7 @@ class Observer:
         self.value = read(ledger, attempt)['observation_session']
         self._batching, self._drain_lost = False, False
         self._sampler_stopped_for_close = False
-        self._sampler = _NativeSampler()
+        self._sampler = _NativeSampler(helper_metadata_version=helper_metadata_version)
 
     @staticmethod
     def _mutate(current, change):
@@ -1417,6 +1636,8 @@ class Observer:
             raise EvidenceError('observer active managed ownership changed')
         if self.value['source_sha256'] != sources():
             raise EvidenceError('active observer source bytes changed')
+        if self.value['native_sampler']['version'] != self._helper_metadata_version:
+            raise EvidenceError('active observer metadata policy changed')
         from .producer_runtime import read
         working_binding(self.ledger, read(self.ledger, self.attempt), session=self.value)
         owner = native.read_snapshot(self.owner_pid)
@@ -1521,7 +1742,10 @@ class Observer:
         except (EvidenceError, OSError) as exc:
             self.fail('root ACK refused: ' + str(exc), lost=True)
             raise EvidenceError('root ACK refused: ' + str(exc)) from exc
-        return dict(root=key, sequence=self.value['sequence'], durable=True)
+        reply = dict(root=key, sequence=self.value['sequence'], durable=True)
+        if self._helper_metadata_version == 3:
+            reply['metadata_version'] = 3
+        return reply
 
     def _potential_candidate(self, snapshot):
         targets = [(key, root, root['target_executable']) for key, root in self.value['roots'].items()
@@ -1662,7 +1886,11 @@ class Observer:
                 continue
             raw = diagnostic['raw']
             refs = [item['sequence'] for item in self.value['observations'] if _helper_full(self.value, item['sequence'], raw) is not None]
-            if diagnostic['subtype'] == 'mixed_image_boundary':
+            if diagnostic.get('version') == 3:
+                candidates = [dict(version=3, mode=diagnostic['subtype'], root=_helper_full(self.value, ref, raw)[1],
+                    before_observation_sequence=ref if diagnostic['subtype'] == 'known_full_epoch_state_gap' else None,
+                    after_observation_sequence=ref if diagnostic['subtype'] == 'helper_initial_image_gap' else None) for ref in refs]
+            elif diagnostic['subtype'] == 'mixed_image_boundary':
                 candidates = (dict(version=1, mode='mixed_image_bracket', root=_helper_full(self.value, before, raw)[1],
                                    before_observation_sequence=before, after_observation_sequence=after)
                               for before in refs for after in refs)
@@ -1713,11 +1941,13 @@ class Observer:
                         payload = event['diagnostic']
                         def helper_metadata(session):
                             session['native_sampler']['helper_diagnostics'].append(dict(
-                                version=1, kind='helper_native_metadata_gap', capture_sequence=event['sequence'],
+                                version=payload.get('version', 1), kind='helper_native_metadata_gap', capture_sequence=event['sequence'],
                                 subtype=payload['subtype'], pid=event['pid'], raw=event['snapshot'],
                                 path_status='unobserved', image_status='nonqualifying', path_query=payload['path_query'],
                                 followup=payload['followup'], qualification=None))
                             diagnostic = session['native_sampler']['helper_diagnostics'][-1]
+                            if payload.get('version') == 3:
+                                diagnostic['capture'] = payload['capture']
                             session['native_sampler']['helper_diagnostic_bindings'][str(event['sequence'])] = _helper_raw_digest(diagnostic)
                             session['pending']['helper-meta:' + str(event['sequence'])] = dict(
                                 pid=event['pid'], reason='helper image/status metadata gap awaiting positive full-witness qualification')
