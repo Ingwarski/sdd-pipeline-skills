@@ -1,6 +1,6 @@
 # Current workflow, migration and completion preservation
 
-Use the latest tested SDD release for new and resumed projects. Version 2 is the current record format; version 1 is import-only. Migrate older records on authorized resume without a version-choice prompt, preserving work and reverifying acceptance. This adds no product approval, implementation permission, skill name or canonical SDD document.
+Use the latest tested SDD release for new/resumed projects. Version 2 is current; version 1 is import-only. On authorized resume, migrate without a version-choice prompt, preserving work and reverifying acceptance. This adds no approval, implementation permission, skill name or canonical document.
 
 ## Boundaries and owners
 
@@ -14,11 +14,11 @@ Project AGENTS.md continues to govern full-unit execution, six pause reasons, co
 
 Capture the actual authorized context before execution can overwrite it. Finalize completion only from an actual completed run whose required acceptance passes. Retain original plan bindings, chronology, authorization/correction receipts, sequencing exceptions, prototype-promotion receipts, implementation/evidence identities and original QA results. Shared immutable snapshots are referenced rather than copied into every unit.
 
-Each assessment of a revised plan points directly to the actual completed run. Do not chain assessments, rewrite old hashes/timestamps, or copy an old pass onto a changed definition. Later genuine revalidation creates a new run and retains the earlier history. Pending/running/blocked attempts cannot qualify as completed. Preserve their partial work and route resumption through current authorization and acceptance.
+Assess revised plans directly against the actual completed run. Never chain assessments, rewrite hashes/timestamps or copy passes onto changed definitions. Genuine revalidation creates a new run, retaining history. Pending/running/blocked attempts remain unfinished; preserve partial work and resume through current authorization/acceptance.
 
 New acceptance requirements may require a new run of the same unit. Preserve its original scope, kind, owner and implementation paths; retain old completion references in `completion_history`, add acceptance/prerequisites without dropping existing obligations, and mark current acceptance pending. Validate the revised graph and obtain the normal current-plan authorization before starting. Reassigning a completed identity to different work remains invalid.
 
-Archive full canonical sources for provenance. Compare the owner-reviewed relevant sections, shared definitions, exact check actions/outcomes, DoD conditions, source/test/configuration/dependency/runtime inputs and prerequisite acceptance. Review all changed canonical sources for newly introduced obligations affecting the completed claim; a matching old inventory cannot prove none exists. Include relevant plan prose as well as structured fields. Missing or ambiguous input selection cannot justify preservation.
+Archive full canonical sources. Compare owner-reviewed relevant sections, shared definitions, exact check actions/outcomes, DoD conditions, source/test/configuration/dependency/runtime inputs and prerequisite acceptance. Review all changed canonical sources for new relevant obligations, including plan prose and structured fields; matching old inventories cannot exclude them. Missing/ambiguous selections cannot justify preservation.
 
 For new plans, separate stable shared completion/evidence rules from mutable status and pending allocations into selectable headings before authorization/context capture. Review excluded sections for relevant obligations. Existing mixed sections may retain complete broader selections and incur conservative revalidation when status changes. Do not force restructuring for migration or narrow historical selections to force preservation. Reorganizing an existing authorized plan follows the normal authority or verified documentation-correction rules.
 
@@ -28,15 +28,15 @@ One resolved acceptance result is used for unit prerequisites, generic gates, se
 
 ## Resume and migration
 
-Resolve the actual installed collection and verify its provenance against published `stable`, the CI-tested release. Use the supported updater if stale; do not substitute untested `main`, overwrite local edits or claim currency without verification. Installation updates tools only: it never scans project repositories or migrates their records.
+Verify the actual installed collection against published CI-tested `stable`. If stale, use the supported updater; never substitute untested `main`, overwrite local edits or claim unverified currency. Installation neither scans projects nor migrates records.
 
 During authorized SDD resume, inspect the actual project, sources, receipts and workers. Checkpoint and stop active legacy workers before migration. Read-only requests permit inspection only. Use `adopt-legacy` for supported version 1 records; a missing unit version is supported only before any unit plan or execution. For unsupported/malformed records, archive original bytes and available evidence first, then have owners recover only source-verified metadata. Never invent missing history. Preserve code, documents, IDs and original events; never rebuild, reset or delete work merely to change formats.
 
-A candidate report of `migration_ready` validates the exact format conversion, archive and unchanged gate, not project readiness. Nested `project_validation` may remain blocked or incomplete. Inspect the candidate, activate only with matching active/source hashes, then rerun the normal checker and reconcile affected owners. Activation preserves those diagnostics; it grants no acceptance or permission.
+`migration_ready` validates conversion, archive and unchanged gate only; nested `project_validation` can remain blocked/incomplete. Inspect the candidate, activate with matching active/source hashes, rerun the checker and reconcile owners. Activation retains diagnostics and grants no acceptance/permission.
 
 Migration archives actual legacy records, retains blocking findings and removes old current-acceptance claims. Keep the exact implementation gate and receipts: valid unchanged authority retains its scope; missing, stale or invalid authority remains blocked. Do not rebind a changed plan or manufacture consent. Review the current requirements/QA, capture fresh authorized context and run genuine acceptance checks in dependency order before relying on earlier work. Old passes cannot be copied forward. Missing evidence/capability remains a named blocker; fixes follow existing authorization boundaries. A newly required prompt is for missing or changed authority, never for the format upgrade itself.
 
-Current-format projects retain immutable history and applicability checks. Reverify affected acceptance after toolchain/rule changes; do not clear sound current history on every resume. Continue only when current checks and existing permission allow it.
+Retain current-format history/applicability; toolchain/rule changes require affected revalidation, not clearing sound history each resume. Continue only with current checks and existing permission.
 
 ## Capture and correction procedure
 
@@ -49,7 +49,7 @@ Current-format projects retain immutable history and applicability checks. Rever
 
 ## Worked example
 
-Login passed plan A; revise pending Profile twice and split Notifications, retaining obligations and mappings. Assess Login directly from its original completion against current requirements, code, checks and evidence. New integration belongs to new work; session-security changes require named revalidation preserving history. Report actual applicability, pending work, plan validity and permission separately.
+After pending Profile revisions/Notifications splits, assess completed Login directly from its original run. Retain obligations/mappings; assign new integration to new work and revalidate changed session security. Report applicability, pending work, plan validity and permission separately.
 
 ## Records and helper
 
@@ -68,68 +68,60 @@ Use both `checker_contract_version: 2` and `unit_contract_version: 2`; keep `tra
 
 The inventory contains `review: {reviewer, reviewed_at, complete: true, rationale}`, non-secret `environment` identities, and `sources` covering every applicable canonical artifact. Each source selection uses `mode: "full"`, `mode: "sections"` with exact unique `headings`, or a permitted `mode: "unused"` with a reason. The helper calculates selected-byte hashes and binds current full canonical hashes. The owner must include shared definitions and new obligations; a mechanically valid selection does not establish semantic completeness.
 
-Also supply `execution_inputs`, mapping relevant code/test/configuration/dependency paths to `{mode: "file"}`, `{mode: "tree"}` or `{mode: "absent"}`. Tree fingerprints include membership, so newly added files invalidate the old observation. Select bounded unit inputs, not the whole repository; a pending unit's unrelated files should not invalidate an earlier component. `absent` asserts absence; use `file` for a planned implementation file that will be created. Observe real input fingerprints before and after each check, require equality, and record them as that check's `evaluated_execution_inputs` alongside the actual source hashes, result and evidence. A helper observation alone never proves a test ran. Completion captures the post-run inputs; it does not expect newly implemented files to match their pre-start absence. Do not put credentials in snapshots.
+Map relevant code/test/configuration/dependency paths in `execution_inputs` to `{mode: "file"}`, `{mode: "tree"}` or `{mode: "absent"}`. Tree fingerprints include membership; added files invalidate old observations. Bound selections to the unit; unrelated pending files should not invalidate earlier components. `absent` asserts absence; planned files to create use `file`. Require equal real before/after check fingerprints; record `evaluated_execution_inputs`, actual source hashes, result and evidence. Observations alone prove no test execution. Completion captures post-run inputs, allowing implementation to replace pre-start absence. Exclude credentials from snapshots.
 
 Use Python 3.12+ and the bundled `scripts/sdd_history.py` with `--project PROJECT`. For storage-backed evidence, prepare verified original bytes using the [storage contract](evidence-storage-contract.md), then pass the global `--evidence-cache PATH` before the command, as with the checker. History retains external references, compact receipts and source snapshots without copying archived bulky evidence into Git. Missing prepared originals, dependency closure or required accounting block accepted history. Migration may preserve unavailable legacy references as unverified history; they require genuine current revalidation. Storage and history preserve existing authority only.
 
-Frozen source payloads may use an optional `source_archive_index_ref` pointing to
-an immutable `unit_source_archive_index`. It binds original record references,
-snapshot roots, paths and hashes to ordinary managed evidence references; it
-never rewrites original contexts, attempts or results. `create-source-archive-index --mapping FILE` accepts the reviewed mapping. Its optional `--encoding sha_objects_v1`
-stores one exact reference per SHA while retaining every logical source member.
-Use explicit `prepare-source-views --index-ref REF_JSON --max-bytes N --max-files N`
-to materialize bounded external views before checking; the checker never prepares
-or fetches them. Default `private_copy` views use independent verified payload
-inodes. Explicit `--view-strategy shared_cache_links` avoids duplicate payload
-allocation using verified cache hardlinks, followed by fresh integrity checks.
-Shared views cannot claim private-copy isolation: retain their referenced cache
-objects, account physical occupancy once and logical generation separately, and
-fail on missing or changed bytes. Neither mode establishes test execution or
-completion. Reserve measured preparation capacity before either operation.
+Optional `source_archive_index_ref` names an immutable `unit_source_archive_index`,
+binding original record references, snapshot roots, paths/hashes to managed
+evidence without rewriting contexts/attempts/results. Use
+`create-source-archive-index --mapping FILE` with reviewed mappings; optional
+`--encoding sha_objects_v1` retains all logical members with one reference per SHA.
+Default `private_copy` uses independent verified payload inodes; explicit
+`--view-strategy shared_cache_links` selects verified cache hardlinks with fresh
+integrity checks. Shared views lack private isolation: retain cache objects,
+count physical occupancy once/logical generation separately, fail missing/changed
+bytes. Reserve measured preparation capacity before either operation; explicitly
+run `prepare-source-views --index-ref REF_JSON --max-bytes N --max-files N` before
+checking. The checker never fetches/prepares; neither mode proves tests/completion.
 
 Its commands are:
 
 - `capture-context --unit ID --inventory reviewed.json`: returns the pre-start reference; index it in `execution_contexts` before the normal checker start boundary.
 - `observe-inputs --unit ID [--inventory reviewed.json]`: reads actual execution inputs, using the captured inventory when omitted. Bind matching before/after observations to the genuine check event.
-- `capture-completion --unit ID --context-ref context-ref.json --run-id ACTUAL_RUN_ID [--inventory reviewed-current.json]`: validates the actual completed run and returns its immutable reference. After a canonical owner update, such as appending QA execution history, supply a fresh current owner review after the actual checks. Relevant definitions must remain unchanged. The record retains original canonical context and actual post-run provenance separately; it cannot mark unfinished work complete.
-- `capture-attempt --unit ID --context-ref context-ref.json --run-id ACTUAL_RUN_ID --outcome failed|interrupted --inventory reviewed-current.json`: preserves unfinished work without requiring passed acceptance. Add the returned reference as `attempt_ref` to the unchanged actual run, then stage/activate that candidate. Status-only owner edits require a fresh review and unchanged relevant acceptance and authority; actual check hashes, times and outcomes remain unchanged.
+- `capture-completion --unit ID --context-ref context-ref.json --run-id ACTUAL_RUN_ID [--inventory reviewed-current.json]`: validates completion and returns its immutable reference. Canonical owner updates (e.g. QA history) require fresh owner review after checks, with unchanged relevant definitions. Retain original context/post-run provenance separately; unfinished work cannot complete.
+- `capture-attempt --unit ID --context-ref context-ref.json --run-id ACTUAL_RUN_ID --outcome failed|interrupted --inventory reviewed-current.json`: preserves unfinished work without passed acceptance. Add `attempt_ref` to the unchanged run; stage/activate. Status-only owner edits require fresh review, unchanged relevant acceptance/authority and original check hashes/times/outcomes.
 - `observe-runtime --probes probes.json`: executes explicit identity commands once and returns an immutable receipt. The input maps identity names to argument lists starting with an absolute executable; no shell is used. Its `environment` maps each name to stripped stdout. Probe the runtime/session that will execute evidence; an installed binary version alone does not identify an attached process. Use non-secret, bounded identity commands that do not start background helpers.
-- `capture-continuation --unit ID --attempt-ref attempt-ref.json --run-id NEW_RUN_ID --inventory reviewed-continuation.json`: returns a complete candidate `manifest`, `context_ref` and `prior_attempt_ref`. The fresh reviewed inventory includes the new probe's `runtime_observation_ref` and exact `environment`. The helper preserves work and all earlier attempts, captures a new context, and resets owned checks to unrun. Save the returned manifest as the candidate, reconcile progress, stage/activate, pass `--start-unit`, then record the actual start. Only subsequent executed checks can establish acceptance.
+- `capture-continuation --unit ID --attempt-ref attempt-ref.json --run-id NEW_RUN_ID --inventory reviewed-continuation.json`: returns candidate `manifest`, `context_ref` and `prior_attempt_ref`. Fresh inventory includes the new probe's `runtime_observation_ref`/exact `environment`. Preserve work/attempts, capture new context, reset owned checks to unrun. Save candidate, reconcile progress, stage/activate, pass `--start-unit`, record actual start. Acceptance requires subsequent executed checks.
 - `--manifest candidate-manifest.json assess --completion-ref completion-ref.json --inventory reviewed.json --pending-map pending-map.json`: reviews the candidate against the actual active `forge/sdd-manifest.json`. Mapping values are current unit IDs; keys are changed pending IDs or `__added__`. Preserve every old acceptance obligation, including obligations introduced in earlier revisions.
 - `stage --candidate candidate-manifest.json --expected-manifest-hash SHA256 [--pending-map pending-map.json]`, then `activate --candidate-ref candidate-ref.json --expected-manifest-hash SHA256`: validate and atomically replace the active manifest only while the expected revision and inputs still match. Mapping may come from its matching assessments; supply it explicitly for a transition without them.
 - `adopt-legacy --expected-manifest-hash SHA256`: archives supported version 1 records and stages version 2 with the exact existing gate. Its `migration_ready` report means conversion only; inspect nested `project_validation`, activate and verify as above. Prior execution needs genuine revalidation; no pre-start context or old pass is reconstructed.
 - `recover --journal-ref journal-ref.json`: reports whether the recorded activation happened, did not happen, or conflicts with later state. It never overwrites later work or silently removes another writer's lock.
 
-Reference arguments name JSON files containing the returned reference, not the history envelope itself. For completion, put the actual finished run and owner-reconciled results in a candidate manifest; use `--manifest candidate-manifest.json capture-completion ...`, then index the returned completion reference and stage/activate. The helper runs the complete-unit validation boundary before returning a valid completion. Never publish an unvalidated completed status. Save each actual command output and checker report.
+Reference arguments name JSON files containing returned references, not history envelopes. Put the finished run and owner-reconciled results in a candidate; use `--manifest candidate-manifest.json capture-completion ...`, index its reference, then stage/activate. Completion requires complete-unit validation; never publish unvalidated completion. Save actual command outputs/checker reports.
 
-Capture an attempt before repairs when possible. If partial edits, deletions or new
-tree members already differ from recorded test inputs, capture retains both the
-actual old observations and current work as `observation_validity:
-unverified_stale_inputs`. It validates evidence bytes and authority, but cannot
-reconstruct unavailable tested source bytes or certify those results against later
-work. The current validation view treats those checks as unrun and reports the
-preserved failure/interruption; the source manifest and archive keep original
-outcomes. Changed acceptance definitions, corrupt/missing evidence and changed
-authority still block capture. A fresh continuation must rerun required checks.
+Capture attempts before repairs when possible. Edits, deletions or new tree members
+differing from test inputs retain old observations/current work as
+`observation_validity: unverified_stale_inputs`. Capture validates bytes/authority,
+not unavailable tested sources or results against later work. Validation treats
+these checks as unrun and reports preserved failure/interruption; source manifest
+and archive retain original outcomes. Changed acceptance/authority or corrupt/
+missing evidence still block capture. Fresh continuations rerun required checks.
 
 Only validated limits-only `forge/evidence-policy.json` lineage may replace its exact frozen raw-ancestor fingerprint during reconciliation and fresh continuation. Preserve other inputs, acceptance, authority and original records. Stale starts and completions remain blocked until fresh review, runtime and checks.
 
-The continuation probe follows attempt capture and precedes context capture.
-After the actual new start, probe the execution session again and bind that receipt
-as each executed check's `runtime_observation_ref`, before its `executed_at`.
-Completion requires the observed environment to match the new context. Runtime
-drift requires another preserved attempt and continuation; it never rebinds old
-receipts. This records only the commands' observed identities, not authenticity of
-the host or continuous runtime stability; the executing harness must check the
-actual runtime at the test boundary.
+Probe continuation runtime between attempt/context captures. After the new start,
+probe the execution session again; bind its receipt to each executed check's
+`runtime_observation_ref` before `executed_at`. Completion requires observed environment to match the new
+context. Drift requires another preserved attempt/continuation, never rebinding
+old receipts. Command identities prove neither host authenticity nor continuous
+stability; the harness must verify actual runtime at the test boundary.
 
-Retain inherited findings and their original fields. To close one, change its
-status to `closed` and add `closure: {closed_at, rationale, check_ids}` pointing to
-fresh passed checks owned by this continuation, with readable evidence and matching
-inputs/runtime. Closure follows those checks and precedes claimed completion;
-deletion, substituted identity or a bare closed status cannot clear the finding.
-A reopened finding may replace its closure when closing again; the previous
-closure remains in immutable attempt history.
+Retain inherited findings/original fields. Closing requires status `closed` and
+`closure: {closed_at, rationale, check_ids}` naming this continuation's fresh passes
+with readable evidence and matching inputs/runtime. Close after checks, before
+completion; deletion, substituted identity or bare status cannot clear findings.
+Reclosing a reopened finding may replace closure; history retains the prior one.
 
 Source documents are owner-written before candidate validation; activation makes only the manifest replacement atomic. During staging, other workers must not dispatch from an invalidated old manifest. A crashed writer's lock needs verified process ownership and explicit local recovery; incomplete directories grant no authority. Re-run validation after recovery.
 

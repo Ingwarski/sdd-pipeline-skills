@@ -92,6 +92,11 @@ def run(owner_pid, read_fd, write_fd, working_reservation_id, runtime_file_limit
             pass
         return 1
     finally:
+        if observer is not None:
+            try:
+                observer.shutdown_sampler()
+            except BaseException:
+                pass  # Nonclosed/failed journal continues to retain every hold.
         if ledger is not None:
             ledger.close()
         for fd in set((read_fd, write_fd)):

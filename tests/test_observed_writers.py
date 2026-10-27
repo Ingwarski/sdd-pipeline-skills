@@ -9,6 +9,9 @@ import subprocess
 import stat
 import sys
 import tempfile
+import threading
+import time
+import select
 import unittest
 from unittest.mock import patch, Mock
 import uuid
@@ -76,6 +79,11 @@ class RegistryTests(unittest.TestCase):
         self.addCleanup(self.cleanup)
 
     def cleanup(self):
+        if self.observer is not None and hasattr(self.observer, '_sampler'):
+            try:
+                self.observer.shutdown_sampler()
+            except EvidenceError:
+                pass
         for path in self.created:
             if path.exists(): path.rmdir()
         for item in reversed(self.patches): item.stop()
@@ -682,6 +690,52 @@ class RegistryTests(unittest.TestCase):
         self.save(value)
         with self.assertRaisesRegex(EvidenceError, 'predecessor observation'): self.record_now()
 
+    def test_ready_capture_fence_is_durable_before_root_ack(self):
+        observer = self.registered()
+        self.assertTrue(observer._sampler._thread.is_alive())
+        self.assertEqual(observer.value['native_sampler']['roots'], ['1000'])
+        self.assertGreaterEqual(observer.value['native_sampler']['durable_sequence'], 1)
+        self.assertEqual(observer.value['native_sampler']['state'], 'running')
+
+    def test_failed_historical_v2_source_hashes_remain_readable_not_reopened(self):
+        observer = self.registered(); observer.fail('original failure', lost=True)
+        original = self.record_now(); changed = {key: 'b' * 64 for key in observed.SOURCE_FILES}
+        with patch.object(observed, 'sources', return_value=changed):
+            self.assertEqual(self.record_now(), original)
+            self.assertTrue(observed.disposition_problems(original, ledger=self.ledger))
+            with self.assertRaisesRegex(EvidenceError, 'prior closure'):
+                observed.Observer(self.ledger, self.attempt, 99, self.working)
+
+    def test_unflushed_capture_loss_and_incomplete_receipts_cannot_close(self):
+        observer = self.registered()
+        self.nodes[102] = snapshot(102, 1100, 1000, birth=103, parent_version=10, ppid=100)
+        with patch.object(observed, 'executable_path', side_effect=EvidenceError('controlled missed path')):
+            observer._sampler.observe_pid(102)
+        observer._drain_native()
+        self.assertTrue(observer.value['native_sampler']['unresolved'])
+        self.nodes.pop(102); self.nodes.pop(101)
+        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(.2)
+        self.assertTrue(observed.disposition_problems(self.record_now(), ledger=self.ledger))
+
+    def test_lost_capture_tail_preserves_incomplete_journal(self):
+        observer = self.registered()
+        self.nodes[102] = snapshot(102, 1100, 1000, birth=103, parent_version=10, ppid=100)
+        watermark, _ = observer._sampler.observe_pid(102)
+        with patch.object(observer._sampler, 'take', return_value=[]):
+            with self.assertRaisesRegex(EvidenceError, 'unflushed tail'): observer._drain_native(through=watermark)
+        observer.fail('lost capture tail', lost=True)
+        self.assertTrue(self.record_now()['observation_session']['lost_history'])
+        with self.assertRaisesRegex(EvidenceError, 'lost unflushed'): observer.prepare_cleanup(.1)
+
+    def test_collector_stopped_joined_drained_before_closed_ack(self):
+        observer = self.registered(); self.nodes.pop(101)
+        observer.close(.5)
+        sampler = observer.value['native_sampler']
+        self.assertEqual(sampler['state'], 'stopped')
+        self.assertEqual(sampler['stopped_sequence'], sampler['durable_sequence'])
+        self.assertFalse(observer._sampler._thread.is_alive())
+        self.assertFalse(observer._sampler.take())
+
     def test_worker_samples_continuously_while_control_pipe_idle(self):
         fake = Mock(); fake.value = {'state': 'observing'}
         with patch.object(worker, '_environment_ledger', return_value=(Mock(), self.attempt)), \
@@ -712,20 +766,154 @@ class RegistryTests(unittest.TestCase):
                 self.assertIn(message, fake.fail.call_args.args[0])
 
 
+class NativeCollectorTests(unittest.TestCase):
+    def setUp(self):
+        self.nodes = {100: snapshot(100, 1000, 900, birth=100)}
+        self.children, self.samplers, self.stamp = {}, [], 1000
+        self.patches = [patch.object(native, 'read_snapshot', side_effect=self.read),
+                        patch.object(observed, 'executable_path', side_effect=lambda pid: '/fixture/executable'),
+                        patch.object(observed, 'child_pids', side_effect=lambda pid: tuple(self.children.get(pid, ()))),
+                        patch.object(observed, 'sources', side_effect=AssertionError('collector must not hash sources')),
+                        patch.object(observed, 'candidate_pids', side_effect=AssertionError('collector must not enumerate UID'))]
+        for patcher in self.patches: patcher.start()
+        self.addCleanup(self.cleanup)
+
+    def read(self, pid, include_zombie=True):
+        self.stamp += 1
+        value = copy.deepcopy(self.nodes.get(pid))
+        if value:
+            value['observed']['monotonic_ns'] = str(self.stamp)
+            value['observed']['wall_time_ns'] = str(2000000000000 + self.stamp)
+        return value
+
+    def collector(self, **kwargs):
+        sampler = observed._NativeSampler(**kwargs); self.samplers.append(sampler)
+        return sampler
+
+    def cleanup(self):
+        for sampler in self.samplers:
+            try: sampler.stop()
+            except EvidenceError: pass
+            self.assertFalse(sampler._thread.is_alive())
+        for patcher in reversed(self.patches): patcher.stop()
+
+    @staticmethod
+    def events(sampler):
+        result = []
+        while True:
+            batch = sampler.take()
+            if not batch: return result
+            result.extend(batch)
+
+    def test_real_ready_fence_native_only_and_semantic_noop(self):
+        sampler = self.collector()
+        ready = sampler.add_root(self.nodes[100]); self.assertEqual(ready, 1)
+        first = self.events(sampler)
+        self.assertEqual(first[0]['kind'], 'snapshot')
+        self.assertEqual(first[0]['snapshot']['unique_id'], '1000')
+        for _ in range(20): self.assertEqual(sampler.fence(), ready)
+        self.assertFalse(self.events(sampler))
+        self.assertEqual(sampler.stop(), ready)
+
+    def test_native_receipt_survives_process_exit_while_main_is_slow(self):
+        sampler = self.collector(); sampler.add_root(self.nodes[100]); self.events(sampler)
+        self.nodes[102] = snapshot(102, 1100, 1000, birth=101, parent_version=10, ppid=100)
+        self.children[100] = (102,)
+        # No main SQL/drain work runs during this controlled native capture window.
+        time.sleep(.02)
+        self.nodes.pop(102); self.children.clear()
+        sampler.fence()
+        events = self.events(sampler)
+        receipts = [event for event in events if event['kind'] == 'snapshot' and event['pid'] == 102]
+        self.assertTrue(receipts)
+        self.assertEqual(receipts[0]['snapshot']['original_parent_unique_id'], '1000')
+        self.assertTrue(any(event['kind'] == 'absent' and event['pid'] == 102 for event in events))
+
+    def test_exec_versions_retained_before_main_drain(self):
+        sampler = self.collector(); sampler.add_root(self.nodes[100]); self.events(sampler)
+        self.nodes[102] = snapshot(102, 1100, 1000, birth=101, version=20, parent_version=10, ppid=100)
+        self.children[100] = (102,); sampler.fence()
+        self.nodes[102]['idversion'] = 21
+        self.nodes[102]['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
+        sampler.fence()
+        receipts = [event['snapshot'] for event in self.events(sampler) if event['kind'] == 'snapshot' and event['pid'] == 102]
+        self.assertEqual([receipt['idversion'] for receipt in receipts], [20, 21])
+
+    def test_queue_event_and_byte_overflow_latch_loss(self):
+        sampler = self.collector(max_events=1); sampler.add_root(self.nodes[100])
+        self.nodes[102] = snapshot(102, 1100, 1000, birth=101, parent_version=10, ppid=100)
+        with self.assertRaisesRegex(EvidenceError, 'bound'): sampler.observe_pid(102)
+        with self.assertRaisesRegex(EvidenceError, 'lost history'): sampler.check()
+        tiny = self.collector(max_bytes=1)
+        with self.assertRaisesRegex(EvidenceError, 'bound'): tiny.add_root(self.nodes[100])
+
+    def test_missing_ready_native_failure_and_join_timeout_block(self):
+        missing = self.collector()
+        value = self.nodes.pop(100)
+        with self.assertRaisesRegex(EvidenceError, 'gone before ready'): missing.add_root(value)
+        self.nodes[100] = value
+        sampler = self.collector(); sampler.add_root(value); self.events(sampler)
+        with patch.object(native, 'read_snapshot', side_effect=native.ObservationError('controlled native denial')):
+            with self.assertRaisesRegex(EvidenceError, 'denial'): sampler.fence()
+        joiner = self.collector(); joiner.add_root(value)
+        with patch.object(joiner._thread, 'join'), patch.object(joiner._thread, 'is_alive', return_value=True):
+            with self.assertRaisesRegex(EvidenceError, 'join deadline'): joiner.stop(.01)
+
+    def test_lost_ready_fence_and_unexpected_thread_death_are_not_empty_success(self):
+        with patch.object(observed._NativeSampler, '_cycle'):
+            sampler = self.collector()
+            with self.assertRaisesRegex(EvidenceError, 'deadline'): sampler.add_root(self.nodes[100], timeout=.01)
+            with self.assertRaisesRegex(EvidenceError, 'deadline'): sampler.fence(timeout=.01)
+            sampler.stop()
+        with patch.object(observed._NativeSampler, '_run'):
+            dead = self.collector(); dead._thread.join(1)
+            with self.assertRaisesRegex(EvidenceError, 'not alive'): dead.check()
+
+    def test_partial_native_capture_is_pending_not_an_invented_executable(self):
+        sampler = self.collector(); sampler.add_root(self.nodes[100]); self.events(sampler)
+        self.nodes[102] = snapshot(102, 1100, 1000, birth=101, parent_version=10, ppid=100)
+        with patch.object(observed, 'executable_path', side_effect=EvidenceError('gone before path')):
+            sampler.observe_pid(102)
+        event = next(event for event in self.events(sampler) if event['pid'] == 102)
+        self.assertEqual(event['kind'], 'pending'); self.assertIsNone(event['executable'])
+        self.assertEqual(event['snapshot']['unique_id'], '1100')
+
+    def test_known_zombie_records_actual_status_without_fabricating_current_path(self):
+        sampler = self.collector(); sampler.add_root(self.nodes[100]); self.events(sampler)
+        self.nodes[100]['status'] = 'zombie'; self.nodes[100]['query']['native_status'] = 5
+        with patch.object(observed, 'executable_path', side_effect=AssertionError('zombie has no current path')):
+            sampler.fence()
+        events = self.events(sampler)
+        self.assertEqual(events[0]['kind'], 'status')
+        self.assertIsNone(events[0]['executable'])
+        self.assertEqual(events[0]['snapshot']['status'], 'zombie')
+
+
 class ControlDescriptorTests(unittest.TestCase):
-    def test_anonymous_stream_socketpair_and_pipe_accepted_without_closing_originals(self):
+    def test_anonymous_stream_socketpair_accepted_without_closing_originals(self):
         left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             worker.validate_control_fd(left.fileno()); worker.validate_control_fd(right.fileno())
             left.send(b'proof'); self.assertEqual(right.recv(5), b'proof')
         finally:
             left.close(); right.close()
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Actual anonymous FIFO metadata is Darwin-specific')
+    def test_darwin_anonymous_pipe_accepted_without_closing_originals(self):
         read_fd, write_fd = os.pipe()
         try:
             worker.validate_control_fd(read_fd); worker.validate_control_fd(write_fd)
             os.write(write_fd, b'x'); self.assertEqual(os.read(read_fd, 1), b'x')
         finally:
             os.close(read_fd); os.close(write_fd)
+
+    def test_fifo_metadata_boundary_is_portable_without_assuming_linux_nlink(self):
+        with patch.object(worker.os, 'fstat', return_value=Mock(st_mode=stat.S_IFIFO | 0o600, st_nlink=0)):
+            worker.validate_control_fd(3)
+        # Linux anonymous pipes can also have nlink1. The Darwin-only observer
+        # does not silently treat that as sufficient proof of an anonymous FD.
+        with patch.object(worker.os, 'fstat', return_value=Mock(st_mode=stat.S_IFIFO | 0o600, st_nlink=1)):
+            with self.assertRaisesRegex(EvidenceError, 'named'): worker.validate_control_fd(3)
 
     def test_regular_file_named_fifo_named_socket_and_datagram_rejected(self):
         with tempfile.TemporaryDirectory(prefix='sdd-control-fixture-') as temp:
@@ -756,6 +944,116 @@ class ControlDescriptorTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == 'darwin', 'Darwin native child enumeration')
 class NativeChildEnumerationTests(unittest.TestCase):
+    def test_actual_owned_fork_windows_capture_or_preserve_pending_without_compiler(self):
+        code = r"""
+import os, sys, time, json
+print('READY', flush=True)
+if sys.stdin.readline().strip() != 'GO': raise SystemExit(1)
+for index in range(25):
+    read_fd, write_fd = os.pipe()
+    before = time.time_ns()
+    before_monotonic = time.monotonic_ns()
+    middle = os.fork()
+    if middle == 0:
+        os.close(read_fd)
+        grandchild = 0
+        if index == 0:
+            grandchild = os.fork()
+            if grandchild == 0:
+                time.sleep(.03)
+                os._exit(0)
+            os.waitpid(grandchild, 0)
+        os.write(write_fd, (str(grandchild) + '\n').encode())
+        os.close(write_fd)
+        os._exit(0)
+    os.close(write_fd)
+    message = os.read(read_fd, 64)
+    os.close(read_fd)
+    os.waitpid(middle, 0)
+    print(json.dumps(dict(index=index, middle=middle, grandchild=int(message), before_wall_ns=before,
+                          reaped_wall_ns=time.time_ns(), before_monotonic_ns=before_monotonic,
+                          reaped_monotonic_ns=time.monotonic_ns())), flush=True)
+print('DONE', flush=True)
+sys.stdin.readline()
+"""
+        process = subprocess.Popen([sys.executable, '-B', '-c', code], stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        sampler, rows, events = None, [], []
+        try:
+            self.assertTrue(select.select([process.stdout], [], [], 3)[0])
+            self.assertEqual(process.stdout.readline().strip(), b'READY')
+            root = native.read_snapshot(process.pid)
+            sampler = observed._NativeSampler()
+            sampler.add_root(root)
+            process.stdin.write(b'GO\n'); process.stdin.flush()
+            for _ in range(26):
+                self.assertTrue(select.select([process.stdout], [], [], 5)[0])
+                line = process.stdout.readline().strip()
+                if line == b'DONE': break
+                rows.append(json.loads(line))
+                events.extend(sampler.take())
+            self.assertEqual(len(rows), 25)
+            sampler.fence()
+            while True:
+                batch = sampler.take()
+                if not batch: break
+                events.extend(batch)
+            # Reported PIDs request SDK-native lookups only. If the live window
+            # was missed, genuine lack of birth becomes a pending event.
+            for row in rows[1:]:
+                sampler.observe_pid(row['middle'])
+                events.extend(sampler.take())
+            sampler.stop()
+            events.extend(sampler.take())
+            receipts = [event for event in events if event['kind'] == 'snapshot']
+            by_pid = {event['pid']: event['snapshot'] for event in receipts}
+            positive = rows[0]
+            self.assertIn(positive['middle'], by_pid)
+            self.assertIn(positive['grandchild'], by_pid)
+            middle, grandchild = by_pid[positive['middle']], by_pid[positive['grandchild']]
+            self.assertEqual(middle['original_parent_unique_id'], root['unique_id'])
+            self.assertEqual(grandchild['original_parent_unique_id'], middle['unique_id'])
+            self.assertEqual(grandchild['original_parent_idversion'], middle['idversion'])
+            pending = {event['pid'] for event in events if event['kind'] == 'pending'}
+            for row in rows[1:]:
+                self.assertTrue(row['middle'] in by_pid or row['middle'] in pending)
+            durations = []
+            for row in rows[1:]:
+                witness = by_pid.get(row['middle'])
+                birth = witness['identity']['created'] if witness else None
+                # Parent monotonic interval encloses creation AND reaping, so
+                # it is a conservative lifetime upper bound without wall-clock
+                # adjustment or microsecond birth timestamp assumptions.
+                upper = row['reaped_monotonic_ns'] - row['before_monotonic_ns']
+                durations.append(upper)
+            result = dict(kind='owned-native-fork-window-result', trials=24,
+                          complete_captured=sum(row['middle'] in by_pid for row in rows[1:]),
+                          pending=sum(row['middle'] in pending for row in rows[1:]),
+                          measured_lifetime_upper_bound_ns=durations,
+                          proven_submillisecond_windows=sum(0 < duration < 1000000 for duration in durations),
+                          positive_exact_three_process_chain=True,
+                          qualification='Measured case only; not a guarantee for arbitrary ephemeral forks or Chrome')
+            print('NATIVE_FORK_RESULT ' + json.dumps(result, sort_keys=True), flush=True)
+            for row in rows:
+                self.assertIsNone(native.read_snapshot(row['middle']))
+                if row['grandchild']: self.assertIsNone(native.read_snapshot(row['grandchild']))
+        finally:
+            if sampler is not None:
+                try: sampler.stop()
+                except EvidenceError: pass
+                self.assertFalse(sampler._thread.is_alive())
+            if process.stdin:
+                try: process.stdin.close()
+                except OSError: pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.terminate(); process.wait(timeout=3)
+            if process.stdout: process.stdout.close()
+            if process.stderr: process.stderr.close()
+        self.assertEqual(process.returncode, 0)
+        self.assertIsNone(native.read_snapshot(process.pid))
+
     def test_actual_direct_owned_child_is_enumerated_and_reaped(self):
         child = subprocess.Popen([sys.executable, '-B', '-c', 'import time; time.sleep(10)'],
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -20,6 +20,8 @@ import select
 import math
 import time
 import uuid
+import threading
+from collections import deque
 
 from . import darwin_observation as native, process_identity
 from .io import EvidenceError
@@ -85,7 +87,7 @@ def validate_registry(record, *, active_sources=True):
             raise EvidenceError('only CLOSED observer sessions may enter immutable history')
         sessions.append(session)
     current = record.get('observation_session')
-    sessions.append(validate_session(current, current_sources=active_sources and type(current) is dict and current.get('state') != 'closed'))
+    sessions.append(validate_session(current, current_sources=active_sources and type(current) is dict and current.get('state') in ('arming', 'observing', 'closing')))
     for session in sessions:
         key = session.get('session_id', canonical(session['observer']))
         if key in identifiers:
@@ -266,7 +268,7 @@ def validate_session(value, *, current_sources=False):
               'roots', 'observations', 'writers', 'pending', 'working_roots', 'errors', 'lost_history',
               'sequence', 'closure', 'warnings', 'observer_snapshot', 'owner_snapshot',
               'owner_executable', 'observer_executable', 'observer_python_version', 'ipc_paths'}
-    optional_fields = {'working_binding', 'runtime_file_limit', 'session_id', 'cleanup_barrier', 'excluded_candidates'}
+    optional_fields = {'working_binding', 'runtime_file_limit', 'session_id', 'cleanup_barrier', 'excluded_candidates', 'native_sampler'}
     if (type(value) is not dict or not fields <= set(value) <= fields | optional_fields
             or bool({'working_binding', 'runtime_file_limit', 'session_id'} & set(value)) and not {'working_binding', 'runtime_file_limit', 'session_id'} <= set(value) or type(value['version']) is not int or value['version'] != 1
             or value['capability'] != CAPABILITY or value['state'] not in ('arming', 'observing', 'closing', 'closed', 'failed')
@@ -275,6 +277,38 @@ def validate_session(value, *, current_sources=False):
             or value['warnings'] != list(WARNINGS) or not _valid_sources(value['source_sha256'])
             or current_sources and value['source_sha256'] != sources()):
         raise EvidenceError('invalid observed-writer session/source binding')
+    collector = value.get('native_sampler')
+    if collector is not None:
+        if (type(collector) is not dict or set(collector) != {'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses'}
+                or collector['version'] != 1 or collector['state'] not in ('arming', 'running', 'stopped', 'failed')
+                or type(collector['roots']) is not list or collector['roots'] != sorted(value['roots'])
+                or type(collector['durable_sequence']) is not int or not 0 <= collector['durable_sequence'] <= 4096
+                or type(collector['statuses']) is not dict or len(collector['statuses']) > MAX_NODES
+                or type(collector['unresolved']) is not list or len(collector['unresolved']) > MAX_PENDING
+                or collector['state'] == 'stopped' and (type(collector['stopped_sequence']) is not int or collector['stopped_sequence'] != collector['durable_sequence'])
+                or collector['state'] != 'stopped' and collector['stopped_sequence'] is not None):
+            raise EvidenceError('invalid bounded native sampler state')
+        for event in collector['unresolved']:
+            if (type(event) is not dict or set(event) != {'sequence', 'pid', 'reason', 'snapshot'}
+                    or type(event['sequence']) is not int or not 1 <= event['sequence'] <= collector['durable_sequence']
+                    or type(event['pid']) is not int or not 0 < event['pid'] < 2**31
+                    or type(event['reason']) is not str or not 0 < len(event['reason']) <= 256
+                    or event['snapshot'] is not None and not native.valid_snapshot(event['snapshot'])):
+                raise EvidenceError('invalid unresolved native capture obligation')
+        for key, status in collector['statuses'].items():
+            if (type(status) is not dict or set(status) != {'capture_sequence', 'snapshot', 'predecessor_observation_sequence'}
+                    or type(status['capture_sequence']) is not int or not 1 <= status['capture_sequence'] <= collector['durable_sequence']
+                    or not native.valid_snapshot(status['snapshot']) or status['snapshot']['status'] != 'zombie'
+                    or status['snapshot']['unique_id'] != key
+                    or type(status['predecessor_observation_sequence']) is not int
+                    or not 1 <= status['predecessor_observation_sequence'] <= len(value['observations'])):
+                raise EvidenceError('invalid retained native zombie status')
+            predecessor = value['observations'][status['predecessor_observation_sequence'] - 1]['snapshot']
+            if any(predecessor[field] != status['snapshot'][field] for field in
+                   ('identity', 'unique_id', 'idversion', 'executable_uuid', 'boot_uuid', 'uid')):
+                raise EvidenceError('zombie status lacks exact genuine executable predecessor')
+        if value['state'] == 'closed' and (collector['state'] != 'stopped' or collector['unresolved']):
+            raise EvidenceError('closed observer lacks joined/drained native sampler')
     if 'working_binding' in value:
         _validate_binding_shape(value['working_binding'])
         if (type(value['session_id']) is not str or len(value['session_id']) != 36
@@ -654,12 +688,244 @@ def lose_history(ledger, attempt, reason):
         if session['state'] == 'closed':
             return
         session['state'], session['lost_history'] = 'failed', True
+        if session.get('native_sampler') is not None:
+            session['native_sampler'].update(state='failed', stopped_sequence=None)
         if session.get('cleanup_barrier') is not None:
             session['cleanup_barrier']['valid'] = False
         message = str(reason)[:512]
         if message not in session['errors'] and len(session['errors']) < 16:
             session['errors'].append(message)
     return update(ledger, attempt, change)
+
+
+class _NativeSampler:
+    """Private readonly collector; no SQL, source hashing, UID census or signals.
+
+    Capture is single-threaded per PID, so predecessor exec versions cannot be
+    reordered by a concurrent main-thread native query. Only the main thread
+    authenticates/commits these in-process receipts. A100us wait is a target,
+    never a scheduler or fast-fork capture guarantee.
+    """
+    def __init__(self, *, interval=.0001, max_events=256, max_bytes=262144):
+        if (type(interval) not in (int, float) or not 0 <= interval <= .01
+                or type(max_events) is not int or not 1 <= max_events <= 256
+                or type(max_bytes) is not int or not 1 <= max_bytes <= 262144):
+            raise EvidenceError('invalid native collector bounds')
+        self.interval, self.max_events, self.max_bytes = interval, max_events, max_bytes
+        self._condition = threading.Condition()
+        self._events, self._bytes, self._sequence = deque(), 0, 0
+        self._requests, self._armed, self._known, self._last = deque(), set(), {}, {}
+        self._roots, self._seed, self._error = {}, None, None
+        self._complete = {}
+        self._fence_request = self._fence_done = self._fence_sequence = 0
+        self._stop = self._finished = False
+        self._thread = threading.Thread(target=self._run, name='sdd-native-observation', daemon=True)
+        self._thread.start()
+
+    def _check_locked(self):
+        if self._error:
+            raise EvidenceError('native collector lost history: ' + self._error)
+        if self._finished and not self._stop:
+            raise EvidenceError('native collector stopped unexpectedly')
+        if not self._thread.is_alive() and not self._finished:
+            raise EvidenceError('native collector thread is not alive')
+
+    def check(self):
+        with self._condition:
+            self._check_locked()
+
+    def _wait(self, predicate, timeout):
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while not predicate():
+                self._check_locked()
+                remaining = _remaining(deadline)
+                self._condition.wait(min(.01, remaining))
+            self._check_locked()
+            return self._sequence
+
+    def add_root(self, snapshot, timeout=3):
+        if not native.valid_snapshot(snapshot) or snapshot['status'] != 'alive':
+            raise EvidenceError('collector root requires SDK native live snapshot')
+        key = snapshot['unique_id']
+        with self._condition:
+            self._check_locked()
+            if self._stop or key in self._roots or len(self._roots) >= MAX_ROOTS:
+                raise EvidenceError('collector root replay/capacity/stopping')
+            self._roots[key] = copy.deepcopy(snapshot)
+            self._requests.append(('root', snapshot['identity']['pid'], copy.deepcopy(snapshot)))
+            self._condition.notify_all()
+        return self._wait(lambda: key in self._armed, timeout)
+
+    def has_pid(self, pid):
+        with self._condition:
+            return pid in self._known
+
+    def observe_pid(self, pid, timeout=3):
+        _pid(pid)
+        with self._condition:
+            self._check_locked()
+            if self._stop or len(self._requests) >= MAX_PENDING:
+                raise EvidenceError('collector request bound/stopping')
+            ticket = threading.Event()
+            self._requests.append(('pid', pid, ticket))
+            self._condition.notify_all()
+        watermark = self._wait(ticket.is_set, timeout)
+        return watermark, ticket.snapshot
+
+    def fence(self, timeout=3):
+        with self._condition:
+            self._check_locked()
+            if self._stop:
+                raise EvidenceError('collector fence requested after stop')
+            self._fence_request += 1
+            ticket = self._fence_request
+            self._condition.notify_all()
+        self._wait(lambda: self._fence_done >= ticket, timeout)
+        with self._condition:
+            return self._fence_sequence
+
+    def take(self, maximum=16, *, through=None):
+        with self._condition:
+            self._check_locked()
+            result = []
+            while self._events and len(result) < maximum and (through is None or self._events[0][0]['sequence'] <= through):
+                event, size = self._events.popleft()
+                self._bytes -= size; result.append(event)
+            return result
+
+    def stop(self, timeout=3):
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            self._stop = True
+            self._condition.notify_all()
+        self._thread.join(_remaining(deadline))
+        if self._thread.is_alive():
+            raise EvidenceError('native collector join deadline expired')
+        with self._condition:
+            self._check_locked()
+            if not self._finished:
+                raise EvidenceError('native collector final cycle missing')
+            return self._sequence
+
+    def _emit(self, kind, pid, *, snapshot=None, executable=None, reason=None):
+        # Raw receipts remain local SDK data; there is no caller witness JSON API.
+        event = dict(kind=kind, pid=pid, snapshot=snapshot, executable=executable, reason=reason)
+        with self._condition:
+            event['sequence'] = self._sequence + 1
+            size = len(canonical(event).encode())
+            if (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes
+                    or self._sequence >= 4096):
+                raise EvidenceError('native collector queue/update bound exceeded')
+            self._sequence += 1; event['sequence'] = self._sequence
+            self._events.append((event, size)); self._bytes += size
+            self._condition.notify_all()
+
+    def _collect(self, pid, *, required=False, expected=None):
+        snapshot = native.read_snapshot(pid, include_zombie=True)
+        prior = self._known.get(pid)
+        if snapshot is None:
+            if prior is not None:
+                if self._last.get(pid) is not None:
+                    self._emit('absent', pid); self._last[pid] = None
+            elif required and pid not in self._last:
+                self._emit('pending', pid, reason='listed/requested PID disappeared before native birth capture')
+                self._last[pid] = None
+            return None
+        if not native.valid_snapshot(snapshot):
+            raise EvidenceError('collector received invalid native receipt')
+        if expected is not None and (snapshot['identity'] != expected['identity'] or snapshot['unique_id'] != expected['unique_id']):
+            raise EvidenceError('collector root live native token changed')
+        if prior is not None and (snapshot['identity'] != prior['identity'] or snapshot['unique_id'] != prior['unique_id']):
+            raise EvidenceError('collector numeric PID reused')
+        if self._seed is None:
+            self._seed = snapshot
+        if (any(snapshot[k] != self._seed[k] for k in ('uid', 'boot_uuid'))
+                or any(snapshot['identity'][k] != self._seed['identity'][k] for k in ('host', 'platform'))):
+            raise EvidenceError('collector native host/boot/UID mismatch')
+        if prior is None:
+            if len(self._known) >= MAX_NODES:
+                raise EvidenceError('collector native node bound exceeded')
+            with self._condition:
+                self._known[pid] = copy.deepcopy(snapshot)
+        current = semantic(snapshot)
+        if self._last.get(pid) == current:
+            return snapshot
+        previous = self._complete.get(pid)
+        if snapshot['status'] == 'zombie' and previous is not None and all(
+                snapshot[field] == previous[field] for field in ('identity', 'unique_id', 'idversion', 'executable_uuid')):
+            # Preserve the genuine status separately. Never invent a current
+            # executable path for a zombie; its actual prior version is retained.
+            self._emit('status', pid, snapshot=snapshot)
+            self._last[pid] = current
+            return snapshot
+        try:
+            exe = executable_path(pid)
+            confirmed = native.read_snapshot(pid, include_zombie=True)
+            if confirmed is None or semantic(confirmed) != current or executable_path(pid) != exe:
+                raise EvidenceError('native executable/birth changed during fast capture')
+        except (EvidenceError, OSError) as exc:
+            self._emit('pending', pid, snapshot=snapshot, reason=('incomplete native/executable capture: ' + str(exc))[:256])
+            self._last[pid] = current
+            return snapshot
+        self._emit('snapshot', pid, snapshot=snapshot, executable=exe)
+        self._complete[pid] = snapshot
+        self._last[pid] = current
+        return snapshot
+
+    def _cycle(self):
+        with self._condition:
+            requests = list(self._requests); self._requests.clear()
+            fence = self._fence_request
+            roots = list(self._roots.values())
+        armed, acknowledged = [], []
+        for kind, pid, value in requests:
+            if kind == 'root':
+                if self._collect(pid, required=True, expected=value) is None:
+                    raise EvidenceError('collector root gone before ready fence')
+                armed.append(value['unique_id'])
+            else:
+                value.snapshot = self._collect(pid, required=True); acknowledged.append(value)
+        # Native-only BFS is never blocked by SQLite, graph rebuilding or UID census.
+        queue, scanned = [root['identity']['pid'] for root in roots], set()
+        with self._condition:
+            queue += list(self._known)
+        while queue:
+            pid = queue.pop(0)
+            if pid in scanned:
+                continue
+            if len(scanned) >= MAX_NODES:
+                raise EvidenceError('collector BFS bound exceeded')
+            scanned.add(pid)
+            if self._collect(pid) is None:
+                continue
+            for child in child_pids(pid):
+                self._collect(child, required=True)
+                if child not in scanned:
+                    queue.append(child)
+        with self._condition:
+            self._armed.update(armed)
+            for event in acknowledged:
+                event.set()
+            self._fence_done, self._fence_sequence = fence, self._sequence
+            self._condition.notify_all()
+
+    def _run(self):
+        try:
+            while True:
+                self._cycle()
+                with self._condition:
+                    if self._stop:
+                        break
+                    self._condition.wait(self.interval if self._roots or self._requests else .01)
+        except BaseException as exc:
+            with self._condition:
+                self._error = (str(exc) or type(exc).__name__)[:512]
+                self._condition.notify_all()
+        finally:
+            with self._condition:
+                self._finished = True
+                self._condition.notify_all()
 
 
 class Observer:
@@ -705,7 +971,8 @@ class Observer:
                        owner_executable=owner_executable, observer_executable=observer_executable,
                        observer_python_version=sys.version[:256], ipc_paths={}, working_binding=binding,
                        runtime_file_limit=runtime_file_limit, session_id=str(uuid.uuid4()),
-                       cleanup_barrier=None, excluded_candidates={})
+                       cleanup_barrier=None, excluded_candidates={},
+                       native_sampler=dict(version=1, state='arming', roots=[], durable_sequence=0, stopped_sequence=None, unresolved=[], statuses={}))
         validate_session(initial, current_sources=True)
         def arm(current):
             stable = ('version', 'run_id', 'unit_id', 'reservation_id', 'coordinator', 'guardian',
@@ -725,23 +992,33 @@ class Observer:
             validate_registry(current)
         update(ledger, attempt, arm)
         self.value = read(ledger, attempt)['observation_session']
+        self._batching, self._drain_lost = False, False
+        self._sampler_stopped_for_close = False
+        self._sampler = _NativeSampler()
+
+    @staticmethod
+    def _mutate(current, change):
+        prior = copy.deepcopy(current) if (current.get('cleanup_barrier') or {}).get('valid') else None
+        change(current)
+        if prior is not None and (any(current[key] != prior[key] for key in
+                ('roots', 'writers', 'pending', 'observations', 'working_roots', 'excluded_candidates'))
+                or current['errors'] or current['lost_history']):
+            current['cleanup_barrier']['valid'] = False
+            current['state'] = 'failed'
+            message = 'new native candidate or failure invalidated pre-cleanup barrier'
+            if message not in current['errors'] and len(current['errors']) < 16:
+                current['errors'].append(message)
 
     def _commit(self, change):
+        if self._batching:
+            self._mutate(self.value, change)
+            return
         from .producer_runtime import update
         def apply(record):
             current = record.get('observation_session')
             if current != self.value or current['observer'] != process_identity.identity():
                 raise EvidenceError('observer history changed or ownership lost')
-            prior = copy.deepcopy(current) if (current.get('cleanup_barrier') or {}).get('valid') else None
-            change(current)
-            if prior is not None and (any(current[key] != prior[key] for key in
-                    ('roots', 'writers', 'pending', 'observations', 'working_roots', 'excluded_candidates'))
-                    or current['errors'] or current['lost_history']):
-                current['cleanup_barrier']['valid'] = False
-                current['state'] = 'failed'
-                message = 'new native candidate or failure invalidated pre-cleanup barrier'
-                if message not in current['errors'] and len(current['errors']) < 16:
-                    current['errors'].append(message)
+            self._mutate(current, change)
             validate_session(current, current_sources=True)
         value = update(self.ledger, self.attempt, apply)
         self.value = value['observation_session']
@@ -750,12 +1027,19 @@ class Observer:
         message = str(reason)[:512]
         def change(session):
             session['state'], session['lost_history'] = 'failed', session['lost_history'] or lost
+            if session.get('native_sampler') is not None:
+                session['native_sampler'].update(state='failed', stopped_sequence=None)
             if message not in session['errors'] and len(session['errors']) < 16:
                 session['errors'].append(message)
         self._commit(change)
 
     def _active(self, *, allow_closing=False):
         from .producer_runtime import managed_group_identity
+        if self._drain_lost:
+            raise EvidenceError('native capture drain lost unflushed history')
+        self._sampler.check()
+        if self._sampler_stopped_for_close and not allow_closing:
+            raise EvidenceError('native collector already stopped for final closure')
         if (self.value['state'] not in (('arming', 'observing', 'closing') if allow_closing else ('arming', 'observing')) or os.getppid() != self.owner_pid
                 or managed_group_identity(self.owner_pid) != self.value['membership']):
             raise EvidenceError('observer active managed ownership changed')
@@ -832,6 +1116,8 @@ class Observer:
         key = snapshot['unique_id']
         if key in self.graphs:
             raise EvidenceError('root registration cannot be replayed')
+        ready_watermark = self._sampler.add_root(snapshot)
+        self._active()
         def commit(session):
             sequence = self._append(session, snapshot, expected_executable)
             session['roots'][key] = dict(pid=pid, identity=expected_identity, unique_id=key,
@@ -840,8 +1126,12 @@ class Observer:
                 session['roots'][key]['target_executable'] = target
             session['pending'].pop(pending)
             session['state'] = 'observing'
+            session['native_sampler'].update(state='running', roots=sorted(session['roots']))
         self._commit(commit)  # ACK is permitted only after this transaction commits.
         self.graphs[key], self.latest[key] = graph, semantic(snapshot)
+        self._drain_native(through=ready_watermark)
+        if self.value['native_sampler']['durable_sequence'] < ready_watermark:
+            raise EvidenceError('root capture readiness was not durably drained')
         return dict(root=key, sequence=self.value['sequence'], durable=True)
 
     def _potential_candidate(self, snapshot):
@@ -900,35 +1190,18 @@ class Observer:
                 break
         return True
 
-    def observe(self, pid, *, required=True):
-        _pid(pid)
-        snapshot = native.read_snapshot(pid)
+    def _ingest_capture(self, snapshot, exe):
+        if not native.valid_snapshot(snapshot) or type(exe) is not str or not exe.startswith('/'):
+            raise EvidenceError('invalid protected native collector receipt')
+        pid, unique = snapshot['identity']['pid'], snapshot['unique_id']
         key = 'pid:' + str(pid)
-        if required and key not in self.value['pending'] and (snapshot is None or snapshot['unique_id'] not in self.value['writers'] and snapshot['unique_id'] not in self.value['roots']):
-            self._commit(lambda s: s['pending'].update({key: dict(pid=pid, reason='required native lineage pending')}))
-        if snapshot is None:
-            return False  # An absent required candidate has no historical chain.
-        unique = snapshot['unique_id']
-        matches = [root for root, graph in self.graphs.items()
-                   if unique == root or graph.lineage(snapshot['original_parent_unique_id']) is not None
-                   or required]
-        if not matches:
-            if not self._potential_candidate(snapshot):
-                return False
-            required = True
-            if key not in self.value['pending']:
-                self._commit(lambda s: s['pending'].update({key: dict(pid=pid, reason='new target-app process lacks complete observed original-parent chain')}))
-            matches = list(self.graphs)
+        matches = list(self.graphs)
         if self.latest.get(unique) == semantic(snapshot):
             return any(graph.lineage(unique) is not None for graph in self.graphs.values())
-        exe = executable_path(pid)
         if unique in self.value['roots'] and 'target_executable' in self.value['roots'][unique]:
             target = self.value['roots'][unique]['target_executable']
             if exe == target['path']:
                 verify_target(target)
-        confirmed = native.read_snapshot(pid)
-        if confirmed is None or semantic(confirmed) != semantic(snapshot) or executable_path(pid) != exe:
-            raise EvidenceError('native birth/executable changed during observation')
         resolved = []
         for root in matches:
             if self.graphs[root].ingest(snapshot) is not None:
@@ -960,6 +1233,87 @@ class Observer:
         self.latest[unique] = semantic(snapshot)
         return bool(resolved)
 
+    def _drain_native(self, *, through=None):
+        self._sampler.check()
+        if self.value['source_sha256'] != sources():
+            raise EvidenceError('collector drain current source bytes changed')
+        while True:
+            events = self._sampler.take(16, through=through)
+            if not events:
+                break
+            original = self.value
+            staged = copy.deepcopy(original)
+            self.value, self._batching = staged, True
+            try:
+                for event in events:
+                    expected = staged['native_sampler']['durable_sequence'] + 1
+                    if event['sequence'] != expected:
+                        raise EvidenceError('native capture sequence gap/lost history')
+                    if event['kind'] == 'snapshot':
+                        self._ingest_capture(event['snapshot'], event['executable'])
+                    elif event['kind'] == 'status':
+                        snapshot = event['snapshot']
+                        matches = [item for item in staged['observations'] if all(
+                            item['snapshot'][field] == snapshot[field] for field in
+                            ('identity', 'unique_id', 'idversion', 'executable_uuid', 'boot_uuid', 'uid'))]
+                        if not matches:
+                            raise EvidenceError('native zombie status lost its genuine executable predecessor')
+                        staged['native_sampler']['statuses'][snapshot['unique_id']] = dict(
+                            capture_sequence=event['sequence'], snapshot=snapshot, predecessor_observation_sequence=matches[-1]['sequence'])
+                    elif event['kind'] == 'pending':
+                        pid, reason = event['pid'], event['reason']
+                        def pending(session):
+                            session['pending']['pid:' + str(pid)] = dict(pid=pid, reason=reason)
+                            session['native_sampler']['unresolved'].append(dict(sequence=event['sequence'], pid=pid,
+                                                                             reason=reason, snapshot=event['snapshot']))
+                        self._commit(pending)
+                    elif event['kind'] != 'absent':
+                        raise EvidenceError('unknown private native capture event')
+                    staged['native_sampler']['durable_sequence'] = event['sequence']
+                validate_session(staged, current_sources=True)
+                self.value, self._batching = original, False
+                self._commit(lambda session: (session.clear(), session.update(staged)))
+            except BaseException as exc:
+                self.value, self._batching, self._drain_lost = original, False, True
+                raise EvidenceError('native capture drain lost unflushed history: ' + str(exc)) from exc
+            time.sleep(0)  # Local cooperative yield; no global scheduler changes.
+        if through is not None and self.value['native_sampler']['durable_sequence'] < through:
+            self._drain_lost = True
+            raise EvidenceError('native capture readiness/fence has unflushed tail')
+
+    def _native_fence(self, deadline):
+        watermark = self._sampler.fence(_remaining(deadline))
+        self._drain_native(through=watermark)
+        return watermark
+
+    def shutdown_sampler(self, timeout=3):
+        """Join task-owned collector even after failed IPC; never grants closure."""
+        return self._sampler.stop(timeout)
+
+    def observe(self, pid, *, required=True):
+        _pid(pid)
+        self._drain_native()
+        if self._sampler_stopped_for_close:
+            snapshot = native.read_snapshot(pid)
+            if snapshot is not None and (required or self._potential_candidate(snapshot)):
+                self._commit(lambda session: session['pending'].update({'pid:' + str(pid): dict(pid=pid, reason='new process after final collector stop')}))
+                raise EvidenceError('new native candidate after final collector stop')
+            return False
+        if not required:
+            if self._sampler.has_pid(pid):
+                return True
+            snapshot = native.read_snapshot(pid)
+            if snapshot is None:
+                return False
+            if (not any(graph.lineage(snapshot['original_parent_unique_id']) is not None for graph in self.graphs.values())
+                    and not self._potential_candidate(snapshot)):
+                return False
+        watermark, snapshot = self._sampler.observe_pid(pid)
+        self._drain_native(through=watermark)
+        if snapshot is None:
+            return False
+        return any(graph.lineage(snapshot['unique_id']) is not None for graph in self.graphs.values())
+
     def sample(self, *, force_census=False, deadline=None):
         if deadline is not None:
             _remaining(deadline)
@@ -968,37 +1322,19 @@ class Observer:
             _remaining(deadline)
         if not self.graphs:
             return
-        # Fast breadth-first direct-child discovery runs continuously while the
-        # private command pipe is idle. The lower-frequency UID census can find
-        # a reparented child only if its complete genuine chain was sampled.
-        known = {item['pid'] for item in self.value['roots'].values()}
-        known.update(item['identity']['pid'] for item in self.value['writers'].values())
-        known.update(item['pid'] for item in self.value['pending'].values())
-        queue, scanned = list(sorted(known)), set()
-        while queue:
-            if deadline is not None:
-                _remaining(deadline)
-            pid = queue.pop(0)
-            if pid in scanned:
-                continue
-            if len(scanned) >= MAX_NODES:
-                raise EvidenceError('native sampler node bound exceeded')
-            scanned.add(pid)
-            self.observe(pid, required=False)
-            for child in child_pids(pid):
-                if deadline is not None:
-                    _remaining(deadline)
-                self.observe(child, required=True)
-                if child not in scanned:
-                    queue.append(child)
+        self._drain_native()
         if force_census or time.monotonic() - self.last_census >= .25:
             if self.value.get('cleanup_barrier') is None and self.value['state'] != 'closing':
                 self.check_working_capacity(deadline=deadline)
-            for pid in candidate_pids():
+            for index, pid in enumerate(candidate_pids()):
+                if index % 8 == 0:
+                    self._drain_native()
+                    time.sleep(0)
                 if deadline is not None:
                     _remaining(deadline)
                 self.observe(pid, required=False)
             self.last_census = time.monotonic()
+        self._drain_native()
         if self.value['state'] == 'failed':
             raise EvidenceError('post-barrier native sampling invalidated cleanup readiness')
 
@@ -1038,6 +1374,7 @@ class Observer:
         record = read(self.ledger, self.attempt)
         working_binding(self.ledger, record, session=self.value)
         if (not self.value['roots'] or self.value['pending'] or self.value['errors'] or self.value['lost_history']
+                or self.value['native_sampler']['unresolved']
                 or self.value['state'] not in ('observing', 'closing')):
             raise EvidenceError('cleanup preparation retains pending/errors/lost history')
         deadline = time.monotonic() + timeout
@@ -1070,10 +1407,12 @@ class Observer:
         deadline = time.monotonic() + timeout
         self._active()
         self.sample(force_census=True, deadline=deadline)
+        self._native_fence(deadline)
         self._cleanup_checks(_remaining(deadline), require_empty=False)
         # A second forced census immediately precedes the durable barrier. It
         # cannot turn a pending candidate into an empty successful registry.
         self.sample(force_census=True, deadline=deadline)
+        self._native_fence(deadline)
         self._cleanup_checks(_remaining(deadline), require_empty=False)
         barrier = dict(valid=True, sequence=self.value['sequence'], root_refs=sorted(self.value['working_roots']),
                        numeric_absent=True, roots_no_handles=True, closed=False)
@@ -1093,12 +1432,20 @@ class Observer:
                 # Re-observe current processes once more after handle/root checks.
                 self.sample(force_census=True, deadline=deadline)
                 self._cleanup_checks(_remaining(deadline), require_empty=True)
+                self._native_fence(deadline)
+                self._cleanup_checks(_remaining(deadline), require_empty=True)
+                stopped = self._sampler.stop(_remaining(deadline))
+                self._drain_native(through=stopped)
+                self._sampler_stopped_for_close = True
+                self._commit(lambda session: session['native_sampler'].update(state='stopped', stopped_sequence=stopped))
+                self.sample(force_census=True, deadline=deadline)
+                self._cleanup_checks(_remaining(deadline), require_empty=True)
                 closure = dict(sequence=self.value['sequence'], numeric_absent=True, roots_no_handles=True)
                 self._commit(lambda s: s.update(state='closed', closure=closure))
                 return dict(closed=True, durable=True, sequence=self.value['sequence'])
             except (EvidenceError, OSError) as exc:
                 first_problem = first_problem or str(exc)
-                if self.value['state'] == 'failed' or time.monotonic() >= deadline:
+                if self.value['state'] == 'failed' or self._sampler_stopped_for_close or time.monotonic() >= deadline:
                     raise EvidenceError('observer closure incomplete: ' + first_problem[:1024]) from exc
                 time.sleep(min(.05, max(.001, deadline - time.monotonic())))
 
