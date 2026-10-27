@@ -229,6 +229,16 @@ def _native_order(left, right):
     return all(int(right['observed'][key]) > int(left['observed'][key]) for key in ('monotonic_ns', 'wall_time_ns'))
 
 
+def _reparent_pair(before, after, pid):
+    """A completed helper capture may select the genuine post-reparent read."""
+    return (native.valid_snapshot(before) and native.valid_snapshot(after)
+            and before['identity']['pid'] == after['identity']['pid'] == pid
+            and before['status'] == after['status'] == 'alive'
+            and before['current_ppid'] > 1 and after['current_ppid'] == 1 and _native_order(before, after)
+            and {key: value for key, value in semantic(before).items() if key != 'current_ppid'}
+                == {key: value for key, value in semantic(after).items() if key != 'current_ppid'})
+
+
 def _valid_path_query(query, pid):
     return (type(query) is dict and set(query) == {'version', 'api', 'stage', 'pid', 'returned_size', 'errno', 'buffer_size', 'outcome', 'monotonic_ns'}
             and type(query['version']) is int and query['version'] == 1 and query['api'] == 'libproc.proc_pidpath'
@@ -1186,7 +1196,20 @@ class _NativeSampler:
                     followup=dict(outcome='snapshot', snapshot=confirmed, problem=None)))
                 self._last[pid] = current
                 return snapshot
-            if confirmed is None or semantic(confirmed) != current or executable_path(pid) != exe:
+            if confirmed is None:
+                raise EvidenceError('native executable/birth changed during fast capture')
+            if semantic(confirmed) != current:
+                if (expected is not None or force_ticket is not None
+                        or snapshot['unique_id'] in self._roots
+                        or any(root['identity']['pid'] == pid for root in self._roots.values())
+                        or not _reparent_pair(snapshot, confirmed, pid)):
+                    raise EvidenceError('native executable/birth changed during fast capture')
+                second_exe = executable_path(pid)
+                if (type(exe) is not str or not exe.startswith('/') or '\x00' in exe or len(exe) >= 4096
+                        or type(second_exe) is not str or second_exe != exe):
+                    raise EvidenceError('native executable/birth changed during fast capture')
+                snapshot, current = confirmed, semantic(confirmed)  # Retain the actual endpoint, never edit the raw read.
+            elif executable_path(pid) != exe:
                 raise EvidenceError('native executable/birth changed during fast capture')
         except _PathQueryError as exc:
             try:

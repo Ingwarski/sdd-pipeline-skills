@@ -3,7 +3,7 @@ from copy import deepcopy
 import json
 import os
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import unittest
 
 import test_history_source_archive as sources
@@ -11,6 +11,28 @@ import test_unit_history as native
 from evidence import policy as policies
 from evidence.manager import Manager
 from evidence.source_payloads import SourcePayloadScope
+
+
+def payload_aliases(candidates, cache):
+    """Test expectation only: payload alias directories inside this cache."""
+    return {path for path in candidates if 'files' in path.relative_to(cache).parts[:-1]}
+
+
+class PayloadAliasPathTests(unittest.TestCase):
+    def check_path_flavor(self, flavor, root):
+        cache = flavor(root)
+        view = cache / 'source-views' / 'index' / 'views' / 'view'
+        payloads = {view / 'files' / 'payload.json', view / 'files' / 'nested' / 'receipt.json'}
+        controls = {view / 'receipt.json', cache / 'profiles' / 'control.json',
+                    view / 'files-like' / 'control.json', cache / 'files.json'}
+        self.assertEqual(payloads, payload_aliases(payloads | controls, cache))
+        self.assertFalse(payload_aliases(controls, cache))
+
+    def test_windows_components_keep_payloads_and_exclude_controls(self):
+        self.check_path_flavor(PureWindowsPath, r'C:\fixture\files\cache')
+
+    def test_posix_components_ignore_files_in_cache_ancestor_and_filename(self):
+        self.check_path_flavor(PurePosixPath, '/fixture/files/cache')
 
 
 class SourcePayloadClassificationTests(unittest.TestCase):
@@ -28,7 +50,7 @@ class SourcePayloadClassificationTests(unittest.TestCase):
         return list(self.cache.rglob('*.json'))
 
     def aliases(self):
-        return {path for path in self.cache.rglob('*.json') if '/files/' in str(path)}
+        return payload_aliases(self.cache.rglob('*.json'), self.cache)
 
     def scope(self, policy=None):
         return SourcePayloadScope(self.p.root, self.cache, self.policy if policy is None else policy)

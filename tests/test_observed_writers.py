@@ -539,10 +539,11 @@ class RegistryTests(unittest.TestCase):
 
     def test_exec_transition_preserves_wrapper_and_updates_truthful_identity(self):
         observer = self.registered(); old = copy.deepcopy(observer.value['observations'][0])
-        self.nodes[101]['idversion'] = 11
-        self.nodes[101]['executable_uuid'] = '34343434-3434-4343-8343-343434343434'
+        updated = copy.deepcopy(self.nodes[101])
+        updated.update(idversion=11, executable_uuid='34343434-3434-4343-8343-343434343434')
         with patch.object(observed, 'executable_path', return_value='/fixture/Chrome'):
-            self.assertTrue(observer.observe(101, required=False))
+            self.nodes[101] = updated  # Publish one complete native epoch after its path mock is active.
+            self.assertTrue(observer.observe(101, required=True))
         self.assertEqual(observer.value['observations'][0], old)
         self.assertEqual(observer.value['observations'][1]['executable'], '/fixture/Chrome')
         self.assertEqual(observer.value['observations'][1]['snapshot']['idversion'], 11)
@@ -610,8 +611,9 @@ class RegistryTests(unittest.TestCase):
     def test_observation_bound_rollback_preserves_prior_record(self):
         observer = self.registered(); before = self.record_now()
         with patch.object(observed, 'MAX_OBSERVATIONS', 1):
-            self.nodes[101]['idversion'] = 11
-            with self.assertRaisesRegex(EvidenceError, 'bound'): observer.observe(101, required=False)
+            updated = copy.deepcopy(self.nodes[101]); updated['idversion'] = 11
+            self.nodes[101] = updated
+            with self.assertRaisesRegex(EvidenceError, 'bound'): observer.observe(101, required=True)
         self.assertEqual(self.record_now(), before)
 
     def test_metadata_oversize_rollback(self):
@@ -977,11 +979,12 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(target['sha256'], __import__('hashlib').sha256(self.target.read_bytes()).hexdigest())
         with self.assertRaisesRegex(EvidenceError, 'hash mismatch'):
             observed.target_descriptor(dict(path=str(self.target), sha256='0' * 64))
-        self.target.write_bytes(b'#!/bin/sh\nexit 1\n')
-        self.nodes[101]['idversion'] = 11
-        self.nodes[101]['executable_uuid'] = '34343434-3434-4343-8343-343434343434'
+        updated = copy.deepcopy(self.nodes[101])
+        updated.update(idversion=11, executable_uuid='34343434-3434-4343-8343-343434343434')
         with patch.object(observed, 'executable_path', return_value=str(self.target)):
-            with self.assertRaisesRegex(EvidenceError, 'changed'): observer.observe(101, required=False)
+            self.target.write_bytes(b'#!/bin/sh\nexit 1\n')
+            self.nodes[101] = updated
+            with self.assertRaisesRegex(EvidenceError, 'changed'): observer.observe(101, required=True)
 
     def test_exact_exec_predecessor_receipt_sequences_survive_parent_exec(self):
         observer = self.registered()
@@ -1492,6 +1495,37 @@ class PortableReceiptTests(unittest.TestCase):
         self.assertEqual(session['writers']['1100']['lineage_observation_sequences'], [4, 3])
         self.assertEqual(session['writers']['1100']['observation_sequence'], 3)
 
+    def test_known_pid_census_cache_is_not_an_explicit_capture_barrier(self):
+        observer = observed.Observer.__new__(observed.Observer)
+        observer._sampler_stopped_for_close = False
+        observer._sampler = Mock()
+        observer._sampler.has_pid.return_value = True
+        observer._sampler.observe_pid.return_value = (1, self.session['observations'][0]['snapshot'])
+        observer._drain_native = Mock()
+        graph = Mock(); graph.lineage.return_value = [self.session['observations'][0]['snapshot']]
+        observer.graphs = {'1000': graph}
+        self.assertTrue(observer.observe(101, required=False))
+        observer._sampler.observe_pid.assert_not_called()
+        self.assertTrue(observer.observe(101, required=True))
+        observer._sampler.observe_pid.assert_called_once_with(101)
+        observer._drain_native.assert_called_with(through=1)
+
+    def test_later_full_reparent_receipt_does_not_requalify_emitted_unresolved_history(self):
+        session = copy.deepcopy(self.session)
+        raw = copy.deepcopy(session['observations'][2]['snapshot'])
+        session['observations'][2]['snapshot']['current_ppid'] = 1
+        session.update(state='failed', lost_history=True)
+        session['native_sampler']['state'] = 'failed'
+        session['native_sampler']['unresolved'].append(dict(sequence=4, pid=102,
+            reason='incomplete native/executable capture: native executable/birth changed during fast capture', snapshot=raw))
+        before = copy.deepcopy(session)
+        observed.validate_session(session)
+        self.assertEqual(session, before)
+        session.update(state='closed', lost_history=False, closure=dict(sequence=session['sequence'], numeric_absent=True, roots_no_handles=True,
+            helper_diagnostics_sha256=observed.hashlib.sha256(observed.canonical(session['native_sampler']['helper_diagnostic_bindings']).encode()).hexdigest()))
+        session['native_sampler'].update(state='stopped', stopped_sequence=session['native_sampler']['durable_sequence'])
+        with self.assertRaisesRegex(EvidenceError, 'closed observer lacks'): observed.validate_session(session)
+
     def test_mixed_immutable_epoch_order_and_status_reject_with_rebound_digest(self):
         for field in ('birth', 'uid', 'boot', 'parent', 'parent_epoch', 'epoch', 'uuid', 'order', 'status'):
             session = copy.deepcopy(self.session); raw = self.diagnostic(session)['raw']
@@ -1617,6 +1651,144 @@ class PortableReceiptTests(unittest.TestCase):
             changed = copy.deepcopy(session)
             changed['excluded_candidates']['5000'][field] = ['9999'] if field == 'roots' else '/unrelated/service'
             with self.subTest(field=field), self.assertRaises(EvidenceError): observed.validate_session(changed)
+
+
+class PureReparentCaptureTests(unittest.TestCase):
+    """Private capture order with literal receipts; no thread/native/FD/ledger resources."""
+    def setUp(self):
+        self.before = snapshot(102, 1100, 1000, birth=103, version=20, parent_version=10, ppid=101, pgid=555)
+        self.after = copy.deepcopy(self.before); self.after['current_ppid'] = 1
+        self.after['observed'] = dict(monotonic_ns='1001', wall_time_ns='2000000000001')
+        self.previous = copy.deepcopy(self.before); self.previous['idversion'] = 19
+        self.previous['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
+
+    def capture(self, *, before=None, after=None, initial=False, root_kind=None, expected=None, force_ticket=None,
+                paths=None, native_error=None, native_error_at=1, absent_confirm=False):
+        before = copy.deepcopy(self.before if before is None else before)
+        after = copy.deepcopy(self.after if after is None else after)
+        sampler = observed._NativeSampler.__new__(observed._NativeSampler)
+        sampler._condition = threading.Condition()
+        sampler._known = {} if initial else {102: copy.deepcopy(self.previous)}
+        sampler._last = {} if initial else {102: observed.semantic(self.previous)}
+        sampler._complete = {} if initial else {102: copy.deepcopy(self.previous)}
+        sampler._seed = copy.deepcopy(self.previous)
+        sampler._roots = {}
+        if root_kind is not None:
+            root = copy.deepcopy(self.before)
+            if root_kind == 'pid': root['unique_id'] = '9999'
+            if root_kind == 'unique': root['identity']['pid'] = 999
+            sampler._roots[root['unique_id']] = root
+        sampler._emit = Mock(return_value=7)
+        events = []
+        def read(pid, include_zombie=True):
+            events.append('native')
+            if native_error is not None and events.count('native') == native_error_at: raise native_error
+            if absent_confirm and events.count('native') > 1: return None
+            return copy.deepcopy(before if events.count('native') == 1 else after)
+        values = list(paths if paths is not None else ['/fixture/crashpad', '/fixture/crashpad'])
+        def path(pid):
+            events.append('path')
+            value = values.pop(0)
+            if isinstance(value, BaseException): raise value
+            return value
+        result, problem = None, None
+        with patch.object(observed.native, 'read_snapshot', side_effect=read), patch.object(observed, 'executable_path', side_effect=path):
+            try: result = sampler._collect(102, required=True, expected=expected, force_ticket=force_ticket)
+            except (EvidenceError, OSError) as exc: problem = str(exc)
+        return sampler, result, problem, events
+
+    def test_helper_reparent_completes_with_untouched_confirmed_endpoint(self):
+        for initial in (False, True):
+            sampler, result, problem, events = self.capture(initial=initial)
+            with self.subTest(initial=initial):
+                self.assertIsNone(problem)
+                self.assertEqual(events, ['native', 'path', 'native', 'path'])
+                self.assertEqual(sampler._emit.call_args.args[0], 'snapshot')
+                self.assertEqual(sampler._emit.call_args.kwargs['snapshot'], self.after)
+                self.assertEqual(result, self.after)
+                self.assertEqual(sampler._complete[102], self.after)
+                self.assertEqual(sampler._last[102], observed.semantic(self.after))
+                self.assertEqual(sampler._known[102], self.before if initial else self.previous)
+                self.assertEqual(self.before['current_ppid'], 101)
+
+    def test_non_parent_native_mutations_never_enter_successful_reparent_branch(self):
+        fields = ('birth', 'host', 'platform', 'identity_version', 'pid', 'unique', 'uid', 'boot', 'parent', 'parent_epoch',
+                  'pgid', 'epoch', 'uuid', 'status', 'version', 'query', 'query_api', 'query_status', 'query_size')
+        for field in fields:
+            after = copy.deepcopy(self.after)
+            if field == 'birth': after['identity']['created']['microseconds'] += 1
+            elif field == 'host': after['identity']['host'] = 'other.invalid'
+            elif field == 'platform': after['identity']['platform'] = 'linux'
+            elif field == 'identity_version': after['identity']['version'] = 2
+            elif field == 'pid': after['identity']['pid'] = 999
+            elif field == 'unique': after['unique_id'] = '9999'
+            elif field == 'uid': after['uid'] += 1
+            elif field == 'boot': after['boot_uuid'] = '56565656-5656-4565-8565-565656565656'
+            elif field == 'parent': after['original_parent_unique_id'] = '9999'
+            elif field == 'parent_epoch': after['original_parent_idversion'] += 1
+            elif field == 'pgid': after['pgid'] += 1
+            elif field == 'epoch': after['idversion'] += 1
+            elif field == 'uuid': after['executable_uuid'] = '56565656-5656-4565-8565-565656565656'
+            elif field == 'status': after['status'] = 'zombie'; after['query']['native_status'] = 5
+            elif field == 'version': after['version'] = 2
+            elif field == 'query_api': after['query']['api'] = 'unknown'
+            elif field == 'query_status': after['query']['native_status'] = 5
+            elif field == 'query_size': after['query']['returned_size'] = 1
+            else: after['query']['errno'] = errno.EACCES
+            sampler, result, problem, events = self.capture(after=after)
+            with self.subTest(field=field):
+                self.assertFalse(any(call.args[0] == 'snapshot' for call in sampler._emit.call_args_list))
+
+    def test_root_force_direction_time_and_path_guards_remain_strict(self):
+        variants = ['root_pid', 'root_unique', 'expected', 'force', 'reverse', 'noninit', 'zero',
+                    'same_time', 'wall_backwards', 'monotonic_backwards', 'different_path', 'relative_path',
+                    'nul_path', 'oversize_path', 'permission_first', 'permission_second', 'missing_first', 'missing_second',
+                    'native_absent', 'native_denied_first', 'native_denied_second', 'boolean_parent', 'wrong_requested_pid']
+        for variant in variants:
+            before, after, options = copy.deepcopy(self.before), copy.deepcopy(self.after), {}
+            if variant == 'root_pid': options['root_kind'] = 'pid'
+            elif variant == 'root_unique': options['root_kind'] = 'unique'
+            elif variant == 'expected': options['expected'] = copy.deepcopy(before)
+            elif variant == 'force': options['force_ticket'] = Mock(capture_sequence=None)
+            elif variant == 'reverse': before['current_ppid'] = 1; after['current_ppid'] = 101
+            elif variant == 'noninit': after['current_ppid'] = 102
+            elif variant == 'zero': before['current_ppid'] = 0
+            elif variant == 'same_time': after['observed'] = copy.deepcopy(before['observed'])
+            elif variant == 'wall_backwards': after['observed']['wall_time_ns'] = '1'
+            elif variant == 'monotonic_backwards': after['observed']['monotonic_ns'] = '1'
+            elif variant == 'different_path': options['paths'] = ['/fixture/crashpad', '/other/path']
+            elif variant == 'relative_path': options['paths'] = ['relative', 'relative']
+            elif variant == 'nul_path': options['paths'] = ['/nul\x00', '/nul\x00']
+            elif variant == 'oversize_path': options['paths'] = ['/' + 'a' * 4096] * 2
+            elif variant == 'native_absent': options['absent_confirm'] = True
+            elif variant.startswith('native_denied'):
+                options.update(native_error=native.ObservationError('denied native query'), native_error_at=1 if variant.endswith('first') else 2)
+            elif variant == 'boolean_parent': before['current_ppid'] = True
+            elif variant == 'wrong_requested_pid':
+                before['identity']['pid'] = after['identity']['pid'] = 999; options['initial'] = True
+            else:
+                code = errno.EACCES if variant.startswith('permission') else errno.ESRCH
+                error = observed._PathQueryError('denied or missing actual path', dict(version=1, api='libproc.proc_pidpath', stage='query', pid=102,
+                    returned_size=0, errno=code, buffer_size=4096, outcome='unavailable', monotonic_ns='1002'))
+                options['paths'] = [error] if variant.endswith('first') else ['/fixture/crashpad', error]
+            sampler, result, problem, events = self.capture(before=before, after=after, **options)
+            with self.subTest(variant=variant):
+                self.assertFalse(any(call.args[0] == 'snapshot' for call in sampler._emit.call_args_list))
+
+    def test_unchanged_capture_and_missing_original_ancestry_contract_stay_intact(self):
+        after = copy.deepcopy(self.before); after['observed'] = copy.deepcopy(self.after['observed'])
+        sampler, result, problem, events = self.capture(after=after)
+        self.assertIsNone(problem); self.assertEqual(result, self.before)
+        self.assertEqual(sampler._emit.call_args.kwargs['snapshot'], self.before)
+        before = copy.deepcopy(self.before); before['current_ppid'] = 1
+        after = copy.deepcopy(before); after['observed'] = copy.deepcopy(self.after['observed'])
+        sampler, result, problem, events = self.capture(before=before, after=after)
+        self.assertEqual(result, before)  # No reparent delta; ordinary strict capture still selects A.
+        graph = native.LineageGraph(8)
+        root = snapshot(101, 1000, 900, birth=101, ppid=99)
+        graph.add_root(root, expected_identity=root['identity'], expected_unique_id='1000')
+        missing = copy.deepcopy(self.after); missing['original_parent_unique_id'] = '9999'
+        self.assertIsNone(graph.ingest(missing)); self.assertIsNone(graph.lineage('1100'))
 
 
 class NativeCollectorTests(unittest.TestCase):
@@ -1777,28 +1949,30 @@ class ControlDescriptorTests(unittest.TestCase):
             os.close(read_fd); os.close(write_fd)
 
     def test_socket_metadata_boundaries_are_portable_mocks(self):
-        control = Mock(family=socket.AF_UNIX)
-        control.getsockopt.return_value = socket.SOCK_STREAM
-        control.getsockname.return_value = ''
-        control.getpeername.return_value = b''
-        wrapped = Mock()
-        wrapped.__enter__ = Mock(return_value=control)
-        wrapped.__exit__ = Mock(return_value=False)
-        with patch.object(worker.os, 'fstat', return_value=Mock(st_mode=stat.S_IFSOCK)), \
-             patch.object(worker.os, 'dup', return_value=17) as duplicate, \
-             patch.object(worker.socket, 'socket', return_value=wrapped) as constructor:
-            worker.validate_control_fd(7)
-            duplicate.assert_called_once_with(7)
-            constructor.assert_called_once_with(fileno=17)
-            for method, value in ((control.getsockname, '/named'),
-                                  (control.getpeername, '/named'),
-                                  (control.getsockopt, socket.SOCK_DGRAM)):
-                original = method.return_value; method.return_value = value
+        # Emulate this Darwin enum even on Windows builds without AF_UNIX.
+        with patch.object(worker.socket, 'AF_UNIX', getattr(socket, 'AF_UNIX', 1), create=True):
+            control = Mock(family=socket.AF_UNIX)
+            control.getsockopt.return_value = socket.SOCK_STREAM
+            control.getsockname.return_value = ''
+            control.getpeername.return_value = b''
+            wrapped = Mock()
+            wrapped.__enter__ = Mock(return_value=control)
+            wrapped.__exit__ = Mock(return_value=False)
+            with patch.object(worker.os, 'fstat', return_value=Mock(st_mode=stat.S_IFSOCK)), \
+                 patch.object(worker.os, 'dup', return_value=17) as duplicate, \
+                 patch.object(worker.socket, 'socket', return_value=wrapped) as constructor:
+                worker.validate_control_fd(7)
+                duplicate.assert_called_once_with(7)
+                constructor.assert_called_once_with(fileno=17)
+                for method, value in ((control.getsockname, '/named'),
+                                      (control.getpeername, '/named'),
+                                      (control.getsockopt, socket.SOCK_DGRAM)):
+                    original = method.return_value; method.return_value = value
+                    with self.assertRaises(EvidenceError): worker.validate_control_fd(7)
+                    method.return_value = original
+                control.family = socket.AF_INET
                 with self.assertRaises(EvidenceError): worker.validate_control_fd(7)
-                method.return_value = original
-            control.family = socket.AF_INET
-            with self.assertRaises(EvidenceError): worker.validate_control_fd(7)
-        wrapped.__exit__.assert_called()
+            wrapped.__exit__.assert_called()
 
     def test_fifo_metadata_boundary_is_portable_without_assuming_linux_nlink(self):
         with patch.object(worker.os, 'fstat', return_value=Mock(st_mode=stat.S_IFIFO | 0o600, st_nlink=0)):
