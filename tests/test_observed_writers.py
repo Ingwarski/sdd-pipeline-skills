@@ -140,16 +140,278 @@ class RegistryTests(unittest.TestCase):
         finally:
             self.patches[-1].start()
 
-    def registered_target(self):
+    def registered_target(self, *, scoped=False):
         observer = self.arm()
         allocation = observer.allocate('target profile', 4096); self.created.append(Path(allocation['path']))
-        target = self.root / 'Fixture.app' / 'Contents' / 'MacOS' / 'Fixture'
+        target = (self.root / 'package' if scoped else self.root) / 'Fixture.app' / 'Contents' / 'MacOS' / 'Fixture'
         target.parent.mkdir(parents=True); target.write_bytes(b'#!/bin/sh\nexit 0\n'); target.chmod(0o700)
+        declaration = (dict(path=str(target), sha256=observed.hashlib.sha256(target.read_bytes()).hexdigest(),
+                            observation_scope=str(target.parents[3])) if scoped else str(target))
         observer.request(dict(command='register_root', pid=101, expected_identity=self.browser['identity'],
                               expected_executable='/fixture/python', writable_root_refs=[allocation['ref']],
-                              expected_target_executable=str(target)))
+                              expected_target_executable=declaration))
         self.target = target
+        self.scope = target.parents[3] if scoped else target.parents[2]
         return observer
+
+    def test_v2_scope_exact_parent_pin_and_legacy_descriptor_shapes(self):
+        observer = self.registered_target(scoped=True)
+        target = observer.value['roots']['1000']['target_executable']
+        self.assertEqual(target['version'], 2)
+        self.assertEqual(target['scope'], str(self.scope))
+        self.assertEqual(target['observation_scope'], dict(path=str(self.scope), identity=list(runtime.directory_identity(self.scope)), uid=self.fixture_uid))
+        legacy = observed.target_descriptor(str(self.target))
+        declared = observed.target_descriptor(dict(path=str(self.target), sha256=legacy['sha256']))
+        self.assertEqual(legacy, declared)
+        self.assertEqual(set(legacy), {'path', 'sha256', 'size', 'identity', 'mtime_ns', 'ctime_ns', 'scope'})
+        self.assertEqual(legacy['scope'], str(self.target.parents[2]))
+
+    def test_v2_scope_rejects_wrong_global_alias_shared_and_denied_paths(self):
+        self.registered_target(scoped=True)
+        declaration = dict(path=str(self.target), sha256=observed.hashlib.sha256(self.target.read_bytes()).hexdigest())
+        link = self.root / 'scope-link'; link.symlink_to(self.scope, target_is_directory=True)
+        try:
+            for scope in (self.scope.parent, self.target.parents[2], self.root / 'sibling', Path('/'), Path.home(),
+                          Path(tempfile.gettempdir()), Path('/tmp'), link, str(self.scope) + '/.', str(self.scope) + '/../package', '\x00'):
+                with self.subTest(scope=str(scope)), self.assertRaises((EvidenceError, OSError)):
+                    observed.target_descriptor({**declaration, 'observation_scope': str(scope)})
+        finally: link.unlink()
+        plain = self.root / 'plain'; plain.write_bytes(b'plain'); plain.chmod(0o700)
+        with self.assertRaises(EvidenceError): observed.target_descriptor(dict(path=str(plain), sha256='a' * 64, observation_scope=str(self.root)))
+        self.scope.chmod(0o777)
+        try:
+            with self.assertRaisesRegex(EvidenceError, 'non-shared'): observed._scope_pin(str(self.scope))
+        finally: self.scope.chmod(0o700)
+        with patch.object(observed.os, 'open', side_effect=PermissionError('denied')):
+            with self.assertRaises(PermissionError): observed._scope_pin(str(self.scope))
+        with patch.object(observed.os, 'geteuid', return_value=self.fixture_uid + 1):
+            with self.assertRaises(EvidenceError): observed._scope_pin(str(self.scope))
+        for digest in (None, 1, 'bad', '0' * 64):
+            with self.subTest(digest=digest), self.assertRaises(EvidenceError):
+                observed.target_descriptor({**declaration, 'sha256': digest, 'observation_scope': str(self.scope)})
+        for path in (Path('/'), Path.home(), Path(tempfile.gettempdir()), Path('/tmp'), self.target):
+            with self.subTest(path=str(path)), self.assertRaises(EvidenceError): observed._scope_pin(str(path))
+        capabilities = Mock(spec=['geteuid']); capabilities.geteuid.return_value = self.fixture_uid
+        with patch.object(observed, 'os', capabilities):
+            with self.assertRaisesRegex(EvidenceError, 'unsupported'): observed._scope_pin(str(self.scope))
+
+    @contextmanager
+    def replaced_scope(self):
+        saved = self.scope.with_name(self.scope.name + '-saved')
+        self.scope.rename(saved); self.scope.mkdir(mode=0o700)
+        (saved / 'Fixture.app').rename(self.scope / 'Fixture.app')
+        try: yield
+        finally:
+            (self.scope / 'Fixture.app').rename(saved / 'Fixture.app')
+            self.scope.rmdir(); saved.rename(self.scope)
+
+    def test_v2_scope_replacement_blocks_census_but_history_stays_readable(self):
+        observer = self.registered_target(scoped=True)
+        target = observer.value['roots']['1000']['target_executable']
+        with self.replaced_scope():
+            observed.validate_session(self.record_now()['observation_session'])
+            with self.assertRaisesRegex(EvidenceError, 'scope'): observed.verify_target(target)
+            with self.assertRaises(EvidenceError): observer.sample(force_census=True)
+        def census(): self.scope.chmod(0o777); return ()
+        with patch.object(observed, 'candidate_pids', side_effect=census):
+            try:
+                with self.assertRaises(EvidenceError): observer.sample(force_census=True)
+            finally: self.scope.chmod(0o700)
+
+    def test_v2_scope_prepare_close_and_all_terminal_consumers_recheck(self):
+        observer = self.registered_target(scoped=True); self.nodes.pop(101)
+        with patch.object(observed, '_no_handles', side_effect=lambda *args, **kwargs: self.scope.chmod(0o777)):
+            try:
+                with self.assertRaises(EvidenceError): observer.prepare_cleanup(.2)
+            finally: self.scope.chmod(0o700)
+        observer.prepare_cleanup(3)
+        self.scope.chmod(0o777)
+        try:
+            with self.assertRaises(EvidenceError): observer.close(.02)
+        finally: self.scope.chmod(0o700)
+        observer.close(3)
+        self.scope.chmod(0o777)
+        try:
+            value = self.record_now(); self.assertEqual(value['observation_session']['state'], 'closed')
+            value['status'] = 'terminal'; self.save(value)
+            self.assertTrue(any('scope' in item for item in observed.disposition_problems(value, ledger=self.ledger)))
+            self.assertTrue(producer.recover_producers(self.ledger, dry_run=True)['incomplete'])
+            with self.assertRaises(EvidenceError): quarantine.original_state(self.ledger, self.attempt)
+        finally: self.scope.chmod(0o700)
+
+    def test_v2_scope_sibling_orphan_stays_pending_after_absence(self):
+        observer = self.registered_target(scoped=True)
+        self.nodes[102] = snapshot(102, 1100, 9999, birth=105, ppid=1, pgid=555)
+        sibling = str(self.scope / 'Sibling.app' / 'Contents/MacOS/Service')
+        with patch.object(observed, 'executable_path', side_effect=lambda pid: sibling if pid == 102 else '/fixture/node' if pid == 99 else '/fixture/python'):
+            observer.sample(force_census=True)
+        self.assertIn('pid:102', observer.value['pending']); self.assertNotIn('1100', observer.value['writers'])
+        self.nodes.pop(102); self.nodes.pop(101)
+        with self.assertRaises(EvidenceError): observer.prepare_cleanup(.1)
+
+    def test_v2_scope_old_unrelated_complete_sibling_ancestry_excludes(self):
+        observer = self.registered_target(scoped=True)
+        self.nodes[500] = snapshot(500, 5000, 9999, birth=90, version=10, parent_version=9, ppid=1, pgid=555)
+        self.nodes[102] = snapshot(102, 1100, 5000, birth=105, parent_version=10, ppid=500, pgid=555)
+        sibling = str(self.scope / 'Sibling.app' / 'Contents/MacOS/Service')
+        with patch.object(observed, 'executable_path', side_effect=lambda pid: sibling if pid in (102, 500) else '/fixture/node' if pid == 99 else '/fixture/python'):
+            observer.sample(force_census=True)
+        self.assertIn('1100', observer.value['excluded_candidates'])
+        self.assertNotIn('pid:102', observer.value['pending'])
+        observed.validate_session(self.record_now()['observation_session'])
+
+    def test_v2_scope_file_pin_tamper_and_registration_ack_replacement_reject(self):
+        observer = self.registered_target(scoped=True)
+        original = self.record_now()
+        for field in ('version', 'observation_scope', 'scope', 'uid', 'device', 'inode'):
+            changed = copy.deepcopy(original); target = changed['observation_session']['roots']['1000']['target_executable']
+            if field in ('version', 'observation_scope'): target.pop(field)
+            elif field == 'scope': target['scope'] = str(self.scope.parent)
+            elif field == 'uid': target['observation_scope']['uid'] += 1
+            else: target['observation_scope']['identity'][0 if field == 'device' else 1] += 1
+            if field in ('uid', 'device', 'inode'):
+                observed.validate_session(changed['observation_session'])  # Historical pins remain auditable.
+                with self.assertRaises(EvidenceError): observed.verify_target(target)
+            else:
+                with self.assertRaises(EvidenceError): observed.validate_session(changed['observation_session'])
+        self.save(original)
+        # A source pin is also checked immediately before a clean registration ACK.
+        self.nodes[103] = snapshot(103, 1300, 900, birth=105)
+        allocation = observer.allocate('second source-bound profile', 4096); self.created.append(Path(allocation['path']))
+        original_add = observer._sampler.add_root
+        def changed_scope(*args, **kwargs):
+            watermark = original_add(*args, **kwargs); self.scope.chmod(0o777); return watermark
+        with patch.object(observer._sampler, 'add_root', side_effect=changed_scope):
+            try:
+                with self.assertRaises(EvidenceError): observer.register_root(103, self.nodes[103]['identity'], '/fixture/python', [allocation['ref']],
+                    dict(path=str(self.target), sha256=observed.hashlib.sha256(self.target.read_bytes()).hexdigest(), observation_scope=str(self.scope)))
+            finally: self.scope.chmod(0o700)
+        self.assertEqual(observer.value['state'], 'failed')
+
+    def test_image_opt_in_forces_new_durable_full_sequence_and_exact_schema(self):
+        observer = self.registered_target(scoped=True)
+        self.assertEqual(set(observer.request(dict(command='observe_pid', pid=101))), {'associated'})
+        previous = observer.value['sequence']
+        first = observer.request(dict(command='observe_pid', pid=101, include_image=True))
+        image = first['image']
+        self.assertTrue(first['associated']); self.assertFalse(image['target_match'])
+        self.assertEqual(set(image), {'version', 'session_id', 'root', 'observation_sequence', 'capture_sequence', 'identity',
+            'unique_id', 'boot_uuid', 'uid', 'status', 'idversion', 'executable_uuid', 'executable', 'target_sha256', 'target_match'})
+        self.assertGreater(image['observation_sequence'], previous)
+        self.assertEqual(self.record_now()['observation_session']['observations'][image['observation_sequence'] - 1]['executable'], image['executable'])
+        self.assertEqual(image['target_sha256'], observed.hashlib.sha256(self.target.read_bytes()).hexdigest())
+        second = observer.request(dict(command='observe_pid', pid=101, include_image=True))['image']
+        self.assertGreater(second['observation_sequence'], image['observation_sequence'])
+        self.assertGreater(second['capture_sequence'], image['capture_sequence'])
+        self.nodes[101]['idversion'] += 1
+        self.nodes[101]['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
+        with patch.object(observed, 'executable_path', side_effect=lambda pid: str(self.target) if pid == 101 else '/fixture/node' if pid == 99 else '/fixture/python'):
+            matched = observer.request(dict(command='observe_pid', pid=101, include_image=True))['image']
+        self.assertTrue(matched['target_match']); self.assertEqual(matched['executable'], str(self.target))
+
+    def test_image_legacy_no_target_and_strict_nonroot_phase_flag_and_witness_rejection(self):
+        observer = self.registered()
+        image = observer.request(dict(command='observe_pid', pid=101, include_image=True))['image']
+        self.assertIsNone(image['target_sha256']); self.assertFalse(image['target_match'])
+        for value in (False, 1, 'true', None):
+            with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=value))
+        for extra in ('snapshot', 'identity', 'image', 'capture_sequence'):
+            with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True, **{extra: {}}))
+        with patch.object(observer._sampler, 'observe_pid') as capture:
+            with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=102, include_image=True))
+            capture.assert_not_called()
+        self.nodes.pop(101); observer.prepare_cleanup(3)
+        with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
+        observer.close(3)
+        with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
+
+    def test_image_missing_or_partial_capture_never_uses_old_full(self):
+        observer = self.registered()
+        durable = observer.value['native_sampler']['durable_sequence']
+        for snapshot_value in (None, self.native(101)):
+            with patch.object(observer._sampler, 'observe_pid', return_value=(durable, snapshot_value, None)):
+                self.assertIsNone(observer.request(dict(command='observe_pid', pid=101, include_image=True))['image'])
+        with patch.object(observed, 'executable_path', side_effect=EvidenceError('unsupported/denied native path')):
+            self.assertIsNone(observer.request(dict(command='observe_pid', pid=101, include_image=True))['image'])
+        self.assertTrue(observer.value['native_sampler']['unresolved'])
+        self.nodes.pop(101)
+        with self.assertRaises(EvidenceError): observer.prepare_cleanup(.1)
+
+    def test_image_zombie_and_esrch_are_not_complete_images(self):
+        observer = self.registered()
+        self.nodes[101]['status'] = 'zombie'; self.nodes[101]['query']['native_status'] = 5
+        self.assertIsNone(observer.request(dict(command='observe_pid', pid=101, include_image=True))['image'])
+        self.nodes.pop(101)
+        reply = observer.request(dict(command='observe_pid', pid=101, include_image=True))
+        self.assertEqual(reply, dict(associated=False, image=None))
+
+    def test_image_mixed_root_capture_never_falls_back_to_later_or_prior_full(self):
+        observer = self.registered_target()
+        original_collect = observer._sampler._collect
+        def at_forced_capture(pid, **kwargs):
+            if kwargs.get('force_ticket') is not None:
+                self.nodes[101]['idversion'] += 1  # Mixed raw new epoch / old UUID, exactly at this request.
+            return original_collect(pid, **kwargs)
+        def changed_image(pid):
+            if pid == 101:
+                self.nodes[101]['executable_uuid'] = '45454545-4545-4545-8545-454545454545'
+                return str(self.target)
+            return '/fixture/node' if pid == 99 else '/fixture/python'
+        with patch.object(observer._sampler, '_collect', side_effect=at_forced_capture), \
+             patch.object(observed, 'executable_path', side_effect=changed_image):
+            self.assertIsNone(observer.request(dict(command='observe_pid', pid=101, include_image=True))['image'])
+        self.assertTrue(observer.value['pending'])
+        self.assertTrue(observer.value['native_sampler']['helper_diagnostics'])
+
+    def test_image_root_epoch_regression_fails_without_success_projection(self):
+        observer = self.registered()
+        self.nodes[101]['idversion'] -= 1
+        with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
+        self.assertTrue(observer._drain_lost)
+
+    def test_image_arming_phase_is_rejected_before_collector_request(self):
+        observer = self.arm()
+        with patch.object(observer._sampler, 'observe_pid') as capture:
+            with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
+            capture.assert_not_called()
+
+    def test_image_wrong_native_key_or_unflushed_receipt_cannot_use_prior_full(self):
+        observer = self.registered()
+        watermark = observer.value['native_sampler']['durable_sequence']
+        for field in ('birth', 'unique_id', 'uid', 'boot_uuid', 'parent_version'):
+            node = self.native(101)
+            if field == 'birth': node['identity']['created']['microseconds'] += 1
+            elif field == 'unique_id': node[field] = '9999'
+            elif field == 'uid': node[field] += 1
+            elif field == 'boot_uuid': node[field] = '56565656-5656-4565-8565-565656565656'
+            else: node['original_parent_idversion'] += 1
+            with patch.object(observer._sampler, 'observe_pid', return_value=(watermark, node, watermark)):
+                self.assertIsNone(observer.request(dict(command='observe_pid', pid=101, include_image=True))['image'])
+        with patch.object(observer._sampler, 'observe_pid', return_value=(watermark + 1, self.native(101), watermark + 1)):
+            with self.assertRaisesRegex(EvidenceError, 'unflushed tail'):
+                observer.request(dict(command='observe_pid', pid=101, include_image=True))
+
+    def test_image_oversize_actual_path_latches_unflushed_history(self):
+        observer = self.registered()
+        with patch.object(observed, 'executable_path', return_value='/' + 'a' * 4096):
+            with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
+        self.assertTrue(observer._drain_lost)
+
+    def test_image_forced_bound_source_and_scope_fail_closed(self):
+        observer = self.registered_target(scoped=True)
+        with patch.object(observed, 'sources', return_value={key: 'b' * 64 for key in observed.SOURCE_FILES}):
+            with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
+        with self.replaced_scope():
+            with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
+        with patch.object(observed, 'MAX_OBSERVATIONS', observer.value['sequence']):
+            with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
+        self.assertTrue(observer._drain_lost)
+
+    def test_image_control_reply_bound_is_enforced_after_durable_capture(self):
+        observer = self.registered()
+        with patch.object(observed, 'MAX_REQUEST', 128):
+            with self.assertRaisesRegex(EvidenceError, 'reply exceeds'):
+                observer.request(dict(command='observe_pid', pid=101, include_image=True))
 
     def record_now(self):
         return runtime.read(self.ledger, self.attempt)
@@ -1075,7 +1337,8 @@ class RegistryTests(unittest.TestCase):
         for chunks, message in (([b'x' * (observed.MAX_REQUEST + 1)], 'byte bound'),
                                 ([b''], 'EOF'),
                                 ([b'{"command":"close","timeout":1}\n'], 'lost ack'),
-                                ([b'{"command":"prepare_cleanup","timeout":1}\n'], 'lost ack')):
+                                ([b'{"command":"prepare_cleanup","timeout":1}\n'], 'lost ack'),
+                                ([b'{"command":"observe_pid","pid":101,"include_image":true}\n'], 'lost ack')):
             fake = Mock(); fake.value = {'state': 'observing'}; fake.request.return_value = {'closed': True}
             with patch.object(worker, '_environment_ledger', return_value=(Mock(), self.attempt)), \
                  patch.object(worker, 'Observer', return_value=fake), \
@@ -1272,6 +1535,39 @@ class PortableReceiptTests(unittest.TestCase):
             with self.subTest(version=version), self.assertRaises(EvidenceError): observed.validate_session(session)
 
 
+    @staticmethod
+    def scoped_target():
+        return dict(version=2, path='/fixture/package/Playwright.app/Contents/MacOS/Playwright', sha256='a' * 64,
+                    size=5, identity=[1, 5], mtime_ns=1, ctime_ns=1, scope='/fixture/package',
+                    observation_scope=dict(path='/fixture/package', identity=[1, 4], uid=501))
+
+    def test_v2_scope_structural_audit_never_queries_current_filesystem(self):
+        session = copy.deepcopy(self.session)
+        session['roots']['1000']['target_executable'] = self.scoped_target()
+        with patch.object(observed, '_scope_pin', side_effect=AssertionError('historical audit must not query scope')):
+            observed.validate_session(session)
+            for variant in ('version', 'observation_scope', 'scope', 'pin_path', 'pin_identity', 'pin_uid', 'unknown'):
+                changed = copy.deepcopy(session); target = changed['roots']['1000']['target_executable']
+                if variant in ('version', 'observation_scope'): target.pop(variant)
+                elif variant == 'scope': target['scope'] = '/fixture'
+                elif variant == 'pin_path': target['observation_scope']['path'] = '/other'
+                elif variant == 'pin_identity': target['observation_scope']['identity'] = [-1, 4]
+                elif variant == 'pin_uid': target['observation_scope']['uid'] = True
+                else: target['extra'] = True
+                with self.subTest(variant=variant), self.assertRaises(EvidenceError): observed.validate_session(changed)
+
+    def test_v2_scope_excluded_candidate_refs_use_same_effective_classifier(self):
+        session = copy.deepcopy(self.session); session['roots']['1000']['target_executable'] = self.scoped_target()
+        older = snapshot(500, 5000, 8000, birth=90, ppid=1, pgid=555)
+        session['excluded_candidates'] = {'5000': dict(chain=[older], executable='/fixture/package/Sibling.app/Service',
+            ancestor_executable='/fixture/package/Sibling.app/Service', roots=['1000'])}
+        observed.validate_session(session)
+        for field in ('executable', 'ancestor_executable', 'roots'):
+            changed = copy.deepcopy(session)
+            changed['excluded_candidates']['5000'][field] = ['9999'] if field == 'roots' else '/unrelated/service'
+            with self.subTest(field=field), self.assertRaises(EvidenceError): observed.validate_session(changed)
+
+
 class NativeCollectorTests(unittest.TestCase):
     def setUp(self):
         self.nodes = {100: snapshot(100, 1000, 900, birth=100)}
@@ -1310,6 +1606,21 @@ class NativeCollectorTests(unittest.TestCase):
             batch = sampler.take()
             if not batch: return result
             result.extend(batch)
+
+    def test_force_image_capture_is_fresh_full_even_when_semantic_fields_match(self):
+        sampler = self.collector(); sampler.add_root(self.read(100))
+        original = self.events(sampler)
+        self.assertEqual(len(original), 1)
+        watermark, node, capture = sampler.observe_pid(100, force_full=True)
+        events = self.events(sampler)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['kind'], 'snapshot'); self.assertTrue(events[0]['force_full'])
+        self.assertEqual(events[0]['snapshot'], node); self.assertEqual(events[0]['sequence'], capture)
+        self.assertGreaterEqual(watermark, capture)
+        self.assertEqual(observed.semantic(original[0]['snapshot']), observed.semantic(node))
+        self.assertGreater(int(node['observed']['monotonic_ns']), int(original[0]['snapshot']['observed']['monotonic_ns']))
+        sampler.observe_pid(100)
+        self.assertEqual(self.events(sampler), [])
 
     def test_real_ready_fence_native_only_and_semantic_noop(self):
         sampler = self.collector()

@@ -693,6 +693,51 @@ class HistorySourceArchiveTests(unittest.TestCase):
             self.assertEqual(self.p.hash('forge/evidence-policy.json'), hashes['@policy/forge/evidence-policy.json'])
             self.assertGreater(len([key for key in hashes if key.startswith('@evidence/')]), 4)
 
+    def test_candidate_file_only_inactive_history_ignores_unrelated_policy(self):
+        path = 'forge/file-only-snapshot.json'
+        inactive = {key: [{'evidence_ref': self.refs[0]}] for key in ('history', 'run_history', 'superseded')}
+        self.p.write(path, json.dumps(inactive))
+        manifest = {**inactive, 'snapshot': {'path': path, 'content_hash': self.p.hash(path)}}
+        expected = {path: self.p.hash(path)}
+        for raw in ('{"version":true}', 'not JSON'):
+            self.p.write('forge/evidence-policy.json', raw)
+            for include_external in (True, False):
+                with self.subTest(raw=raw, include_external=include_external):
+                    with mock.patch.object(self.helper.PreparedResolverPolicy, '__init__',
+                            side_effect=AssertionError('unrelated policy consumed')):
+                        self.assertEqual(expected, self.helper.candidate_hashes(self.p.root, manifest,
+                            evidence_cache=self.cache, include_external=include_external))
+
+    def test_candidate_active_and_declared_inputs_still_validate_and_bind_policy(self):
+        selections = [{'capture': self.refs[0]}, {'evidence_storage': {}}, {'evidence_accounting': {}}]
+        for manifest in selections:
+            for include_external in (True, False):
+                with self.subTest(manifest=manifest, include_external=include_external):
+                    self.write_transport_policy(files=10001)
+                    hashes = self.helper.candidate_hashes(self.p.root, manifest,
+                        evidence_cache=self.cache, include_external=include_external)
+                    self.assertEqual(self.p.hash('forge/evidence-policy.json'), hashes['@policy/forge/evidence-policy.json'])
+                    self.p.write('forge/evidence-policy.json', '{"version":true}')
+                    with self.assertRaises(ValueError):
+                        self.helper.candidate_hashes(self.p.root, manifest,
+                            evidence_cache=self.cache, include_external=include_external)
+        self.p.write('forge/evidence-policy.json', '{"version":true}')
+        with self.assertRaises(ValueError):
+            self.helper.candidate_hashes(self.p.root, {'source_archive_index_ref': self.index}, evidence_cache=self.cache)
+
+    def test_candidate_consumed_policy_drift_is_audited(self):
+        self.write_transport_policy(files=10001)
+        path = self.p.root / 'forge/evidence-policy.json'
+        raw = path.read_bytes()
+        original = self.helper.PreparedResolverPolicy.new_resolver
+        def drift(policy, cache):
+            resolver = original(policy, cache)
+            path.write_bytes(raw + b'\n')
+            return resolver
+        with mock.patch.object(self.helper.PreparedResolverPolicy, 'new_resolver', drift):
+            with self.assertRaisesRegex(ValueError, 'policy changed'):
+                self.helper.candidate_hashes(self.p.root, {'capture': self.refs[0]}, evidence_cache=self.cache)
+
     def test_policy_factory_defaults_bad_missing_and_symlink_fail(self):
         policy = self.helper.PreparedResolverPolicy(self.p.root, {})
         resolver = policy.new_resolver(self.cache)

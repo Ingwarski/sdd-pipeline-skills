@@ -2055,24 +2055,32 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
         target = archived_source_path(project, {key: source[key] for key in REF_KEYS}) if source else physical(project, path)
         result[path] = sha(target.read_bytes()) if target.is_file() else "directory" if target.is_dir() else None
     archive = _source_archive.get()
-    policy = archive.resolver_policy if archive is not None else PreparedResolverPolicy(project, manifest)
-    if include_external:
+    if archive is not None:
+        external_refs.extend(source["evidence_ref"] for source in archive.sources.values())
+    if checker is not None:
+        external_refs.extend(checker.evidence_resolver.references.values())
+        external_refs.extend(getattr(checker, "_history_cache", {}).get("evidence_references", {}).values())
+    # File-only/inactive selections consume no prepared transport policy. Active
+    # references and explicit declarations still bind it, including migrations
+    # which deliberately omit external payload hashes.
+    policy = None
+    if archive is not None:
+        policy = archive.resolver_policy
+    elif external_refs or "evidence_storage" in manifest or "evidence_accounting" in manifest:
+        policy = PreparedResolverPolicy(project, manifest)
+    if include_external and external_refs:
         # Bind prepared originals and readback receipts, including dependency
         # closure, without storing external machine paths or copying payloads.
         resolver = policy.new_resolver(evidence_cache)
-        if archive is not None:
-            external_refs.extend(source["evidence_ref"] for source in archive.sources.values())
-        if checker is not None:
-            external_refs.extend(checker.evidence_resolver.references.values())
-            external_refs.extend(getattr(checker, "_history_cache", {}).get("evidence_references", {}).values())
         for ref in external_refs:
             resolver.resolve(ref)
         for key, path in resolver.resolved_paths.items():
             result["@evidence/" + key + "/original"] = sha(path.read_bytes())
             result["@evidence/" + key + "/receipt"] = sha(resolver._path("receipts", key + ".json").read_bytes())
-    if policy.digest is not None:
-        result["@policy/" + policy.logical] = policy.digest
-    policy.audit()
+    if policy is not None:
+        if policy.digest is not None:
+            result["@policy/" + policy.logical] = policy.digest
+        policy.audit()
     return result
 
 

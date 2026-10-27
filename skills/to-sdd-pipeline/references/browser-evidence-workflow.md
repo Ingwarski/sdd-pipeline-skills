@@ -37,6 +37,9 @@ and finalization obligations. Retain separate working-capacity holds through
 native process/handle checks, exact cleanup and final closed acknowledgment.
 Pre-cleanup acknowledgment permits verified owned cleanup, not closure or
 acceptance. Ordinary children/other hosts retain the process-group/Job contract.
+Opt-in `observation_scope` widens candidate discovery only to the nearest `.app`
+parent; `observe_pid` with `include_image:true` requires a fresh, durably recorded
+native root image. Neither supplies missing ancestry or additional authority.
 
 Reservations measure registered generation; plan and monitor profile/OS temporary
 capacity separately. Sampled peaks measure neither total writes nor hard quotas;

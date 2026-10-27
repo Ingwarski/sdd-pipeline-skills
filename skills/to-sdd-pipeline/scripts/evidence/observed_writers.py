@@ -12,7 +12,7 @@ import errno
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import stat
 import sys
 import subprocess
@@ -343,17 +343,63 @@ def _birth(snapshot):
 
 def _validate_target(value):
     keys = {'path', 'sha256', 'size', 'identity', 'mtime_ns', 'ctime_ns', 'scope'}
-    if (type(value) is not dict or set(value) != keys or type(value['path']) is not str
-            or not Path(value['path']).is_absolute() or '..' in Path(value['path']).parts
-            or type(value['scope']) is not str or not Path(value['path']).is_relative_to(value['scope'])
-            or Path(value['scope']) == Path('/') or type(value['sha256']) is not str
+    path_type = PurePosixPath if type(value) is dict and value.get('version') == 2 else Path
+    if (type(value) is not dict or set(value) not in (keys, keys | {'version', 'observation_scope'}) or type(value['path']) is not str
+            or not path_type(value['path']).is_absolute() or '..' in path_type(value['path']).parts
+            or type(value['scope']) is not str or not path_type(value['path']).is_relative_to(value['scope'])
+            or path_type(value['scope']) == path_type('/') or type(value['sha256']) is not str
             or len(value['sha256']) != 64 or any(c not in '0123456789abcdef' for c in value['sha256'])
             or type(value['size']) is not int or not 0 < value['size'] <= 512 * 1024 * 1024
             or type(value['identity']) is not list or len(value['identity']) != 2
             or any(type(n) is not int or n < 0 for n in value['identity'])
             or any(type(value[k]) is not int or value[k] < 0 for k in ('mtime_ns', 'ctime_ns'))):
         raise EvidenceError('invalid declared target executable source identity')
+    if 'version' in value:
+        pin = value['observation_scope']
+        app = next((parent for parent in PurePosixPath(value['path']).parents if parent.name.endswith('.app')), None)
+        if (type(value['version']) is not int or value['version'] != 2 or app is None
+                or not _scope_lexical(value['path']) or not _scope_lexical(value['scope'])
+                or value['scope'] != str(app.parent) or type(pin) is not dict
+                or set(pin) != {'path', 'identity', 'uid'} or pin['path'] != value['scope']
+                or type(pin['identity']) is not list or len(pin['identity']) != 2
+                or any(type(n) is not int or n < 0 for n in pin['identity'])
+                or type(pin['uid']) is not int or pin['uid'] < 0):
+            raise EvidenceError('invalid version2 observation scope identity')
     return value
+
+
+def _scope_lexical(path):
+    return (type(path) is str and 0 < len(path) <= 4096 and '\x00' not in path
+            and PurePosixPath(path).is_absolute() and not path.startswith('//')
+            and not any(part in ('.', '..') for part in path.split('/')) and str(PurePosixPath(path)) == path)
+
+
+def _scope_pin(path):
+    """Source-backed candidate directory only; never a working-root grant."""
+    if not _scope_lexical(path):
+        raise EvidenceError('observation scope needs an exact bounded canonical directory')
+    scope = Path(path)
+    home, user_temp = Path.home().resolve(), Path(tempfile.gettempdir()).resolve()
+    blocked = {Path('/'), home, user_temp, Path('/tmp'), Path('/private/tmp'), Path('/var/tmp'), Path('/private/var/tmp')}
+    if scope in blocked or home.is_relative_to(scope) or user_temp.is_relative_to(scope):
+        raise EvidenceError('observation scope is a global/home/temp discovery root')
+    if not hasattr(os, 'O_DIRECTORY') or not hasattr(os, 'O_NOFOLLOW'):
+        raise EvidenceError('observation scope nofollow directory queries unsupported')
+    if scope.resolve(strict=True) != scope:
+        raise EvidenceError('observation scope resolves through an alias')
+    def identity(info):
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022):
+            raise EvidenceError('observation scope is not a private-owner non-shared directory')
+        return dict(path=path, identity=[info.st_dev, info.st_ino], uid=info.st_uid)
+    before = identity(scope.lstat())
+    fd = os.open(scope, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        opened = identity(os.fstat(fd))
+        if opened != before or identity(scope.lstat()) != opened or scope.resolve(strict=True) != scope:
+            raise EvidenceError('observation scope directory changed during source query')
+    finally:
+        os.close(fd)
+    return opened
 
 
 def target_descriptor(request):
@@ -362,9 +408,15 @@ def target_descriptor(request):
     The nearest lexical .app directory (or executable parent) is solely a
     conservative candidate classifier. Matching its path NEVER grants ownership.
     """
-    expected_hash = None
-    if type(request) is dict and set(request) == {'path', 'sha256'}:
+    expected_hash, observation_scope = None, None
+    if type(request) is dict and set(request) in ({'path', 'sha256'}, {'path', 'sha256', 'observation_scope'}):
         path, expected_hash = request['path'], request['sha256']
+        if 'observation_scope' in request:
+            observation_scope = request['observation_scope']
+            app = next((parent for parent in Path(path).parents if parent.name.endswith('.app')), None) if type(path) is str else None
+            if (app is None or not _scope_lexical(path) or not _scope_lexical(observation_scope) or observation_scope != str(app.parent)
+                    or type(expected_hash) is not str or len(expected_hash) != 64 or any(c not in '0123456789abcdef' for c in expected_hash)):
+                raise EvidenceError('observation scope must be the immediate parent of actual nearest app')
     elif type(request) is str:
         path = request
     else:
@@ -402,6 +454,8 @@ def target_descriptor(request):
     scope = next((parent for parent in path.parents if parent.name.endswith('.app')), path.parent)
     value = dict(path=str(path), sha256=sha, size=count, identity=[before.st_dev, before.st_ino],
                  mtime_ns=before.st_mtime_ns, ctime_ns=before.st_ctime_ns, scope=str(scope))
+    if observation_scope is not None:
+        value.update(version=2, scope=observation_scope, observation_scope=_scope_pin(observation_scope))
     return _validate_target(value)
 
 
@@ -412,6 +466,15 @@ def verify_target(target):
             or info.st_size != target['size'] or info.st_mtime_ns != target['mtime_ns']
             or info.st_ctime_ns != target['ctime_ns']):
         raise EvidenceError('declared target executable bytes/identity changed')
+    if 'observation_scope' in target and _scope_pin(target['scope']) != target['observation_scope']:
+        raise EvidenceError('observation scope source identity changed')
+
+
+def _verify_observation_scopes(session):
+    for root in session['roots'].values():
+        target = root.get('target_executable')
+        if target is not None and 'observation_scope' in target:
+            verify_target(target)
 
 
 def _pid(pid):
@@ -872,6 +935,10 @@ def _session_disposition(session, record, *, ledger, timeout=3, allow_removed=Tr
     """Read-only fresh terminal barrier, also used by recovery and quarantine."""
     validate_session(session)
     problems = []
+    try:
+        _verify_observation_scopes(session)
+    except (EvidenceError, OSError) as exc:
+        problems.append('observation scope disposition: ' + str(exc)[:256])
     if 'working_binding' in session:
         try:
             if ledger is None:
@@ -1002,17 +1069,18 @@ class _NativeSampler:
         with self._condition:
             return pid in self._known
 
-    def observe_pid(self, pid, timeout=3):
+    def observe_pid(self, pid, timeout=3, *, force_full=False):
         _pid(pid)
         with self._condition:
             self._check_locked()
             if self._stop or len(self._requests) >= MAX_PENDING:
                 raise EvidenceError('collector request bound/stopping')
             ticket = threading.Event()
-            self._requests.append(('pid', pid, ticket))
+            ticket.capture_sequence = None
+            self._requests.append(('image' if force_full else 'pid', pid, ticket))
             self._condition.notify_all()
         watermark = self._wait(ticket.is_set, timeout)
-        return watermark, ticket.snapshot
+        return (watermark, ticket.snapshot, ticket.capture_sequence) if force_full else (watermark, ticket.snapshot)
 
     def fence(self, timeout=3):
         with self._condition:
@@ -1049,9 +1117,11 @@ class _NativeSampler:
                 raise EvidenceError('native collector final cycle missing')
             return self._sequence
 
-    def _emit(self, kind, pid, *, snapshot=None, executable=None, reason=None, successor=None, diagnostic=None):
+    def _emit(self, kind, pid, *, snapshot=None, executable=None, reason=None, successor=None, diagnostic=None, force_full=False):
         # Raw receipts remain local SDK data; there is no caller witness JSON API.
         event = dict(kind=kind, pid=pid, snapshot=snapshot, executable=executable, reason=reason, successor=successor, diagnostic=diagnostic)
+        if force_full:
+            event['force_full'] = True
         with self._condition:
             event['sequence'] = self._sequence + 1
             size = len(canonical(event).encode())
@@ -1061,8 +1131,9 @@ class _NativeSampler:
             self._sequence += 1; event['sequence'] = self._sequence
             self._events.append((event, size)); self._bytes += size
             self._condition.notify_all()
+            return event['sequence']
 
-    def _collect(self, pid, *, required=False, expected=None):
+    def _collect(self, pid, *, required=False, expected=None, force_ticket=None):
         snapshot = native.read_snapshot(pid, include_zombie=True)
         prior = self._known.get(pid)
         if snapshot is None:
@@ -1090,7 +1161,7 @@ class _NativeSampler:
             with self._condition:
                 self._known[pid] = copy.deepcopy(snapshot)
         current = semantic(snapshot)
-        if self._last.get(pid) == current:
+        if self._last.get(pid) == current and force_ticket is None:
             return snapshot
         previous = self._complete.get(pid)
         if snapshot['status'] == 'zombie' and previous is not None and all(
@@ -1131,7 +1202,9 @@ class _NativeSampler:
             self._emit('pending', pid, snapshot=snapshot, reason=('incomplete native/executable capture: ' + str(exc))[:256])
             self._last[pid] = current
             return snapshot
-        self._emit('snapshot', pid, snapshot=snapshot, executable=exe)
+        sequence = self._emit('snapshot', pid, snapshot=snapshot, executable=exe, force_full=force_ticket is not None)
+        if force_ticket is not None:
+            force_ticket.capture_sequence = sequence
         self._complete[pid] = snapshot
         self._last[pid] = current
         return snapshot
@@ -1148,7 +1221,8 @@ class _NativeSampler:
                     raise EvidenceError('collector root gone before ready fence')
                 armed.append(value['unique_id'])
             else:
-                value.snapshot = self._collect(pid, required=True); acknowledged.append(value)
+                value.snapshot = self._collect(pid, required=True, force_ticket=value if kind == 'image' else None)
+                acknowledged.append(value)
         # Native-only BFS is never blocked by SQLite, graph rebuilding or UID census.
         queue, scanned = [root['identity']['pid'] for root in roots], set()
         with self._condition:
@@ -1395,6 +1469,7 @@ class Observer:
         self._drain_native(through=ready_watermark)
         try:
             self._active()
+            _verify_observation_scopes(self.value)
             if (self.value['native_sampler']['durable_sequence'] < ready_watermark
                     or self.value['pending'] or self.value['errors'] or self.value['lost_history']
                     or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value) or _unresolved_helpers(self.value)):
@@ -1469,7 +1544,7 @@ class Observer:
                 break
         return True
 
-    def _ingest_capture(self, snapshot, exe):
+    def _ingest_capture(self, snapshot, exe, *, force_full=False):
         if not native.valid_snapshot(snapshot) or type(exe) is not str or not exe.startswith('/'):
             raise EvidenceError('invalid protected native collector receipt')
         pid, unique = snapshot['identity']['pid'], snapshot['unique_id']
@@ -1480,7 +1555,7 @@ class Observer:
             and item['path_query']['stage'] == 'query' and item['path_query']['returned_size'] == 0
             and item['followup']['outcome'] == 'snapshot' and item['followup']['snapshot']['status'] == 'alive'
             for item in self.value['native_sampler'].get('helper_diagnostics', ()))
-        if self.latest.get(unique) == semantic(snapshot) and not recovering_gap:
+        if self.latest.get(unique) == semantic(snapshot) and not recovering_gap and not force_full:
             return any(graph.lineage(unique) is not None for graph in self.graphs.values())
         if unique in self.value['roots'] and 'target_executable' in self.value['roots'][unique]:
             target = self.value['roots'][unique]['target_executable']
@@ -1583,7 +1658,7 @@ class Observer:
                     if event['sequence'] != expected:
                         raise EvidenceError('native capture sequence gap/lost history')
                     if event['kind'] == 'snapshot':
-                        self._ingest_capture(event['snapshot'], event['executable'])
+                        self._ingest_capture(event['snapshot'], event['executable'], force_full=event.get('force_full') is True)
                     elif event['kind'] == 'exec_transition':
                         if not _exec_pair(event['snapshot'], event['successor']):
                             raise EvidenceError('invalid private forward-exec witness')
@@ -1672,6 +1747,45 @@ class Observer:
             return False
         return any(graph.lineage(snapshot['unique_id']) is not None for graph in self.graphs.values())
 
+    def observe_image(self, pid):
+        self._active()
+        _pid(pid)
+        roots = [(key, root) for key, root in self.value['roots'].items() if root['pid'] == pid]
+        if self.value['state'] != 'observing' or len(roots) != 1:
+            raise EvidenceError('image observation requires an already registered root in observing phase')
+        key, root = roots[0]
+        target = root.get('target_executable')
+        if target is not None:
+            verify_target(target)
+        self._drain_native()
+        previous = self.value['sequence']
+        watermark, snapshot, capture = self._sampler.observe_pid(pid, force_full=True)
+        self._drain_native(through=watermark)
+        self._active()
+        if target is not None:
+            verify_target(target)
+        associated = snapshot is not None and self.graphs[key].lineage(snapshot['unique_id']) is not None
+        result = dict(associated=associated, image=None)
+        anchor = self.value['observations'][root['observation_sequence'] - 1]['snapshot']
+        if (capture is None or snapshot is None or snapshot['status'] != 'alive'
+                or not _same_native_key(anchor, snapshot) or not associated
+                or self.value['native_sampler']['durable_sequence'] < capture):
+            return result
+        matches = [item for item in self.value['observations'] if item['sequence'] > previous and item['snapshot'] == snapshot]
+        if len(matches) != 1:
+            raise EvidenceError('forced root image lacks its fresh durable full observation')
+        item = matches[0]
+        result['image'] = dict(version=1, session_id=self.value['session_id'], root=key,
+                              observation_sequence=item['sequence'], capture_sequence=capture,
+                              identity=snapshot['identity'], unique_id=snapshot['unique_id'],
+                              boot_uuid=snapshot['boot_uuid'], uid=snapshot['uid'], status='alive',
+                              idversion=snapshot['idversion'], executable_uuid=snapshot['executable_uuid'],
+                              executable=item['executable'], target_sha256=target['sha256'] if target else None,
+                              target_match=target is not None and item['executable'] == target['path'])
+        if len(canonical(dict(ok=True, result=result)).encode()) + 1 > MAX_REQUEST:
+            raise EvidenceError('forced root image reply exceeds bounded control frame')
+        return result
+
     def sample(self, *, force_census=False, deadline=None):
         if deadline is not None:
             _remaining(deadline)
@@ -1682,15 +1796,19 @@ class Observer:
             return
         self._drain_native()
         if force_census or time.monotonic() - self.last_census >= .25:
+            _verify_observation_scopes(self.value)
             if self.value.get('cleanup_barrier') is None and self.value['state'] != 'closing':
                 self.check_working_capacity(deadline=deadline)
-            for index, pid in enumerate(candidate_pids()):
-                if index % 8 == 0:
-                    self._drain_native()
-                    time.sleep(0)
-                if deadline is not None:
-                    _remaining(deadline)
-                self.observe(pid, required=False)
+            try:
+                for index, pid in enumerate(candidate_pids()):
+                    if index % 8 == 0:
+                        self._drain_native()
+                        time.sleep(0)
+                    if deadline is not None:
+                        _remaining(deadline)
+                    self.observe(pid, required=False)
+            finally:
+                _verify_observation_scopes(self.value)
             self.last_census = time.monotonic()
         self._drain_native()
         if self.value['state'] == 'failed':
@@ -1731,6 +1849,7 @@ class Observer:
         from .producer_runtime import read
         record = read(self.ledger, self.attempt)
         working_binding(self.ledger, record, session=self.value)
+        _verify_observation_scopes(self.value)
         if (not self.value['roots'] or self.value['pending'] or self.value['errors'] or self.value['lost_history']
                 or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value) or _unresolved_helpers(self.value)
                 or self.value['state'] not in ('observing', 'closing')):
@@ -1758,6 +1877,7 @@ class Observer:
             _resource_current(item)
             _no_handles(item, remaining, allow_absent=False, require_empty=require_empty)
             _resource_current(item)
+        _verify_observation_scopes(self.value)
 
     def prepare_cleanup(self, timeout):
         if type(timeout) not in (int, float) or not 0 < timeout <= 30:
@@ -1818,7 +1938,8 @@ class Observer:
                   'observe_pid': {'command', 'pid'}, 'close': {'command', 'timeout'},
                   'prepare_cleanup': {'command', 'timeout'}}
         if command not in fields or (set(value) != fields[command] and not
-                (command == 'register_root' and set(value) == fields[command] | {'expected_target_executable'})):
+                (command == 'register_root' and set(value) == fields[command] | {'expected_target_executable'}) and not
+                (command == 'observe_pid' and set(value) == fields[command] | {'include_image'} and value['include_image'] is True)):
             raise EvidenceError('unknown observer command or caller-submitted witness')
         if command == 'allocate_root':
             return self.allocate(value['purpose'], value['budget_bytes'])
@@ -1826,6 +1947,8 @@ class Observer:
             return self.register_root(value['pid'], value['expected_identity'], value['expected_executable'], value['writable_root_refs'], value.get('expected_target_executable'))
         if command == 'observe_pid':
             self._active()
+            if value.get('include_image') is True:
+                return self.observe_image(value['pid'])
             return dict(associated=self.observe(value['pid']))
         if command == 'prepare_cleanup':
             return self.prepare_cleanup(value['timeout'])
