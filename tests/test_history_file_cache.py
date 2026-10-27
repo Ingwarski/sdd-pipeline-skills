@@ -85,7 +85,8 @@ class HistoryFileCacheTests(unittest.TestCase):
         def body(*args, **kwargs):
             self.resolve_legacy(checker)
             self.resolve_legacy(checker)
-            self.assertEqual({self.path}, set(checker._history_hash_owner.hashes))
+            self.assertEqual({self.path, self.root / reference["path"], self.root / manifest_ref["path"]},
+                             set(checker._history_hash_owner.hashes))
             return self.report(checker)
         with mock.patch.object(checker, "_run", side_effect=body), \
                 mock.patch.object(self.history, "validate_files", wraps=self.history.validate_files) as validation, \
@@ -174,8 +175,9 @@ class HistoryFileCacheTests(unittest.TestCase):
                     return self.report(checker)
                 try:
                     with mock.patch.object(checker, "_run", side_effect=body), \
-                            self.assertRaisesRegex(ValueError, "changed history file"):
+                            self.assertRaises(ValueError) as rejected:
                         checker.run("product-idea")
+                    self.assertIn(str(path), str(rejected.exception))
                 finally:
                     path.write_bytes(original)
 
@@ -214,11 +216,13 @@ class HistoryFileCacheTests(unittest.TestCase):
         self.record["files"]["assets/unused.bin"] = {
             "path": unused.relative_to(self.root).as_posix(), "content_hash": sdd.digest(unused.read_bytes())}
         project, reference, checker = self.legacy_checker()
+        manifest_ref = self.history.read_ref(self.root, reference)["manifest_ref"]
         child = sdd.Checker(self.root, project.manifest)
         child_results = []
         def child_body(*args, **kwargs):
             self.resolve_legacy(child)
-            self.assertEqual({self.path, unused}, set(child._history_hash_owner.hashes))
+            self.assertEqual({self.path, unused, self.root / reference["path"], self.root / manifest_ref["path"]},
+                             set(child._history_hash_owner.hashes))
             unused.unlink()
             return self.report(child)
         def body(*args, **kwargs):

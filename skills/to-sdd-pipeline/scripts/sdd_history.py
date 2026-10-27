@@ -216,9 +216,16 @@ def read_ref(project, ref):
     require(isinstance(ref, dict) and set(ref) == REF_KEYS, "hash-bound path reference required")
     path = physical(project, ref["path"])
     require(path.is_file(), "missing history file: " + ref["path"])
+    owner = _snapshot_hash_owner.get()
+    owner = owner if owner is not None and owner.depth > 0 else None
+    if owner is not None:
+        require(api().hash_matches(ref["content_hash"], owner.file_hash(path)), "changed history file: " + ref["path"])
     data = path.read_bytes()
     require(api().hash_matches(ref["content_hash"], sha(data)), "changed history file: " + ref["path"])
-    return api().read_json(path)
+    document = api().read_json(path)
+    if owner is not None:
+        require(api().hash_matches(ref["content_hash"], owner.file_hash(path)), "changed history file: " + ref["path"])
+    return document
 
 
 def write_new(project, path, data):
@@ -2123,6 +2130,7 @@ def explicit_revalidation(previous, candidate, unit):
 @snapshot_hash_invocation
 def validate_transition(project, previous, candidate, mapping, *, evidence_cache=None):
     """Validate the whole transition even when a candidate deletes all active indexes."""
+    cache = {}
     if previous.get("checker_contract_version") != VERSION or previous.get("unit_contract_version") != VERSION:
         require(legacy_format(previous), "unsupported legacy records require owner-reviewed reconciliation")
         mode = "format_only_no_execution" if pristine_legacy(previous) else "legacy_revalidation"
@@ -2160,14 +2168,14 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
                               and current.get("run_id") == run.get("run_id")
                               and same(previous.get("execution_contexts", {}).get(unit), candidate.get("execution_contexts", {}).get(unit)))
             if "completion_ref" in current:
-                completed, _ = validate_completion(project, current["completion_ref"], evidence_cache=evidence_cache)
+                completed, _ = validate_completion(project, current["completion_ref"], cache=cache, evidence_cache=evidence_cache)
                 same_execution = (completed["run"].get("started_at") == run.get("started_at")
                                   and completed["run"].get("run_id") == run.get("run_id"))
             if same_execution:
                 continue
             preserved = False
             for reference in new_attempts.get(unit, []):
-                attempted, _ = validate_attempt(project, reference, evidence_cache=evidence_cache)
+                attempted, _ = validate_attempt(project, reference, cache=cache, evidence_cache=evidence_cache)
                 if (same(attempted["run"], {key: value for key, value in run.items() if key != "attempt_ref"})
                         and same(attempted["checks"], attempt_checks(previous, unit))
                         and same(attempted["context_ref"], previous.get("execution_contexts", {}).get(unit))):
@@ -2175,7 +2183,7 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
             require(preserved, "replaced unfinished run needs its exact immutable attempt: " + unit)
             context_ref = candidate.get("execution_contexts", {}).get(unit)
             require(context_ref is not None, "replacement needs a captured continuation context")
-            context = validate_context(project, context_ref, unit, evidence_cache=evidence_cache)
+            context = validate_context(project, context_ref, unit, cache=cache, evidence_cache=evidence_cache)
             require(any(same(context.get("prior_attempt_ref"), reference) for reference in new_attempts.get(unit, [])),
                     "replacement context must retain its prior attempt")
     for reference in previous.get("legacy_history", []):
@@ -2202,7 +2210,7 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
                             "legacy migration must preserve exact authority; current checks still enforce its validity")
                     continue
             require("completion_ref" in current, "legacy completion requires verified original history; do not silently adopt or erase it")
-            completed, _ = validate_completion(project, current["completion_ref"], evidence_cache=evidence_cache)
+            completed, _ = validate_completion(project, current["completion_ref"], cache=cache, evidence_cache=evidence_cache)
             require(same(completed["run"], run), "candidate does not preserve the actual original completed run")
 
 
