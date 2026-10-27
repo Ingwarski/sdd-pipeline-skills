@@ -25,7 +25,8 @@ import sys
 import uuid
 
 from evidence.resolver import EvidenceResolver, INACTIVE_HISTORY_KEYS, evidence_reference, validate_reference, _regular, JSON_LIMIT
-from evidence.io import safe_relative, _parents, _open_regular, _verify_stable, hash_file
+from evidence.io import safe_relative, _parents, _open_regular, _verify_stable, hash_file, read_json as bounded_json
+from evidence.policy import validate_policy, MAX_POLICY_BYTES
 
 VERSION = 2
 CONTRACT = "sdd-unit-history-v2"
@@ -76,7 +77,7 @@ def _checker_run_hash_scope(checker):
     """An unexported, expiring lease backed by a mandatory checker-end audit."""
     with source_archive_scope(checker.project, getattr(checker, "_history_source_archive_index_ref",
                               checker._source_manifest.get("source_archive_index_ref")),
-                              checker.evidence_resolver.cache), snapshot_hash_scope(getattr(checker, "_history_hash_owner", None), audit=True) as owner:
+                              checker.evidence_resolver.cache, policy_manifest=checker._source_manifest), snapshot_hash_scope(getattr(checker, "_history_hash_owner", None), audit=True) as owner:
         lease = {"checker": checker, "owner": owner, "active": True}
         token = _checker_audit_lease.set(lease)
         try:
@@ -110,7 +111,8 @@ def source_archive_invocation(function):
         reference = explicit
         if reference is None and _source_archive.get() is None:
             reference = manifest.get("source_archive_index_ref") if isinstance(manifest, dict) else None
-        with source_archive_scope(values.get("project"), reference, values.get("evidence_cache")):
+        with source_archive_scope(values.get("project"), reference, values.get("evidence_cache"),
+                                  policy_manifest=manifest if isinstance(manifest, dict) and manifest else None):
             return function(*args, **kwargs)
     return scoped
 
@@ -517,14 +519,76 @@ def freeze_files(project, manifest, directory, execution_inputs=None, *, checker
 SOURCE_ARCHIVE_EVENTS = frozenset({"unit_execution_context", "unit_completion", "unit_attempt", "legacy_execution_archive"})
 
 
+class PreparedResolverPolicy:
+    """One audited policy input; absent undeclared policy keeps ordinary defaults."""
+    def __init__(self, project, manifest=None, *, path_resolver=None):
+        self.project = Path(project).resolve()
+        self.selector = None
+        if manifest is None:
+            active = physical(self.project, "forge/sdd-manifest.json")
+            if active.exists():
+                before = _regular(active)
+                manifest = bounded_json(active, SOURCE_INDEX_MAX_BYTES)
+                self.selector = (active, before, hash_file(active)[0])
+                require(_regular(active) == before, "source transport manifest changed during policy selection")
+            else:
+                manifest = {}
+        require(isinstance(manifest, dict), "policy selection requires a manifest object")
+        storage = manifest.get("evidence_storage", {})
+        require(isinstance(storage, dict), "evidence storage declaration must be an object")
+        self.logical = storage.get("policy_path", "forge/evidence-policy.json")
+        self.path_resolver = path_resolver
+        self.path = self.selected_path()
+        self.policy, self.signature, self.digest = None, None, None
+        if not self.path.exists() and not self.path.is_symlink():
+            require("evidence_storage" not in manifest and "evidence_accounting" not in manifest,
+                    "declared prepared evidence policy is missing: " + self.logical)
+            return
+        before = _regular(self.path)
+        self.policy = validate_policy(bounded_json(self.path, MAX_POLICY_BYTES))
+        self.digest = hash_file(self.path)[0]
+        require(_regular(self.path) == before, "prepared evidence policy changed during validation")
+        self.signature = before
+
+    def selected_path(self):
+        return (self.path_resolver(self.logical, no_links=True) if self.path_resolver is not None
+                else physical(self.project, self.logical))
+
+    def audit(self):
+        require(self.selected_path() == self.path, "prepared evidence policy path changed during validation")
+        if self.signature is None:
+            require(not self.path.exists() and not self.path.is_symlink(), "prepared evidence policy appeared during validation")
+        else:
+            require(_regular(self.path) == self.signature and hash_file(self.path)[0] == self.digest,
+                    "prepared evidence policy changed during validation")
+        if self.selector is not None:
+            path, signature, digest = self.selector
+            require(_regular(path) == signature and hash_file(path)[0] == digest,
+                    "source transport manifest changed during policy selection")
+
+    def apply(self, resolver):
+        self.audit()
+        if self.policy is not None:
+            resolver.metadata_limit = self.policy["limits"]["metadata_stop_bytes"]
+            resolver.closure_limit = self.policy["limits"]["metadata_stop_files"]
+        require(resolver.json_bytes <= resolver.metadata_limit and len(resolver.references) <= resolver.closure_limit,
+                "prepared metadata/reference closure exceeds project allowance")
+        return resolver
+
+    def new_resolver(self, cache):
+        return self.apply(EvidenceResolver(cache))
+
+
 class SourceArchive:
     """One explicitly selected native index; original envelopes always stay local."""
-    def __init__(self, project, reference, evidence_cache, *, _document=None):
+    def __init__(self, project, reference, evidence_cache, *, _document=None, policy_manifest=None, _read_ref=None):
         self.project, self.reference = Path(project).resolve(), copy.deepcopy(reference)
-        self.resolver = EvidenceResolver(evidence_cache)
+        self.resolver_policy = PreparedResolverPolicy(self.project, policy_manifest)
+        self.resolver = self.new_resolver(evidence_cache)
+        self.read_record = _read_ref or (lambda ref: read_ref(self.project, ref))
         require(self.resolver.cache is not None and not self.resolver.cache.resolve().is_relative_to(self.project),
                 "source archive requires prepared evidence cache outside the repository")
-        self.record = read_ref(project, reference) if _document is None else copy.deepcopy(_document)
+        self.record = self.read_record(reference) if _document is None else copy.deepcopy(_document)
         require(isinstance(self.record, dict), "native source archive index object required")
         required = {"event", "version", "records"}
         require(required <= set(self.record) <= required | {"view_strategy", "encoding", "objects"}
@@ -552,7 +616,7 @@ class SourceArchive:
         self.active_scopes, self.membership = 0, set()
         for entry in entries:
             require(isinstance(entry, dict) and set(entry) == {"record_ref", "snapshot_root", "sources"}, "invalid source archive record binding")
-            original = read_ref(project, entry["record_ref"])
+            original = self.read_record(entry["record_ref"])
             require(original.get("event") in SOURCE_ARCHIVE_EVENTS and original.get("version") == VERSION,
                     "source archive requires original native history envelope")
             root = entry["snapshot_root"]
@@ -593,6 +657,9 @@ class SourceArchive:
                 require(mapped_paths == set(literal_files), "complete source archive membership required for compact/shared views")
         require(used_objects == set(objects), "unused or foreign compact source objects")
 
+    def new_resolver(self, cache):
+        return self.resolver_policy.new_resolver(cache)
+
     def source_inventory(self):
         references, contents = set(), {}
         dependencies = False
@@ -609,12 +676,13 @@ class SourceArchive:
                 "reference_count_scope": "direct source references; dependencies retain ordinary resolver validation"}
 
     def audit(self):
-        require(same(read_ref(self.project, self.reference), self.record), "source archive index changed during validation")
+        require(same(self.read_record(self.reference), self.record), "source archive index changed during validation")
         self.audit_inputs()
 
     def audit_inputs(self):
+        self.resolver_policy.audit()
         for entry in self.record["records"]:
-            require(same(read_ref(self.project, entry["record_ref"]), self.originals[entry["snapshot_root"]]),
+            require(same(self.read_record(entry["record_ref"]), self.originals[entry["snapshot_root"]]),
                     "source archive original envelope changed during validation")
         for ref in tuple(self.resolver.references.values()):
             self.resolver.resolve(ref)
@@ -656,6 +724,24 @@ class SourceArchive:
             require((logical, frozen["path"], frozen["content_hash"]) in self.membership,
                     "source view has foreign original membership")
         return {"snapshot_root": root, "files": files, "directories": directories}
+
+    def expected_views(self):
+        """Complete allowed views, derived only from immutable original envelopes."""
+        views = []
+        for root, original in self.originals.items():
+            views.append((root, original["files"]))
+            if original.get("event") in ("unit_completion", "unit_attempt"):
+                require(isinstance(original.get("context_ref"), dict), "source view requires its original context reference")
+                context = self.read_record(original["context_ref"])
+                require(context.get("event") == "unit_execution_context" and context.get("version") == VERSION,
+                        "source view requires its original native pre-start context")
+                require(context["snapshot_root"] in self.originals, "prepare source views requires indexed pre-start context")
+                files = dict(original["files"])
+                for artifact in context["manifest"]["artifacts"].values():
+                    if artifact["path"] in context["files"]:
+                        files[artifact["path"]] = context["files"][artifact["path"]]
+                views.append((root, files))
+        return {sha(encoded(self.descriptor(root, files))): (root, files) for root, files in views}
 
     def view_receipt(self, descriptor):
         receipt = {"event": "unit_source_view", "version": 1, "index_ref": self.reference, "view": descriptor}
@@ -738,14 +824,14 @@ class SourceArchive:
 
 
 @contextmanager
-def source_archive_scope(project, reference=None, evidence_cache=None):
+def source_archive_scope(project, reference=None, evidence_cache=None, *, policy_manifest=None):
     active = _source_archive.get()
     if active is not None:
         require(project is None or Path(project).resolve() == active.project, "conflicting source archive project scope")
         require(reference is None or same(reference, active.reference), "conflicting source archive index scope")
         yield active
         return
-    archive = SourceArchive(project, reference, evidence_cache) if reference is not None else None
+    archive = SourceArchive(project, reference, evidence_cache, policy_manifest=policy_manifest) if reference is not None else None
     token = _source_archive.set(archive)
     if archive is not None:
         archive.active_scopes += 1
@@ -842,18 +928,7 @@ def prepare_source_views(project, index_ref, *, evidence_cache, max_bytes, max_f
     require(type(max_bytes) is int and max_bytes >= 0 and type(max_files) is int and max_files >= 0,
             "explicit source view byte/file capacity required")
     archive = SourceArchive(project, index_ref, evidence_cache)
-    views = []
-    for root, original in archive.originals.items():
-        views.append((root, original["files"]))
-        if original.get("event") in ("unit_completion", "unit_attempt"):
-            context = read_ref(project, original["context_ref"])
-            require(context["snapshot_root"] in archive.originals, "prepare source views requires indexed pre-start context")
-            files = dict(original["files"])
-            for artifact in context["manifest"]["artifacts"].values():
-                if artifact["path"] in context["files"]:
-                    files[artifact["path"]] = context["files"][artifact["path"]]
-            views.append((root, files))
-    descriptors = {sha(encoded(archive.descriptor(root, files))): (root, files) for root, files in views}
+    descriptors = archive.expected_views()
     sources = {}
     logical_members = sum(len(files) for _, files in descriptors.values())
     require(logical_members <= max_files, "source view logical file capacity exceeded")
@@ -920,7 +995,7 @@ def prepare_source_views(project, index_ref, *, evidence_cache, max_bytes, max_f
         # Link assembly deliberately changes ctime/nlink. Discard all pre-link
         # evidence and view memos, then independently resolve bytes and receipts
         # with a fresh ordinary resolver after every link has been created.
-        archive.resolver = EvidenceResolver(evidence_cache)
+        archive.resolver = archive.new_resolver(evidence_cache)
         archive.view_memos.clear()
         archive.private_blobs.clear()
         archive.view_files.clear()
@@ -1979,11 +2054,12 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
         source = archive.sources.get(path) if archive is not None else None
         target = archived_source_path(project, {key: source[key] for key in REF_KEYS}) if source else physical(project, path)
         result[path] = sha(target.read_bytes()) if target.is_file() else "directory" if target.is_dir() else None
+    archive = _source_archive.get()
+    policy = archive.resolver_policy if archive is not None else PreparedResolverPolicy(project, manifest)
     if include_external:
         # Bind prepared originals and readback receipts, including dependency
         # closure, without storing external machine paths or copying payloads.
-        resolver = EvidenceResolver(evidence_cache)
-        archive = _source_archive.get()
+        resolver = policy.new_resolver(evidence_cache)
         if archive is not None:
             external_refs.extend(source["evidence_ref"] for source in archive.sources.values())
         if checker is not None:
@@ -1994,6 +2070,9 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
         for key, path in resolver.resolved_paths.items():
             result["@evidence/" + key + "/original"] = sha(path.read_bytes())
             result["@evidence/" + key + "/receipt"] = sha(resolver._path("receipts", key + ".json").read_bytes())
+    if policy.digest is not None:
+        result["@policy/" + policy.logical] = policy.digest
+    policy.audit()
     return result
 
 

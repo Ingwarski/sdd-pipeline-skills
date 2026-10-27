@@ -85,6 +85,14 @@ bytes. Reserve measured preparation capacity before either operation; explicitly
 run `prepare-source-views --index-ref REF_JSON --max-bytes N --max-files N` before
 checking. The checker never fetches/prepares; neither mode proves tests/completion.
 
+Prepared-reference closures use the validated project metadata limits, including
+fresh resolvers. Project-aware storage may classify exact verified source-view
+members as payloads; controls and unknown JSON remain metadata. Require immutable
+native membership, ordinary-byte/inode proof, aggregate input/reference bounds
+and an operation-exit audit. Missing project context keeps conservative counting.
+Payload occupancy and logical file/generation accounting still apply; legitimate
+older views gain no current acceptance through classification.
+
 Its commands are:
 
 - `capture-context --unit ID --inventory reviewed.json`: returns the pre-start reference; index it in `execution_contexts` before the normal checker start boundary.

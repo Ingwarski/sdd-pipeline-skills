@@ -2543,10 +2543,18 @@ class Checker:
         self.checked, self.affected = set(), set()
         self.security_requirements = {}
         self.evidence_resolver = EvidenceResolver(self.evidence_resolver.cache)
+        policy = None
+        try:
+            policy = history_api().PreparedResolverPolicy(self.project, self._source_manifest, path_resolver=self.path)
+            policy.apply(self.evidence_resolver)
+        except (ValueError, OSError) as error:
+            self.issue("evidence_storage", "manifest", str(error))
         self._invocation_active = True
         try:
             report = self._run(node, after, audit, unit_action, unit_id, require_current=require_current, projections=projections)
             try:
+                if policy is not None:
+                    policy.audit()
                 for cache in (self.hash_cache, self.json_cache, self.evidence_resolver.hashes, self.evidence_resolver.documents):
                     for path, (signature, _) in cache.items():
                         if _regular(path) != signature:

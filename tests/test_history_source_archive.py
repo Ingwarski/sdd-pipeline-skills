@@ -639,6 +639,123 @@ class HistorySourceArchiveTests(unittest.TestCase):
         self.assertEqual(0, prepared.returncode, prepared.stdout + prepared.stderr)
         self.assertEqual(0, json.loads(prepared.stdout)['unique_copied_bytes'])
 
+    def write_transport_policy(self, *, files=10001, metadata_bytes=1024 * 1024 * 1024):
+        policy = copy.deepcopy(self.storage.policy)
+        policy['limits'].update(metadata_stop_files=files, metadata_stop_bytes=metadata_bytes)
+        self.p.write('forge/evidence-policy.json', json.dumps(policy))
+        return policy
+
+    def small_default_resolver(self):
+        original = self.helper.EvidenceResolver.__init__
+        def initialize(resolver, cache=None):
+            original(resolver, cache)
+            resolver.closure_limit = 2
+        return mock.patch.object(self.helper.EvidenceResolver, '__init__', initialize)
+
+    def partial_sources_across_roots(self):
+        records = copy.deepcopy(self.records)
+        records[0]['sources'] = records[0]['sources'][:2]
+        records[1]['sources'] = records[1]['sources'][:1]
+        self.assertEqual(3, len({source['evidence_ref']['artifact_id'] for entry in records for source in entry['sources']}))
+        return records
+
+    def test_policy_configured_above_10000_source_aggregate_and_default_overflow(self):
+        records = self.partial_sources_across_roots()
+        with self.small_default_resolver():
+            with self.assertRaisesRegex(ValueError, 'closure exceeds'):
+                self.helper.create_source_archive_index(self.p.root, records, evidence_cache=self.cache)
+            self.write_transport_policy(files=10001)
+            reference = self.helper.create_source_archive_index(self.p.root, records, evidence_cache=self.cache)
+            archive = self.helper.SourceArchive(self.p.root, reference, self.cache)
+            self.assertEqual(10001, archive.resolver.closure_limit)
+            self.assertEqual(1024 * 1024 * 1024, archive.resolver.metadata_limit)
+            for source in archive.sources.values():
+                archive.source({name: source[name] for name in self.helper.REF_KEYS})
+            self.assertEqual(3, len(archive.resolver.references))  # Actual aggregate across two original roots.
+            self.write_transport_policy(files=2)
+            with self.assertRaisesRegex(ValueError, 'closure exceeds'):
+                self.helper.create_source_archive_index(self.p.root, records, evidence_cache=self.cache)
+
+    def test_policy_applies_to_source_refresh_candidate_and_fresh_checker_runs(self):
+        self.write_transport_policy(files=10001)
+        self.select_index(view_strategy='shared_cache_links', encoding='sha_objects_v1', canonical=True)
+        with self.small_default_resolver():
+            self.prepare()  # Both pre-assembly and fresh post-link resolvers must retain policy.
+            checker = self.checker()
+            report = checker.run('development-plan', after=True)
+            self.assertEqual('passed', report['result'], report)
+            self.assertEqual(10001, checker.evidence_resolver.closure_limit)
+            checker.evidence_resolver.closure_limit = 1  # A previous instance is not a policy source.
+            report = checker.run('development-plan', after=True)
+            self.assertEqual('passed', report['result'], report)
+            self.assertEqual(10001, checker.evidence_resolver.closure_limit)
+            hashes = self.helper.candidate_hashes(self.p.root, self.m, evidence_cache=self.cache)
+            self.assertEqual(self.p.hash('forge/evidence-policy.json'), hashes['@policy/forge/evidence-policy.json'])
+            self.assertGreater(len([key for key in hashes if key.startswith('@evidence/')]), 4)
+
+    def test_policy_factory_defaults_bad_missing_and_symlink_fail(self):
+        policy = self.helper.PreparedResolverPolicy(self.p.root, {})
+        resolver = policy.new_resolver(self.cache)
+        self.assertEqual(10000, resolver.closure_limit)
+        self.assertEqual(128 * 1024 * 1024, resolver.metadata_limit)
+        with self.assertRaisesRegex(ValueError, 'missing'):
+            self.helper.PreparedResolverPolicy(self.p.root, {'evidence_storage': {'policy_path': 'forge/missing-policy.json'}})
+        self.p.write('forge/evidence-policy.json', '{"version":true}')
+        with self.assertRaises(ValueError):
+            self.helper.SourceArchive(self.p.root, self.index, self.cache)
+        path = self.p.root / 'forge/evidence-policy.json'
+        path.unlink()
+        path.symlink_to(self.cache / 'receipts' / (self.refs[0]['artifact_id'] + '.json'))
+        with self.assertRaises(ValueError):
+            self.helper.SourceArchive(self.p.root, self.index, self.cache)
+
+    def test_policy_identity_drift_and_byte_overflow_block(self):
+        self.write_transport_policy()
+        archive = self.helper.SourceArchive(self.p.root, self.index, self.cache)
+        path = self.p.root / 'forge/evidence-policy.json'
+        original = path.read_bytes()
+        path.write_bytes(original + b'\n')
+        with self.assertRaisesRegex(ValueError, 'policy changed'):
+            archive.new_resolver(self.cache)
+        path.write_bytes(original)
+        self.prepare()
+        checker = self.checker()
+        implementation = checker._run_invocation
+        def drift(*args, **kwargs):
+            result = implementation(*args, **kwargs)
+            path.write_bytes(original + b'\n')
+            return result
+        with mock.patch.object(checker, '_run_invocation', side_effect=drift):
+            self.assertNotEqual('passed', checker.run('development-plan', after=True)['result'])
+        self.write_transport_policy(metadata_bytes=1)
+        with self.assertRaisesRegex(ValueError, 'JSON exceeds'):
+            self.helper.create_source_archive_index(self.p.root, self.records, evidence_cache=self.cache)
+
+    def test_historical_checker_ordinary_policy_is_frozen_transport_policy_is_current(self):
+        fixture = policy_fixture.AttemptPolicyLineageTests('runTest')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.policy['limits']['metadata_stop_files'] = 2
+        fixture.original_raw = (json.dumps(fixture.policy, indent=4) + '\n\n').encode()
+        (fixture.p.root / 'forge/evidence-policy.json').write_bytes(fixture.original_raw)
+        fixture.m['evidence_accounting']['policy_sha256'] = self.helper.sha(fixture.original_raw)
+        attempt = fixture.archive()
+        original_context = fixture.base.read(fixture.fixture.context)
+        fixture.transition(key='metadata_stop_files', amount=9999)
+        self.p, self.m, self.helper = fixture.p, fixture.m, fixture.helper
+        self.context, self.completion = fixture.fixture.context, attempt
+        self.archive_records((self.context, attempt))
+        self.prepare()
+        archive = self.helper.SourceArchive(self.p.root, self.index, self.cache)
+        self.assertEqual(10001, archive.resolver.closure_limit)
+        historical = self.helper.historical_checker(self.p.root, original_context['manifest'], original_context,
+            evidence_cache=self.cache, source_archive_index_ref=self.index)
+        historical._history_capturing = 'U-1'
+        report = historical.run('implementation', unit_action='start', unit_id='U-1')
+        self.assertEqual('passed', report['result'], report)
+        self.assertEqual(2, historical.evidence_resolver.closure_limit)
+        self.assertEqual(original_context, self.helper.read_ref(self.p.root, self.context))
+
     def test_existing_local_corruption_still_fails_without_mapping(self):
         frozen = self.records[0]['sources'][0]
         (self.p.root / frozen['path']).write_bytes(b'corrupt-local')

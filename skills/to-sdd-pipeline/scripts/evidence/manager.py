@@ -43,8 +43,13 @@ def timestamp(value):
 
 
 class Manager:
-    def __init__(self, transport, home, policy):
+    def __init__(self, transport, home, policy, *, project=None):
         self.transport, self.policy = transport, validate_policy(policy)
+        self.project = Path(project) if project is not None else None
+        if self.project is not None and (not self.project.is_absolute()
+                or self.project.resolve(strict=True) != self.project or self.project.is_symlink()
+                or not self.project.is_dir()):
+            raise EvidenceError("source payload classification requires a canonical project directory")
         self.home = Path(home).resolve()
         self.state = self.home / "projects" / self.policy["project_id"]
         self.cache = self.state / "cache"
@@ -65,6 +70,7 @@ class Manager:
         self._working_migration = False
         self._catalog_thread_lock = threading.RLock()
         self._catalog_lock_depth = 0
+        self._source_payload_scope = None
 
     def _coordinator_identity(self, identity):
         """Publish once; the OS releases initialization ownership after a crash."""
@@ -148,7 +154,16 @@ class Manager:
                 try:
                     yield
                 finally:
-                    self._catalog_lock_depth = 0
+                    try:
+                        self._audit_source_payloads()
+                    finally:
+                        self._source_payload_scope = None
+                        self._catalog_lock_depth = 0
+
+    def _audit_source_payloads(self):
+        """Check retained proofs before metadata-dependent commit boundaries."""
+        if self._source_payload_scope is not None:
+            self._source_payload_scope.audit()
 
     def _catalog_guard(self, timeout=600):
         return self._advisory_lock(self.state / ".catalog-lifecycle.lock", timeout)
@@ -443,6 +458,7 @@ class Manager:
         if actual_bytes is None:
             actual_bytes = self._local_occupancy()[2]
         ledger.reconcile_local("transport-checkpoints", actual_bytes, "staging")
+        self._audit_source_payloads()
         ledger.reconcile_metadata("transport-checkpoints", self._existing_bytes(metadata), len(metadata))
 
     @contextmanager
@@ -463,6 +479,7 @@ class Manager:
             finally:
                 records = self._checkpoint_records()
                 metadata = [path for path in records if path.suffix == ".json"]
+                self._audit_source_payloads()
                 result = ledger.finish_working(ident, local_key="transport-checkpoints",
                     actual_bytes=self._local_occupancy()[2], kind="staging", metadata_key="transport-checkpoints",
                     actual_metadata_bytes=self._existing_bytes(metadata), actual_metadata_files=len(metadata))
@@ -515,6 +532,7 @@ class Manager:
         ledger.reconcile_local("cache", cache_bytes, "cache")
         ledger.reconcile_local("manager-working", working_bytes, "staging")
         records = self._metadata_records(include_checkpoints=False)
+        self._audit_source_payloads()
         ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
         self._checkpoint_allocations(ledger, actual_bytes=checkpoint_bytes)
 
@@ -527,6 +545,29 @@ class Manager:
                 p for p in self._transport_records() if p.suffix == ".json"]
         if include_checkpoints:
             records += [p for p in self._checkpoint_records() if p.suffix == ".json"]
+        candidates = [p for p in records if p.is_relative_to(self.cache / "source-views")]
+        if self.project is not None and candidates:
+            from .source_payloads import SourcePayloadScope
+            standalone = not self._catalog_lock_depth
+            scope = self._source_payload_scope
+            if scope is None:
+                scope = SourcePayloadScope(self.project, self.cache, self.policy)
+                if not standalone:
+                    self._source_payload_scope = scope
+            try:
+                payloads = scope.payload_paths(candidates)
+                if type(payloads) is not set or not payloads <= set(candidates):
+                    raise EvidenceError("source payload proof returned foreign metadata paths")
+                controls = scope.control_paths()
+                if type(controls) is not set or any(not isinstance(p, Path) or not p.is_absolute()
+                        or not (p.is_relative_to(self.project) or p.is_relative_to(self.cache)) for p in controls):
+                    raise EvidenceError("source payload proof returned foreign control paths")
+                if payloads & controls:
+                    raise EvidenceError("source payload proof cannot exempt a consumed control")
+                records = list(dict.fromkeys([p for p in records if p not in payloads] + sorted(controls)))
+            finally:
+                if standalone:
+                    scope.audit()
         return records
 
     @contextmanager
@@ -587,6 +628,7 @@ class Manager:
                         allocations.update(local_key="manager-working", actual_bytes=working,
                             kind="staging", cache_key="cache", actual_cache_bytes=cache)
                         self._checkpoint_allocations(ledger, actual_bytes=checkpoints)
+                    self._audit_source_payloads()
                     result = ledger.finish_working(ident, **allocations)
                     violations = [v for v in result["violations"] if not
                         (not metadata_bytes and not metadata_files and v.startswith("combined metadata")) and not
@@ -601,6 +643,8 @@ class Manager:
 
     def _transport_call(self, method, *args, **kwargs):
         """Reserve durable transfer checkpoints separately from host queue peaks."""
+        if method == "put":
+            self._audit_source_payloads()
         if method == "put" and self._checkpoint_root() is not None:
             with self._checkpoint_working(Path(args[1]).stat().st_size):
                 return self._transport_host_call(method, *args, **kwargs)
@@ -821,6 +865,7 @@ class Manager:
                     metadata_bytes=total, metadata_files=len(keys) + len(index_keys) + len(authorities))
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._audit_source_payloads()
             ledger.reconcile_metadata("remote-catalog", total, len(keys) + len(index_keys) + len(authorities))
         return root
 
@@ -849,8 +894,10 @@ class Manager:
         active = {"content:" + k for k in unique} | {"pack:" + k for k in catalog["packs"]} | {"unreconciled-pack:" + k for k in catalog.get("unreconciled_packs", {})}
         for ident in existing - active:
             ledger.remove_object(ident)
+        self._audit_source_payloads()
         ledger.reconcile_metadata("remote-catalog", catalog["metadata_bytes"], catalog["metadata_files"])
         records = self._metadata_records(include_checkpoints=False)
+        self._audit_source_payloads()
         ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
         cache_bytes, working_bytes, checkpoint_bytes = self._local_occupancy()
         self._checkpoint_allocations(ledger, actual_bytes=checkpoint_bytes)
@@ -923,6 +970,7 @@ class Manager:
             raise EvidenceError("exact combined catalog metadata allowance exhausted; verified index is recoverable")
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._audit_source_payloads()
             ledger.reconcile_metadata("remote-catalog", catalog["metadata_bytes"] + descriptor["size"], catalog["metadata_files"] + 1)
         self._put_json(self.prefix + "roots/" + str(root["sequence"]).zfill(12) + "-", root)
         return root
@@ -1559,6 +1607,7 @@ class Manager:
                     actual += ref["size"]
                     restored.append(str(target))
             finally:
+                self._audit_source_payloads()
                 result = ledger.finish_working(reservation, local_key=key, actual_bytes=old_bytes + actual, kind="restore")
             if result["incomplete"]:
                 raise EvidenceError("restoration resource settlement incomplete: " + "; ".join(result["violations"]))
@@ -1887,6 +1936,7 @@ class Manager:
                     action = {"action": "reconcile-exited-working-reservation", "reservation_id": row["id"], "dry_run": dry_run}
                     if not dry_run:
                         self._local_records(ledger)
+                        self._audit_source_payloads()
                         ledger.finish_working(row["id"])
                         action["verified"] = True
                     actions.append(action)

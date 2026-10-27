@@ -65,7 +65,7 @@ def load_manager(args):
         if project and candidate.is_relative_to(project):
             raise EvidenceError("evidence store and working space must be outside the project")
     state = home / "projects" / policy["project_id"] / "transfers"
-    manager = Manager(transport(config, state, getattr(args, "host_session", None)), home, policy)
+    manager = Manager(transport(config, state, getattr(args, "host_session", None)), home, policy, project=project)
     if not args.policy and not project:
         catalog = manager._catalog(recover_policy=True)
         if not catalog.get("root_key") or "policy" not in catalog:
