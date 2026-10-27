@@ -256,8 +256,88 @@ class MetadataV3Tests(unittest.TestCase):
     def test_qualified_new_raw_hash_is_bound_into_closed_receipt(self):
         observer = self.type_a(); self.nodes.pop(102); self.nodes.pop(101)
         observer.prepare_cleanup(3); observer.close(3)
-        value = self.record_now(); value['observation_session']['closure']['helper_diagnostics_sha256'] = '0' * 64; self.save(value)
-        with self.assertRaisesRegex(EvidenceError, 'diagnostic integrity'): self.record_now()
+        value = self.record_now(); value['observation_session']['closure']['metadata_capture_sha256'] = '0' * 64; self.save(value)
+        with self.assertRaisesRegex(EvidenceError, 'capture integrity'): self.record_now()
+
+    def test_private_event_map_survives_deferred_ancestry_and_cannot_use_observation_numbers(self):
+        observer = self.registered()
+        observer._sampler._emit('absent', 999)  # A real private fixture event, not a fabricated clock/order.
+        self.nodes[103] = fixtures.snapshot(103, 1200, 1100, birth=105, parent_version=10, ppid=1, pgid=666)
+        self.assertFalse(observer.observe(103))
+        prefix = copy.deepcopy(observer.value['observations'])
+        child_sequence = prefix[-1]['sequence']; binding = copy.deepcopy(observer.value['native_sampler']['full_capture_sequences'][str(child_sequence)])
+        self.assertNotEqual(binding['capture_sequence'], child_sequence)
+        self.nodes[102] = fixtures.snapshot(102, 1100, 1000, birth=103, parent_version=10, ppid=1, pgid=555)
+        self.assertTrue(observer.observe(102))
+        session = self.record_now()['observation_session']; observed.validate_session(session)
+        self.assertEqual(session['observations'][:len(prefix)], prefix)
+        self.assertEqual(session['native_sampler']['full_capture_sequences'][str(child_sequence)], binding)
+        self.assertEqual(session['writers']['1200']['observation_sequence'], child_sequence)
+        self.assertEqual(session['writers']['1200']['lineage_observation_sequences'], [1, 3, 2])
+
+    def test_forced_root_fresh_full_reprojects_without_invalidating_metadata_references(self):
+        observer = self.type_a(); prefix = copy.deepcopy(observer.value['observations'])
+        diagnostic = copy.deepcopy(observer.value['native_sampler']['helper_diagnostics'][0])
+        binding = copy.deepcopy(observer.value['native_sampler']['helper_diagnostic_bindings'])
+        for _ in range(2):
+            image = observer.request(dict(command='observe_pid', pid=101, include_image=True))['image']
+            session = self.record_now()['observation_session']; observed.validate_registry(self.record_now())
+            entry = session['native_sampler']['full_capture_sequences'][str(image['observation_sequence'])]
+            self.assertEqual(entry['capture_sequence'], image['capture_sequence'])
+            self.assertEqual(entry, observed._full_capture_binding(session['observations'][image['observation_sequence'] - 1], image['capture_sequence']))
+            self.assertEqual(session['observations'][:len(prefix)], prefix)
+            self.assertEqual(session['native_sampler']['helper_diagnostics'][0], diagnostic)
+            self.assertEqual(session['native_sampler']['helper_diagnostic_bindings'], binding)
+            self.assertEqual(session['writers']['1100']['lineage_observation_sequences'][0], image['observation_sequence'])
+
+    def test_full_binding_transaction_failure_rolls_back_private_durable_watermark(self):
+        observer = self.registered(); self.helper()
+        original = self.record_now(); sequence = observer.value['native_sampler']['durable_sequence']
+        with patch.object(observed, '_full_capture_binding', return_value=dict(capture_sequence=999, full_sha256='0' * 64)):
+            with self.assertRaisesRegex(EvidenceError, 'lost unflushed history'): observer.observe(102)
+        self.assertEqual(self.record_now(), original)
+        self.assertEqual(observer.value['native_sampler']['durable_sequence'], sequence)
+        self.assertTrue(observer._drain_lost)
+        with self.assertRaises(EvidenceError): observer.prepare_cleanup(3)
+
+    def test_barrier_and_closure_hash_complete_map_and_current_diagnostic_bindings(self):
+        observer = self.type_a(); self.nodes.pop(102); self.nodes.pop(101)
+        observer.prepare_cleanup(3)
+        original = self.record_now(); session = original['observation_session']
+        self.assertEqual(session['cleanup_barrier']['metadata_capture_sha256'], observed._metadata_capture_digest(session))
+        broken = copy.deepcopy(original); broken['observation_session']['cleanup_barrier']['metadata_capture_sha256'] = '0' * 64
+        self.save(broken)
+        with self.assertRaisesRegex(EvidenceError, 'pre-cleanup FULL'): self.record_now()
+        self.save(original); observer.close(3)
+        closed = self.record_now(); final = closed['observation_session']
+        self.assertEqual(final['closure']['metadata_capture_sha256'], observed._metadata_capture_digest(final))
+        self.assertNotIn('helper_diagnostics_sha256', final['closure'])
+        for variant in ('map', 'binding', 'closure', 'barrier'):
+            value = copy.deepcopy(closed); current = value['observation_session']
+            if variant == 'map': next(iter(current['native_sampler']['full_capture_sequences'].values()))['full_sha256'] = '0' * 64
+            elif variant == 'binding': next(iter(current['native_sampler']['helper_diagnostic_bindings'].values()))['qualification_sha256'] = '0' * 64
+            else: current['closure' if variant == 'closure' else 'cleanup_barrier']['metadata_capture_sha256'] = '0' * 64
+            self.save(value)
+            with self.subTest(variant=variant), self.assertRaises(EvidenceError): self.record_now()
+            self.assertTrue(fixtures.producer.recover_producers(self.ledger, dry_run=True)['incomplete'])
+            with self.assertRaises(EvidenceError): fixtures.quarantine.original_state(self.ledger, self.attempt)
+        # Rebound per-FULL and qualifier hashes are internally coherent; the
+        # original whole-map barrier and final closure must still catch change.
+        rebound = copy.deepcopy(closed); current = rebound['observation_session']; sampler = current['native_sampler']
+        sequence, entry = next(iter(sampler['full_capture_sequences'].items()))
+        self.assertGreater(entry['capture_sequence'], 1)
+        sampler['full_capture_sequences'][sequence] = observed._full_capture_binding(current['observations'][int(sequence) - 1], 1)
+        item = sampler['helper_diagnostics'][0]
+        item['qualification']['full_capture_reference'] = copy.deepcopy(sampler['full_capture_sequences'][sequence])
+        sampler['helper_diagnostic_bindings'][str(item['capture_sequence'])] = observed._helper_binding(item)
+        self.assertTrue(observed._valid_full_captures(current))
+        self.assertTrue(observed._valid_metadata3_qualification(current, item, item['qualification']))
+        self.save(rebound)
+        with self.assertRaisesRegex(EvidenceError, 'pre-cleanup FULL'): self.record_now()
+        current['cleanup_barrier']['metadata_capture_sha256'] = observed._metadata_capture_digest(current)
+        self.save(rebound)
+        with self.assertRaisesRegex(EvidenceError, 'closed FULL'): self.record_now()
+        self.save(closed)
 
 
 class MetadataV3ReceiptTests(unittest.TestCase):
@@ -287,6 +367,11 @@ class MetadataV3ReceiptTests(unittest.TestCase):
             pid=102, raw=raw, path_status='unobserved', image_status='nonqualifying', path_query=query,
             followup=dict(outcome='snapshot', snapshot=post, problem=None), capture=capture,
             qualification=dict(version=3, mode=subtype, root='1000', before_observation_sequence=before, after_observation_sequence=after))
+        caps = {2: 1, 3: 3} if kind == 'a' else {2: 5}
+        sampler['durable_sequence'] = 4 if kind == 'a' else 5
+        sampler['full_capture_sequences'] = {str(item['sequence']): observed._full_capture_binding(item, caps[item['sequence']])
+            for item in session['observations'][1:]}
+        diagnostic['qualification']['full_capture_reference'] = copy.deepcopy(sampler['full_capture_sequences'][str(before or after)])
         sampler['helper_diagnostics'] = [diagnostic]; sampler['helper_diagnostic_bindings'] = {}
         self.rebind(session); observed.validate_session(session)
         return session
@@ -296,7 +381,7 @@ class MetadataV3ReceiptTests(unittest.TestCase):
 
     def rebind(self, session):
         item = self.diagnostic(session)
-        session['native_sampler']['helper_diagnostic_bindings'][str(item['capture_sequence'])] = observed._helper_raw_digest(item)
+        session['native_sampler']['helper_diagnostic_bindings'] = {str(item['capture_sequence']): observed._helper_binding(item)}
 
     def test_three_explicit_and_two_rejects_new_type_without_reinterpretation(self):
         for kind in ('a', 'b'):
@@ -341,6 +426,9 @@ class MetadataV3ReceiptTests(unittest.TestCase):
         newer['idversion'] += 1; newer['executable_uuid'] = '56565656-5656-4565-8565-565656565656'
         session['observations'].append(dict(sequence=4, snapshot=newer, executable='/fixture/newer'))
         session['sequence'] = 4; session['writers']['1100'].update(observation_sequence=4, lineage_observation_sequences=[1, 4])
+        session['native_sampler']['full_capture_sequences']['4'] = observed._full_capture_binding(session['observations'][-1], 4)
+        self.diagnostic(session)['capture_sequence'] = session['native_sampler']['durable_sequence'] = 5
+        self.rebind(session)
         with self.assertRaises(EvidenceError): observed.validate_session(session)
 
     def test_b_initial_first_full_and_confirmation_inverse_table(self):
@@ -375,6 +463,10 @@ class MetadataV3ReceiptTests(unittest.TestCase):
         session['observations'] += [dict(sequence=2, snapshot=prior, executable='/fixture/prior'), first]
         session['sequence'] = 3; session['writers']['1100'].update(observation_sequence=3, lineage_observation_sequences=[1, 3])
         item['qualification']['after_observation_sequence'] = 3
+        session['native_sampler']['full_capture_sequences'] = {'2': observed._full_capture_binding(session['observations'][1], 1),
+                                                              '3': observed._full_capture_binding(first, 5)}
+        item['qualification']['full_capture_reference'] = copy.deepcopy(session['native_sampler']['full_capture_sequences']['3'])
+        self.rebind(session)
         with self.assertRaises(EvidenceError): observed.validate_session(session)
         graph = native.LineageGraph(8); root = session['observations'][0]['snapshot']
         graph.add_root(root, expected_identity=root['identity'], expected_unique_id='1000')
@@ -388,6 +480,99 @@ class MetadataV3ReceiptTests(unittest.TestCase):
                 if field == 'pid': session['roots']['1000']['pid'] = 102
                 else: session['roots']['1100'] = session['roots']['1000']
                 self.assertFalse(observed._valid_metadata3_qualification(session, item, item['qualification']))
+
+
+    def append_full(self, session, node, capture):
+        sequence = session['sequence'] + 1
+        item = dict(sequence=sequence, snapshot=node, executable='/fixture/full')
+        session['observations'].append(item); session['sequence'] = sequence
+        sampler = session['native_sampler']; sampler['durable_sequence'] = max(sampler['durable_sequence'], capture)
+        sampler['full_capture_sequences'][str(sequence)] = observed._full_capture_binding(item, capture)
+        if node['unique_id'] == '1100':
+            session['writers']['1100'].update(observation_sequence=sequence, lineage_observation_sequences=[1, sequence])
+        else:
+            session['writers']['1100']['lineage_observation_sequences'] = [sequence, session['writers']['1100']['observation_sequence']]
+        return sequence
+
+    def test_latest_capture_precedes_clock_checks_four_review_counterexamples(self):
+        for name, mono, wall, post_mono, post_wall in (
+                ('wall_regression', 6000, 5200, 8000, 5300), ('wall_tie', 6000, 5500, 8000, 5600),
+                ('mono_regression', 5200, 6000, 8000, 8000), ('mono_tie', 5500, 6000, 8000, 8000)):
+            session = self.session('a'); diagnostic = self.diagnostic(session)
+            newer = self.base.at(session['observations'][2]['snapshot'], 5500)
+            newer['idversion'] += 1; newer['executable_uuid'] = '56565656-5656-4565-8565-565656565656'
+            self.append_full(session, newer, 4)
+            diagnostic['capture_sequence'] = session['native_sampler']['durable_sequence'] = 5
+            diagnostic['raw']['observed'] = dict(monotonic_ns=str(mono), wall_time_ns=str(2000000000000 + wall))
+            diagnostic['followup']['snapshot']['observed'] = dict(monotonic_ns=str(post_mono), wall_time_ns=str(2000000000000 + post_wall))
+            self.rebind(session)
+            self.assertTrue(observed._valid_full_captures(session))
+            with self.subTest(case=name, ref='ancient'), self.assertRaises(EvidenceError): observed.validate_session(session)
+            diagnostic['qualification']['before_observation_sequence'] = 4
+            diagnostic['qualification']['full_capture_reference'] = copy.deepcopy(session['native_sampler']['full_capture_sequences']['4'])
+            self.rebind(session)
+            with self.subTest(case=name, ref='actual_latest'), self.assertRaises(EvidenceError): observed.validate_session(session)
+
+    def test_latest_matching_full_and_legitimate_future_full_or_root_refresh(self):
+        session = self.session('a'); diagnostic = self.diagnostic(session)
+        self.append_full(session, self.base.at(session['observations'][2]['snapshot'], 5500), 4)
+        diagnostic['capture_sequence'] = session['native_sampler']['durable_sequence'] = 5
+        diagnostic['qualification']['before_observation_sequence'] = 4
+        diagnostic['qualification']['full_capture_reference'] = copy.deepcopy(session['native_sampler']['full_capture_sequences']['4'])
+        self.rebind(session); observed.validate_session(session)
+        for root_refresh in (False, True):
+            value = self.session('a'); immutable = copy.deepcopy(value['observations'])
+            node = self.base.at(value['observations'][0 if root_refresh else 2]['snapshot'], 9000)
+            if not root_refresh:
+                node['idversion'] += 1; node['executable_uuid'] = '56565656-5656-4565-8565-565656565656'
+            self.append_full(value, node, 5)
+            observed.validate_session(value)
+            self.assertEqual(value['observations'][:len(immutable)], immutable)
+
+    def test_b_actual_first_capture_not_future_clocks_or_later_convenience(self):
+        session = self.session('b'); diagnostic = self.diagnostic(session)
+        mapping = session['native_sampler']['full_capture_sequences']
+        mapping['2'] = observed._full_capture_binding(session['observations'][1], 3)
+        diagnostic['qualification']['full_capture_reference'] = copy.deepcopy(mapping['2']); self.rebind(session)
+        self.assertTrue(observed._valid_full_captures(session))
+        with self.assertRaises(EvidenceError): observed.validate_session(session)
+        value = self.session('b'); self.append_full(value, self.base.at(value['observations'][1]['snapshot'], 9000), 6)
+        observed.validate_session(value)
+
+    def test_complete_full_map_shape_order_collision_hash_and_qualification_inverses(self):
+        original = self.session('a')
+        for variant in ('missing_map', 'missing', 'extra', 'root_fabricated', 'bool_cap', 'zero', 'future', 'duplicate',
+                        'reordered', 'digest', 'body', 'diag_collision', 'exec_collision', 'status_collision', 'pending_collision',
+                        'ref_cap', 'ref_bool', 'ref_hash', 'ref_removed', 'binding_raw', 'binding_qualification'):
+            session = copy.deepcopy(original); sampler = session['native_sampler']; mapping = sampler['full_capture_sequences']
+            item = self.diagnostic(session); reference = item['qualification']['full_capture_reference']
+            if variant == 'missing_map': sampler.pop('full_capture_sequences')
+            elif variant == 'missing': mapping.pop('2')
+            elif variant == 'extra': mapping['99'] = copy.deepcopy(mapping['3'])
+            elif variant == 'root_fabricated': mapping['1'] = observed._full_capture_binding(session['observations'][0], 2)
+            elif variant == 'bool_cap': mapping['2']['capture_sequence'] = True
+            elif variant == 'zero': mapping['2'] = observed._full_capture_binding(session['observations'][1], 0)
+            elif variant == 'future': mapping['3'] = observed._full_capture_binding(session['observations'][2], 5)
+            elif variant == 'duplicate': mapping['3'] = observed._full_capture_binding(session['observations'][2], 1)
+            elif variant == 'reordered':
+                mapping['2'] = observed._full_capture_binding(session['observations'][1], 3)
+                mapping['3'] = observed._full_capture_binding(session['observations'][2], 1)
+            elif variant == 'digest': mapping['3']['full_sha256'] = '0' * 64
+            elif variant == 'body': session['observations'][2]['executable'] = '/fixture/replaced'
+            elif variant == 'diag_collision': mapping['3'] = observed._full_capture_binding(session['observations'][2], 4)
+            elif variant in ('exec_collision', 'status_collision', 'pending_collision'):
+                if variant == 'exec_collision': sampler['exec_transitions'] = [dict(capture_sequence=3)]
+                elif variant == 'status_collision': sampler['statuses'] = {'1100': dict(capture_sequence=3)}
+                else: sampler['unresolved'] = [dict(sequence=3)]
+                self.assertFalse(observed._valid_full_captures(session)); continue
+            elif variant == 'ref_cap': reference['capture_sequence'] = 2
+            elif variant == 'ref_bool': reference['capture_sequence'] = True
+            elif variant == 'ref_hash': reference['full_sha256'] = '0' * 64
+            elif variant == 'ref_removed': item['qualification'].pop('full_capture_reference')
+            elif variant == 'binding_raw': sampler['helper_diagnostic_bindings']['4']['raw_sha256'] = '0' * 64
+            else: sampler['helper_diagnostic_bindings']['4']['qualification_sha256'] = '0' * 64
+            if not variant.startswith('binding_'): self.rebind(session)
+            with self.subTest(variant=variant), self.assertRaises(EvidenceError): observed.validate_session(session)
 
 
 class MetadataV3CaptureTests(unittest.TestCase):

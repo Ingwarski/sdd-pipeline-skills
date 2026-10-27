@@ -374,32 +374,95 @@ def _lifetime_fulls(session, raw):
             and item['snapshot']['unique_id'] == raw['unique_id']]
 
 
+def _full_capture_binding(observation, capture_sequence):
+    return dict(capture_sequence=capture_sequence, full_sha256=hashlib.sha256(canonical(dict(
+        observation=observation, capture_sequence=capture_sequence)).encode()).hexdigest())
+
+
+def _valid_full_captures(session):
+    """Private event provenance, never a kernel authentication mechanism."""
+    collector = session['native_sampler']
+    mapping = collector.get('full_capture_sequences')
+    observations = session['observations']
+    if (type(mapping) is not dict or len(mapping) > MAX_OBSERVATIONS or type(observations) is not list
+            or any(type(item) is not dict or set(item) != {'sequence', 'snapshot', 'executable'}
+                   or type(item['sequence']) is not int or item['sequence'] != index
+                   or not native.valid_snapshot(item['snapshot']) for index, item in enumerate(observations, 1))):
+        return False
+    initial = set()
+    for key, root in session['roots'].items():
+        if type(root) is not dict:
+            return False
+        sequence = root.get('observation_sequence')
+        if type(sequence) is not int or not 1 <= sequence <= len(session['observations']) or sequence in initial:
+            return False
+        item = session['observations'][sequence - 1]
+        if item['snapshot']['unique_id'] != key or item['snapshot']['identity'] != root.get('identity'):
+            return False
+        initial.add(sequence)
+    expected = {str(item['sequence']) for item in session['observations'] if item['sequence'] not in initial}
+    if set(mapping) != expected:
+        return False
+    occupied = set()
+    for entries, key in ((collector['helper_diagnostics'], 'capture_sequence'),
+                         (collector['exec_transitions'], 'capture_sequence'),
+                         (collector['statuses'].values(), 'capture_sequence'), (collector['unresolved'], 'sequence')):
+        for entry in entries:
+            if (type(entry) is not dict or type(entry.get(key)) is not int
+                    or not 1 <= entry[key] <= collector['durable_sequence'] or entry[key] in occupied):
+                return False
+            occupied.add(entry[key])
+    previous = 0
+    for item in session['observations']:
+        if item['sequence'] in initial:
+            continue  # Only the exact manual registration FULL lacks an event.
+        entry = mapping[str(item['sequence'])]
+        if (type(entry) is not dict or set(entry) != {'capture_sequence', 'full_sha256'}
+                or type(entry['capture_sequence']) is not int
+                or not previous < entry['capture_sequence'] <= collector['durable_sequence']
+                or entry['capture_sequence'] in occupied
+                or entry != _full_capture_binding(item, entry['capture_sequence'])):
+            return False
+        previous = entry['capture_sequence']
+    return True
+
+
 def _valid_metadata3_qualification(session, diagnostic, qualification):
-    fields = {'version', 'mode', 'root', 'before_observation_sequence', 'after_observation_sequence'}
+    fields = {'version', 'mode', 'root', 'before_observation_sequence', 'after_observation_sequence', 'full_capture_reference'}
     if (session.get('native_sampler', {}).get('version') != 3 or _metadata_root(session, diagnostic['raw'])
             or type(qualification) is not dict or set(qualification) != fields
             or type(qualification['version']) is not int or qualification['version'] != 3
             or qualification['mode'] != diagnostic['subtype'] or qualification['root'] not in session['roots']
-            or not _metadata3_capture_valid(diagnostic)):
+            or type(qualification['full_capture_reference']) is not dict
+            or set(qualification['full_capture_reference']) != {'capture_sequence', 'full_sha256'}
+            or type(qualification['full_capture_reference']['capture_sequence']) is not int
+            or type(qualification['full_capture_reference']['full_sha256']) is not str
+            or not _metadata3_capture_valid(diagnostic) or not _valid_full_captures(session)):
         return False
     raw, post = diagnostic['raw'], diagnostic['followup']['snapshot']
     fulls = _lifetime_fulls(session, raw)
+    mapping = session['native_sampler']['full_capture_sequences']
+    capture = diagnostic['capture_sequence']
     if diagnostic['subtype'] == 'known_full_epoch_state_gap':
-        prior = [item for item in fulls if _native_order(item['snapshot'], raw)]
+        prior = [item for item in fulls if mapping[str(item['sequence'])]['capture_sequence'] < capture]
         if not prior or qualification['after_observation_sequence'] is not None:
             return False
-        item = prior[-1]
-        if qualification['before_observation_sequence'] != item['sequence']:
+        item = max(prior, key=lambda item: mapping[str(item['sequence'])]['capture_sequence'])
+        if (qualification['before_observation_sequence'] != item['sequence']
+                or qualification['full_capture_reference'] != mapping[str(item['sequence'])]):
             return False
         witness = _helper_full(session, item['sequence'], raw)
         return (witness is not None and witness[1] == qualification['root'] and item['snapshot']['status'] == 'alive'
+                and _native_order(item['snapshot'], raw)
                 and {key: value for key, value in semantic(item['snapshot']).items() if key not in ('current_ppid', 'pgid')}
                     == {key: value for key, value in semantic(raw).items() if key not in ('current_ppid', 'pgid')})
     if not fulls or qualification['before_observation_sequence'] is not None:
         return False
-    first = fulls[0]
+    first = min(fulls, key=lambda item: mapping[str(item['sequence'])]['capture_sequence'])
     witness = _helper_full(session, first['sequence'], raw)
-    return (qualification['after_observation_sequence'] == first['sequence'] and witness is not None
+    return (qualification['after_observation_sequence'] == first['sequence']
+            and qualification['full_capture_reference'] == mapping[str(first['sequence'])]
+            and mapping[str(first['sequence'])]['capture_sequence'] > capture and witness is not None
             and witness[1] == qualification['root'] and semantic(first['snapshot']) == semantic(post)
             and _native_order(post, first['snapshot']))
 
@@ -409,14 +472,29 @@ def _helper_raw_digest(diagnostic):
     return hashlib.sha256(canonical({key: value for key, value in diagnostic.items() if key != 'qualification'}).encode()).hexdigest()
 
 
+def _helper_binding(diagnostic):
+    if diagnostic.get('version') != 3:
+        return _helper_raw_digest(diagnostic)
+    return dict(version=1, raw_sha256=_helper_raw_digest(diagnostic), qualification_sha256=hashlib.sha256(
+        canonical(diagnostic['qualification']).encode()).hexdigest())
+
+
+def _metadata_capture_digest(session):
+    collector = session['native_sampler']
+    return hashlib.sha256(canonical(dict(full_capture_sequences=collector['full_capture_sequences'],
+        helper_diagnostic_bindings=collector['helper_diagnostic_bindings'])).encode()).hexdigest()
+
+
 def _valid_sampler_shape(collector):
     if type(collector) is not dict or type(collector.get('version')) is not int:
         return False
     base = {'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses'}
     if collector['version'] == 1:
         return set(collector) in (base, base | {'exec_transitions'})
-    if collector['version'] in (2, 3):
+    if collector['version'] == 2:
         return set(collector) == base | {'exec_transitions', 'helper_diagnostics', 'helper_diagnostic_bindings'}
+    if collector['version'] == 3:
+        return set(collector) == base | {'exec_transitions', 'helper_diagnostics', 'helper_diagnostic_bindings', 'full_capture_sequences'}
     return False
 
 
@@ -666,7 +744,7 @@ def validate_session(value, *, current_sources=False):
                     or diagnostic['path_status'] != 'unobserved' or diagnostic['image_status'] != 'nonqualifying'):
                 raise EvidenceError('invalid nonqualifying helper image/status diagnostic')
             seen_diagnostics.add(diagnostic['capture_sequence'])
-            if bindings.get(str(diagnostic['capture_sequence'])) != _helper_raw_digest(diagnostic):
+            if bindings.get(str(diagnostic['capture_sequence'])) != _helper_binding(diagnostic):
                 raise EvidenceError('helper raw diagnostic bytes were changed or removed')
             follow = diagnostic['followup']
             if (type(follow) is not dict or set(follow) != {'outcome', 'snapshot', 'problem'}
@@ -687,6 +765,8 @@ def validate_session(value, *, current_sources=False):
                 raise EvidenceError('invalid helper diagnostic full-witness qualification')
         if set(bindings) != {str(sequence) for sequence in seen_diagnostics}:
             raise EvidenceError('helper raw diagnostic receipt was removed')
+        if collector['version'] == 3 and not _valid_full_captures(value):
+            raise EvidenceError('invalid complete FULL/private capture event binding')
         if value['state'] == 'closed' and (collector['state'] != 'stopped' or collector['unresolved'] or _unresolved_exec(value) or _unresolved_helpers(value)):
             raise EvidenceError('closed observer lacks joined/drained native sampler')
     if 'working_binding' in value:
@@ -817,7 +897,10 @@ def validate_session(value, *, current_sources=False):
             raise EvidenceError('excluded candidate reaches a protected or non-older ancestor')
     barrier = value.get('cleanup_barrier')
     if barrier is not None:
-        if (type(barrier) is not dict or set(barrier) != {'valid', 'sequence', 'root_refs', 'numeric_absent', 'roots_no_handles', 'closed'}
+        barrier_keys = {'valid', 'sequence', 'root_refs', 'numeric_absent', 'roots_no_handles', 'closed'}
+        if collector is not None and collector['version'] == 3:
+            barrier_keys.add('metadata_capture_sha256')
+        if (type(barrier) is not dict or set(barrier) != barrier_keys
                 or type(barrier['valid']) is not bool or type(barrier['sequence']) is not int
                 or not 0 <= barrier['sequence'] <= value['sequence']
                 or barrier['root_refs'] != sorted(value['working_roots'])
@@ -826,20 +909,30 @@ def validate_session(value, *, current_sources=False):
                 or barrier['valid'] and (barrier['sequence'] != value['sequence'] or value['pending'] or value['errors'] or value['lost_history'])
                 or value['state'] == 'closed' and not barrier['valid']):
             raise EvidenceError('invalid pre-cleanup barrier; it is never a completion receipt')
+        if collector is not None and collector['version'] == 3:
+            digest = barrier['metadata_capture_sha256']
+            if (type(digest) is not str or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest)
+                    or barrier['valid'] and digest != _metadata_capture_digest(value)):
+                raise EvidenceError('pre-cleanup FULL/diagnostic capture integrity binding changed')
     if value['state'] == 'closed' and (value['lost_history'] or value['errors'] or value['pending']
                                       or not value['roots'] or value['closure'] is None):
         raise EvidenceError('closed observer retains unresolved obligations')
     closure_keys = {'sequence', 'numeric_absent', 'roots_no_handles'}
-    if collector is not None and collector['version'] in (2, 3):
+    if collector is not None and collector['version'] == 2:
         closure_keys.add('helper_diagnostics_sha256')
+    if collector is not None and collector['version'] == 3:
+        closure_keys.add('metadata_capture_sha256')
     if value['closure'] is not None and (type(value['closure']) is not dict
             or set(value['closure']) != closure_keys
             or value['closure']['sequence'] != value['sequence'] or value['closure']['numeric_absent'] is not True
             or value['closure']['roots_no_handles'] is not True):
         raise EvidenceError('invalid observer closure barrier')
-    if value['closure'] is not None and collector is not None and collector['version'] in (2, 3):
+    if value['closure'] is not None and collector is not None and collector['version'] == 2:
         if value['closure']['helper_diagnostics_sha256'] != hashlib.sha256(canonical(collector['helper_diagnostic_bindings']).encode()).hexdigest():
             raise EvidenceError('closed helper diagnostic integrity binding changed')
+    if (value['closure'] is not None and collector is not None and collector['version'] == 3
+            and value['closure']['metadata_capture_sha256'] != _metadata_capture_digest(value)):
+        raise EvidenceError('closed FULL/diagnostic capture integrity binding changed')
     # Rebuild only from immutable SDK witnesses. A writer row cannot bypass a
     # missing original-parent version merely by naming an existing root.
     for root, item in value['roots'].items():
@@ -1564,6 +1657,8 @@ class Observer:
                        runtime_file_limit=runtime_file_limit, session_id=str(uuid.uuid4()),
                        cleanup_barrier=None, excluded_candidates={},
                        native_sampler=dict(version=helper_metadata_version, state='arming', roots=[], durable_sequence=0, stopped_sequence=None, unresolved=[], statuses={}, exec_transitions=[], helper_diagnostics=[], helper_diagnostic_bindings={}))
+        if helper_metadata_version == 3:
+            initial['native_sampler']['full_capture_sequences'] = {}
         validate_session(initial, current_sources=True)
         def arm(current):
             stable = ('version', 'run_id', 'unit_id', 'reservation_id', 'coordinator', 'guardian',
@@ -1593,6 +1688,8 @@ class Observer:
         change(current)
         if prior is not None and (any(current[key] != prior[key] for key in
                 ('roots', 'writers', 'pending', 'observations', 'working_roots', 'excluded_candidates'))
+                or current.get('native_sampler', {}).get('version') == 3
+                   and _metadata_capture_digest(current) != _metadata_capture_digest(prior)
                 or current['errors'] or current['lost_history']):
             current['cleanup_barrier']['valid'] = False
             current['state'] = 'failed'
@@ -1803,7 +1900,7 @@ class Observer:
                 break
         return True
 
-    def _ingest_capture(self, snapshot, exe, *, force_full=False):
+    def _ingest_capture(self, snapshot, exe, *, force_full=False, capture_sequence=None):
         if not native.valid_snapshot(snapshot) or type(exe) is not str or not exe.startswith('/'):
             raise EvidenceError('invalid protected native collector receipt')
         pid, unique = snapshot['identity']['pid'], snapshot['unique_id']
@@ -1828,6 +1925,12 @@ class Observer:
             raise EvidenceError('ambiguous native observation root')
         def commit(session):
             sequence = self._append(session, snapshot, exe)
+            if session['native_sampler']['version'] == 3:
+                if (type(capture_sequence) is not int
+                        or not 1 <= capture_sequence <= session['native_sampler']['durable_sequence']):
+                    raise EvidenceError('FULL lacks its actual durable private capture event')
+                session['native_sampler']['full_capture_sequences'][str(sequence)] = _full_capture_binding(
+                    session['observations'][-1], capture_sequence)
             if resolved:
                 session['pending'].pop(key, None)
                 if unique not in session['roots']:
@@ -1889,7 +1992,8 @@ class Observer:
             if diagnostic.get('version') == 3:
                 candidates = [dict(version=3, mode=diagnostic['subtype'], root=_helper_full(self.value, ref, raw)[1],
                     before_observation_sequence=ref if diagnostic['subtype'] == 'known_full_epoch_state_gap' else None,
-                    after_observation_sequence=ref if diagnostic['subtype'] == 'helper_initial_image_gap' else None) for ref in refs]
+                    after_observation_sequence=ref if diagnostic['subtype'] == 'helper_initial_image_gap' else None,
+                    full_capture_reference=copy.deepcopy(self.value['native_sampler']['full_capture_sequences'][str(ref)])) for ref in refs]
             elif diagnostic['subtype'] == 'mixed_image_boundary':
                 candidates = (dict(version=1, mode='mixed_image_bracket', root=_helper_full(self.value, before, raw)[1],
                                    before_observation_sequence=before, after_observation_sequence=after)
@@ -1905,6 +2009,8 @@ class Observer:
                     def qualify(session):
                         target = next(item for item in session['native_sampler']['helper_diagnostics'] if item['capture_sequence'] == sequence)
                         target['qualification'] = qualification
+                        if target['version'] == 3:
+                            session['native_sampler']['helper_diagnostic_bindings'][str(sequence)] = _helper_binding(target)
                         session['pending'].pop('helper-meta:' + str(sequence), None)
                     self._commit(qualify)
                     break
@@ -1925,8 +2031,13 @@ class Observer:
                     expected = staged['native_sampler']['durable_sequence'] + 1
                     if event['sequence'] != expected:
                         raise EvidenceError('native capture sequence gap/lost history')
+                    if staged['native_sampler']['version'] == 3:
+                        # This remains private staged state until the FULL, its
+                        # actual event binding and the whole batch commit agree.
+                        staged['native_sampler']['durable_sequence'] = event['sequence']
                     if event['kind'] == 'snapshot':
-                        self._ingest_capture(event['snapshot'], event['executable'], force_full=event.get('force_full') is True)
+                        self._ingest_capture(event['snapshot'], event['executable'], force_full=event.get('force_full') is True,
+                                             capture_sequence=event['sequence'])
                     elif event['kind'] == 'exec_transition':
                         if not _exec_pair(event['snapshot'], event['successor']):
                             raise EvidenceError('invalid private forward-exec witness')
@@ -1948,7 +2059,7 @@ class Observer:
                             diagnostic = session['native_sampler']['helper_diagnostics'][-1]
                             if payload.get('version') == 3:
                                 diagnostic['capture'] = payload['capture']
-                            session['native_sampler']['helper_diagnostic_bindings'][str(event['sequence'])] = _helper_raw_digest(diagnostic)
+                            session['native_sampler']['helper_diagnostic_bindings'][str(event['sequence'])] = _helper_binding(diagnostic)
                             session['pending']['helper-meta:' + str(event['sequence'])] = dict(
                                 pid=event['pid'], reason='helper image/status metadata gap awaiting positive full-witness qualification')
                         self._commit(helper_metadata)
@@ -2164,6 +2275,8 @@ class Observer:
         self._cleanup_checks(_remaining(deadline), require_empty=False)
         barrier = dict(valid=True, sequence=self.value['sequence'], root_refs=sorted(self.value['working_roots']),
                        numeric_absent=True, roots_no_handles=True, closed=False)
+        if self.value['native_sampler']['version'] == 3:
+            barrier['metadata_capture_sha256'] = _metadata_capture_digest(self.value)
         self._commit(lambda s: s.update(state='closing', cleanup_barrier=barrier))
         return dict(ready=True, root_refs=barrier['root_refs'], sequence=barrier['sequence'], closed=False)
 
@@ -2188,8 +2301,12 @@ class Observer:
                 self._commit(lambda session: session['native_sampler'].update(state='stopped', stopped_sequence=stopped))
                 self.sample(force_census=True, deadline=deadline)
                 self._cleanup_checks(_remaining(deadline), require_empty=True)
-                closure = dict(sequence=self.value['sequence'], numeric_absent=True, roots_no_handles=True,
-                               helper_diagnostics_sha256=hashlib.sha256(canonical(self.value['native_sampler']['helper_diagnostic_bindings']).encode()).hexdigest())
+                closure = dict(sequence=self.value['sequence'], numeric_absent=True, roots_no_handles=True)
+                if self.value['native_sampler']['version'] == 3:
+                    closure['metadata_capture_sha256'] = _metadata_capture_digest(self.value)
+                else:
+                    closure['helper_diagnostics_sha256'] = hashlib.sha256(canonical(
+                        self.value['native_sampler']['helper_diagnostic_bindings']).encode()).hexdigest()
                 self._commit(lambda s: s.update(state='closed', closure=closure))
                 return dict(closed=True, durable=True, sequence=self.value['sequence'])
             except (EvidenceError, OSError) as exc:
