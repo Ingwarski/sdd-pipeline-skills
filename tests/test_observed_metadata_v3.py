@@ -388,6 +388,44 @@ class MetadataV3ReceiptTests(unittest.TestCase):
             session = self.session(kind); session['native_sampler']['version'] = 2
             with self.subTest(kind=kind), self.assertRaises(EvidenceError): observed.validate_session(session)
 
+    def test_new_binding_requires_exact_json_integer_version_keys_and_sha_shapes(self):
+        for kind in ('a', 'b'):
+            for variant in ('bool', 'float', 'zero', 'two', 'string', 'missing', 'extra', 'raw_type',
+                            'raw_short', 'raw_upper', 'qualification_type', 'qualification_short', 'qualification_upper'):
+                session = self.session(kind); item = self.diagnostic(session)
+                binding = session['native_sampler']['helper_diagnostic_bindings'][str(item['capture_sequence'])]
+                if variant in ('bool', 'float', 'zero', 'two', 'string'):
+                    binding['version'] = {'bool': True, 'float': 1.0, 'zero': 0, 'two': 2, 'string': '1'}[variant]
+                elif variant == 'missing': binding.pop('version')
+                elif variant == 'extra': binding['unknown'] = 1
+                elif variant == 'raw_type': binding['raw_sha256'] = 1
+                elif variant == 'raw_short': binding['raw_sha256'] = '0' * 63
+                elif variant == 'raw_upper': binding['raw_sha256'] = 'A' * 64
+                elif variant == 'qualification_type': binding['qualification_sha256'] = None
+                elif variant == 'qualification_short': binding['qualification_sha256'] = '0' * 65
+                else: binding['qualification_sha256'] = 'A' * 64
+                with self.subTest(kind=kind, variant=variant), self.assertRaises(EvidenceError): observed.validate_session(session)
+
+    def test_selected_full_reference_is_exact_positive_integer_with_no_scalar_coercion(self):
+        for kind in ('a', 'b'):
+            for value in (True, False, 3.0 if kind == 'a' else 2.0, '3' if kind == 'a' else '2', 0, -1, None):
+                session = self.session(kind); item = self.diagnostic(session)
+                item['qualification']['before_observation_sequence' if kind == 'a' else 'after_observation_sequence'] = value
+                self.rebind(session)  # Reach numeric semantics instead of failing a stale digest.
+                with self.subTest(kind=kind, value=value, value_type=type(value).__name__), self.assertRaises(EvidenceError):
+                    observed.validate_session(session)
+            for nonselected in (False, 0, 0.0):
+                session = self.session(kind); item = self.diagnostic(session)
+                item['qualification']['after_observation_sequence' if kind == 'a' else 'before_observation_sequence'] = nonselected
+                self.rebind(session)
+                with self.subTest(kind=kind, nonselected=nonselected), self.assertRaises(EvidenceError): observed.validate_session(session)
+            for nested_kind in ('bool', 'matching_float'):
+                session = self.session(kind); item = self.diagnostic(session)
+                reference = item['qualification']['full_capture_reference']
+                reference['capture_sequence'] = True if nested_kind == 'bool' else float(reference['capture_sequence'])
+                self.rebind(session)
+                with self.subTest(kind=kind, nested=nested_kind), self.assertRaises(EvidenceError): observed.validate_session(session)
+
     def test_frozen_pre_three_reader_rejects_new_sampler_header(self):
         # The prior reader's explicit integer version gate, preserved as a
         # compatibility fixture; it has no sampler3 interpretation.

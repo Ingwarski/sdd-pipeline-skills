@@ -445,7 +445,8 @@ def _valid_metadata3_qualification(session, diagnostic, qualification):
     capture = diagnostic['capture_sequence']
     if diagnostic['subtype'] == 'known_full_epoch_state_gap':
         prior = [item for item in fulls if mapping[str(item['sequence'])]['capture_sequence'] < capture]
-        if not prior or qualification['after_observation_sequence'] is not None:
+        if (not prior or type(qualification['before_observation_sequence']) is not int
+                or qualification['before_observation_sequence'] <= 0 or qualification['after_observation_sequence'] is not None):
             return False
         item = max(prior, key=lambda item: mapping[str(item['sequence'])]['capture_sequence'])
         if (qualification['before_observation_sequence'] != item['sequence']
@@ -456,7 +457,8 @@ def _valid_metadata3_qualification(session, diagnostic, qualification):
                 and _native_order(item['snapshot'], raw)
                 and {key: value for key, value in semantic(item['snapshot']).items() if key not in ('current_ppid', 'pgid')}
                     == {key: value for key, value in semantic(raw).items() if key not in ('current_ppid', 'pgid')})
-    if not fulls or qualification['before_observation_sequence'] is not None:
+    if (not fulls or qualification['before_observation_sequence'] is not None
+            or type(qualification['after_observation_sequence']) is not int or qualification['after_observation_sequence'] <= 0):
         return False
     first = min(fulls, key=lambda item: mapping[str(item['sequence'])]['capture_sequence'])
     witness = _helper_full(session, first['sequence'], raw)
@@ -744,7 +746,15 @@ def validate_session(value, *, current_sources=False):
                     or diagnostic['path_status'] != 'unobserved' or diagnostic['image_status'] != 'nonqualifying'):
                 raise EvidenceError('invalid nonqualifying helper image/status diagnostic')
             seen_diagnostics.add(diagnostic['capture_sequence'])
-            if bindings.get(str(diagnostic['capture_sequence'])) != _helper_binding(diagnostic):
+            binding = bindings.get(str(diagnostic['capture_sequence']))
+            if new_metadata and (type(binding) is not dict
+                    or set(binding) != {'version', 'raw_sha256', 'qualification_sha256'}
+                    or type(binding['version']) is not int or binding['version'] != 1
+                    or any(type(binding[key]) is not str or len(binding[key]) != 64
+                           or any(c not in '0123456789abcdef' for c in binding[key])
+                           for key in ('raw_sha256', 'qualification_sha256'))):
+                raise EvidenceError('invalid typed helper diagnostic integrity binding')
+            if binding != _helper_binding(diagnostic):
                 raise EvidenceError('helper raw diagnostic bytes were changed or removed')
             follow = diagnostic['followup']
             if (type(follow) is not dict or set(follow) != {'outcome', 'snapshot', 'problem'}
