@@ -1052,6 +1052,45 @@ class Accounting:
             self.connection.execute("INSERT INTO working_reservations(id,bytes,migration,metadata_bytes,metadata_files,cache_bytes,owner_pid,owner_host,created) VALUES(?,?,?,?,?,?,?,?,?)", (identifier, byte_count, int(migration), metadata_bytes, metadata_files, cache_bytes, os.getpid(), socket.gethostname(), time.time()))
             return identifier
 
+    def grow_working(self, reservation_id: str, byte_count: int, *, metadata_bytes=0,
+                     metadata_files=0, cache_bytes=0, capacity_path=None):
+        """Raise absolute bounds on this process's pending working hold atomically."""
+        _identity(reservation_id, "working reservation")
+        requested = {"bytes": _amount(byte_count, "working reservation bytes"),
+            "metadata_bytes": _amount(metadata_bytes, "working metadata bytes"),
+            "metadata_files": _amount(metadata_files, "working metadata files"),
+            "cache_bytes": _amount(cache_bytes, "working cache bytes")}
+        if cache_bytes > byte_count:
+            raise EvidenceError("working cache reservation exceeds combined working bytes")
+        with self._transaction():
+            row = self.connection.execute("SELECT * FROM working_reservations WHERE id=?", (reservation_id,)).fetchone()
+            if row is None or row["state"] != "pending":
+                raise EvidenceError("working reservation is unknown or already finished")
+            if row["owner_pid"] != os.getpid() or row["owner_host"] != socket.gethostname():
+                raise EvidenceError("working reservation is not owned by this process and host")
+            bounds = {key: max(row[key], value) for key, value in requested.items()}
+            delta = {key: bounds[key] - row[key] for key in bounds}
+            totals, limits = self._totals(), self.policy["limits"]
+            maximum = limits["migration_local_stop_bytes" if row["migration"] else "local_stop_bytes"]
+            violations = []
+            if totals["local_bytes"] + totals["pending_local_bytes"] + delta["bytes"] > maximum:
+                violations.append("combined local working reservation exceeds allowance")
+            if (metadata_bytes or metadata_files) and (
+                    totals["metadata_bytes"] + totals["pending_metadata_bytes"] + delta["metadata_bytes"] > limits["metadata_stop_bytes"]
+                    or totals["metadata_files"] + totals["pending_metadata_files"] + delta["metadata_files"] > limits["metadata_stop_files"]):
+                violations.append("combined metadata working reservation exceeds allowance")
+            if cache_bytes and totals["cache_bytes"] + totals["pending_cache_bytes"] + delta["cache_bytes"] > limits["cache_stop_bytes"]:
+                violations.append("combined cache working reservation exceeds allowance")
+            capacity = Path(capacity_path) if capacity_path is not None else self.path.parent
+            if shutil.disk_usage(capacity).free - totals["pending_local_bytes"] - delta["bytes"] < limits["free_space_reserve_bytes"]:
+                violations.append("working reservation cannot preserve free-space reserve")
+            if violations:
+                raise BudgetExceeded(violations)
+            if any(delta.values()):
+                self.connection.execute("UPDATE working_reservations SET bytes=?,metadata_bytes=?,metadata_files=?,cache_bytes=? WHERE id=? AND state='pending'",
+                    tuple(bounds[key] for key in ("bytes", "metadata_bytes", "metadata_files", "cache_bytes")) + (reservation_id,))
+            return bounds
+
     def finish_working(self, reservation_id: str, *, local_key=None, actual_bytes=0, kind="restore",
                        metadata_key=None, actual_metadata_bytes=0, actual_metadata_files=0,
                        cache_key=None, actual_cache_bytes=0):

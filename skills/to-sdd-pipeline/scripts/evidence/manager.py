@@ -69,6 +69,7 @@ class Manager:
         self._working_depth = 0
         self._working_reservation = None
         self._working_migration = False
+        self._catalog_working = None
         self._catalog_thread_lock = threading.RLock()
         self._catalog_lock_depth = 0
         self._source_payload_scope = None
@@ -511,6 +512,43 @@ class Manager:
                     raise EvidenceError("host transport session contains an unsafe entry")
         return records
 
+    def _verify_catalog_host_cleanup(self):
+        """Inspect the actual session even when occupancy is counted in this state."""
+        folder = getattr(self.transport, "host_session_path", None)
+        if folder is None:
+            return
+        from .transports import _directory
+        descriptor = None
+        problem = "catalog host request/materialization cleanup is incomplete"
+        try:
+            root = _directory(folder)
+            before = root.lstat()
+            if hasattr(os, "getuid") and before.st_uid != os.getuid():
+                raise EvidenceError(problem + ": foreign session owner")
+            if os.scandir in os.supports_fd:
+                descriptor = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+                opened = os.fstat(descriptor)
+                if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                    raise EvidenceError(problem + ": session changed")
+            with os.scandir(descriptor if descriptor is not None else root) as entries:
+                for count, entry in enumerate(entries, 1):
+                    if count > self.limits["metadata_stop_files"]:
+                        raise EvidenceError(problem + ": session inspection bound exceeded")
+                    if entry.name in ("request.json", "response.json") or entry.name.startswith("original-"):
+                        raise EvidenceError(problem + ": retained native control or original")
+                    info = entry.stat(follow_symlinks=False)
+                    if _is_link(info) or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                        raise EvidenceError(problem + ": unsafe session entry")
+            after = _directory(root).lstat()
+            fields = ("st_dev", "st_ino", "st_mtime_ns", "st_ctime_ns")
+            if any(getattr(before, field) != getattr(after, field) for field in fields):
+                raise EvidenceError(problem + ": session changed during inspection")
+        except OSError as error:
+            raise EvidenceError(problem + ": session cannot be inspected") from error
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
     def _capacity(self, peak, *, migration=False):
         local_limit = self.limits["migration_local_stop_bytes" if migration else "local_stop_bytes"]
         used, pending, external = self._usage(), 0, 0
@@ -575,6 +613,8 @@ class Manager:
     def _working(self, peak, *, migration=False, metadata_bytes=0, metadata_files=0, cache_bytes=0,
                  additional_peak=False, capacity_path=None, transport_scope=False):
         with self.locked():
+            if self._catalog_working is not None:
+                raise EvidenceError("catalog working scope cannot cover an unleased working operation")
             with self._working_reserved(peak, migration=migration, metadata_bytes=metadata_bytes,
                 metadata_files=metadata_files, cache_bytes=cache_bytes, additional_peak=additional_peak,
                 capacity_path=capacity_path, transport_scope=transport_scope):
@@ -642,6 +682,98 @@ class Manager:
                         self._working_reservation = None
                         self._working_migration = False
 
+    def _catalog_working_token(self, scope):
+        if (scope is not self._catalog_working or not scope or not scope["open"]
+                or scope["thread"] != threading.get_ident() or not self._catalog_lock_depth
+                or scope["policy"] != self.policy):
+            raise EvidenceError("catalog working scope is closed, foreign or changed")
+        return scope
+
+    @contextmanager
+    def _catalog_working_scope(self):
+        """One pending high-water hold for one fresh, independently validated catalog."""
+        if not self._catalog_lock_depth:
+            raise EvidenceError("catalog working scope requires catalog ownership")
+        if self._catalog_working is not None or self._working_depth or self._working_reservation is not None:
+            raise EvidenceError("catalog working scope cannot adopt an existing working operation")
+        from .accounting import Accounting
+        overhead = getattr(self.transport, "working_overhead", None)
+        control = overhead(upload_bytes=0, download_bytes=0) if overhead else 0
+        if type(control) is not int or control < 0:
+            raise EvidenceError("transport control overhead must be nonnegative")
+        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._local_records(ledger)
+            session = getattr(self.transport, "host_session_path", None)
+            if session is not None and shutil.disk_usage(session).free < ledger._totals()["pending_local_bytes"] + control + self.limits["free_space_reserve_bytes"]:
+                raise EvidenceError("host transport control peak cannot preserve the configured free-space reserve")
+            ident = ledger.reserve_working(control, metadata_bytes=control, metadata_files=3 if control else 0)
+            previous = self._working_reservation
+            scope = {"open": True, "thread": threading.get_ident(), "policy": deepcopy(self.policy),
+                "ledger": ledger, "id": ident, "control": control, "active": {}, "uncertain": False,
+                "bounds": {"bytes": control, "metadata_bytes": control, "metadata_files": 3 if control else 0, "cache_bytes": 0}}
+            self._catalog_working, self._working_reservation = scope, ident
+            failure = None
+            try:
+                yield scope
+            except BaseException as error:
+                failure = error
+                raise
+            finally:
+                try:
+                    if scope["active"] or scope["uncertain"]:
+                        raise EvidenceError("catalog working outcome is unknown; retained pending reservation " + ident)
+                    cache, working, checkpoints = self._local_occupancy()
+                    records = self._metadata_records(include_checkpoints=False)
+                    allocations = {"metadata_key": "local-journals-receipts", "actual_metadata_bytes": self._existing_bytes(records),
+                        "actual_metadata_files": len(records), "local_key": "manager-working", "actual_bytes": working,
+                        "kind": "staging", "cache_key": "cache", "actual_cache_bytes": cache}
+                    self._checkpoint_allocations(ledger, actual_bytes=checkpoints)
+                    self._audit_source_payloads()
+                    result = ledger.finish_working(ident, **allocations)
+                    violations = [v for v in result["violations"] if not
+                        (not control and v.startswith("combined metadata")) and not v.startswith("combined cache")]
+                    if violations and failure is None:
+                        raise EvidenceError("working resource settlement incomplete: " + "; ".join(violations))
+                except BaseException as settlement:
+                    if failure is None:
+                        settlement.add_note("catalog working reservation: " + ident)
+                        raise
+                    failure.add_note("catalog working reservation " + ident + ": " + str(settlement))
+                finally:
+                    scope["open"] = False
+                    self._catalog_working = None
+                    self._working_reservation = previous
+
+    @contextmanager
+    def _catalog_working_lease(self, scope, byte_count, *, capacity_path=None):
+        scope = self._catalog_working_token(scope)
+        if type(byte_count) is not int or byte_count < 0:
+            raise EvidenceError("catalog working lease must be a nonnegative byte bound")
+        aggregate = scope["control"] + sum(scope["active"].values()) + byte_count
+        self._capacity(aggregate)
+        if capacity_path is not None:
+            pending = scope["ledger"]._totals()["pending_local_bytes"] - scope["bounds"]["bytes"]
+            if shutil.disk_usage(capacity_path).free < pending + aggregate + self.limits["free_space_reserve_bytes"]:
+                raise EvidenceError("host transport working peak cannot preserve the configured free-space reserve")
+        if aggregate > scope["bounds"]["bytes"]:
+            from .accounting import BudgetExceeded
+            try:
+                scope["bounds"] = scope["ledger"].grow_working(scope["id"], aggregate,
+                    metadata_bytes=scope["control"], metadata_files=3 if scope["control"] else 0,
+                    capacity_path=capacity_path)
+            except BudgetExceeded:
+                raise  # Rejected before effects, with the previous hold intact.
+            except BaseException:
+                scope["uncertain"] = True  # COMMIT acknowledgement may have been lost.
+                raise
+        lease = object()
+        scope["active"][lease] = byte_count
+        try:
+            yield
+        finally:
+            if not scope["uncertain"]:
+                del scope["active"][lease]
+
     def _transport_call(self, method, *args, **kwargs):
         """Reserve durable transfer checkpoints separately from host queue peaks."""
         if method == "put":
@@ -653,6 +785,25 @@ class Manager:
 
     def _transport_host_call(self, method, *args, **kwargs):
         """Reserve private host queues and materialized originals outside this state."""
+        if self._catalog_working is not None:
+            scope = self._catalog_working_token(self._catalog_working)
+            if method not in ("inventory", "keys", "stat", "get"):
+                raise EvidenceError("catalog working scope permits only catalog read operations")
+            overhead = getattr(self.transport, "working_overhead", None)
+            peak = overhead(upload_bytes=0, download_bytes=args[2] if method == "get" else 0) if overhead else 0
+            if type(peak) is not int or peak < scope["control"]:
+                raise EvidenceError("transport control overhead must fit its working bound")
+            with self._catalog_working_lease(scope, peak - scope["control"],
+                    capacity_path=getattr(self.transport, "host_session_path", None)):
+                try:
+                    result = getattr(self.transport, method)(*args, **kwargs)
+                    self._verify_catalog_host_cleanup()
+                    return result
+                except BaseException:
+                    from .transports import LocalTransport
+                    if not isinstance(self.transport, LocalTransport):
+                        scope["uncertain"] = True
+                    raise
         overhead = getattr(self.transport, "working_overhead", None)
         if overhead is None:
             return getattr(self.transport, method)(*args, **kwargs)
@@ -686,6 +837,29 @@ class Manager:
         size = self._transport_call("stat", locator)["size"]
         if size > maximum:
             raise EvidenceError("remote metadata exceeds combined configured bound")
+        if self._catalog_working is not None:
+            scope = self._catalog_working_token(self._catalog_working)
+            with self._catalog_working_lease(scope, size):
+                temporary, failure = None, None
+                try:
+                    temporary = tempfile.TemporaryDirectory(dir=self.staging, prefix="index-")
+                    target = Path(temporary.name).resolve() / "data.json"
+                    self._transport_call("get", locator, target, size)
+                    return read_json(target, maximum), hash_file(target)
+                except BaseException as error:
+                    failure = error
+                    raise
+                finally:
+                    if temporary is not None:
+                        try:
+                            temporary.cleanup()
+                            if os.path.lexists(temporary.name):
+                                raise EvidenceError("catalog temporary materialization remains")
+                        except BaseException as cleanup:
+                            scope["uncertain"] = True
+                            if failure is None:
+                                raise
+                            failure.add_note("catalog temporary cleanup failed: " + str(cleanup))
         self._capacity(size)
         with self._working(size), tempfile.TemporaryDirectory(dir=self.staging, prefix="index-") as temp:
             target = Path(temp).resolve() / "data.json"
@@ -694,6 +868,11 @@ class Manager:
 
     def _catalog(self, *, mutation=False, recover_policy=False, allow_policy_transition=False):
         with self.locked():
+            if self._catalog_working is not None:
+                raise EvidenceError("independent catalog cannot reenter an active catalog working scope")
+            if not (self._working_depth or self._working_reservation is not None or recover_policy or allow_policy_transition):
+                with self._catalog_working_scope():
+                    return self._catalog_locked(mutation=mutation, recover_policy=recover_policy, allow_policy_transition=allow_policy_transition)
             return self._catalog_locked(mutation=mutation, recover_policy=recover_policy, allow_policy_transition=allow_policy_transition)
 
     def _catalog_inventory(self, prefix):
