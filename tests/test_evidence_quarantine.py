@@ -427,8 +427,11 @@ class QuarantineTests(unittest.TestCase):
             output.mkdir()
             replacements.append(producer_runtime.directory_identity(output))
             return problems
-        with patch.object(producer_runtime, 'cleanup_directories', side_effect=replace_after_exit):
+        from evidence.producer import hash_file as actual_hash
+        with patch.object(producer_runtime, 'cleanup_directories', side_effect=replace_after_exit), \
+                patch('evidence.producer.hash_file', wraps=actual_hash) as hash_calls:
             result = run()
+        hash_calls.assert_not_called()
         self.assertEqual(1, len(replacements), 'the replacement prerequisite did not execute')
         self.assertNotEqual(original_identity, replacements[0])
         self.assertEqual(original_identity, producer_runtime.directory_identity(preserved))

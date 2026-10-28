@@ -342,6 +342,10 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
     try:
         if not writers_stopped and attempt is not None and runtime.read(ledger, attempt)['version'] == 2:
             raise EvidenceError('observed writer closure must precede stable hashes/settlement')
+        # Do not read files under a replaced root or from an inventory that
+        # changed after the final observation. Verify again after hashing too.
+        if _inventory(root, expected_identity=expected_output_identity) != last_inventory:
+            raise EvidenceError("managed output changed before final hash pass")
         for name in last_inventory:
             digest, size = hash_file(root / name)
             stable_files[name] = {"content_hash": digest, "size": size}
@@ -353,7 +357,7 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
             raise EvidenceError("managed output directory identity changed before final observation")
     except (EvidenceError, OSError) as exc:
         problem = problem or str(exc)
-        final_observation_problem = "final hashes: " + str(exc)
+        final_observation_problem = final_observation_problem or ("final hashes: " + str(exc))
         inventory_known = False
     # Charge at least every surviving file even if launch/monitoring failed.
     gross_bytes, gross_files = max(gross_bytes, current_bytes), max(gross_files, len(stable_files))
