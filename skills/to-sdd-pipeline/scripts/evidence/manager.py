@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import socket
 import sqlite3
 import stat
@@ -715,7 +716,7 @@ class Manager:
                 raise EvidenceError("policy lineage is not committed; finish explicit evidence setup first")
             return {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"],
                     "sequence": 0, "coordinator": authority["coordinator"] if authority else self.coordinator, "segments": [], "refs": {}, "packs": {},
-                    "generation": {}, "generation_intents": {}, "generation_quarantines": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
+                    "generation": {}, "generation_intents": {}, "generation_quarantines": {}, "generation_quarantine_device_witnesses": {}, "generation_quarantine_device_bindings": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
         keys = sorted((x if isinstance(x, str) else x["key"]) for x in roots)
         latest = keys[-1]
         latest_locator = next(item for item in roots if (item if isinstance(item, str) else item["key"]) == latest)
@@ -744,17 +745,35 @@ class Manager:
 
         if not isinstance(root.get("segments"), list) or len(root["segments"]) > self.limits["metadata_stop_files"]:
             raise EvidenceError("invalid catalog segment closure")
-        total = authority_bytes
+        # All published roots are retained by this format; there is no root
+        # compaction authority. Verify their append-only ancestry so a later
+        # valid hash cannot erase an older witness by omitting its segment.
+        total, previous_key, previous_segments, sequence = authority_bytes, None, [], 0
+        for locator in sorted(roots, key=lambda item: item if isinstance(item, str) else item['key']):
+            key = locator if isinstance(locator, str) else locator['key']
+            historical, (root_sha, root_size) = ((root, (digest, size)) if key == latest
+                                                else self._read_remote_json(locator, self.limits['metadata_stop_bytes']))
+            total += root_size
+            if total > self.limits['metadata_stop_bytes']:
+                raise EvidenceError('catalog root ancestry exceeds metadata allowance')
+            if (not isinstance(historical, dict) or type(historical.get('sequence')) is not int
+                    or historical['sequence'] != sequence + 1 or historical.get('version') != 1
+                    or historical.get('project_id') != self.policy['project_id'] or historical.get('store_id') != self.policy['store_id']
+                    or key != self.prefix + 'roots/' + str(historical['sequence']).zfill(12) + '-' + root_sha + '.json'
+                    or historical.get('previous') != previous_key or not isinstance(historical.get('segments'), list)
+                    or len(historical['segments']) > self.limits['metadata_stop_files']
+                    or historical['segments'][:len(previous_segments)] != previous_segments):
+                raise EvidenceError('catalog root ancestry/fork or preserved segment prefix differs')
+            previous_key, previous_segments, sequence = key, historical['segments'], historical['sequence']
         indexes = self._catalog_inventory(self.prefix + "indexes/")
         index_locators = {(item if isinstance(item, str) else item["key"]): item for item in indexes}
         index_keys = set(index_locators)
-        # Old roots count too: splitting or retaining checkpoints cannot evade metadata limits.
-        for locator in roots:
-            total += int(self._transport_call("stat", locator)["size"])
+        # Historical root bytes were independently verified above.
         for key in index_keys:
             total += int(self._transport_call("stat", index_locators[key])["size"])
         refs, packs, generation, pending_deletions, retired_refs, import_retention_decisions = {}, {}, {}, {}, {}, {}
         generation_intents, generation_quarantines, reference_aliases = {}, {}, {}
+        device_witnesses, device_bindings = {}, {}
         seen = set()
         for descriptor in root["segments"]:
             if descriptor["sha256"] in seen:
@@ -805,6 +824,23 @@ class Manager:
                        for other, prior in generation_quarantines.items()):
                     raise EvidenceError("generation quarantine replays another binding")
                 generation_quarantines[ident] = value
+            device_records = data.get('generation_quarantine_device_witnesses', {})
+            if not isinstance(device_records, dict):
+                raise EvidenceError('invalid custody publication map')
+            from .quarantine_device import validate_quarantine_device_witness
+            for ident, value in device_records.items():
+                original = next((q for q in generation_quarantines.values() if q['digest'] == ident), None)
+                if original is None:
+                    raise EvidenceError('published custody witness lacks original quarantine')
+                validate_quarantine_device_witness(value, original, self.policy)
+                if ident in device_witnesses and device_witnesses[ident] != value:
+                    raise EvidenceError('immutable published custody witness changed')
+                if any(other != ident and any(prior[k] == value[k] for k in ('attempt_id', 'reservation_id', 'operation_id'))
+                       for other, prior in device_witnesses.items()):
+                    raise EvidenceError('published custody witness replays another binding')
+                device_witnesses[ident] = value
+                device_bindings.setdefault(ident, {'root_key': latest, 'sequence': root['sequence'],
+                    'segment_sha256': descriptor['sha256'], 'witness_digest': value['digest']})
             for ident, aliases in data.get("reference_aliases", {}).items():
                 if ident not in refs or not isinstance(aliases, list) or len(aliases) > 10000:
                     raise EvidenceError("imported reference aliases lack registered original identity")
@@ -862,6 +898,7 @@ class Manager:
         for ident, value in generation_quarantines.items():
             self._validate_generation_quarantine(ident, value, generation_intents)
         root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, generation_intents=generation_intents, generation_quarantines=generation_quarantines, reference_aliases=reference_aliases, pending_deletions=pending_deletions, retired_refs=retired_refs, import_retention_decisions=import_retention_decisions, root_key=latest,
+                    generation_quarantine_device_witnesses=device_witnesses, generation_quarantine_device_bindings=device_bindings,
                     metadata_bytes=total, metadata_files=len(keys) + len(index_keys) + len(authorities))
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
@@ -1687,6 +1724,7 @@ class Manager:
         from .accounting import Accounting
         from .producer import recover_producers
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            ledger._publication_manager = (self, None, None)
             return recover_producers(ledger, dry_run=dry_run)
 
     def _validate_generation_quarantine(self, ident, value, intents):
@@ -1702,7 +1740,8 @@ class Manager:
             raise EvidenceError("generation quarantine lacks its exact unresolved durable intent")
 
     def _generation_readiness(self, catalog, ledger):
-        readiness = ledger.generation_readiness()
+        publication = self._publication_view(catalog)
+        readiness = ledger.generation_readiness(_publication=publication)
         published = catalog.get("generation_quarantines", {})
         local = {item["reservation_id"]: item for item in readiness["quarantines"]}
         if local != published:
@@ -1710,6 +1749,121 @@ class Manager:
         for ident, value in published.items():
             self._validate_generation_quarantine(ident, value, catalog.get("generation_intents", {}))
         return readiness
+
+    def _publication_view(self, catalog):
+        authority = self._generation_authority()
+        if (catalog.get('generation_quarantines') or catalog.get('generation_quarantine_device_witnesses')) and (
+                authority is None or authority['coordinator'] != self.coordinator or catalog['coordinator'] != self.coordinator):
+            raise EvidenceError('quarantine publication requires designated original coordinator')
+        return {'quarantines': catalog.get('generation_quarantines', {}),
+                'witnesses': catalog.get('generation_quarantine_device_witnesses', {}),
+                'bindings': catalog.get('generation_quarantine_device_bindings', {}), 'authority': authority}
+
+    @contextmanager
+    def _publication_budget(self, deadline=None):
+        """Bound the whole synchronous lock/catalog sequence, not each RPC alone."""
+        from .quarantine_device import PUBLICATION_TIMEOUT
+        end = min(time.monotonic() + PUBLICATION_TIMEOUT, deadline if deadline is not None else float('inf'))
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            raise EvidenceError('publication verification deadline expired')
+        if os.name != 'posix' or threading.current_thread() is not threading.main_thread():
+            raise EvidenceError('bounded quarantine publication requires POSIX main-thread execution')
+        prior_timer = signal.getitimer(signal.ITIMER_REAL)
+        if prior_timer != (0.0, 0.0):
+            raise EvidenceError('publication verification cannot replace an existing process alarm')
+        prior_handler = signal.getsignal(signal.SIGALRM)
+        def expired(*_):
+            raise EvidenceError('publication verification total deadline expired')
+        try:
+            signal.signal(signal.SIGALRM, expired)
+            signal.setitimer(signal.ITIMER_REAL, remaining)
+            yield end
+        finally:
+            try:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+            finally:
+                signal.signal(signal.SIGALRM, prior_handler)
+
+    def _producer_publication_coverage(self, ledger, intent_id=None, *, attempt_id=None, deadline=None):
+        if ledger.connection.in_transaction:
+            raise EvidenceError('publication check cannot run inside an accounting write transaction')
+        if ledger.path != self.state / 'accounting.sqlite' or ledger.policy != self.policy:
+            raise EvidenceError('publication coverage requires original accounting home/policy')
+        with self._publication_budget(deadline) as end, self.locked(timeout=max(0, end - time.monotonic())):
+            catalog = self._catalog(mutation=True)
+            if intent_id is not None:
+                intent = catalog.get('generation_intents', {}).get(intent_id)
+                if intent is None or intent.get('settled'):
+                    raise EvidenceError('publication coverage lacks exact unresolved generation intent')
+                if intent.get('owner_identity') != process_identity.identity():
+                    raise EvidenceError('publication coverage requires exact live intent owner')
+                if attempt_id is not None:
+                    from .producer_runtime import read
+                    record = read(ledger, attempt_id)
+                    if (record.get('intent_id') != intent_id or record['run_id'] != intent['run_id']
+                            or record['unit_id'] != intent['unit_id'] or record['coordinator'] != intent.get('owner_identity')):
+                        raise EvidenceError('publication coverage producer/intent/owner changed')
+                    reservation = ledger.connection.execute('SELECT run_id,bytes,files FROM reservations WHERE id=?', (record['reservation_id'],)).fetchone()
+                    if reservation is None or tuple(reservation) != (intent['run_id'], intent['reserve_bytes'], intent['reserve_files']):
+                        raise EvidenceError('publication coverage reservation/intent changed')
+            publication = self._publication_view(catalog)
+            readiness = ledger.generation_readiness(_publication=publication)
+            if not readiness['ready']:
+                raise EvidenceError('quarantine publication/native validation incomplete: ' + str(readiness['problem']))
+            publication.update(intent_id=intent_id, intent=catalog.get('generation_intents', {}).get(intent_id))
+            return publication
+
+    def revalidate_quarantine_device(self, attempt_id, assertion_ref, *, operation_id, dry_run=True):
+        """Explicit current-custody append; never repair or accept old generation."""
+        from .accounting import Accounting
+        from .quarantine import canonical
+        from .quarantine_device import verify_quarantine_device_current, read_assertion
+        if type(dry_run) is not bool:
+            raise EvidenceError('custody dry_run must be boolean')
+        with self.locked():
+            catalog = self._catalog(mutation=True)
+            publication = self._publication_view(catalog)
+            with Accounting(self.state / 'accounting.sqlite', self.policy['project_id'], self.policy) as ledger:
+                row = ledger.connection.execute('SELECT record FROM producer_quarantines WHERE attempt_id=?', (attempt_id,)).fetchone()
+                if row is None:
+                    raise EvidenceError('device revalidation requires existing original quarantine')
+                descriptor = json.loads(row[0])
+                if publication['quarantines'].get(descriptor['reservation_id']) != descriptor:
+                    raise EvidenceError('device revalidation original local/publication differs')
+                self._validate_generation_quarantine(descriptor['reservation_id'], descriptor, catalog['generation_intents'])
+                if descriptor['ledger_id'] != ledger._ledger_id:
+                    raise EvidenceError('device revalidation cannot adopt a recovered ledger')
+                witness = ledger.prepare_device_witness(descriptor, assertion_ref, operation_id, publication['authority'])
+                published = publication['witnesses'].get(descriptor['digest'])
+                local = ledger.device_witnesses(allow_orphan=operation_id).get(descriptor['digest'])
+                if published is not None and (published != witness or local != witness):
+                    raise EvidenceError('published custody witness has missing or conflicting local authority')
+                if not dry_run and published is None:
+                    # Includes durable assertion/witness/SQL-WAL, staging, index,
+                    # root history and readback peaks; actual occupancy is also
+                    # charged by the existing accounting/transport machinery.
+                    size = len(canonical(witness)) + Path(assertion_ref['path']).lstat().st_size
+                    peak = size * 12 + len(canonical(catalog)) * 3 + 262144
+                    with self._working(peak, metadata_bytes=peak, metadata_files=12):
+                        read_assertion(assertion_ref, descriptor, self.policy)
+                        verify_quarantine_device_current(ledger, descriptor, witness, coordinator_authority=publication['authority'])
+                        if local is None:
+                            ledger.append_device_witness(witness)
+                        verify_quarantine_device_current(ledger, descriptor, witness, coordinator_authority=publication['authority'])
+                        # Unknown outcomes are retried only after this method's
+                        # initial independent catalog reload, never blindly.
+                        self._publish(catalog, {'version': 1, 'generation_quarantine_device_witnesses': {descriptor['digest']: witness}})
+                        verified = self._catalog(mutation=True)
+                        if verified.get('generation_quarantine_device_witnesses', {}).get(descriptor['digest']) != witness:
+                            raise EvidenceError('custody publication independent readback differs')
+                    publication = self._publication_view(verified)
+                if not dry_run:
+                    if ledger.device_witnesses() != publication['witnesses']:
+                        raise EvidenceError('custody authoritative triple is incomplete')
+                    verify_quarantine_device_current(ledger, descriptor, witness, coordinator_authority=publication['authority'])
+                return {'action': 'revalidate-quarantine-device', 'dry_run': dry_run,
+                        'history_complete': False, 'historical_uncertainty': True, 'witness': witness}
 
     def quarantine_producer(self, attempt_id, disposition_proof, *, dry_run=True):
         """Preserve an unresolved gap and publish its immutable bounded disposition."""
@@ -1757,7 +1911,8 @@ class Manager:
             raise EvidenceError("generation requires the designated coordinator and shared accounting home; cold recovery is read-only")
         recovery = self._recover_managed_producers(dry_run=False)
         if recovery["incomplete"]:
-            raise EvidenceError("managed producer recovery remains incomplete; retain its resources and reconcile before generation")
+            details = '; '.join(str(item['problem']) for item in recovery.get('actions', []) if item.get('problem'))
+            raise EvidenceError("managed producer recovery remains incomplete; retain its resources and reconcile before generation" + ('; ' + details if details else ''))
         for action in recovery["actions"]:
             intent = catalog.get("generation_intents", {}).get(action.get("intent_id"))
             if (intent and not intent.get("settled") and action["action"] in ("cleaned", "terminal")
@@ -1771,8 +1926,9 @@ class Manager:
             from .accounting import Accounting
             with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
                 self._reconcile_ledger(catalog, ledger)
-                ledger.require_generation_ready()
                 readiness = self._generation_readiness(catalog, ledger)
+                if not readiness['ready']:
+                    raise EvidenceError('accounting recovery required: ' + str(readiness['problem']))
                 quarantined = {item["intent_id"] for item in readiness["quarantines"]}
                 for intent_id, intent in catalog.get("generation_intents", {}).items():
                     if intent_id in quarantined:
@@ -1825,6 +1981,9 @@ class Manager:
                    for item in catalog.get("generation_quarantines", {}).values()):
                 raise EvidenceError("quarantined generation intent remains unresolved and cannot be settled")
             if intent.get("settled"):
+                with Accounting(self.state / 'accounting.sqlite', self.policy['project_id'], self.policy) as ledger:
+                    if not self._generation_readiness(catalog, ledger)['ready']:
+                        raise EvidenceError('settled intent publication readiness is incomplete')
                 return {"settled": True, "intent_id": intent_id}
             owner_state = self._generation_owner_state(intent)
             owns_intent = (intent.get("owner_identity") == process_identity.identity() if "owner_identity" in intent
@@ -1848,8 +2007,9 @@ class Manager:
                 reservation_id = exact_reservation
             with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
                 self._reconcile_ledger(catalog, ledger)
-                ledger.require_generation_ready()
-                self._generation_readiness(catalog, ledger)
+                readiness = self._generation_readiness(catalog, ledger)
+                if not readiness['ready']:
+                    raise EvidenceError('accounting recovery required: ' + str(readiness['problem']))
                 run = ledger.connection.execute("SELECT * FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
                 pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()[0]
                 if reservation_id is not None:
@@ -1864,6 +2024,58 @@ class Manager:
             self._publish(catalog, {"version": 1, "generation": generation,
                                    "settled_generation_intents": [intent_id]})
             return {"settled": True, "pending_workers": bool(pending), "intent_id": intent_id}
+
+    @contextmanager
+    def accounting_receipt_snapshot(self, policy_sha256):
+        """Hold current publication authority through caller serialization/emission."""
+        from .accounting import Accounting
+        from .quarantine import _hash
+        if not _hash(policy_sha256):
+            raise EvidenceError('accounting receipt requires exact original policy byte hash')
+        with self.locked():
+            catalog = self._catalog()
+            with Accounting(self.state / 'accounting.sqlite', self.policy['project_id'], self.policy) as ledger:
+                self._reconcile_ledger(catalog, ledger)
+                runs = {}
+                for row in ledger.connection.execute('SELECT * FROM runs WHERE migration=0'):
+                    pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (row['id'],)).fetchone()[0]
+                    outputs = ledger.connection.execute('SELECT COUNT(*) FROM outputs WHERE run_id=? AND reconciled=0', (row['id'],)).fetchone()[0]
+                    runs[row['id']] = {'unit_id': row['unit_id'], 'status': 'complete' if row['status'] == 'complete' and not pending and not outputs else 'incomplete',
+                        'gross_generated_bytes': row['gross_bytes'], 'original_logical_files': row['gross_files'],
+                        'pending_reservations': pending, 'unreconciled_outputs': outputs}
+                for ref in catalog['refs'].values():
+                    if ref['retention'].get('imported') or ref['provenance'].get('accounting_mode') == 'imported-existing':
+                        runs.setdefault(ref['provenance']['run_id'], {'unit_id': ref['provenance']['unit_id'], 'status': 'complete', 'mode': 'imported-existing',
+                            'gross_generated_bytes': 0, 'original_logical_files': 0, 'pending_reservations': 0, 'unreconciled_outputs': 0})
+                snapshot = ledger.snapshot()
+                pending_intents = {k: v for k, v in catalog.get('generation_intents', {}).items() if not v.get('settled')}
+                complete = snapshot.get('accounting_complete', True) and not pending_intents
+                result = {'version': 1, 'project_id': self.policy['project_id'], 'runs': runs,
+                          'accounting_complete': complete, 'incomplete': not complete, 'totals_are_lower_bounds': not complete,
+                          'pending_generation_intents': pending_intents, 'policy_sha256': policy_sha256}
+                readiness = self._generation_readiness(catalog, ledger)
+                quarantines = readiness['quarantines']
+                if quarantines:
+                    quarantined_intents = {q['intent_id'] for q in quarantines}
+                    quarantined_runs = {q['run_id'] for q in quarantines}
+                    outstanding = any(k not in quarantined_runs and (v['pending_reservations'] or v['unreconciled_outputs']) for k, v in runs.items())
+                    outstanding = outstanding or any(runs[k]['pending_reservations'] != sum(q['run_id'] == k for q in quarantines) for k in quarantined_runs)
+                    ready = readiness['ready'] and set(pending_intents) == quarantined_intents and not outstanding
+                    result.update(version=2, kind='scoped-known-generation', accounting_complete=False, incomplete=True,
+                                  totals_are_lower_bounds=True, history_complete=False, generation_ready=ready, quarantines=quarantines,
+                                  selected_scope={'run_ids': sorted(k for k, v in runs.items() if v['status'] == 'complete'), 'complete': bool(ready)})
+                    witnesses = catalog.get('generation_quarantine_device_witnesses', {})
+                    if witnesses:
+                        from .quarantine_device import validate_device_custody_receipt
+                        if not ready:
+                            raise EvidenceError('custody receipt requires complete selected known scope')
+                        result.update(version=3, kind='scoped-known-generation-with-device-custody',
+                                      quarantine_device_witnesses=[witnesses[k] for k in sorted(witnesses)],
+                                      quarantine_device_catalog=catalog['generation_quarantine_device_bindings'])
+                        validate_device_custody_receipt(result, self.policy, quarantines)
+                elif catalog.get('generation_quarantine_device_witnesses'):
+                    raise EvidenceError('custody receipt publication/local readiness is incomplete')
+                yield result
 
     def status(self):
         catalog = self._catalog()

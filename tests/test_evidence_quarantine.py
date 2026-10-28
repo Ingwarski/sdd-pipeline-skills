@@ -72,15 +72,27 @@ class QuarantineTests(unittest.TestCase):
         self.path = self.root / "state" / "accounting.sqlite"
         self.policy = load_defaults()
         self.policy.update(project_id=str(uuid.uuid4()), store_id=str(uuid.uuid4()), provider="local")
+        # These are local accounting/scanner unit cases. Supply an explicit
+        # prepared publication fixture; real Manager/transport/guardian coverage
+        # is exercised separately in test_evidence_quarantine_device_integration.
+        self.prepared_quarantines = {}
+        class PreparedPublication:
+            def _producer_publication_coverage(inner, ledger, intent=None, **kwargs):
+                return {'quarantines': deepcopy(self.prepared_quarantines), 'witnesses': {}, 'bindings': {}, 'authority': None}
+        self.prepared_publication = PreparedPublication()
         self.ledger = self.open()
         self.addCleanup(lambda: self.ledger.close())
         self.f = uncertain_fixture(self.ledger, self.root)
 
     def open(self):
-        return Accounting(self.path, self.policy["project_id"], self.policy)
+        ledger = Accounting(self.path, self.policy["project_id"], self.policy)
+        ledger._publication_manager = (self.prepared_publication, None, None)
+        return ledger
 
     def apply(self):
-        return self.ledger.quarantine_producer(self.f["attempt"], self.f["proof"], dry_run=False)
+        descriptor = self.ledger.quarantine_producer(self.f["attempt"], self.f["proof"], dry_run=False)
+        self.prepared_quarantines[descriptor['reservation_id']] = descriptor
+        return descriptor
 
     def originals(self):
         return {table: [tuple(row) for row in self.ledger.connection.execute("SELECT * FROM " + table + " ORDER BY 1")]
@@ -112,19 +124,19 @@ class QuarantineTests(unittest.TestCase):
         self.assertTrue(actions["actions"][0]["historical_uncertainty"])
         self.assertEqual(original, self.originals())
 
-    def test_real_fresh_managed_producer_completes_but_old_run_never_does(self):
+    def test_direct_quarantined_producer_requires_live_manager_and_old_run_never_completes(self):
         self.apply()
         fresh = self.root / "fresh"
         fresh.mkdir()
-        result = run_producer(self.ledger, "fresh-run", "unit", fresh,
+        with self.assertRaisesRegex(EvidenceError, 'live POSIX Manager'):
+            run_producer(self.ledger, "fresh-run", "unit", fresh,
                               [sys.executable, "-B", "-c", "from pathlib import Path; Path('new.txt').write_bytes(b'new')"],
                               10000, 10, timeout=5, poll_interval=.02)
-        self.assertEqual("complete", result["status"], result)
         snapshot = self.ledger.snapshot()
         self.assertFalse(snapshot["accounting_complete"])
         self.assertEqual(512, snapshot["totals"]["pending_generated_bytes"])
         self.assertEqual(2, next(row for row in snapshot["runs"] if row["id"] == "old-run")["gross_files"])
-        self.assertEqual(1, next(row for row in snapshot["runs"] if row["id"] == "fresh-run")["ordinal"])
+        self.assertFalse(any(row['id'] == 'fresh-run' for row in snapshot['runs']))
         with self.assertRaises(EvidenceError):
             self.ledger.complete_run("old-run")
         with self.assertRaises(EvidenceError):

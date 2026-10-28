@@ -8,6 +8,8 @@ incomplete evidence rather than describing this monitor as universal prevention.
 """
 from __future__ import annotations
 
+from contextlib import ExitStack
+
 import os
 import json
 import sys
@@ -226,6 +228,7 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
             job = _WindowsJob()
         descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(descriptor, "wb") as handle:
+            ledger._check_publication_deadline()
             if attempt is None:
                 process = subprocess.Popen(command, cwd=root, env=environment, stdout=handle, stderr=subprocess.STDOUT,
                     start_new_session=os.name == "posix",
@@ -235,10 +238,14 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
             else:
                 environment.update(SDD_PRODUCER_LEDGER=str(ledger.path), SDD_PRODUCER_ATTEMPT=attempt)
                 environment['PYTHONPATH'] = str(Path(__file__).resolve().parents[1]) + os.pathsep + environment.get('PYTHONPATH', '')
+                ledger._check_publication_deadline()
                 managed = runtime.launch(ledger, attempt, command, cwd=root, env=environment,
                                          stdout=handle, stderr=subprocess.STDOUT)
                 process, job = managed.process, managed.job
             deadline = time.monotonic() + timeout
+            publication_end = ledger._publication_deadline()
+            if publication_end is not None:
+                deadline = min(deadline, publication_end)
             while (managed.poll() if managed else process.poll()) is None:
                 if cancelled is not None and cancelled.is_set():
                     raise EvidenceError("producer coordinator stopped; attempt incomplete")
@@ -356,7 +363,18 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
         ledger.acknowledge_output(output_id)
     if not incomplete:
         if complete_run:
-            ledger.complete_run(run_id)
+            try:
+                ledger.complete_run(run_id)
+            except (EvidenceError, OSError, ValueError, KeyError, TypeError) as exc:
+                if ledger._publication_channel is None:
+                    raise
+                ledger.mark_incomplete(run_id)
+                incomplete, problem = True, 'worker completion publication failed: ' + str(exc)
+        try:
+            ledger._check_publication_deadline()
+        except EvidenceError as exc:
+            ledger.mark_incomplete(run_id)
+            incomplete, problem = True, str(exc)
     if interrupted is not None:
         raise interrupted
     return {"run_id": run_id, "unit_id": unit_id, "output_id": output_id,
@@ -500,7 +518,30 @@ def _recovery_failure_diagnostic(recovered, attempt):
 
 def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
                  reserve_bytes: int, reserve_files: int, *, timeout=3600,
-                 poll_interval=.25, complete_run=True, intent_id=None):
+                 poll_interval=.25, complete_run=True, intent_id=None, manager=None):
+    """Public producer entry; quarantined history needs a live Manager source."""
+    previous = ledger._publication_manager
+    quarantined = bool(ledger.connection.execute('SELECT 1 FROM producer_quarantines LIMIT 1').fetchone())
+    if quarantined and (manager is None or intent_id is None or os.name != 'posix'):
+        raise EvidenceError('quarantined producer requires its live POSIX Manager and durable intent')
+    deadline = time.monotonic() + timeout if type(timeout) in (int, float) else time.monotonic()
+    if manager is not None:
+        if ledger.path != manager.state / 'accounting.sqlite' or ledger.policy != manager.policy:
+            raise EvidenceError('producer Manager differs from original accounting home/policy')
+        ledger._publication_manager = (manager, intent_id, deadline if quarantined else None)
+    try:
+        with ExitStack() as cleanup:
+            return _run_producer(ledger, run_id, unit_id, output_dir, command, reserve_bytes, reserve_files,
+                timeout=timeout, poll_interval=poll_interval, complete_run=complete_run, intent_id=intent_id,
+                manager=manager, publication_deadline=deadline, publication_cleanup=cleanup)
+    finally:
+        ledger._publication_manager = previous
+
+
+def _run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
+                 reserve_bytes: int, reserve_files: int, *, timeout=3600,
+                 poll_interval=.25, complete_run=True, intent_id=None, manager=None, publication_deadline=None,
+                 publication_cleanup=None):
     """Monitor in a finite guardian outside the coordinator's process group.
 
     Coordinator EOF/cancellation stops this attempt, settles measured output and
@@ -542,17 +583,40 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
     request = dict(ledger=str(ledger.path), attempt=attempt, command=command,
                    reserve_bytes=reserve_bytes, reserve_files=reserve_files, timeout=timeout,
                    poll_interval=poll_interval, complete_run=complete_run)
+    publication_parent, publication_child = None, None
+    if ledger.connection.execute('SELECT 1 FROM producer_quarantines LIMIT 1').fetchone():
+        if manager is None or intent_id is None or os.name != 'posix':
+            raise EvidenceError('quarantined producer requires its live POSIX Manager and durable intent')
+        import socket
+        from .quarantine_device import PublicationChannel
+        parent, publication_child = socket.socketpair()
+        publication_cleanup.callback(parent.close)
+        publication_cleanup.callback(publication_child.close)
+        publication_parent = PublicationChannel(parent, deadline=publication_deadline)
+        request.update(publication_fd=publication_child.fileno(), publication_deadline=publication_deadline)
     process = None
     interrupted = None
     try:
         process = subprocess.Popen([sys.executable, '-B', str(runtime.WORKER), 'guardian'],
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=os.name == 'posix',
-            creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) if os.name == 'nt' else 0)
+            creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) if os.name == 'nt' else 0,
+            **({'pass_fds': (publication_child.fileno(),)} if publication_child is not None else {}))
+        if publication_child is not None:
+            publication_child.close()
         process.stdin.write((json.dumps(request) + '\n').encode())
         process.stdin.flush()
         while process.poll() is None:
-            time.sleep(.03)
+            if publication_parent is not None:
+                try:
+                    publication_parent.service(manager, ledger, intent_id, attempt)
+                except EvidenceError as exc:
+                    if str(exc) != 'publication verification channel lost':
+                        raise
+                    publication_parent.close()
+                    publication_parent = None
+            else:
+                time.sleep(.03)
     except BaseException as exc:
         interrupted = exc
     finally:
@@ -560,7 +624,17 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
             if process.stdin:
                 process.stdin.close()  # Also requests cancellation after interrupt.
             try:
-                process.wait(timeout=15)
+                until = time.monotonic() + 15
+                while process.poll() is None and time.monotonic() < until:
+                    if publication_parent is not None:
+                        try:
+                            publication_parent.service(manager, ledger, intent_id, attempt, cancelled=True)
+                        except (EvidenceError, OSError, ValueError):
+                            publication_parent.close()
+                            publication_parent = None
+                    else:
+                        time.sleep(.03)
+                process.wait(timeout=max(.01, until - time.monotonic()))
             except subprocess.TimeoutExpired:
                 # Never kill the surviving monitor just to shorten cancellation.
                 raise EvidenceError('producer guardian cleanup still active; inspect/reconcile before retry')
@@ -569,6 +643,10 @@ def run_producer(ledger, run_id: str, unit_id: str, output_dir, command: list,
             ledger.mark_incomplete(run_id)
             ledger.acknowledge_output(output_id)
             runtime.update(ledger, attempt, lambda v: v.update(status='terminal'))
+        if publication_parent is not None:
+            publication_parent.close()
+        if publication_child is not None:
+            publication_child.close()
     value = runtime.read(ledger, attempt)
     if process is not None and value.get('guardian') is None:
         # The request never reached a claimed guardian. It could not pass a
@@ -613,13 +691,36 @@ def _guardian():
         connection.close()
     with Accounting(request['ledger'], policy['project_id'], policy) as ledger:
         attempt = request['attempt']
+        publication_channel = None
+        if 'publication_fd' in request:
+            import socket
+            from .quarantine_device import PublicationChannel
+            publication_channel = PublicationChannel(socket.socket(fileno=request['publication_fd']),
+                                                       deadline=request['publication_deadline'])
+            original = runtime.read(ledger, attempt)
+            ledger._publication_channel = (publication_channel, original.get('intent_id'), attempt, 'guardian-launch')
         value = runtime.claim_guardian(ledger, attempt)
         if process_identity.state(value['coordinator']) != 'alive':
             cancelled.set()
         try:
+            if ledger.connection.execute('SELECT 1 FROM producer_quarantines LIMIT 1').fetchone():
+                ledger.require_generation_ready()
+            if publication_channel is not None:
+                ledger._publication_channel = (publication_channel, value.get('intent_id'), attempt, 'completion')
             result = _run_monitored(ledger, value['run_id'], value['unit_id'], value['output_dir'], request['command'],
                 request['reserve_bytes'], request['reserve_files'], timeout=request['timeout'],
                 poll_interval=request['poll_interval'], complete_run=request['complete_run'], attempt=attempt, cancelled=cancelled)
+            if (not request['complete_run'] and result['status'] == 'complete'
+                    and ledger.connection.execute('SELECT 1 FROM producer_quarantines LIMIT 1').fetchone()):
+                # Deferring the shared run seal does not defer this worker's
+                # completion authority. Preserve its measured settlement/final
+                # observation if the fresh publication check cannot succeed.
+                try:
+                    ledger.require_generation_ready()
+                except (EvidenceError, OSError, ValueError, KeyError, TypeError) as exc:
+                    ledger.mark_incomplete(value['run_id'])
+                    result['status'] = 'incomplete'
+                    result['problem'] = 'deferred worker completion publication failed: ' + str(exc)
             result['attempt_id'] = attempt
             # The original final observation was persisted before settlement,
             # including failed cleanup. Reference it instead of duplicating its
@@ -628,8 +729,17 @@ def _guardian():
             current = runtime.read(ledger, attempt)
             result['observations_in_final_observation'] = 'observations' in current.get('final_observation', {})
             result['observations_in_ledger'] = False
+            if result['status'] == 'complete':
+                try:
+                    ledger._check_publication_deadline()
+                except EvidenceError as exc:
+                    ledger.mark_incomplete(value['run_id'])
+                    result.update(status='incomplete', problem=str(exc))
             runtime.update(ledger, attempt, lambda v: v.update(status='stopping' if result['cleanup_problem'] else 'terminal', result=result))
         except BaseException as exc:
             runtime.update(ledger, attempt, lambda v: v.update(guardian_problem=str(exc) or type(exc).__name__))
             return 1
+        finally:
+            if publication_channel is not None:
+                publication_channel.close()
     return 0

@@ -3,10 +3,12 @@ from contextlib import redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 import json
+import os
 import socket
 import sqlite3
 import sys
 import threading
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -57,6 +59,46 @@ class ProducerManagerRecoveryTests(unittest.TestCase):
         self.assertEqual(process_identity.identity(), record["owner_identity"])
         self.assertTrue(process_identity.valid_identity(record["owner_identity"]))
         self.assertTrue(self.manager.finish_generation(intent)["settled"])
+
+    def test_manager_without_quarantine_keeps_payload_timeout_and_omits_gate_publication_deadline(self):
+        from evidence.producer import run_producer
+        intent = self.manager.begin_generation('ordinary-slow-preflight', 'unit', 4096, 8)
+        output = self.fixture.base / 'ordinary-timeout-output'; output.mkdir()
+        probe = self.fixture.base / 'request-probe'; probe.mkdir()
+        request_file = self.fixture.base / 'observed-native-gate-request.json'
+        # Observe the real guardian's unmodified gate request in its child
+        # interpreter; no fake producer result or patched native SDK function.
+        hook = '''import json, pathlib, subprocess
+_actual_popen = subprocess.Popen
+def _observed_popen(*args, **kwargs):
+    process = _actual_popen(*args, **kwargs)
+    argv = args[0] if args else kwargs.get('args', [])
+    if isinstance(argv, list) and argv and argv[-1] == 'gate' and process.stdin is not None:
+        original = process.stdin
+        class Stream:
+            def __getattr__(self, name): return getattr(original, name)
+            def write(self, raw):
+                pathlib.Path(REQUEST_PATH).write_bytes(raw)
+                return original.write(raw)
+        process.stdin = Stream()
+    return process
+subprocess.Popen = _observed_popen
+'''.replace('REQUEST_PATH', repr(str(request_file)))
+        (probe / 'sitecustomize.py').write_text(hook)
+        def delayed_preflight(ledger, *, dry_run):
+            time.sleep(.35)
+            return {'actions': [], 'incomplete': False}
+        self.recover.side_effect = delayed_preflight
+        with self.ledger() as ledger, patch.dict(os.environ, {'PYTHONPATH': str(probe) + os.pathsep + os.environ.get('PYTHONPATH', '')}):
+            result = run_producer(ledger, 'ordinary-slow-preflight', 'unit', output,
+                [sys.executable, '-B', '-c', 'from pathlib import Path; Path("ordinary.txt").write_text("ok")'],
+                4096, 8, timeout=.2, poll_interval=.02, intent_id=intent, manager=self.manager)
+            self.assertIsNone(ledger._publication_manager)
+        self.assertEqual('complete', result['status'], result)
+        self.assertEqual('ok', (output / 'ordinary.txt').read_text())
+        request = json.loads(request_file.read_bytes())
+        self.assertNotIn('publication_deadline', request)
+        self.assertTrue(self.manager.finish_generation(intent, result['reservation_id'])['settled'])
 
     def test_begin_reuses_final_catalog_only_inside_publication_lock(self):
         seed = self.manager.begin_generation("seed", "unit", 20, 2)

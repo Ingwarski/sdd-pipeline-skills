@@ -333,6 +333,7 @@ class QuarantinedAccountingLineageTests(unittest.TestCase):
 
     def assert_original_rows_preserved(self, *, allow_new=False):
         with self.fixture.ledger() as ledger:
+            ledger._publication_manager = (self.fixture.manager, None, None)
             for table, before in self.original_rows.items():
                 after = [tuple(row) for row in ledger.connection.execute('SELECT * FROM ' + table + ' ORDER BY 1')]
                 if allow_new:
@@ -360,7 +361,7 @@ class QuarantinedAccountingLineageTests(unittest.TestCase):
         manager = self.fixture.manager
         intent = manager.begin_generation('fresh-lineage-run', 'fresh-unit', 4096, 8)
         output = self.fixture.fixture.base / 'known-lineage-output'; output.mkdir()
-        with self.fixture.ledger() as ledger:
+        with self.fixture.ledger(publication=True) as ledger:
             reservation = ledger.reserve('fresh-lineage-run', 'fresh-unit', 4096, 8, local_bytes=4096)
             output_id = ledger.register_output('fresh-lineage-run', 'fresh-unit', output)
             (output / 'known.txt').write_bytes(b'new')

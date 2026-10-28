@@ -7,6 +7,7 @@ DB, whose physical bytes already count towards metadata/local capacity.
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -280,6 +281,12 @@ def launch(ledger, attempt, command, *, cwd, env, stdout=None, stderr=None, clos
         update(ledger, attempt, register)
         request = {'ledger': str(ledger.path), 'attempt': attempt, 'key': key,
                    'policy': ledger.policy, 'command': command}
+        deadline = ledger._publication_deadline()
+        if deadline is not None:
+            if type(deadline) not in (int, float) or not math.isfinite(deadline) or deadline <= 0:
+                raise EvidenceError('invalid absolute publication deadline')
+            request['publication_deadline'] = deadline
+        ledger._check_publication_deadline()
         process.stdin.write((json.dumps(request) + '\n').encode())
         process.stdin.flush()
         return ManagedChild(ledger, attempt, process, key, job, close_ledger)
@@ -470,6 +477,10 @@ def gate():
         if os.name == 'posix':
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
         try:
+            deadline = request.get('publication_deadline')
+            if 'publication_deadline' in request and (type(deadline) not in (int, float) or not math.isfinite(deadline)
+                                         or deadline <= 0 or time.monotonic() >= deadline):
+                raise EvidenceError('publication deadline expired before payload launch')
             child = subprocess.Popen(request['command'], stdin=subprocess.DEVNULL)
         except OSError as exc:
             if os.name == 'posix':

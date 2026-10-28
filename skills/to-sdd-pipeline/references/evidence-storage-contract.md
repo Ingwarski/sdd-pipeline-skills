@@ -1,5 +1,11 @@
 # Evidence storage, version 1
 
+For preserved unknown producer history, explicit device current custody,
+mandatory Manager publication coverage and scoped receipt versions 2/3, read
+[producer-gap recovery](producer-gap-recovery.md). Current-custody witnesses
+preserve failed history and full holds; they never prove historical physical
+continuity or product acceptance.
+
 Read at authorized pipeline entry and evidence production/resolution/import/cleanup. Storage preserves owners, source authority, baselines, acceptance and the separate implementation prompt. Setup and managed recovery use the collection's storage guide.
 
 ## Pipeline entry

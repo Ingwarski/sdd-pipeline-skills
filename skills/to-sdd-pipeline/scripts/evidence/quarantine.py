@@ -218,7 +218,7 @@ def build(ledger, attempt, proof):
     return validate_quarantine_descriptor(value, ledger.policy)
 
 
-def validate_current(ledger, value):
+def validate_original(ledger, value):
     validate_quarantine_descriptor(value, ledger.policy)
     original_policy = resolve_historical_policy(ledger.policy, value["policy_sha256"])
     record, raw, run, reservation, uncertain = original_state(ledger, value["attempt_id"], original_policy=original_policy)
@@ -229,6 +229,15 @@ def validate_current(ledger, value):
             or value["output_identity"] != record["output_identity"]):
         raise EvidenceError("quarantine original accounting/session binding changed")
     validate_proof(value["proof"], value["attempt_id"], value["original_record_sha256"], read_files=True)
+    return record
+
+
+def validate_current(ledger, value, *, witness=None, coordinator_authority=None):
+    record = validate_original(ledger, value)
+    if witness is not None:
+        from .quarantine_device import verify_quarantine_device_current
+        verify_quarantine_device_current(ledger, value, witness, coordinator_authority=coordinator_authority)
+        return value
     if current_inventory(ledger, record) != value["inventory"]:
         raise EvidenceError("quarantine preserved output inventory changed")
     return value

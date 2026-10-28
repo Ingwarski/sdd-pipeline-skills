@@ -141,7 +141,7 @@ def probe(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("archive", "prepare", "restore", "recover", "import", "adopt", "cleanup", "reconcile", "retention-policy", "status", "accounting-receipt", "run", "complete-run", "initialize-generation-authority", "acknowledge-missing-upload", "quarantine-producer", "git-review", "setup-probe"):
+    for name in ("archive", "prepare", "restore", "recover", "import", "adopt", "cleanup", "reconcile", "retention-policy", "status", "accounting-receipt", "run", "complete-run", "initialize-generation-authority", "acknowledge-missing-upload", "quarantine-producer", "revalidate-quarantine-device", "git-review", "setup-probe"):
         sub = commands.add_parser(name)
         sub.add_argument("--project")
         sub.add_argument("--policy")
@@ -170,6 +170,12 @@ def main():
         elif name == "quarantine-producer":
             sub.add_argument("--attempt-id", required=True)
             sub.add_argument("--proof", required=True, help="Bound original producer disposition proof JSON")
+            sub.add_argument("--apply", action="store_true")
+        elif name == "revalidate-quarantine-device":
+            sub.add_argument("--attempt-id", required=True)
+            sub.add_argument("--assertion", required=True)
+            sub.add_argument("--assertion-sha256", required=True)
+            sub.add_argument("--operation-id", required=True)
             sub.add_argument("--apply", action="store_true")
         elif name == "git-review":
             sub.add_argument("--base", required=True)
@@ -244,6 +250,7 @@ def main():
                 manager.assert_generation_authority()
                 with Accounting(manager.state / "accounting.sqlite", manager.policy["project_id"], manager.policy) as ledger:
                     manager._reconcile_ledger(manager._catalog(), ledger)
+                    ledger._publication_manager = (manager, None, None)
                     ledger.complete_run(args.run_id)
                 result = {"run_id": args.run_id, "status": "complete"}
             elif args.command == "retention-policy":
@@ -253,45 +260,21 @@ def main():
             elif args.command == "accounting-receipt":
                 if not args.project and not args.policy:
                     raise EvidenceError("accounting-receipt requires --project or --policy with the original portable policy file: recovered policy values cannot establish its original byte hash; cold payload restoration remains available")
-                with Accounting(manager.state / "accounting.sqlite", manager.policy["project_id"], manager.policy) as ledger:
-                    catalog = manager._catalog()
-                    manager._reconcile_ledger(catalog, ledger)
-                    runs = {}
-                    for row in ledger.connection.execute("SELECT * FROM runs WHERE migration=0"):
-                        pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (row["id"],)).fetchone()[0]
-                        outputs = ledger.connection.execute("SELECT COUNT(*) FROM outputs WHERE run_id=? AND reconciled=0", (row["id"],)).fetchone()[0]
-                        runs[row["id"]] = {"unit_id": row["unit_id"], "status": "complete" if row["status"] == "complete" and not pending and not outputs else "incomplete",
-                            "gross_generated_bytes": row["gross_bytes"], "original_logical_files": row["gross_files"],
-                            "pending_reservations": pending, "unreconciled_outputs": outputs}
-                    for ref in catalog["refs"].values():
-                        if ref["retention"].get("imported") or ref["provenance"].get("accounting_mode") == "imported-existing":
-                            runs.setdefault(ref["provenance"]["run_id"], {"unit_id": ref["provenance"]["unit_id"], "status": "complete", "mode": "imported-existing", "gross_generated_bytes": 0, "original_logical_files": 0, "pending_reservations": 0, "unreconciled_outputs": 0})
-                    snapshot = ledger.snapshot()
-                    pending_intents = {key: value for key, value in catalog.get("generation_intents", {}).items() if not value.get("settled")}
-                    complete = snapshot.get("accounting_complete", True) and not pending_intents
-                    result = {"version": 1, "project_id": manager.policy["project_id"], "runs": runs,
-                              "accounting_complete": complete, "incomplete": not complete,
-                              "totals_are_lower_bounds": not complete,
-                              "pending_generation_intents": pending_intents,
-                              "policy_sha256": hash_file(Path(args.policy).resolve() if args.policy else Path(args.project).resolve() / "forge/evidence-policy.json")[0]}
-                    readiness = manager._generation_readiness(catalog, ledger)
-                    quarantines = readiness["quarantines"]
-                    if quarantines:
-                        quarantined_intents = {item["intent_id"] for item in quarantines}
-                        quarantined_runs = {item["run_id"] for item in quarantines}
-                        outstanding = any(key not in quarantined_runs and
-                                          (row["pending_reservations"] or row["unreconciled_outputs"])
-                                          for key, row in runs.items())
-                        outstanding = outstanding or any(
-                            runs[key]["pending_reservations"] != sum(item["run_id"] == key for item in quarantines)
-                            for key in quarantined_runs)
-                        ready = readiness["ready"] and set(pending_intents) == quarantined_intents and not outstanding
-                        result.update(version=2, kind="scoped-known-generation",
-                                      accounting_complete=False, incomplete=True,
-                                      totals_are_lower_bounds=True, history_complete=False,
-                                      generation_ready=ready, quarantines=quarantines,
-                                      selected_scope={"run_ids": sorted(key for key, row in runs.items()
-                                          if row["status"] == "complete"), "complete": bool(ready)})
+                policy_sha = hash_file(Path(args.policy).resolve() if args.policy else Path(args.project).resolve() / "forge/evidence-policy.json")[0]
+                with manager.accounting_receipt_snapshot(policy_sha) as result:
+                    if args.output:
+                        selected = Path(args.output).expanduser().absolute()
+                        selected.parent.mkdir(parents=True, exist_ok=True)
+                        atomic_json(selected.parent.resolve() / selected.name, result)
+                    print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+                    if (result.get("version") in (2, 3) and result.get("generation_ready") is True
+                            and result.get("selected_scope", {}).get("complete") is True):
+                        return 0
+                    return 1 if result.get("incomplete") else 0
+            elif args.command == "revalidate-quarantine-device":
+                result = manager.revalidate_quarantine_device(args.attempt_id,
+                    {"path": str(Path(args.assertion).expanduser().absolute()), "sha256": args.assertion_sha256},
+                    operation_id=args.operation_id, dry_run=not args.apply)
             elif args.command == "run":
                 from evidence.producer import run_producer
                 manager.assert_generation_authority()
@@ -313,7 +296,7 @@ def main():
                     try:
                         result = run_producer(ledger, args.run_id, args.unit_id, selected.resolve(), command,
                                               args.reserve_bytes, args.reserve_files, timeout=args.timeout,
-                                              complete_run=not args.defer_run_completion, intent_id=intent)
+                                              complete_run=not args.defer_run_completion, intent_id=intent, manager=manager)
                     finally:
                         manager.finish_generation(intent, reservation_id=(result or {}).get("reservation_id"))
             else:

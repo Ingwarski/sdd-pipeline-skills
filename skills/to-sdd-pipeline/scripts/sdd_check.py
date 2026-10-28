@@ -874,12 +874,12 @@ class Checker:
         self.accounting_reference_id = accounting_ref.get("artifact_id") if accounting_ref is not None else None
         if accounting_ref is not None:
             receipt = self.evidence_resolver.json(accounting_ref)
-        if not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] not in (1, 2):
+        if not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] not in (1, 2, 3):
             raise ValueError("unsupported evidence accounting version")
         for flag in ("accounting_complete", "incomplete"):
             if flag in receipt and type(receipt[flag]) is not bool:
                 raise ValueError("invalid evidence accounting completeness flag: " + flag)
-        scoped = receipt["version"] == 2
+        scoped = receipt["version"] in (2, 3)
         if not scoped and (receipt.get("accounting_complete") is False or receipt.get("incomplete") is True):
             raise ValueError("evidence accounting is incomplete; reconcile missing durable accounting history")
         if receipt.get("project_id") != policy["project_id"] or not hash_matches(receipt.get("policy_sha256"), self.file_hash(policy_path)):
@@ -940,7 +940,11 @@ class Checker:
         flags = {"accounting_complete": False, "incomplete": True,
                  "totals_are_lower_bounds": True, "history_complete": False,
                  "generation_ready": True}
-        if receipt.get("kind") != "scoped-known-generation" or any(
+        if receipt.get("version") == 3:
+            from evidence.quarantine_device import validate_device_custody_receipt
+            validate_device_custody_receipt(receipt, policy, receipt.get("quarantines", []))
+        expected_kind = "scoped-known-generation-with-device-custody" if receipt.get("version") == 3 else "scoped-known-generation"
+        if receipt.get("kind") != expected_kind or any(
                 type(receipt.get(key)) is not bool or receipt[key] is not value
                 for key, value in flags.items()):
             raise ValueError("scoped accounting must disclose incomplete historical accounting")

@@ -4,6 +4,7 @@ from copy import deepcopy
 import hashlib
 from io import StringIO
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -38,7 +39,7 @@ class QuarantineManagerTests(unittest.TestCase):
             "status": "launching", "processes": {}, "resources": [],
             "output_dir": str(self.output), "output_identity": producer_runtime.directory_identity(self.output),
             "policy": self.manager.policy}
-        with self.ledger() as ledger:
+        with self.ledger(publication=True) as ledger:
             self.reservation = ledger.reserve("old-run", "old-unit", 1024, 8,
                 local_bytes=1024, metadata_bytes=65536, producer_record=record)
             output_id = ledger.register_output("old-run", "old-unit", self.output)
@@ -62,9 +63,12 @@ class QuarantineManagerTests(unittest.TestCase):
                 "proof": {"path": str(proof), "sha256": hash_file(proof)[0]},
                 "limitations": "Historical production totals remain unknown"}}
 
-    def ledger(self):
-        return Accounting(self.manager.state / "accounting.sqlite",
+    def ledger(self, *, publication=False):
+        ledger = Accounting(self.manager.state / "accounting.sqlite",
             self.manager.policy["project_id"], self.manager.policy)
+        if publication:
+            ledger._publication_manager = (self.manager, None, None)
+        return ledger
 
     def apply(self):
         return self.manager.quarantine_producer(self.attempt, self.proof, dry_run=False)
@@ -80,7 +84,7 @@ class QuarantineManagerTests(unittest.TestCase):
         return code, json.loads(output.getvalue()), policy
 
     def test_dry_run_and_repeated_publication_preserve_all_historical_rows(self):
-        with self.ledger() as ledger:
+        with self.ledger(publication=True) as ledger:
             before = {table: [tuple(row) for row in ledger.connection.execute("SELECT * FROM " + table)]
                 for table in ("runs", "reservations", "uncertain_generation", "producer_sessions", "outputs")}
         dry = self.manager.quarantine_producer(self.attempt, self.proof)
@@ -90,7 +94,7 @@ class QuarantineManagerTests(unittest.TestCase):
         sequence = self.manager._catalog()["sequence"]
         self.assertEqual(first, self.apply())
         self.assertEqual(sequence, self.manager._catalog()["sequence"])
-        with self.ledger() as ledger:
+        with self.ledger(publication=True) as ledger:
             for table, rows in before.items():
                 self.assertEqual(rows, [tuple(row) for row in ledger.connection.execute("SELECT * FROM " + table)])
             self.assertFalse(ledger.snapshot()["accounting_complete"])
@@ -99,13 +103,17 @@ class QuarantineManagerTests(unittest.TestCase):
 
     def test_fresh_real_producer_finishes_without_completing_old_attempt(self):
         self.apply()
+        if os.name != 'posix':
+            with self.assertRaisesRegex(EvidenceError, 'POSIX'):
+                self.manager.begin_generation('fresh-run', 'fresh-unit', 4096, 8)
+            return  # precise unsupported quarantined-native assertion
         intent = self.manager.begin_generation("fresh-run", "fresh-unit", 4096, 8)
         output = self.fixture.base / "fresh-output"
         output.mkdir()
-        with self.ledger() as ledger:
+        with self.ledger(publication=True) as ledger:
             result = run_producer(ledger, "fresh-run", "fresh-unit", output,
                 [sys.executable, "-B", "-c", "from pathlib import Path; Path('fresh.txt').write_text('fresh')"],
-                4096, 8, timeout=10, poll_interval=.02, intent_id=intent)
+                4096, 8, timeout=10, poll_interval=.02, intent_id=intent, manager=self.manager)
         self.assertEqual("complete", result["status"])
         self.assertTrue(self.manager.finish_generation(intent, result["reservation_id"])["settled"])
         with self.assertRaisesRegex(EvidenceError, "quarantined"):
@@ -125,7 +133,7 @@ class QuarantineManagerTests(unittest.TestCase):
         self.assertEqual(self.original_record, self._original_record())
 
     def _original_record(self):
-        with self.ledger() as ledger:
+        with self.ledger(publication=True) as ledger:
             return json.loads(ledger.connection.execute("SELECT record FROM producer_sessions WHERE id=?",
                 (self.attempt,)).fetchone()[0])
 
@@ -160,7 +168,7 @@ class QuarantineManagerTests(unittest.TestCase):
         self.assertFalse(receipt["generation_ready"])
         self.assertFalse(receipt["selected_scope"]["complete"])
 
-        with self.ledger() as ledger:
+        with self.ledger(publication=True) as ledger:
             reservation = ledger.reserve("another-unknown", "unit", 12, 2)
             ledger.record_uncertain(reservation, 3, 1)
         with self.assertRaises(EvidenceError):
@@ -168,7 +176,7 @@ class QuarantineManagerTests(unittest.TestCase):
 
     def test_scoped_receipt_does_not_hide_unisolated_pending_reservation(self):
         self.apply()
-        with self.ledger() as ledger:
+        with self.ledger(publication=True) as ledger:
             ledger.reserve("unisolated-known-run", "unit", 10, 1)
         code, receipt, _ = self.receipt()
         self.assertEqual(1, code)
@@ -179,7 +187,7 @@ class QuarantineManagerTests(unittest.TestCase):
         self.apply()
         output = self.fixture.base / "unreconciled-output"
         output.mkdir()
-        with self.ledger() as ledger:
+        with self.ledger(publication=True) as ledger:
             hold = ledger.reserve("unreconciled-run", "unit", 10, 1)
             ledger.register_output("unreconciled-run", "unit", output)
             ledger.settle(hold, 0, 0)
@@ -207,7 +215,7 @@ class QuarantineManagerTests(unittest.TestCase):
         sequence = self.manager._catalog()["sequence"]
         with self.assertRaisesRegex(EvidenceError, "quarantined historical run"):
             self.manager.begin_generation("old-run", "old-unit", 1024, 8)
-        with self.ledger() as ledger:
+        with self.ledger(publication=True) as ledger:
             with self.assertRaises(EvidenceError):
                 ledger.complete_run("old-run")
         self.assertEqual(sequence, self.manager._catalog()["sequence"])
