@@ -98,7 +98,7 @@ Its commands are:
 - `capture-context --unit ID --inventory reviewed.json`: returns the pre-start reference; index it in `execution_contexts` before the normal checker start boundary.
 - `observe-inputs --unit ID [--inventory reviewed.json]`: reads actual execution inputs, using the captured inventory when omitted. Bind matching before/after observations to the genuine check event.
 - `capture-completion --unit ID --context-ref context-ref.json --run-id ACTUAL_RUN_ID [--inventory reviewed-current.json]`: validates completion and returns its immutable reference. Canonical owner updates (e.g. QA history) require fresh owner review after checks, with unchanged relevant definitions. Retain original context/post-run provenance separately; unfinished work cannot complete.
-- `capture-attempt --unit ID --context-ref context-ref.json --run-id ACTUAL_RUN_ID --outcome failed|interrupted --inventory reviewed-current.json`: preserves unfinished work without passed acceptance. Add `attempt_ref` to the unchanged run; stage/activate. Status-only owner edits require fresh review, unchanged relevant acceptance/authority and original check hashes/times/outcomes.
+- `capture-attempt --unit ID --context-ref context-ref.json --run-id ACTUAL_RUN_ID --outcome failed|interrupted --inventory reviewed-current.json`: preserves unfinished work without passed acceptance. Normally add `attempt_ref` to the unchanged run and stage/activate before continuation; malformed original start metadata uses the bounded recovery below. Status-only owner edits require fresh review, unchanged relevant acceptance/authority and original check hashes/times/outcomes.
 - `observe-runtime --probes probes.json`: executes explicit identity commands once and returns an immutable receipt. The input maps identity names to argument lists starting with an absolute executable; no shell is used. Its `environment` maps each name to stripped stdout. Probe the runtime/session that will execute evidence; an installed binary version alone does not identify an attached process. Use non-secret, bounded identity commands that do not start background helpers.
 - `capture-continuation --unit ID --attempt-ref attempt-ref.json --run-id NEW_RUN_ID --inventory reviewed-continuation.json`: returns candidate `manifest`, `context_ref` and `prior_attempt_ref`. Fresh inventory includes the new probe's `runtime_observation_ref`/exact `environment`. Preserve work/attempts, capture new context, reset owned checks to unrun. Save candidate, reconcile progress, stage/activate, pass `--start-unit`, record actual start. Acceptance requires subsequent executed checks.
 - `--manifest candidate-manifest.json assess --completion-ref completion-ref.json --inventory reviewed.json --pending-map pending-map.json`: reviews the candidate against the actual active `forge/sdd-manifest.json`. Mapping values are current unit IDs; keys are changed pending IDs or `__added__`. Preserve every old acceptance obligation, including obligations introduced in earlier revisions.
@@ -107,6 +107,21 @@ Its commands are:
 - `recover --journal-ref journal-ref.json`: reports whether the recorded activation happened, did not happen, or conflicts with later state. It never overwrites later work or silently removes another writer's lock.
 
 Reference arguments name JSON files containing returned references, not history envelopes. Put the finished run and owner-reconciled results in a candidate; use `--manifest candidate-manifest.json capture-completion ...`, index its reference, then stage/activate. Completion requires complete-unit validation; never publish unvalidated completion. Save actual command outputs/checker reports.
+
+### Malformed unfinished-run recovery
+
+When original unfinished-run metadata prevents normal intermediate attempt staging,
+archive the exact original bytes and available evidence first. Validate the immutable
+attempt, original authority and current plan/prompt. Owners review current sources
+and fresh runtime inventory. `capture-continuation` may consume that attempt directly
+against the unchanged live manifest, without separately activating its `attempt_ref`.
+Retain the exact original run/checks/context and every history reference; create a
+distinct pending run and fresh context linked to that attempt, with owned checks
+`not_run`. Stage/activate the complete candidate against the unchanged active hash,
+then pass implementation/start gates before execution. Missing history, invalid
+authority or failed validation blocks recovery. Never reconstruct old fields,
+rebind results, grant acceptance/permission or alter accounting/quotas. This groups
+publication only; the normal sequence remains the default.
 
 Capture attempts before repairs when possible. Edits, deletions or new tree members
 differing from test inputs retain old observations/current work as

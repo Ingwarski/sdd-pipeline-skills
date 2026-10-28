@@ -1331,6 +1331,7 @@ class Manager:
                 if len({x["provenance"]["unit_id"] for x in logical}) > 1 or len({x["provenance"]["run_id"] for x in logical}) > 1:
                     raise EvidenceError("one managed archive operation must belong to one stable run and unit")
             ledger = Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy)
+            ledger._publication_manager = (self, None, None)
             self._archive_ledger = ledger
             self._reconcile_ledger(catalog, ledger)
             if not specification.get("managed_output_id"):

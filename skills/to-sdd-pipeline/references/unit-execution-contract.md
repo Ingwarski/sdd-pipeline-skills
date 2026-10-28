@@ -63,8 +63,10 @@ owner updates without completion. It retains all actual check outcomes and
 preserves stale observations separately from later partial work. A fresh retry
 uses `capture-continuation`, a distinct run ID and new pre-start context; earlier
 attempts remain in `attempt_history`. Probe the actual execution runtime and bind
-the fresh receipt to continuation checks. Follow the exact command order and
-nonaccepting-history rules in [completion preservation](completion-preservation.md).
+the fresh receipt to continuation checks. Follow the normal command order and
+nonaccepting-history rules in [completion preservation](completion-preservation.md),
+including its bounded [malformed unfinished-run recovery](completion-preservation.md#malformed-unfinished-run-recovery)
+when original metadata prevents intermediate attempt staging.
 
 Revalidate completed records, including on resume; stale evidence/open blockers invalidate completion. A predecessor must complete before its consumer starts. Release requires all units and existing gates; unit completion alone never proves release readiness.
 
