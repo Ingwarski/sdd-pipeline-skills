@@ -574,7 +574,7 @@ class Accounting:
         if prior is None and operation_id in preparations:
             prior = preparations[operation_id][0][1]
         if prior is not None:
-            if prior['assertion']['ref'] != assertion_ref or prior['assertion']['payload'] != read_assertion(assertion_ref, descriptor, self.policy):
+            if prior['assertion']['ref'] != assertion_ref or prior['assertion']['payload'] != read_assertion(assertion_ref, descriptor, self.policy, frozen_witness=prior):
                 raise EvidenceError('frozen custody assertion changed')
             return verify_quarantine_device_current(self, descriptor, prior, coordinator_authority=authority)
         if any(x['attempt_id'] == descriptor['attempt_id'] or x['reservation_id'] == descriptor['reservation_id']

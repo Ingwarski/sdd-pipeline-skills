@@ -469,5 +469,104 @@ class DeviceCustodyTests(unittest.TestCase):
                 for row in rows: self.assertIn(row, after, table)
 
 
+
+class PolicyLineageCustodyTests(DeviceCustodyTests):
+    def setUp(self):
+        from evidence.policy import load_defaults
+        defaults = load_defaults()
+        defaults['limits'].update(max_unit_retries=8, local_stop_bytes=256 * 1024 * 1024,
+                                  cache_stop_bytes=128 * 1024 * 1024,
+                                  metadata_stop_bytes=16 * 1024 * 1024, metadata_stop_files=1024)
+        with patch('test_evidence_manager.load_defaults', return_value=defaults):
+            super().setUp()
+
+    def successor(self):
+        from evidence.policy import append_policy_transition
+        old = self.manager.policy
+        candidate = deepcopy(old)
+        candidate['limits']['max_unit_retries'] += 1
+        raw = (json.dumps(old, indent=2, sort_keys=True) + '\n').encode()
+        new = append_policy_transition(raw, candidate)
+        self.manager.policy = new
+        self.manager.limits = new['limits']
+        return new
+
+    def test_published_witness_replays_under_successor_with_live_custody(self):
+        witness = self.apply(dry_run=False)['witness']
+        before = self.originals()
+        new = self.successor()
+        with patch('os.open', side_effect=AssertionError('portable validator performed IO')):
+            self.assertEqual(witness, validate_quarantine_device_witness(witness, self.descriptor, new))
+        self.manager.initialize_generation_authority()
+        self.assertEqual(witness, self.apply(dry_run=False)['witness'])
+        self.assertEqual(before, self.originals())
+        with self.f.ledger() as ledger:
+            authority = self.manager._generation_authority()
+            verify_quarantine_device_current(ledger, self.descriptor, witness, coordinator_authority=authority)
+            with self.assertRaises(EvidenceError):
+                verify_quarantine_device_current(ledger, self.descriptor, witness, coordinator_authority={'foreign': True})
+            with patch('evidence.quarantine_device.scan_current', return_value={'changed': True}):
+                with self.assertRaises(EvidenceError):
+                    verify_quarantine_device_current(ledger, self.descriptor, witness, coordinator_authority=authority)
+
+    def test_frozen_sidecar_retries_but_unfrozen_old_assertion_rejects(self):
+        witness = self.apply()['witness']
+        with self.f.ledger() as ledger, patch('evidence.accounting.os.fsync', side_effect=OSError('frozen synthetic failure')):
+            with self.assertRaises(OSError): ledger.append_device_witness(witness)
+        new = self.successor()
+        from evidence.quarantine_device import read_assertion, build_witness
+        with self.assertRaises(EvidenceError): read_assertion(self.ref, self.descriptor, new)
+        with self.f.ledger() as ledger:
+            with self.assertRaises(EvidenceError):
+                build_witness(ledger, self.descriptor, self.ref, self.operation, self.manager._generation_authority())
+            retry = ledger.prepare_device_witness(self.descriptor, self.ref, self.operation, self.manager._generation_authority())
+            self.assertEqual(witness, retry)
+            changed = dict(self.ref, sha256='0' * 64)
+            with self.assertRaises(EvidenceError):
+                ledger.prepare_device_witness(self.descriptor, changed, self.operation, self.manager._generation_authority())
+
+    def test_frozen_preparation_retries_after_transition(self):
+        witness = self.apply()['witness']
+        with self.f.ledger() as ledger, patch('evidence.accounting.os.link', side_effect=OSError('freeze before link')):
+            with self.assertRaises(OSError): ledger.append_device_witness(witness)
+        self.successor()
+        self.manager.initialize_generation_authority()
+        self.assertEqual(witness, self.apply(dry_run=False)['witness'])
+
+    def test_current_resource_limit_still_applies_to_historical_witness(self):
+        from evidence.policy import append_policy_transition
+        witness = self.apply()['witness']
+        old = self.manager.policy
+        candidate = deepcopy(old)
+        candidate['limits']['metadata_stop_files'] = 1
+        new = append_policy_transition((json.dumps(old, indent=2, sort_keys=True) + '\n').encode(), candidate)
+        with self.assertRaises(EvidenceError):
+            validate_quarantine_device_witness(witness, self.descriptor, new)
+
+    def test_historical_binding_rejects_tampering_and_corrupt_lineage(self):
+        from evidence.policy import validate_policy
+        witness = self.apply()['witness']
+        new = self.successor()
+        for key in ('project_id', 'store_id', 'ledger_id', 'original_descriptor_digest',
+                    'original_record_sha256', 'original_policy_sha256', 'current_policy_sha256',
+                    'coordinator_authority_sha256', 'root_path'):
+            changed = deepcopy(witness)
+            changed['assertion']['payload'][key] = '0' * 64
+            changed['assertion']['sha256'] = digest(changed['assertion']['payload'])
+            changed[key] = '0' * 64
+            changed['digest'] = digest({k: v for k, v in changed.items() if k != 'digest'})
+            with self.subTest(key=key), self.assertRaises(EvidenceError):
+                if key in ('coordinator_authority_sha256', 'root_path'):
+                    with self.f.ledger() as ledger:
+                        verify_quarantine_device_current(ledger, self.descriptor, changed, coordinator_authority=self.manager._generation_authority())
+                else:
+                    validate_quarantine_device_witness(changed, self.descriptor, new)
+        for key in ('raw_sha256', 'policy_sha256'):
+            broken = deepcopy(new); broken['policy_lineage']['base'][key] = '0' * 64
+            with self.subTest(lineage=key), self.assertRaises(EvidenceError): validate_policy(broken)
+        broken = deepcopy(new); broken['policy_lineage']['steps'][0]['digest'] = '0' * 64
+        with self.assertRaises(EvidenceError): validate_policy(broken)
+
+
 if __name__ == '__main__':
     unittest.main()

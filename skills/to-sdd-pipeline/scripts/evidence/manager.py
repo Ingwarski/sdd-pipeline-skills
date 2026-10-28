@@ -2026,7 +2026,7 @@ class Manager:
                     size = len(canonical(witness)) + Path(assertion_ref['path']).lstat().st_size
                     peak = size * 12 + len(canonical(catalog)) * 3 + 262144
                     with self._working(peak, metadata_bytes=peak, metadata_files=12):
-                        read_assertion(assertion_ref, descriptor, self.policy)
+                        read_assertion(assertion_ref, descriptor, self.policy, frozen_witness=witness)
                         verify_quarantine_device_current(ledger, descriptor, witness, coordinator_authority=publication['authority'])
                         if local is None:
                             ledger.append_device_witness(witness)

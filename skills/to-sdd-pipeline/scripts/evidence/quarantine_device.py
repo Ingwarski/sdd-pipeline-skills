@@ -86,19 +86,19 @@ def _views(old, new, descriptor, policy):
             raise EvidenceError('current file is not the exact uniform-device captured view')
 
 
-def validate_device_custody_assertion(value, descriptor, policy):
+def validate_device_custody_assertion(value, descriptor, policy, *, historical=False):
     """Validate declared bytes only; no filesystem, clock, process or DB calls."""
     _bounded(descriptor, policy)
     validate_quarantine_descriptor(descriptor)
     # Callers supply the normalized, validated policy (Accounting, Manager and
     # Checker already own that validation). Do not call the policy loader here:
     # it reads packaged defaults and would make a portable validator perform IO.
-    policies = {digest(policy)}
+    policies = [digest(policy)]
     lineage = policy.get('policy_lineage')
     if lineage:
-        policies.add(lineage['base']['policy_sha256'])
+        policies = [lineage['base']['policy_sha256']]
         for i, step in enumerate(lineage['steps']):
-            policies.add(digest({**step['policy'], 'policy_lineage': {
+            policies.append(digest({**step['policy'], 'policy_lineage': {
                 'version': 1, 'base': lineage['base'], 'steps': lineage['steps'][:i + 1]}}))
     if (descriptor['project_id'] != policy['project_id'] or descriptor['store_id'] != policy['store_id']
             or descriptor['policy_sha256'] not in policies):
@@ -115,8 +115,13 @@ def validate_device_custody_assertion(value, descriptor, policy):
         if value[key] != descriptor[key] or not _text(value[key]):
             raise EvidenceError('custody assertion binding changed: ' + key)
     expected = {'original_descriptor_digest': descriptor['digest'], 'original_record_sha256': descriptor['original_record_sha256'],
-                'original_policy_sha256': descriptor['policy_sha256'], 'current_policy_sha256': digest(policy)}
-    if any(value[k] != v for k, v in expected.items()) or not _hash(value['coordinator_authority_sha256']):
+                'original_policy_sha256': descriptor['policy_sha256']}
+    # Lineage was validated by the caller. This portable check retains the
+    # current policy for bounds; only frozen witness replay permits ancestry.
+    allowed = policies[policies.index(descriptor['policy_sha256']):] if historical else [digest(policy)]
+    if (any(value[k] != v for k, v in expected.items())
+            or value['current_policy_sha256'] not in allowed
+            or not _hash(value['coordinator_authority_sha256'])):
         raise EvidenceError('custody assertion policy/descriptor/authority binding changed')
     _views(value['old_view'], value['new_view'], descriptor, policy)
     return value
@@ -134,7 +139,7 @@ def validate_quarantine_device_witness(value, descriptor, policy):
     assertion = value['assertion']
     _keys(assertion, {'ref', 'payload', 'sha256'}, 'embedded assertion')
     _keys(assertion['ref'], {'path', 'sha256'}, 'assertion reference')
-    payload = validate_device_custody_assertion(assertion['payload'], descriptor, policy)
+    payload = validate_device_custody_assertion(assertion['payload'], descriptor, policy, historical=True)
     if (not _path(assertion['ref']['path']) or not _hash(assertion['sha256'])
             or not _hash(assertion['ref']['sha256'])):
         raise EvidenceError('invalid custody assertion reference/hash')
@@ -252,13 +257,13 @@ def verify_quarantine_device_current(ledger, descriptor, witness, *, coordinator
         raise EvidenceError('custody native coordinator/path/ledger binding changed')
     if scan_current(ledger, descriptor, record) != witness['new_view']:
         raise EvidenceError('custody current captured view changed')
-    if read_assertion(witness['assertion']['ref'], descriptor, ledger.policy) != witness['assertion']['payload']:
+    if read_assertion(witness['assertion']['ref'], descriptor, ledger.policy, frozen_witness=witness) != witness['assertion']['payload']:
         raise EvidenceError('named custody assertion bytes changed')
     validate_original(ledger, descriptor)  # repeat owner/resource barrier
     return witness
 
 
-def read_assertion(ref, descriptor, policy):
+def read_assertion(ref, descriptor, policy, *, frozen_witness=None):
     _keys(ref, {'path', 'sha256'}, 'assertion reference')
     if not _path(ref['path']) or not _hash(ref['sha256']):
         raise EvidenceError('invalid named assertion reference')
@@ -284,7 +289,12 @@ def read_assertion(ref, descriptor, policy):
             result[k] = v
         return result
     value = json.loads(raw, object_pairs_hook=pairs)
-    validate_device_custody_assertion(value, descriptor, policy)
+    if frozen_witness is None:
+        validate_device_custody_assertion(value, descriptor, policy)
+    else:
+        validate_quarantine_device_witness(frozen_witness, descriptor, policy)
+        if frozen_witness['assertion']['ref'] != ref or frozen_witness['assertion']['payload'] != value:
+            raise EvidenceError('frozen custody assertion changed')
     return value
 
 
