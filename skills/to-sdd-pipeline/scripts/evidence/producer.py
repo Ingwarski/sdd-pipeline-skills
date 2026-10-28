@@ -132,23 +132,56 @@ def _stop_owned(process, job=None):
         process.wait(timeout=5)
 
 
-def _inventory(root):
-    _parents(root / "placeholder")
-    if not root.is_dir() or _is_link(root.lstat()):
-        raise EvidenceError("managed output directory was replaced or linked")
-    result = {}
-    for directory, subdirs, files in os.walk(root, followlinks=False):
-        for name in subdirs:
-            info = (Path(directory) / name).lstat()
-            if _is_link(info) or not stat.S_ISDIR(info.st_mode):
-                raise EvidenceError("unsafe managed output subdirectory")
-        for name in files:
-            path = Path(directory) / name
-            info = path.lstat()
-            if _is_link(info) or not stat.S_ISREG(info.st_mode):
-                raise EvidenceError("unsafe managed output file: " + str(path))
-            result[path.relative_to(root).as_posix()] = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
-    return result
+def _inventory(root, *, expected_identity=None):
+    """Retry a whole sampled snapshot when an enumerated entry disappears.
+
+    This does not observe writes that occur entirely between samples. A root
+    replacement, unsafe entry, or non-disappearance I/O error remains fatal.
+    """
+    root = Path(root)
+
+    def root_identity():
+        _parents(root / "placeholder")
+        info = root.lstat()
+        if _is_link(info) or not stat.S_ISDIR(info.st_mode):
+            raise EvidenceError("managed output directory was replaced or linked")
+        return [info.st_dev, info.st_ino]
+
+    original = root_identity()
+    if expected_identity is not None and original != list(expected_identity):
+        raise EvidenceError("managed output directory identity changed")
+
+    def verify_root():
+        if root_identity() != original:
+            raise EvidenceError("managed output directory identity changed")
+
+    def walk_error(error):
+        raise error
+
+    for attempt in range(3):
+        verify_root()
+        result = {}
+        try:
+            for directory, subdirs, files in os.walk(root, followlinks=False, onerror=walk_error):
+                for name in subdirs:
+                    info = (Path(directory) / name).lstat()
+                    if _is_link(info) or not stat.S_ISDIR(info.st_mode):
+                        raise EvidenceError("unsafe managed output subdirectory")
+                for name in files:
+                    path = Path(directory) / name
+                    info = path.lstat()
+                    if _is_link(info) or not stat.S_ISREG(info.st_mode):
+                        raise EvidenceError("unsafe managed output file: " + str(path))
+                    result[path.relative_to(root).as_posix()] = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        except FileNotFoundError:
+            # Never reinterpret a missing or changed root as entry churn.
+            verify_root()
+            if attempt == 2:
+                raise
+            continue
+        verify_root()
+        return result
+    raise AssertionError("unreachable inventory retry state")
 
 
 def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
@@ -191,13 +224,14 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
     process, job, problem, cleanup_problem, interrupted = None, None, None, None, None
     previous, gross_bytes, gross_files, last_inventory = {}, 0, 0, {}
     managed, exit_code, writers_stopped = None, None, False
+    expected_output_identity = record['output_identity'] if attempt is not None else initial_output_identity
     log = root / "producer.log"
     environment = os.environ.copy()
     environment["SDD_EVIDENCE_OUTPUT_DIR"] = str(root)
 
     def observe(*, check_limits=True):
         nonlocal previous, gross_bytes, gross_files, last_inventory
-        current = _inventory(root)
+        current = _inventory(root, expected_identity=expected_output_identity)
         for name, value in current.items():
             old = previous.get(name)
             if old is None or value[:2] != old[:2] or value[2] < old[2]:
@@ -312,7 +346,7 @@ def _run_monitored(ledger, run_id: str, unit_id: str, output_dir, command: list,
             digest, size = hash_file(root / name)
             stable_files[name] = {"content_hash": digest, "size": size}
             current_bytes += size
-        if _inventory(root) != last_inventory:
+        if _inventory(root, expected_identity=expected_output_identity) != last_inventory:
             raise EvidenceError("managed output changed during final hash pass")
         expected_identity = record['output_identity'] if attempt is not None else initial_output_identity
         if [root.lstat().st_dev, root.lstat().st_ino] != expected_identity:

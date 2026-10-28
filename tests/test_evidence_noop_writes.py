@@ -170,7 +170,8 @@ class NoopWriteTests(unittest.TestCase):
     def test_deletion_only_actual_observer_call_does_not_rewrite_same_counters(self):
         payload = self.output / "temporary.txt"
         payload.write_bytes(b"payload")
-        initial = producer._inventory(self.output)
+        expected_output_identity = runtime.directory_identity(self.output)
+        initial = producer._inventory(self.output, expected_identity=expected_output_identity)
         # Run the actual nested observer without launching a producer, guardian,
         # subprocess or OS scanner. Its only output change is this file deletion.
         function = ast.parse(inspect.getsource(producer._run_monitored)).body[0]
@@ -179,6 +180,7 @@ class NoopWriteTests(unittest.TestCase):
         factory.body.extend([observe, ast.Return(value=ast.Name(id="observe", ctx=ast.Load()))])
         module = ast.fix_missing_locations(ast.Module(body=[factory], type_ignores=[]))
         scope = {"initial": initial, "root": self.output, "_inventory": producer._inventory,
+                 "expected_output_identity": expected_output_identity,
                  "runtime": runtime, "ledger": self.ledger, "attempt": self.attempt}
         exec(compile(module, "<actual-producer-observer>", "exec"), scope)
         poll = scope["fixture"]()

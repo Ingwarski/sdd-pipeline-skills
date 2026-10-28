@@ -115,8 +115,8 @@ class ManagedProducerTests(unittest.TestCase):
         signals.mkdir()
         original = producer._inventory
         observed_versions = set()
-        def observe(root):
-            current = original(root)
+        def observe(root, **kwargs):
+            current = original(root, **kwargs)
             log = root / "producer.log"
             if log.exists() and log.stat().st_size == 100:
                 number = log.read_bytes()[:3].decode("ascii")
@@ -192,6 +192,137 @@ class ManagedProducerTests(unittest.TestCase):
             time.sleep(0.02)
         else:
             self.fail("task-owned helper process still exists")
+
+
+class ProducerInventoryRaceTests(unittest.TestCase):
+    """Deterministic enumeration/rename interleavings; no live producer required."""
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name).resolve() / 'output'
+        self.root.mkdir()
+        self.addCleanup(self.temporary.cleanup)
+
+    def test_rename_after_enumeration_retries_complete_snapshot(self):
+        transient = self.root / '.progress.tmp'
+        transient.write_text('complete')
+        (self.root / 'stable').write_text('stable')
+        original_walk = os.walk
+        calls = []
+        def walk(*args, **kwargs):
+            calls.append(1)
+            for directory, subdirs, files in original_walk(*args, **kwargs):
+                if len(calls) == 1 and Path(directory) == self.root:
+                    self.assertIn(transient.name, files)
+                    transient.replace(self.root / 'progress.json')
+                yield directory, subdirs, files
+        with patch('evidence.producer.os.walk', side_effect=walk):
+            result = producer._inventory(self.root)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(set(result), {'stable', 'progress.json'})
+        self.assertEqual(result['progress.json'][2], len(b'complete'))
+
+    def test_persistent_enumerated_disappearance_stops_after_three_attempts(self):
+        original_walk = os.walk
+        calls = []
+        def walk(*args, **kwargs):
+            calls.append(1)
+            transient = self.root / 'temp'
+            transient.write_bytes(b'x')
+            for directory, subdirs, files in original_walk(*args, **kwargs):
+                if Path(directory) == self.root:
+                    self.assertIn('temp', files)
+                    transient.unlink()
+                yield directory, subdirs, files
+        with patch('evidence.producer.os.walk', side_effect=walk):
+            with self.assertRaises(FileNotFoundError):
+                producer._inventory(self.root)
+        self.assertEqual(len(calls), 3)
+
+    def test_missing_or_replaced_root_is_not_treated_as_entry_churn(self):
+        original_walk = os.walk
+        calls = []
+        (self.root / 'temp').write_bytes(b'x')
+        def walk(*args, **kwargs):
+            calls.append(1)
+            for directory, subdirs, files in original_walk(*args, **kwargs):
+                moved = self.root.with_name('old-output')
+                self.root.rename(moved)
+                (moved / 'temp').unlink()
+                self.root.mkdir()
+                yield directory, subdirs, files
+        with patch('evidence.producer.os.walk', side_effect=walk):
+            with self.assertRaisesRegex(EvidenceError, 'identity changed'):
+                producer._inventory(self.root)
+        self.assertEqual(len(calls), 1)
+        self.root.rmdir()
+        with self.assertRaises((FileNotFoundError, EvidenceError)):
+            producer._inventory(self.root)
+
+    def test_replaced_root_after_successful_walk_is_rejected(self):
+        original_walk = os.walk
+        def walk(*args, **kwargs):
+            yield from original_walk(*args, **kwargs)
+            self.root.rename(self.root.with_name('old-output'))
+            self.root.mkdir()
+        with patch('evidence.producer.os.walk', side_effect=walk):
+            with self.assertRaisesRegex(EvidenceError, 'identity changed'):
+                producer._inventory(self.root)
+
+    def test_expected_original_root_identity_is_checked(self):
+        identity = [self.root.stat().st_dev, self.root.stat().st_ino]
+        self.root.rename(self.root.with_name('old-output'))
+        self.root.mkdir()
+        with self.assertRaisesRegex(EvidenceError, 'identity changed'):
+            producer._inventory(self.root, expected_identity=identity)
+
+    @unittest.skipUnless(hasattr(os, 'symlink'), 'symbolic links unavailable')
+    def test_linked_entry_and_linked_parent_fail_closed(self):
+        target = self.root.parent / 'target'
+        target.mkdir()
+        link = self.root / 'link'
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('symbolic link unavailable: ' + str(exc))
+        with self.assertRaises(EvidenceError):
+            producer._inventory(self.root)
+        link.unlink()
+        parent_link = self.root.parent / 'linked-parent'
+        parent_link.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaises(EvidenceError):
+            producer._inventory(parent_link)
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'FIFO unavailable')
+    def test_special_file_is_rejected(self):
+        os.mkfifo(self.root / 'fifo')
+        with self.assertRaises(EvidenceError):
+            producer._inventory(self.root)
+
+    def test_non_disappearance_walk_error_propagates_without_retry(self):
+        calls = []
+        def walk(*args, **kwargs):
+            calls.append(1)
+            kwargs['onerror'](PermissionError('synthetic traversal denial'))
+            yield  # retain generator shape
+        with patch('evidence.producer.os.walk', side_effect=walk):
+            with self.assertRaises(PermissionError):
+                producer._inventory(self.root)
+        self.assertEqual(len(calls), 1)
+
+    def test_entry_permission_error_is_not_retried(self):
+        target = self.root / 'file'
+        target.write_bytes(b'x')
+        original = Path.lstat
+        calls = []
+        def lstat(path, *args, **kwargs):
+            if path == target:
+                calls.append(path)
+                raise PermissionError('synthetic entry denial')
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'lstat', lstat):
+            with self.assertRaises(PermissionError):
+                producer._inventory(self.root)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

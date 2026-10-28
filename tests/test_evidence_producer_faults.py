@@ -149,9 +149,9 @@ class ProducerFaultTests(unittest.TestCase):
         original = producer._inventory
         exhausted = False
 
-        def observe(root):
+        def observe(root, **kwargs):
             nonlocal exhausted
-            current = original(root)
+            current = original(root, **kwargs)
             if "payload.json" in current and not exhausted:
                 # Another writer consumes shared metadata capacity while the
                 # producer is active; its immutable policy remains unchanged.
