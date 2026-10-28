@@ -58,7 +58,8 @@ def seed_catalog(manager, adapter):
         locator, _ = add(manager.prefix + 'indexes/' + digest + '.json', value)
         segments.append({'sha256': digest, 'size': locator['size'], 'locator': locator})
         value = {'version': 1, 'project_id': manager.policy['project_id'], 'store_id': manager.policy['store_id'],
-                 'sequence': number, 'coordinator': manager.coordinator, 'segments': list(segments)}
+                 'sequence': number, 'coordinator': manager.coordinator,
+                 'previous': roots[-1]['key'] if roots else None, 'segments': list(segments)}
         digest = hashlib.sha256(canonical(value)).hexdigest()
         locator, _ = add(manager.prefix + 'roots/' + str(number).zfill(12) + '-' + digest + '.json', value)
         roots.append(locator)
@@ -151,16 +152,18 @@ class CatalogInventoryTests(unittest.TestCase):
 
     def test_catalog_keeps_totals_downloads_and_every_fresh_stat_without_lookup(self):
         catalog = self.manager._catalog()
-        self.assertEqual({'list': 4, 'metadata': 14, 'download_original': 4}, dict(self.counts()))
+        self.assertEqual({'list': 4, 'metadata': 14, 'download_original': 5}, dict(self.counts()))
         self.assertEqual(6, catalog['metadata_files'])
         self.assertEqual(sum(len(value['bytes']) for value in self.adapter.objects.values()), catalog['metadata_bytes'])
-        self.assertEqual(1616, catalog['metadata_bytes'], 'same synthetic bytes as preserved pre-edit baseline')
+        # The preserved 1616-byte fixture gains 16 bytes for previous:null
+        # and 148 for previous:<134-byte root key>, including comma/key/quotes.
+        self.assertEqual(1780, catalog['metadata_bytes'], 'publisher-faithful ancestry adds 164 bytes')
         self.assertEqual(self.objects['roots'][-1]['key'], catalog['root_key'])
         metadata_ids = [request['object_id'] for request in self.adapter.requests if request['operation'] == 'metadata']
         for identity in self.adapter.objects:
             self.assertIn(identity, metadata_ids, 'every root/index/authority requires fresh admission stat')
         downloads = [request for request in self.adapter.requests if request['operation'] == 'download_original']
-        self.assertEqual(4, len(downloads))
+        self.assertEqual(5, len(downloads))
         self.assertTrue(all(request['bypass_cache'] is True for request in downloads))
 
     def test_keys_only_transport_fallback_preserves_catalog_and_metadata_totals(self):
@@ -173,9 +176,9 @@ class CatalogInventoryTests(unittest.TestCase):
         manager = Manager(fallback, self.root / 'fallback-home', self.policy)
         catalog = manager._catalog()
         self.assertEqual(6, catalog['metadata_files'])
-        self.assertEqual(1616, catalog['metadata_bytes'])
+        self.assertEqual(1780, catalog['metadata_bytes'])
         self.assertEqual(10, self.counts()['lookup'])
-        self.assertEqual(4, self.counts()['download_original'])
+        self.assertEqual(5, self.counts()['download_original'])
 
     def test_fresh_stat_growth_of_historical_root_or_orphan_index_blocks_admission(self):
         for locator in (self.objects['roots'][0], self.objects['orphan']):
@@ -184,7 +187,7 @@ class CatalogInventoryTests(unittest.TestCase):
                     return {**value, 'size': self.manager.limits['metadata_stop_bytes'] + 1} \
                         if request['object_id'] == locator['object_id'] else value
                 self.adapter.metadata_transform = grow
-                with self.assertRaisesRegex(EvidenceError, 'catalog/history/index|metadata allowance'):
+                with self.assertRaisesRegex(EvidenceError, 'catalog/history/index|metadata allowance|remote metadata exceeds combined configured bound'):
                     self.manager._catalog()
                 self.assertTrue(any(request['operation'] == 'metadata' and request['object_id'] == locator['object_id']
                                     for request in self.adapter.requests))
@@ -221,7 +224,7 @@ class CatalogInventoryTests(unittest.TestCase):
         self.manager._catalog()
         self.assertEqual(8, self.counts()['list'])
         self.assertEqual(28, self.counts()['metadata'])
-        self.assertEqual(8, self.counts()['download_original'])
+        self.assertEqual(10, self.counts()['download_original'])
 
     def test_publication_keeps_fresh_string_concurrency_fence(self):
         catalog = self.manager._catalog(mutation=True)
