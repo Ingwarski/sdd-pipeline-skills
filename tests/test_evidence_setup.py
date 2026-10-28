@@ -17,6 +17,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import evidence_setup as setup
 import installation_status
 
+_original_initialize_authority = setup._initialize_authority
+
 
 class EvidenceSetupTests(unittest.TestCase):
     def setUp(self):
@@ -267,6 +269,71 @@ class EvidenceSetupTests(unittest.TestCase):
         self.assertTrue(Path(result["config_path"]).is_relative_to(self.home))
         self.assertEqual(str(session), command[command.index("--host-session") + 1])
         self.assertEqual("completed", result["adoption"])
+
+    def test_authority_timeout_validation_precedes_mutation(self):
+        for value in (True, False, None, 599, 3601, 600.0, "600", float("inf")):
+            with self.subTest(value=value), self.assertRaisesRegex(setup.SetupError, "integer from 600 to 3600"):
+                self.configure(authority_timeout_seconds=value)
+            self.assertFalse(self.home.exists())
+            self.assertEqual([], list(self.project.iterdir()))
+            self.assertEqual([], self.probes)
+
+    def test_configure_passes_only_authority_timeout_and_default(self):
+        self.configure(authority_timeout_seconds=3600)
+        self.assertEqual(3600, self.authority.call_args.kwargs["timeout_seconds"])
+        self.configure(reconfigure=True)
+        self.assertNotIn("timeout_seconds", self.authority.call_args.kwargs)
+        self.assertNotIn("authority_timeout_seconds", self.probes[0])
+
+    def test_probe_and_default_authority_subprocess_deadlines_remain_600(self):
+        config = {"evidence_home": str(self.home)}
+        receipt = subprocess.CompletedProcess([], 0, stdout='{"verified": true}', stderr='')
+        with patch.object(setup.subprocess, "run", return_value=receipt) as run:
+            setup._probe(config, self.project)
+            _original_initialize_authority(config, {}, self.project)
+        self.assertEqual([600, 600], [call.kwargs["timeout"] for call in run.call_args_list])
+
+    def test_authority_subprocess_timeout_is_safe_and_preserves_checkpoint(self):
+        self.configure()
+        policy_path = self.project / "forge/evidence-policy.json"
+        policy_before = policy_path.read_bytes()
+        binding_path, = (self.home / "bindings").glob("*.json")
+        binding_before = binding_path.read_bytes()
+        original = _original_initialize_authority
+        secret = "synthetic-secret-stderr"
+        with patch.object(setup, "_initialize_authority", side_effect=original), \
+             patch.object(setup.subprocess, "run", side_effect=subprocess.TimeoutExpired("sensitive-command", 900, stderr=secret)) as run:
+            with self.assertRaises(setup.SetupError) as error:
+                self.configure(reconfigure=True, retention_days=14, authority_timeout_seconds=900)
+        self.assertEqual(900, run.call_args.kwargs["timeout"])
+        self.assertNotIn(secret, str(error.exception))
+        self.assertNotIn("sensitive-command", str(error.exception))
+        self.assertIn("outcome may be unknown", str(error.exception))
+        self.assertIn("checkpoint is retained", str(error.exception))
+        self.assertEqual(policy_before, policy_path.read_bytes())
+        self.assertEqual(binding_before, binding_path.read_bytes())
+        pending_path, = (self.home / "pending-setup").glob("*.json")
+        pending = setup._read(pending_path)
+        self.configure(reconfigure=True, retention_days=14, authority_timeout_seconds=900)
+        self.assertFalse(pending_path.exists())
+        self.assertEqual(pending["project_id"], self.authority.call_args.args[1]["project_id"])
+        self.assertEqual(pending["store_id"], self.authority.call_args.args[1]["store_id"])
+
+    def test_cli_authority_timeout_parsing_and_scope(self):
+        result = self.run_cli("scripts/evidence_setup.py", "configure", "--project", str(self.project),
+                              "--provider", "local", "--authority-timeout-seconds", "601")
+        self.assertEqual("configured", result["result"])
+        other_home = self.base / "invalid-home"
+        for value in ("599", "3601", "true", "1.5"):
+            process = subprocess.run([sys.executable, str(ROOT / "scripts/evidence_setup.py"), "configure",
+                                      "--project", str(self.project), "--evidence-home", str(other_home),
+                                      "--provider", "local", "--authority-timeout-seconds", value],
+                                     capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(0, process.returncode)
+            self.assertFalse(other_home.exists())
+        process = subprocess.run([sys.executable, str(ROOT / "scripts/evidence_setup.py"), "ensure",
+                                  "--authority-timeout-seconds", "900"], capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(0, process.returncode)
 
     def test_authority_failure_does_not_publish_project_configuration(self):
         self.authority.side_effect = setup.SetupError("existing generation authority requires recovery")

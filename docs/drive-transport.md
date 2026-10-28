@@ -207,6 +207,13 @@ to resume. Existing objects cannot be abandoned through this action. Duplicate r
 automatically deduplicated or deleted. This favors recoverable failure over
 duplicate payloads when a remote listing is delayed.
 
+Explicit `configure` accepts `--authority-timeout-seconds` as an integer from 600
+through 3600 (default 600). It bounds only the generation-authority initialization
+subprocess; probe and other operation deadlines remain unchanged. A timeout can
+leave the authority outcome unknown and retains the setup checkpoint. Settle the
+exact owned host activity before retrying the same selection; a timeout alone does
+not establish that remote work has stopped or that publication failed.
+
 If the initial generation-authority upload was interrupted before setup published
 its project policy/binding, repeat the original `evidence_setup.py configure`
 command with the same project, evidence home, destination, policy choices and

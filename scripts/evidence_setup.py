@@ -223,7 +223,7 @@ def _probe(config, project=None, *, host_session=None):
         return receipt
 
 
-def _initialize_authority(config, policy, project, *, host_session=None):
+def _initialize_authority(config, policy, project, *, host_session=None, timeout_seconds=600):
     """Claim durable generation authority before exposing a project as configured."""
     home = evidence_home(config["evidence_home"])
     home.mkdir(parents=True, exist_ok=True)
@@ -236,7 +236,10 @@ def _initialize_authority(config, policy, project, *, host_session=None):
                    "--project", str(Path(project).resolve()), "--config", str(candidate), "--policy", str(candidate_policy)]
         if host_session is not None:
             command += ["--host-session", str(host_session)]
-        result = subprocess.run(command, capture_output=True, text=True, timeout=600)
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            raise SetupError("generation authority initialization timed out; its outcome may be unknown. The setup checkpoint is retained; settle the exact owned host activity before retrying the same selection") from exc
         try:
             receipt = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
@@ -365,8 +368,10 @@ def _claim_setup_checkpoint(config, policy, project, *, fixed_project, fixed_sto
 def configure(project=None, *, provider, destination=None, transport=None, bridge_command=None,
               rclone_config=None, rclone_executable=None, home=None, limits=None, retention_days=None,
               drive_retention_days="unset", adopt=None, reconfigure=False, probe=None, host_session=None,
-              acknowledge_missing_upload=None):
+              acknowledge_missing_upload=None, authority_timeout_seconds=600):
     """An explicit selected provider authorizes its bounded verification upload."""
+    if type(authority_timeout_seconds) is not int or not 600 <= authority_timeout_seconds <= 3600:
+        raise SetupError("authority timeout must be an integer from 600 to 3600 seconds")
     home = evidence_home(home)
     _outside(home, project)
     policy_path = _policy_path(project) if project else None
@@ -462,7 +467,8 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
         config["configured_at"] = datetime.now(timezone.utc).isoformat()
         if project:
             unchanged_policy()
-            _initialize_authority(config, policy, project, host_session=host_session)
+            _initialize_authority(config, policy, project, host_session=host_session,
+                                  **({"timeout_seconds": authority_timeout_seconds} if authority_timeout_seconds != 600 else {}))
             unchanged_policy()
         config_path = home / "bindings" / (project_id + ".json") if project else home / "default.json"
         _write(home / "stores" / (store_id + ".json"), config)
@@ -607,6 +613,7 @@ def main(argv=None):
             sub.add_argument("--reconfigure", action="store_true")
             sub.add_argument("--non-interactive", action="store_true")
         if name == "configure":
+            sub.add_argument("--authority-timeout-seconds", type=int, default=600, help="authority initialization deadline in seconds (600 to 3600; default 600)")
             sub.add_argument("--provider", required=True, choices=("local", "folder", "google-drive"))
             sub.add_argument("--destination")
             sub.add_argument("--transport", choices=("rclone", "connected"))
@@ -655,7 +662,7 @@ def main(argv=None):
                                rclone_config=args.rclone_config, rclone_executable=args.rclone_executable,
                                home=args.evidence_home, limits=limits, retention_days=args.retention_days,
                                drive_retention_days=args.drive_retention_days, adopt=args.adopt, reconfigure=args.reconfigure, host_session=args.host_session,
-                               acknowledge_missing_upload=args.acknowledge_missing_upload)
+                               acknowledge_missing_upload=args.acknowledge_missing_upload, authority_timeout_seconds=args.authority_timeout_seconds)
         print(json.dumps(status, indent=2))
         return 0 if status["result"] == "configured" else 2
     except (OSError, SetupError, EvidenceError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:
