@@ -419,16 +419,16 @@ class ConnectedHostAdapter:
         if (response.get("request_id") != request["request_id"] or response.get("session_id") != self.session["session_id"]
                 or response.get("request_sha256") != hashlib.sha256(_bounded(request)).hexdigest()):
             raise EvidenceError("connected host response does not match the pending request")
-        # Read the response before clearing; a failed upload still retains the
-        # transport's immutable-key checkpoint independently of this session.
-        (self.path / "request.json").unlink()
-        target.unlink()
+        # Preserve the original control pair on semantic failure so the next
+        # request cannot overwrite the native result before inspection.
         result = _unwrap(response.get("result"))
         if response.get("materialized_path") is not None:
             result = dict(result, materialized_path=response["materialized_path"],
                           managed_original=response.get("managed_original") is True)
         if result.get("error"):
             raise EvidenceError("connected Drive tool reported an error; no success was recorded")
+        (self.path / "request.json").unlink()
+        target.unlink()
         return result
 
     def _metadata(self, identity, folder, key=None):
