@@ -41,7 +41,7 @@ class PerCheckReuseTests(unittest.TestCase):
             reviewed["execution_inputs"] = {"src": {"mode": "tree"}}
         return reviewed
 
-    def start_and_seal(self, *, settlement_changes=None, before_attempt=None, seal=True):
+    def start_and_seal(self, *, settlement_changes=None, before_attempt=None, seal=True, seal_all=False):
         self.inputs = self.inventory()
         self.context = self.h.capture_context(self.p.root, self.m, "U-1", self.inputs)
         self.m.setdefault("execution_contexts", {})["U-1"] = self.context
@@ -65,8 +65,15 @@ class PerCheckReuseTests(unittest.TestCase):
         self.settlement = self.p.evidence("forge/runs/group-settlement.json", settlement_body)
         if not seal:
             return
-        self.seal = self.h.seal_check(self.p.root, self.m, "U-1", "QA-02", self.settlement, self.inputs)
-        self.check["seal_ref"] = self.seal
+        if seal_all:
+            seals = self.h.seal_checks(self.p.root, self.m, "U-1", settlement_body["check_ids"], self.settlement, self.inputs)
+            for check in self.m["verification"]["checks"]:
+                if check["check_id"] in seals:
+                    check["seal_ref"] = seals[check["check_id"]]
+            self.seal = seals["QA-02"]
+        else:
+            self.seal = self.h.seal_check(self.p.root, self.m, "U-1", "QA-02", self.settlement, self.inputs)
+            self.check["seal_ref"] = self.seal
         self.original = copy.deepcopy(self.check)
         if before_attempt:
             before_attempt()
@@ -77,13 +84,37 @@ class PerCheckReuseTests(unittest.TestCase):
         return self.h.capture_continuation(self.p.root, self.m, "U-1", self.attempt,
                                            "synthetic-continuation", self.inventory(), reuse=reuse)
 
-    def test_fine_inputs_ignore_unrelated_code_and_preserve_original_result(self):
+    def test_unassigned_input_change_invalidates_continuation_and_completion(self):
         self.start_and_seal()
+        self.p.write("src/other.txt", "Changed unassigned implementation.\n")
+        continued = self.resume()
+        current = next(item for item in continued["manifest"]["verification"]["checks"] if item["check_id"] == "QA-02")
+        self.assertEqual("not_run", current["execution_status"])
+        self.assertIn("dependency changed", continued["rerun_reasons"]["QA-02"])
+        self.assertIn("src/other.txt", self.original["evaluated_execution_inputs"])
+        self.install_continuation(continued)
+        self.base.assert_blocked(self.base.report("implementation", "complete", "U-1"))
+
+    def test_unassigned_input_change_blocks_fresh_completion(self):
+        self.start_and_seal(seal=False)
+        self.p.write("src/other.txt", "Changed after actual check execution.\n")
+        report = self.base.report("implementation", "complete", "U-1")
+        self.base.assert_blocked(report)
+        self.assertIn("check execution inputs changed", str(report))
+
+    def test_independently_owned_inputs_preserve_original_result(self):
+        self.add_second_check(independent=True)
+        self.start_and_seal(seal_all=True)
         self.assertEqual({"src/alpha.txt"}, set(self.check["evaluated_execution_inputs"]))
-        self.p.write("src/other.txt", "Changed unrelated implementation.\n")
+        other = next(item for item in self.m["verification"]["checks"] if item["check_id"] == "QA-07")
+        self.assertEqual({"src/other.txt"}, set(other["evaluated_execution_inputs"]))
+        self.p.write("src/other.txt", "Changed independently checked implementation.\n")
         continued = self.resume()
         current = next(item for item in continued["manifest"]["verification"]["checks"] if item["check_id"] == "QA-02")
         self.assertEqual("passed", current["execution_status"])
+        other = next(item for item in continued["manifest"]["verification"]["checks"] if item["check_id"] == "QA-07")
+        self.assertEqual("not_run", other["execution_status"])
+        self.assertIn("dependency changed", continued["rerun_reasons"]["QA-07"])
         for field in ("run_id", "executed_at", "evidence", "evaluated_execution_inputs"):
             self.assertEqual(self.original[field], current[field])
         self.assertEqual("not_completed", self.base.read(self.attempt)["acceptance"])
@@ -95,7 +126,31 @@ class PerCheckReuseTests(unittest.TestCase):
         run.update(status="running", started_at=self.base.now(),
                    development_plan_hash=self.p.hash("docs/development-plan.md"), approved_baseline_id="B-1")
         report = self.base.report("implementation", "complete", "U-1")
-        self.assertEqual("passed", report["result"], report)
+        self.base.assert_blocked(report)
+
+    def test_unassigned_shared_input_invalidates_every_required_check(self):
+        self.add_second_check(independent=True)
+        self.p.write("config/shared.json", "Original shared configuration.\n")
+        self.dependencies = ["config/shared.json"]
+        self.start_and_seal(seal_all=True)
+        self.p.write("config/shared.json", "Changed unassigned configuration.\n")
+        continued = self.resume()
+        for check in continued["manifest"]["verification"]["checks"]:
+            if check["check_id"] in ("QA-02", "QA-07"):
+                self.assertEqual("not_run", check["execution_status"])
+                self.assertIn("dependency changed", continued["rerun_reasons"][check["check_id"]])
+
+    def test_optional_check_cannot_remove_required_unknown_input_coverage(self):
+        self.add_second_check(independent=True)
+        optional = next(item for item in self.m["verification"]["checks"] if item["check_id"] == "QA-07")
+        optional["acceptance"]["required"] = False
+        next(item for item in self.m["verification"]["gates"] if item["gate_id"] == optional["gate_id"])["required"] = False
+        self.m["unit_plan"]["units"]["U-1"]["required_check_ids"].remove("QA-07")
+        self.configure_dependencies([])
+        self.start_and_seal()
+        self.p.write("src/other.txt", "Changed input covered only by an optional check.\n")
+        continued = self.resume()
+        self.assertIn("dependency changed", continued["rerun_reasons"].get("QA-02", ""))
 
     def test_changed_dependency_is_reset_not_relabelled(self):
         self.start_and_seal()
@@ -156,7 +211,7 @@ class PerCheckReuseTests(unittest.TestCase):
         check = next(item for item in current["manifest"]["verification"]["checks"] if item["check_id"] == "QA-02")
         self.assertEqual("not_run", check["execution_status"])
         self.assertIn("dependency changed", current["rerun_reasons"]["QA-02"])
-        self.assertNotIn("src/other.txt", self.base.read(self.seal)["files"])
+        self.assertIn("src/other.txt", self.base.read(self.seal)["files"])
 
     def test_stale_inherited_check_remains_archivable_then_reruns(self):
         self.start_and_seal()
@@ -289,6 +344,19 @@ class PerCheckReuseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "sealed inventory"):
             self.resume()
 
+    def test_compact_seal_cannot_omit_unassigned_input(self):
+        original = self.h.seal_check
+        def omit_input(*args, **kwargs):
+            reference = original(*args, **kwargs)
+            record = self.base.read(reference)
+            for field in ("execution_inputs", "execution_fingerprints"):
+                record["input_inventory"][field].pop("src/other.txt")
+            return self.h.store_record(self.p.root, "sealed-checks", record)
+        with mock.patch.object(self.h, "seal_check", omit_input):
+            self.start_and_seal()
+        with self.assertRaisesRegex(ValueError, "sealed dependencies"):
+            self.resume()
+
     def test_v3_preserves_approved_correction_validation(self):
         from test_authorization_corrections import AuthorizationCorrectionTests
         case = AuthorizationCorrectionTests("runTest")
@@ -311,6 +379,7 @@ class PerCheckReuseTests(unittest.TestCase):
         self.assertIn("blocking finding", str(report))
 
     def test_seal_inventory_is_bounded_to_own_inputs_and_context_reference(self):
+        self.add_second_check(independent=True)
         self.start_and_seal()
         sealed = self.base.read(self.seal)
         self.assertEqual({"execution_inputs", "execution_fingerprints"}, set(sealed["input_inventory"]))

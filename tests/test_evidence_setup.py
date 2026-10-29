@@ -174,10 +174,13 @@ class EvidenceSetupTests(unittest.TestCase):
         report = installation_status.inspect(ROOT, [skill_root], evidence_home=self.home)
         self.assertEqual("current", report["links_result"])
         self.assertEqual("setup_required", report["result"])
+        self.assertEqual("local_installation", report["scope"])
+        self.assertEqual("not_checked", report["release_provenance"])
         self.assertFalse(self.home.exists())
         setup.configure(home=self.home, provider="local", probe=self.probe)
         report = installation_status.inspect(ROOT, [skill_root], evidence_home=self.home)
         self.assertEqual("current", report["result"])
+        self.assertEqual("not_checked", report["release_provenance"])
         self.assertEqual(1, len(self.probes))
 
     def test_aggregate_limit_overrides_validate_before_probe(self):

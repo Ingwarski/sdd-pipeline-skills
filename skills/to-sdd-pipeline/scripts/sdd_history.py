@@ -71,6 +71,7 @@ def snapshot_hash_scope(owner=None, *, audit=False):
             owner.depth -= 1
             if not owner.depth:
                 owner.hashes.clear()
+                owner.physical_hashes.clear()
                 owner.history_results.clear()
                 owner.legacy_files.clear()
                 owner.section_indexes.clear()
@@ -1715,11 +1716,13 @@ def continuation_inventory(context, attempt, reviewed, *, project=None, current_
                 and same(selection, reviewed["execution_inputs"][path]),
                 "continuation changed or removed preserved execution input: " + path)
         if not same(original["execution_fingerprints"][path], reviewed["execution_fingerprints"][path]):
-            if current_manifest is not None and check_inputs.enabled(current_manifest):
-                continue  # The new attempt reruns changed checks; sealed reuse compares its own inputs.
-            require(path == "forge/evidence-policy.json" and project is not None,
-                    "continuation changed or removed preserved execution input: " + path)
-            _policy_successor(project, attempt, reviewed, current_record=current_record, current_manifest=current_manifest)
+            if path == "forge/evidence-policy.json":
+                require(project is not None, "policy successor requires the original project")
+                _policy_successor(project, attempt, reviewed, current_record=current_record, current_manifest=current_manifest)
+            else:
+                # Contract 3 can rerun changed checks; that never replaces policy lineage.
+                require(current_manifest is not None and check_inputs.enabled(current_manifest),
+                        "continuation changed or removed preserved execution input: " + path)
     require(api().timestamp(reviewed["review"]["reviewed_at"]) >= api().timestamp(attempt["captured_at"]),
             "continuation needs a fresh owner review after attempt capture")
     attempt_authority(context["manifest"], attempt["post_manifest"])
@@ -1827,7 +1830,8 @@ def validate_sealed_check(project, reference, attempt, context, checker):
     require(seal.get("event") == "sealed_check" and seal.get("version") == 1, "unsupported sealed check")
     require(seal.get("unit_id") == attempt["unit_id"] and seal.get("run_id") == attempt["run_id"]
             and same(seal.get("context_ref"), attempt["context_ref"]), "seal does not bind the original attempt")
-    check = next(item for item in attempt["checks"] if item["check_id"] == seal["check"]["check_id"])
+    check = next((item for item in attempt["checks"] if item["check_id"] == seal["check"]["check_id"]), None)
+    require(check is not None, "seal check is missing from the original attempt")
     require(same(seal["check"], _without_reuse(check)) and same(check.get("seal_ref"), reference),
             "original sealed observation was changed or omitted")
     require(api().timestamp(seal["sealed_at"]) <= api().timestamp(attempt["captured_at"]),
@@ -1853,10 +1857,16 @@ def validate_sealed_check(project, reference, attempt, context, checker):
     frozen = historical_checker(project, original_manifest, context, seal,
                                  cache=checker._history_cache, original_canonical=False,
                                  evidence_cache=checker.evidence_resolver.cache)
-    # Only check-owned dependencies are needed to recompute its sealed map.
-    selected = {path: seal["input_inventory"]["execution_inputs"][path]
-                for path in check_inputs.expected(seal["input_inventory"], check["check_id"])}
-    actual = {"execution_inputs": selected, "execution_fingerprints": execution_fingerprints(frozen, selected)}
+    # The validated context supplies the full ownership universe; only sealed
+    # inputs need fresh bytes. Otherwise a compact seal could hide an unassigned
+    # input, or incorrectly require another check's independent snapshot bytes.
+    selected = compact["execution_inputs"]
+    selections = context["input_inventory"]["execution_inputs"]
+    require(all(path in selections and same(selection, selections[path])
+                for path, selection in selected.items()), "sealed input selection differs from original context")
+    actual = {"execution_inputs": selections,
+              "execution_fingerprints": {**context["input_inventory"]["execution_fingerprints"],
+                                         **execution_fingerprints(frozen, selected)}}
     expected = check_inputs.fingerprints(frozen, attempt["unit_id"], actual, check["check_id"])[check["check_id"]]
     require(same(check_inputs.expected(seal["input_inventory"], check["check_id"]), expected),
             "sealed dependencies differ from immutable observation")

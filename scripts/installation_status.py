@@ -28,10 +28,11 @@ def inspect(root, skill_roots, cleanup_roots=(), project=None, evidence_home=Non
                 retired.append(str(path))
     links_result = "cleanup_required" if retired else "repair_required" if invalid else "current"
     evidence = inspect_evidence(project, evidence_home)
-    return {"result": links_result if links_result != "current" else "setup_required" if evidence["result"] != "configured" else "current",
+    return {"scope": "local_installation", "release_provenance": "not_checked",
+            "result": links_result if links_result != "current" else "setup_required" if evidence["result"] != "configured" else "current",
             "links_result": links_result, "evidence_storage": evidence,
             "invalid_targets": invalid, "retired_paths": retired, "checked_roots": list(map(str, skill_roots)),
-            "limits": "Local source/links only; caller must separately verify the selected remote revision and Python support."}
+            "limits": "Local source/links and storage configuration only; current does not establish published release or tested candidate provenance. Verify the selected revision, clean source, required CI and Python support separately."}
 
 
 def installer_roots(arguments):

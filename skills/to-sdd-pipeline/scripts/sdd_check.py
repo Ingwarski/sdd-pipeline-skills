@@ -625,20 +625,39 @@ def validate_contract(contract):
                 raise ValueError("unknown node artifact: " + key)
 
 
-def _cached_file_hash(path, cache, metric_kind="source"):
+def _cached_file_hash(path, cache, metric_kind="source", physical_cache=None):
     """Hash once while retaining fresh regular-file checks on every use."""
     path = Path(path)
     metrics.count(metric_kind + "_hash_requests")
     signature = _regular(path)
+    # Nonzero native inode identity permits sharing only actual hard-linked
+    # bytes. Unknown identities keep per-path reads; claimed hashes never key
+    # this cache. Every alias still joins the caller's mandatory path audit.
+    identity = signature[:2] if signature[1] > 0 else None
     if path not in cache:
-        with metrics.phase("source_hashing"):
-            cache[path] = (signature, hash_file(path)[0])
-        metrics.count(metric_kind + "_hash_bytes", signature[2])
+        prior = physical_cache.get(identity) if physical_cache is not None and identity is not None else None
+        if prior is not None and cache.get(prior[0]) != (prior[1], prior[2]):
+            # Lost path registration also expires its physical memo; semantic
+            # callers may deliberately require full validation again.
+            del physical_cache[identity]
+            prior = None
+        if prior is not None:
+            original, saved, value = prior
+            if signature != saved or _regular(original) != saved:
+                raise ValueError("input changed during checker invocation: " + str(path))
+            cache[path] = (signature, value)
+            metrics.count(metric_kind + "_hash_cache_hits")
+        else:
+            with metrics.phase("source_hashing"):
+                cache[path] = (signature, hash_file(path)[0])
+            metrics.count(metric_kind + "_hash_bytes", signature[2])
     else:
         metrics.count(metric_kind + "_hash_cache_hits")
     saved, value = cache[path]
     if signature != saved or _regular(path) != saved:
         raise ValueError("input changed during checker invocation: " + str(path))
+    if physical_cache is not None and identity is not None:
+        physical_cache.setdefault(identity, (path, saved, value))
     return value
 
 
@@ -646,6 +665,7 @@ class SnapshotFileHashes:
     """Only historical snapshot hashes; scopes own their short lifetime."""
     def __init__(self):
         self.hashes = {}
+        self.physical_hashes = {}
         self.depth = 0
         self.history_results = []
         self.legacy_files = {}
@@ -669,7 +689,7 @@ class SnapshotFileHashes:
         return digest(json.dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False).encode("utf-8"))
 
     def file_hash(self, path):
-        return _cached_file_hash(path, self.hashes, "snapshot")
+        return _cached_file_hash(path, self.hashes, "snapshot", self.physical_hashes)
 
     def section(self, path, identity, heading):
         _section_heading(heading)

@@ -424,6 +424,90 @@ class HistoryFileCacheTests(unittest.TestCase):
             self.check()
             os.link(self.path, self.path.with_name("unexpected-synthetic-snapshot.bin"))
 
+    def linked_snapshot(self):
+        record = copy.deepcopy(self.record)
+        record["snapshot_root"] = "forge/unit-history/another-snapshot/files"
+        relative = record["snapshot_root"] + "/" + self.logical
+        record["files"][self.logical]["path"] = relative
+        alias = self.root / relative
+        alias.parent.mkdir(parents=True)
+        try:
+            os.link(self.path, alias)
+        except OSError as error:
+            self.skipTest("hardlink creation unavailable: " + str(error))
+        return record, alias
+
+    def test_distinct_snapshot_aliases_hash_once_per_invocation(self):
+        record, alias = self.linked_snapshot()
+        previous = None
+        for _ in range(2):
+            with self.cache_reads() as hashing, self.api.metrics.collect() as measurement:
+                with self.history.snapshot_hash_scope() as owner:
+                    self.assertIsNot(previous, owner)
+                    self.check()
+                    self.check(record)
+                    self.check(record)
+                    self.assertEqual({self.path, alias}, set(owner.hashes))
+                    self.assertEqual(1, hashing.call_count)
+                    self.assertEqual(len(self.payload), measurement.counters["snapshot_hash_bytes"])
+                    self.assertEqual(2, measurement.counters["snapshot_hash_cache_hits"])
+                self.assertEqual({}, owner.hashes)
+                self.assertEqual({}, owner.physical_hashes)
+                previous = owner
+
+    def test_snapshot_alias_keeps_expected_hash_and_membership_checks(self):
+        record, _ = self.linked_snapshot()
+        with self.cache_reads() as hashing, self.history.snapshot_hash_scope():
+            self.check()
+            wrong = copy.deepcopy(record)
+            wrong["files"][self.logical]["content_hash"] = "0" * 64
+            with self.assertRaisesRegex(ValueError, "historical snapshot changed"):
+                self.check(wrong)
+            wrong = copy.deepcopy(record)
+            wrong["snapshot_root"] += "-wrong"
+            with self.assertRaisesRegex(ValueError, "preserve logical identity"):
+                self.check(wrong)
+            self.assertEqual(1, hashing.call_count)
+
+    def test_snapshot_alias_replacement_is_rejected_by_final_union_audit(self):
+        record, alias = self.linked_snapshot()
+        with self.assertRaisesRegex(ValueError, "historical snapshot changed"):
+            with self.history.snapshot_hash_scope() as owner:
+                self.check()
+                self.check(record)
+                replacement = alias.with_suffix(".replacement")
+                replacement.write_bytes(self.payload)
+                replacement.replace(alias)
+                # No later read of either alias: the mandatory end audit
+                # must still reject changed physical/path identity.
+        self.assertEqual({}, owner.hashes)
+        self.assertEqual({}, owner.physical_hashes)
+
+    def test_same_claimed_hash_on_distinct_inode_still_reads_and_rejects_bytes(self):
+        record, alias = self.linked_snapshot()
+        alias.unlink()
+        alias.write_bytes(b"X" + self.payload[1:])
+        original = self.path.stat()
+        os.utime(alias, ns=(original.st_atime_ns, original.st_mtime_ns))
+        with self.cache_reads() as hashing, self.history.snapshot_hash_scope():
+            self.check()
+            with self.assertRaisesRegex(ValueError, "historical snapshot changed"):
+                self.check(record)
+            self.assertEqual(2, hashing.call_count)
+
+    def test_unavailable_physical_identity_keeps_per_path_hashing(self):
+        record, _ = self.linked_snapshot()
+        native_regular = self.api._regular
+        def no_inode(path):
+            signature = native_regular(path)
+            return (signature[0], 0, *signature[2:])
+        with mock.patch.object(self.api, "_regular", side_effect=no_inode), \
+                self.cache_reads() as hashing, self.history.snapshot_hash_scope() as owner:
+            self.check()
+            self.check(record)
+            self.assertEqual(2, hashing.call_count)
+            self.assertEqual({}, owner.physical_hashes)
+
     def test_same_size_replacement_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "changed"), self.history.snapshot_hash_scope():
             self.check()

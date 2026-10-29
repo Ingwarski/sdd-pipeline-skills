@@ -223,6 +223,34 @@ class ReadbackReuseTests(unittest.TestCase):
 
 
 class SelectiveZipTests(unittest.TestCase):
+    def test_utf8_sample_boundaries_compress_without_accepting_invalid_text(self):
+        with tempfile.TemporaryDirectory(prefix="sdd-utf8-sample-") as temp:
+            root = Path(temp).resolve()
+            payloads = {
+                "two-byte.txt": (b"a" + "Ж".encode() * 40000, zipfile.ZIP_DEFLATED),
+                "three-byte.txt": ("界".encode() * 30000, zipfile.ZIP_DEFLATED),
+                "four-byte.txt": (b"a" + "🙂".encode() * 20000, zipfile.ZIP_DEFLATED),
+                "invalid-middle.txt": (b"a" * 1024 + b"\xff" + b"a" * 70000, zipfile.ZIP_STORED),
+                "incomplete-file.txt": (b"a" * 2048 + b"\xe2\x82", zipfile.ZIP_STORED),
+            }
+            items = []
+            for name, (data, _) in payloads.items():
+                source = root / name
+                source.write_bytes(data)
+                items.append({"path": source, "sha256": hashlib.sha256(data).hexdigest(),
+                              "size": len(data), "original_path": name})
+            total = sum(item["size"] for item in items)
+            pack = build_pack(items, root / "pack.zip", total, len(items))
+            with zipfile.ZipFile(root / "pack.zip") as archive:
+                for item in items:
+                    with self.subTest(name=item["original_path"]):
+                        info = archive.getinfo("objects/" + item["sha256"])
+                        self.assertEqual(payloads[item["original_path"]][1], info.compress_type)
+            verify_pack(root / "pack.zip", pack["sha256"], pack["size"], pack["members"],
+                        destination=root / "extracted", max_bytes=total)
+            for item in items:
+                self.assertEqual((item["sha256"], item["size"]), hash_file(root / "extracted" / item["sha256"]))
+
     def test_fixed_huffman_expansion_fits_before_write_reservation(self):
         # RFC 1951 fixed Huffman literals can use nine bits per input byte.
         # Supply a real decodable stream with that expansion on every runtime,

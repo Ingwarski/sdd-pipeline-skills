@@ -68,13 +68,13 @@ def fingerprints(checker, unit_id, inventory, check_id=None):
     groups = source_sets(checker)
     whole = inventory["execution_fingerprints"]
     selections = inventory["execution_inputs"]
-    result = {}
+    selected_inputs = {}
     for key, allocation in allocations.items():
-        if allocation["owner_unit"] != unit_id or check_id is not None and key != check_id:
+        if allocation["owner_unit"] != unit_id:
             continue
         check = checks[key]
         if not fine_grained(check):
-            result[key] = copy.deepcopy(whole)
+            selected_inputs[key] = set(whole)
             continue
         paths = required_paths(checker, check, groups)
         # Required prerequisite paths remain explicit inputs even when declared by
@@ -105,8 +105,15 @@ def fingerprints(checker, unit_id, inventory, check_id=None):
                        and path.startswith(source.rstrip("/") + "/")}
             require(matches, "per-check inventory omits declared dependency: " + path)
             selected.update(matches)
-        result[key] = {path: copy.deepcopy(whole[path]) for path in sorted(selected)}
-    return result
+        selected_inputs[key] = selected
+    # A check selector must not hide other required checks' declared coverage.
+    # Optional checks cannot leave required acceptance blind to an input. Keep
+    # unassigned selections in every result, including their full tree membership.
+    required = checker.manifest["unit_plan"]["units"][unit_id]["required_check_ids"]
+    covered = {path for key in required for path in selected_inputs[key]}
+    unassigned = set(whole) - covered
+    return {key: {path: copy.deepcopy(whole[path]) for path in sorted(selected | unassigned)}
+            for key, selected in selected_inputs.items() if check_id is None or key == check_id}
 
 
 def expected(inventory, check_id):

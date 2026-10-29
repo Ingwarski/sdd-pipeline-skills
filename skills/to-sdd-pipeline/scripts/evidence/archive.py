@@ -2,6 +2,7 @@
 import hashlib
 import binascii
 import bz2
+import codecs
 from contextlib import ExitStack
 import gzip
 import lzma
@@ -47,7 +48,9 @@ def _compression_method(stream, obj):
             or sample[4:8] == b"ftyp" or any(byte < 32 and byte not in (9, 10, 13) for byte in sample)):
         return zipfile.ZIP_STORED
     try:
-        sample.decode("utf-8")
+        # A truncated sample may end inside a valid multibyte character.
+        # Finalize whole-file samples so malformed trailing bytes still fail.
+        codecs.getincrementaldecoder("utf-8")().decode(sample, final=len(sample) >= obj["size"])
     except UnicodeDecodeError:
         return zipfile.ZIP_STORED
     # A conservative sample avoids spending compression work on high-entropy
