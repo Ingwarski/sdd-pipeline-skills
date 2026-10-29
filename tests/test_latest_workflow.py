@@ -103,7 +103,7 @@ class LatestWorkflowTests(unittest.TestCase):
         self.assertEqual("not_authorized", report["execution_authority"]["status"])
 
     def test_mixed_future_and_malformed_versions_fail_closed(self):
-        for checker_version, unit_version in ((1, 2), (2, 1), (3, 3), (2, 3),
+        for checker_version, unit_version in ((1, 2), (2, 1), (4, 4), (2, 3), (3, 2),
                                                (True, 1), (1, True), ("2", "2"),
                                                (2.0, 2), (2, 2.0), ({}, 1), (2, None)):
             with self.subTest(checker=checker_version, units=unit_version):

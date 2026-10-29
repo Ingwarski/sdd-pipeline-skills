@@ -57,6 +57,7 @@ class ArchiveQuarantineTests(unittest.TestCase):
         path = storage.file('archive/original.bin', b'Isolated sealed archive original.\n' * 50)
         specification = storage.spec(path)
         phases = []
+        payload_gets_before = sum(key.endswith('.zip') for key in storage.transport.gets)
         original = manager._producer_publication_coverage
         def coverage(ledger, *args, **kwargs):
             self.assertFalse(ledger.connection.in_transaction)
@@ -73,10 +74,13 @@ class ArchiveQuarantineTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), reference['sha256'])
         self.assertEqual(path.read_bytes(), EvidenceResolver(manager.cache).resolve(reference).read_bytes())
         self.assertTrue(storage.pack_puts())
-        self.assertGreaterEqual(sum(key.endswith('.zip') for key in storage.transport.gets), 2)
+        self.assertEqual(payload_gets_before + 1, sum(key.endswith('.zip') for key in storage.transport.gets),
+                         'the first independent durable readback also prepares the fresh cache')
         # A separate empty cache must independently retrieve the durable original.
         cold = type(manager)(storage.transport, storage.base / 'cold-archive-home', manager.policy)
         cold.prepare(refs)
+        self.assertEqual(payload_gets_before + 2, sum(key.endswith('.zip') for key in storage.transport.gets),
+                         'a separate cold cache must perform another independent durable readback')
         self.assertEqual(path.read_bytes(), EvidenceResolver(cold.cache).resolve(reference).read_bytes())
         with strict.ledger(publication=True) as ledger:
             ready = ledger.generation_readiness()

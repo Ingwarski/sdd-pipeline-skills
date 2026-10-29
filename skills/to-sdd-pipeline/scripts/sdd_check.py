@@ -20,6 +20,9 @@ from urllib.parse import unquote, urlsplit
 # Resource-local imports also work when a host loads this script through importlib.
 sys.dont_write_bytecode = True  # A validation-only CLI must not generate resource caches.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import check_inputs
+import verification_metrics as metrics
+from history_integrity import history_integrity_scope
 from evidence.io import hash_file, read_json as safe_read_json
 from evidence.resolver import EvidenceResolver, evidence_reference, _regular
 from evidence.policy import validate_policy
@@ -67,7 +70,9 @@ def unique_object(pairs):
 
 def read_json(path):
     path = Path(path)
-    return safe_read_json(path.parent.resolve() / path.name, 64 * 1024 * 1024)
+    metrics.count("json_parse_requests")
+    with metrics.phase("json_parsing"):
+        return safe_read_json(path.parent.resolve() / path.name, 64 * 1024 * 1024)
 
 
 def digest(data):
@@ -620,12 +625,17 @@ def validate_contract(contract):
                 raise ValueError("unknown node artifact: " + key)
 
 
-def _cached_file_hash(path, cache):
+def _cached_file_hash(path, cache, metric_kind="source"):
     """Hash once while retaining fresh regular-file checks on every use."""
     path = Path(path)
+    metrics.count(metric_kind + "_hash_requests")
     signature = _regular(path)
     if path not in cache:
-        cache[path] = (signature, hash_file(path)[0])
+        with metrics.phase("source_hashing"):
+            cache[path] = (signature, hash_file(path)[0])
+        metrics.count(metric_kind + "_hash_bytes", signature[2])
+    else:
+        metrics.count(metric_kind + "_hash_cache_hits")
     saved, value = cache[path]
     if signature != saved or _regular(path) != saved:
         raise ValueError("input changed during checker invocation: " + str(path))
@@ -659,25 +669,28 @@ class SnapshotFileHashes:
         return digest(json.dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False).encode("utf-8"))
 
     def file_hash(self, path):
-        return _cached_file_hash(path, self.hashes)
+        return _cached_file_hash(path, self.hashes, "snapshot")
 
     def section(self, path, identity, heading):
         _section_heading(heading)
         path = Path(path)
         # Every active indexed source joins the final union audit, including
         # live canonical documents first encountered by a projection child.
-        checked_hash = self.file_hash if self.depth else lambda target: _cached_file_hash(target, {})
+        checked_hash = self.file_hash if self.depth else lambda target: _cached_file_hash(target, {}, "snapshot")
         if checked_hash(path) != identity:
             raise ValueError("source fragment changed during checker invocation")
         key = (path, identity)
         index = self.section_indexes.get(key) if self.depth else None
         if index is None:
+            metrics.count("section_index_builds")
             data = path.read_bytes()
             if digest(data) != identity or checked_hash(path) != identity:
                 raise ValueError("source fragment changed during checker invocation")
             index = _section_index(data)
             if self.depth:
                 self.section_indexes[key] = index
+        else:
+            metrics.count("section_index_cache_hits")
         value = _indexed_section(index, heading)
         if checked_hash(path) != identity:
             raise ValueError("source fragment changed during checker invocation")
@@ -685,6 +698,7 @@ class SnapshotFileHashes:
 
     def audit(self):
         for path, (signature, _) in self.hashes.items():
+            metrics.count("path_checks")
             if _regular(path) != signature:
                 raise ValueError("historical snapshot changed during checker invocation: " + str(path))
 
@@ -751,6 +765,7 @@ class Checker:
             self.issue("product_scope", "product-idea", str(error))
 
     def path(self, relative, no_links=False, observation=False):
+        metrics.count("path_checks")
         if not isinstance(relative, str) or not relative or "\\" in relative:
             raise ValueError("use a nonempty repository-relative POSIX path")
         parsed = PurePosixPath(relative)
@@ -805,6 +820,9 @@ class Checker:
         signature = _regular(path)
         if path not in self.json_cache:
             self.json_cache[path] = (signature, read_json(path))
+            metrics.count("json_parse_bytes", signature[2])
+        else:
+            metrics.count("json_cache_hits")
         saved, value = self.json_cache[path]
         if signature != saved or _regular(path) != saved:
             raise ValueError("document changed during checker invocation: " + str(path))
@@ -2152,7 +2170,7 @@ class Checker:
                     {key: current_scope[key] for key in ("profile", "capabilities")} if current_scope is not None else None), "original manifest product scope mismatch")
                 if self.ui:
                     require(all(original["active_baseline"].get(key) == self.manifest["active_baseline"].get(key) for key in ("baseline_id", "prototype_tree_hash", "visual_target_hash")), "original manifest frozen baseline mismatch")
-                supported_original = (original.get("checker_contract_version"), original.get("unit_contract_version")) in ((1, 1), (2, 2))
+                supported_original = (original.get("checker_contract_version"), original.get("unit_contract_version")) in ((1, 1), (2, 2), (3, 3))
                 require(supported_original and all(type(original.get(k)) is int for k in ("checker_contract_version", "unit_contract_version")) and self.correction_json_equal(original["unit_plan"], unit_plan), "original manifest unit contract changed")
                 original_verification = original["verification"]
                 original_qa = {check["check_id"]: check["acceptance"] for check in original_verification["checks"]
@@ -2231,7 +2249,7 @@ class Checker:
 
     def units(self, action=None, unit_id=None, release=False):
         """Validate planning separately from recorded runs and requested transitions."""
-        if type(self.manifest.get("unit_contract_version")) is not int or self.manifest["unit_contract_version"] not in (1, 2):
+        if type(self.manifest.get("unit_contract_version")) is not int or self.manifest["unit_contract_version"] not in (1, 2, 3):
             self.issue("migration_required", "development-plan", "owner-reviewed supported unit contract records required; do not infer completed units")
             return
         try:
@@ -2279,6 +2297,7 @@ class Checker:
         qa_ref = self.manifest["verification"]["acceptance_ref"]
         require(qa_ref["path"] == "docs/qa-checklist.md", "acceptance definitions belong to QA")
         self.canonical_json("docs/qa-checklist.md", qa_ref["heading"], qa_contract)
+        source_sets = check_inputs.source_sets(self)
         edges = {key: set() for key in unit_ids}
         check_edges = {}
         for key, unit in units.items():
@@ -2323,9 +2342,10 @@ class Checker:
                 require(other in units, prerequisite + ": unknown acceptance owner")
                 if other != owner:
                     edges[owner].add(other)
-            ids(qa["required_source_paths"], key + " evidence source paths", True)
-            for path in qa["required_source_paths"]:
-                self.path(path)
+            check_inputs.required_paths(self, checks[key], source_sets)
+            check_inputs.fine_grained(checks[key])
+            require(qa.get("reuse_policy", "fresh") in ("fresh", "deterministic_isolated"), key + ": unsupported reuse policy")
+            require(check_inputs.enabled(self.manifest) or not any(field in qa for field in ("dependency_review", "reuse_policy", "source_set_ids")), key + ": per-check policy requires checker/unit contract 3")
         # No required product clause/state may disappear into mere contribution coverage.
         covered = {obligation for key, record in acceptance.items() if qa_contract[key]["required"] and qa_contract[key]["level"] in ("integration", "release") for obligation in record["obligation_ids"]}
         require(obligations <= covered, "required obligation lacks full integration/release acceptance ownership; component contribution is insufficient")
@@ -2392,12 +2412,14 @@ class Checker:
             require(check.get("execution_status") == "passed" and check.get("definition_status") == "prepared", check_id + ": required acceptance is not passed")
             require(review is not None or check.get("evaluated_plan_hash") == plan_hash, check_id + ": evidence belongs to another plan")
             executed = timestamp(check.get("executed_at"))
-            require(started <= executed <= finished, check_id + ": evidence outside current unit run")
+            reused = hasattr(self, "_unit_history") and check_id in self._unit_history.reused
+            require((reused or started <= executed) and executed <= finished, check_id + ": evidence outside current unit run")
             require(check.get("executor") and check.get("evidence"), check_id + ": missing executed evidence")
             require(not blocking(check.get("findings", [])), check_id + ": unresolved blocking finding")
-            paths = set(qa["required_source_paths"])
-            for dep in {record["owner_unit"]} | edges[record["owner_unit"]]:
-                paths.update(units[dep]["implementation_paths"])
+            paths = check_inputs.required_paths(self, check, source_sets)
+            if not (check_inputs.enabled(self.manifest) and check_inputs.fine_grained(check)):
+                for dep in {record["owner_unit"]} | edges[record["owner_unit"]]:
+                    paths.update(units[dep]["implementation_paths"])
             hashes, _ = self.source_inventory(check, "evaluated_source_hashes")
             require(isinstance(hashes, dict) and paths <= set(hashes), check_id + ": evidence does not cover required implementation/consumer paths")
             for path, value in hashes.items():
@@ -2510,6 +2532,13 @@ class Checker:
             require(set(completed) == unit_ids, "release requires every unit, including integration, completed")
 
     def run(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
+        with history_integrity_scope(self._source_manifest, force_full=audit or node == "release") as integrity, metrics.phase("historical_gate" if hasattr(self, "_history_stack") else "root_gate"):
+            report = self._run_scoped(node, after, audit, unit_action, unit_id, require_current=require_current, projections=projections)
+            if integrity.is_root and "history_integrity" in self._source_manifest:
+                report["history_integrity"] = integrity.report()
+            return report
+
+    def _run_scoped(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
         report = None
         try:
             with history_api()._checker_run_hash_scope(self) as owner:
@@ -2582,15 +2611,17 @@ class Checker:
         checker_version, unit_version = self.manifest.get("checker_contract_version"), self.manifest.get("unit_contract_version")
         if require_current:
             versions = (checker_version, unit_version)
-            if all(type(value) is int for value in versions) and versions == (2, 2):
+            if all(type(value) is int for value in versions) and versions in ((2, 2), (3, 3)):
                 pass
             elif all(value is None or type(value) is int and value == 1 for value in versions):
                 self.issue("migration_required", "manifest", "resume with the latest tested workflow: preserve existing work and approvals, migrate legacy records, and reverify before continuing")
             else:
-                self.issue("unsupported_contract_version", "manifest", "checker and unit contracts must both be version 2; reconcile mixed, malformed or unsupported versions without rewriting history")
+                self.issue("unsupported_contract_version", "manifest", "checker and unit contracts must both be version 2 or both version 3; reconcile mixed, malformed or unsupported versions without rewriting history")
+        if not check_inputs.enabled(self.manifest) and any("seal_ref" in check or "reused_from" in check for check in self.manifest.get("verification", {}).get("checks", [])):
+            self.issue("unsupported_contract_version", "manifest", "sealed reuse requires checker/unit contract 3")
         if checker_version == 1 and history_api().contains_v2_fields(self.manifest):
             self.issue("migration_required", "manifest", "v2 history fields require verified checker/unit contract version 2 migration")
-        if checker_version == 2 and unit_version == 2:
+        if (checker_version, unit_version) in ((2, 2), (3, 3)):
             self.manifest = copy.deepcopy(self.manifest)
             self.artifacts = self.manifest.get("artifacts", {})
             self._unit_history = history_api().HistoryView(self)
@@ -2603,7 +2634,8 @@ class Checker:
         if unit_action is not None and (unit_action not in ("start", "complete") or node != "implementation" or audit or after or not unit_id):
             self.issue("unit_boundary", "implementation", "unit transitions require implementation node, start/complete action and unit ID")
         self.product_scope()
-        if type(checker_version) is not int or checker_version not in (1, 2) or (checker_version == 2) != (unit_version == 2):
+        legacy_early_read = not require_current and checker_version == 1 and unit_version is None
+        if type(checker_version) is not int or checker_version not in (1, 2, 3) or (checker_version != unit_version and not legacy_early_read):
             self.issue("migration_required", "manifest", "retain existing documents/history; add verified metadata using manifest-contract.md")
         language = self.manifest.get("language", {})
         if not language.get("working_language") or language.get("artifact_language") != language.get("working_language"):
@@ -2644,7 +2676,7 @@ class Checker:
             self.units(unit_action, unit_id, release=spec.get("release_required", False) or self.manifest.get("verification", {}).get("release_readiness") == "passed")
         if projections and not hasattr(self, "_history_snapshot_root") and not hasattr(self, "_history_capturing"):
             validate_intake_progress(self)
-            validate_ready_projection(self, require_current=require_current)
+            validate_ready_projection(self, require_current=require_current, current_node=node, after=after, audit=audit, unit_action=unit_action)
         result = "blocked" if self.issues else "passed"
         if self.issues and all(item["code"] == "migration_required" for item in self.issues):
             result = "migration_required"
@@ -2673,6 +2705,7 @@ def main():
     group.add_argument("--hash-render", metavar="RECORD", help="hash a candidate/baseline JSON record and its declared render resources")
     group.add_argument("--snapshot", metavar="NODE", help="emit unvalidated owner/source metadata without writing files or claiming review")
     parser.add_argument("--evidence-cache", type=Path, help="read-only prepared evidence cache outside the project; manager performs preparation")
+    parser.add_argument("--performance", action="store_true", help="include bounded diagnostic timing/counters; no acceptance claim")
     parser.add_argument("--heading", help="with --hash: exact Markdown heading for a fragment")
     parser.add_argument("--worked-unit", metavar="UNIT_ID", help="with --progress: identify the unit just worked on without inferring it from order")
     parser.add_argument("--consume", action="append", default=[], metavar="PATH[#HEADING]", help="with --snapshot: consumed full file or exact heading; repeat for every consumed section, including shared definitions")
@@ -2716,7 +2749,7 @@ def main():
             print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=True, indent=2))
             return 0
         if args.progress:
-            with history_api().snapshot_hash_scope():
+            with metrics.collect(enabled=args.performance) as measurement, history_api().snapshot_hash_scope():
                 checker = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache)
                 report = workflow_progress(checker, worked_unit=args.worked_unit, require_current=True)
                 validate_intake_progress(checker)
@@ -2728,13 +2761,17 @@ def main():
                 if _regular(manifest_path) != manifest_signature:
                     raise ValueError("manifest changed during checker invocation")
                 report["toolchain"] = toolchain_identity()
+            if args.performance:
+                report["performance"] = measurement.snapshot()
             print(json.dumps(report, ensure_ascii=True, indent=2))
             return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
-        with history_api().snapshot_hash_scope():
+        with metrics.collect(enabled=args.performance) as measurement, history_api().snapshot_hash_scope():
             report = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit, require_current=True)
             if _regular(manifest_path) != manifest_signature:
                 raise ValueError("manifest changed during checker invocation")
             report["toolchain"] = toolchain_identity()
+        if args.performance:
+            report["performance"] = measurement.snapshot()
         print(json.dumps(report, ensure_ascii=True, indent=2))
         return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:

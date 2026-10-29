@@ -36,6 +36,10 @@ Preserve unavailable, malformed or mismatched saved choices; report the issue fo
 
 Git retains authored sources/tests, canonical SDD, necessary approved inputs, compact current results, approvals/authorization and references. Store generated captures/recordings, bulk logs/results/indexes and superseded history externally. Classify contents before ignoring registered generated locations: never blanket-ignore `forge/` or `output/`; ignoring does not remove tracked blobs. QA owns meaning/interpretation, executors observations, storage persistence, orchestrator the manifest.
 
+Capture sufficient per-assertion observations once. Avoid embedding the same payload as parsed data and raw stdout, all-neighbour geometry, or a full database dump per UI state. Keep relevant measurements/exceptions and failure context; database deltas need a verified baseline and required unchanged-data assertions. Preserve necessary visual/interaction evidence. Use compact JSON for new results; never rewrite sealed originals to save space. Diagnostic recording may need to start before an unpredictable failure; measure generated and peak bytes, not only retained files. Compactness targets trigger review, not truncation, splitting or automatic abandonment.
+
+Source snapshots follow declared input/evidence roles and dependencies, not folder names. Exclude unrelated generated output while retaining authored tests, approved inputs and verified evidence references. Content-addressed storage shares identical bytes; moving or cloning data does not guarantee equivalent disk recovery.
+
 Legacy contained `{path, content_hash, kind}` remains valid. Direct reference or `{kind, evidence_ref: reference}`:
 
 ```json
@@ -66,6 +70,8 @@ Label corrections require a separate version-1 `observation_metadata_correction`
 For browser producers, use the optional [browser evidence workflow](browser-evidence-workflow.md) for absolute producer paths, runtime/profile separation, actual prerequisites, settlement and exact owned cleanup. It adds no browser requirement to other product scopes.
 
 Storage performs network/cache writes: capture stable regular bytes → immutable pack → upload → independent retrieval → verify archive/original members → recoverable catalog → eligible local removal. Deduplicate content, retain logical associations, checkpoint transfers and journal deletion; reconcile unknown outcomes before retries.
+
+Packs selectively compress suitable text with ZIP deflate; original-byte hashes and generation limits stay unchanged. Unresolved packs retain conservative original-size capacity holds. Within one archive operation, preparation can reuse the independently retrieved pack after catalog/current-object validation to populate normal cache receipts. Retention needs reserved headroom; insufficient capacity or a resumed process uses ordinary retrieval. Deletion still requires independent durable readback. Batch related stable outputs within existing limits; pending upload is not selected-store persistence.
 
 Prepare active references/dependencies outside checkout; use `sdd_check.py --evidence-cache PATH`. Checker reads `objects/<sha256>` and verified `receipts/<artifact_id>.json`, checks actual bytes/size/identity/closure and original bindings, with no network or cache writes. Historical payloads load only when currently referenced. Import/archive/cache never refresh execution or grant changed-plan acceptance.
 

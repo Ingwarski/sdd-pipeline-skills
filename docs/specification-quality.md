@@ -33,7 +33,7 @@ and [unit contract](../skills/to-sdd-pipeline/references/unit-execution-contract
 
 ## Reviewed reuse of acceptance
 
-Current version 2 records preserve original authorized execution and completed
+Supported version 2/3 contracts preserve original authorized execution and completed
 work separately from current applicability. Owner-reviewed inventories include
 exact acceptance definitions, relevant requirements, code, tests, configuration,
 runtime, prerequisite acceptance and readable original evidence. Each applicability

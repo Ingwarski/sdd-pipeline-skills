@@ -119,7 +119,7 @@ class EvidenceManagerTests(unittest.TestCase):
                  for index in range(24)]
         refs = self.manager.archive(self.spec(*paths))
         self.assertEqual(1, len(self.pack_puts()))
-        self.assertEqual(2, sum(key.endswith(".zip") for key in self.transport.gets), "one upload readback plus one shared preparation readback")
+        self.assertEqual(1, sum(key.endswith(".zip") for key in self.transport.gets), "independent upload readback also supplies preparation")
         for ref in refs:
             receipt = json.loads((self.manager.cache / "receipts" / (ref["artifact_id"] + ".json")).read_text())
             self.assertEqual(1, sum(len(proof["members"]) for proof in receipt["verified_archive"]), "shared catalog metadata must not multiply into every receipt")

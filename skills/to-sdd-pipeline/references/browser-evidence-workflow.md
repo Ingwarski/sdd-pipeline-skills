@@ -85,6 +85,15 @@ record that limitation and retain the missing check.
 
 ## Optional executable example
 
+For compact measured data, [`observation_capture.py`](../scripts/observation_capture.py) exposes
+`encode_observation(observations, dependencies=hash_bound_refs, stdout=original_bytes)`.
+It returns compact UTF-8 JSON with schema `sdd-observation-v1`; optional stdout
+retains only its hash/size. Store required raw diagnostics separately. Its explicit
+`dependencies` are `{path, content_hash}` file references; observation path strings
+do not pull unrelated folders into snapshots. Declare every required dependency.
+Authored programs/baselines remain independent inputs. This wrapper creates no
+verdict and cannot replace authority, runtime, settlement or acceptance schemas.
+
 [`browser_evidence_example.mjs`](../scripts/browser_evidence_example.mjs) attaches
 to an already owned local Chromium endpoint. Start that browser fresh for this
 run; its default context must never have used time emulation. The example cannot

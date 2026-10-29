@@ -12,11 +12,45 @@ import stat
 import struct
 import tarfile
 import zipfile
+import zlib
 
 from .io import EvidenceError, _is_link, _open_regular, _parents, _verify_stable, hash_file, safe_relative
 
 CHUNK = 1024 * 1024
 XZ_DECODER_MEMORY = 128 * 1024 * 1024
+TEXT_SAMPLE_BYTES = 64 * 1024
+STORED_SUFFIXES = frozenset((".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".pdf",
+    ".mp3", ".mp4", ".m4a", ".mov", ".webm", ".ogg", ".zip", ".gz", ".xz", ".bz2", ".7z"))
+
+
+def encoded_pack_bound(sizes):
+    """Bound ZIP bytes even when the text sample mispredicts compressibility.
+
+    zlib's compressBound formula covers the default window/memory settings
+    used by ZipFile, including framing absent from raw ZIP deflate streams.
+    ZIP headers, ZIP64 records and the central directory have separate slack.
+    """
+    return sum(size + (size >> 12) + (size >> 14) + (size >> 25) + 13 + 2048
+               for size in sizes) + 65536
+
+
+def _compression_method(stream, obj):
+    """Sample bounded original bytes; encoding never changes their identity."""
+    name = obj.get("original_path", obj["path"])
+    if Path(name).suffix.lower() in STORED_SUFFIXES or obj["size"] < 1024:
+        return zipfile.ZIP_STORED
+    sample = stream.read(TEXT_SAMPLE_BYTES)
+    stream.seek(0)
+    if (sample.startswith((b"%PDF", b"PK", b"\x1f\x8b", b"\xfd7zXZ", b"ID3"))
+            or sample[4:8] == b"ftyp" or any(byte < 32 and byte not in (9, 10, 13) for byte in sample)):
+        return zipfile.ZIP_STORED
+    try:
+        sample.decode("utf-8")
+    except UnicodeDecodeError:
+        return zipfile.ZIP_STORED
+    # A conservative sample avoids spending compression work on high-entropy
+    # text. Original-byte reservations still cover an unrepresentative sample.
+    return zipfile.ZIP_DEFLATED if len(zlib.compress(sample, 1)) * 10 < len(sample) * 9 else zipfile.ZIP_STORED
 
 
 def _safe_directory(path):
@@ -121,13 +155,18 @@ def build_pack(objects, destination, maximum, max_files):
                         info = zipfile.ZipInfo(member, date_time=(1980, 1, 1, 0, 0, 0))
                         info.external_attr = (stat.S_IFREG | 0o600) << 16
                         actual_hash, count = hashlib.sha256(), 0
-                        with os.fdopen(fd, "rb", closefd=False) as stream, archive.open(info, "w", force_zip64=True) as output:
-                            while block := stream.read(CHUNK):
-                                count += len(block)
-                                if count > obj["size"]:
-                                    raise EvidenceError("captured bytes grew while packaging")
-                                actual_hash.update(block)
-                                output.write(block)
+                        with os.fdopen(fd, "rb", closefd=False) as stream:
+                            info.compress_type = _compression_method(stream, obj)
+                            # Python 3.12 exposes this level through ZipInfo's
+                            # backing field; 3.13+ also provides its public alias.
+                            info._compresslevel = 1
+                            with archive.open(info, "w", force_zip64=True) as output:
+                                while block := stream.read(CHUNK):
+                                    count += len(block)
+                                    if count > obj["size"]:
+                                        raise EvidenceError("captured bytes grew while packaging")
+                                    actual_hash.update(block)
+                                    output.write(block)
                         _verify_stable(source, fd, before)
                         if (actual_hash.hexdigest(), count) != (digest, obj["size"]):
                             raise EvidenceError("captured bytes changed while packaging")

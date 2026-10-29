@@ -129,6 +129,19 @@ Run without `--summary` to inspect counted files. Static instruction counts do n
 measure generated documents, tool output, live retry frequency, model quality,
 cache billing or total cost. Preserve detailed measurements in the separate report.
 
+## Verification performance
+
+Add `--performance` to a normal `sdd_check.py` invocation to include bounded,
+fixed-label timing and counters for history, hashing, JSON parsing and path checks.
+These diagnostics do not change acceptance. Nested timing reports inclusive and
+exclusive durations; do not sum overlapping inclusive phases.
+
+`python tests/benchmark_history.py --depths 0 1 3 --repeats 3` measures isolated
+synthetic attempt histories. `python tests/benchmark_legacy_payloads.py --files 500
+--repeats 3` compares the narrow legacy-payload integrity modes. Keep fixture,
+runtime and host conditions matched, record setup separately, and retain results
+outside the repository. Synthetic timings do not establish product-run savings.
+
 ## Evidence and compatibility checks
 
 Follow the [evidence contract](../skills/to-sdd-pipeline/references/evidence-storage-contract.md)
@@ -138,8 +151,9 @@ bytes without those writes. Mock transport checks do not prove a live connector.
 An authorized live transport check must retain independent original-byte retrieval,
 hash verification, recovery observations and task-owned cleanup results.
 
-New and resumed work uses the latest tested `stable` release and checker/unit
-contracts 2/2. Read version 1 only for import and audit, then migrate and genuinely
+New work uses the latest tested `stable` release and checker/unit contracts 3/3.
+Existing 2/2 stays conservative until owner-reviewed adoption of per-check inputs
+and reuse. Read version 1 only for import and audit, then migrate and genuinely
 reverify legacy acceptance on authorized resume without a version-choice prompt.
 Read-only requests remain read-only. Preserve code, documents, exact original
 observations, source and approval bindings, and existing permission scope. Missing

@@ -5,6 +5,10 @@ Recorded reviews and user events are supplied facts, never authenticated by hash
 The checker never calls the writing helpers. Standard library only.
 """
 import argparse
+import check_inputs
+import verification_metrics as metrics
+from history_integrity import history_integrity_scope, defer_legacy_payload
+from observation_capture import snapshot_dependencies
 import copy
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -35,7 +39,7 @@ _SCRIPT_PATH = Path(__file__).resolve()
 REF_KEYS = {"path", "content_hash"}
 SOURCE_INDEX_MAX_BYTES = 64 * 1024 * 1024  # Native read_ref/read_json consumer ceiling.
 SOURCE_VIEW_RECEIPT_MAX_BYTES = JSON_LIMIT  # Ordinary prepared _json consumer ceiling.
-EXECUTION_KEYS = {"execution_status", "executor", "executed_at", "evidence", "execution_mode", "evaluated_plan_hash", "evaluated_source_hashes", "evaluated_execution_inputs", "findings", "rationale", "source_inventory_ref", "revalidation_ref", "run_id", "runtime_observation_ref"}
+EXECUTION_KEYS = {"execution_status", "executor", "executed_at", "evidence", "execution_mode", "evaluated_plan_hash", "evaluated_source_hashes", "evaluated_execution_inputs", "findings", "rationale", "source_inventory_ref", "revalidation_ref", "run_id", "runtime_observation_ref", "seal_ref", "reused_from"}
 V2_KEYS = {"execution_contexts", "completion_ref", "applicability_ref", "unit_history", "completion_history", "legacy_history", "evaluated_execution_inputs", "context_ref", "attempt_ref", "attempt_history", "prior_attempt_ref", "source_archive_index_ref"}
 _snapshot_hash_owner = ContextVar("sdd_history_snapshot_hash_owner", default=None)
 _checker_audit_lease = ContextVar("sdd_history_checker_audit_lease", default=None)
@@ -222,6 +226,7 @@ def read_ref(project, ref):
         require(api().hash_matches(ref["content_hash"], owner.file_hash(path)), "changed history file: " + ref["path"])
     data = path.read_bytes()
     require(api().hash_matches(ref["content_hash"], sha(data)), "changed history file: " + ref["path"])
+    metrics.count("json_parse_bytes", len(data))
     document = api().read_json(path)
     if owner is not None:
         require(api().hash_matches(ref["content_hash"], owner.file_hash(path)), "changed history file: " + ref["path"])
@@ -359,7 +364,7 @@ def prepare_inventory(checker, unit_id, inventory):
     fingerprints = execution_fingerprints(checker, selections)
     needed = set(unit["implementation_paths"])
     for key in owned:
-        needed.update(checks[key]["acceptance"]["required_source_paths"])
+        needed.update(check_inputs.required_paths(checker, checks[key]))
     for path in needed:
         require(any(path == source or selection["mode"] == "tree" and path.startswith(source.rstrip("/") + "/") for source, selection in selections.items()), "execution inventory omits declared implementation/test input: " + path)
     # Preserve the complete authored QA definition, not only its JSON acceptance map.
@@ -378,6 +383,8 @@ def prepare_inventory(checker, unit_id, inventory):
     result = {"review": copy.deepcopy(review), "sources": copy.deepcopy(sources), "environment": copy.deepcopy(environment),
             "execution_inputs": copy.deepcopy(selections), "execution_fingerprints": fingerprints,
             "canonical_hashes": canonical, "inputs": inputs, "bindings": copy.deepcopy(bindings)}
+    if check_inputs.enabled(checker.manifest):
+        result["check_execution_fingerprints"] = check_inputs.fingerprints(checker, unit_id, result)
     if "runtime_observation_ref" in inventory:
         observation = validate_runtime_observation(checker.project, inventory["runtime_observation_ref"])
         require(same(observation["environment"], environment), "runtime observation differs from reviewed environment")
@@ -480,6 +487,13 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
                 if external is value:
                     return
                 value = {key: child for key, child in value.items() if key != "evidence_ref"}
+            dependencies = snapshot_dependencies(value)
+            if dependencies is not None:
+                for reference in dependencies:
+                    path = physical(project, reference["path"])
+                    require(path.is_file() and hash_file(path)[0] == reference["content_hash"], "changed or missing observation dependency: " + reference["path"])
+                    add(reference["path"])
+                return
             for key, child in value.items():
                 if key in INACTIVE_HISTORY_KEYS:
                     continue  # Preserve the containing record's bytes, not inactive dependency closure.
@@ -534,7 +548,7 @@ def freeze_files(project, manifest, directory, execution_inputs=None, *, checker
 
 
 
-SOURCE_ARCHIVE_EVENTS = frozenset({"unit_execution_context", "unit_completion", "unit_attempt", "legacy_execution_archive"})
+SOURCE_ARCHIVE_EVENTS = frozenset({"unit_execution_context", "unit_completion", "unit_attempt", "legacy_execution_archive", "sealed_check"})
 
 
 class PreparedResolverPolicy:
@@ -635,7 +649,7 @@ class SourceArchive:
         for entry in entries:
             require(isinstance(entry, dict) and set(entry) == {"record_ref", "snapshot_root", "sources"}, "invalid source archive record binding")
             original = self.read_record(entry["record_ref"])
-            require(original.get("event") in SOURCE_ARCHIVE_EVENTS and original.get("version") == VERSION,
+            require(original.get("event") in SOURCE_ARCHIVE_EVENTS and original.get("version") == (1 if original.get("event") == "sealed_check" else VERSION),
                     "source archive requires original native history envelope")
             root = entry["snapshot_root"]
             safe_relative(root)
@@ -1110,11 +1124,14 @@ def remember_evidence(checker):
 
 
 @snapshot_hash_invocation
+@metrics.timed("history_context")
 def validate_context(project, reference, unit_id, stack=(), cache=None, *, evidence_cache=None):
+    metrics.count("history_context_requests")
     cache = cache if cache is not None else {}
     context = read_ref(project, reference)
     cache_key = ("context", reference["content_hash"], unit_id)
     if cache_key in cache and _snapshot_hash_owner.get().history_result(cache, cache_key):
+        metrics.count("history_context_cache_hits")
         return copy.deepcopy(cache[cache_key])
     visiting = ("visiting_context", reference["content_hash"], unit_id)
     require(visiting not in cache, "cyclic execution context history")
@@ -1125,7 +1142,7 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
     require(api().timestamp(context["captured_at"]) <= api().timestamp(utcnow()), "future execution context")
     require(api().timestamp(context["input_inventory"]["review"]["reviewed_at"]) <= api().timestamp(context["captured_at"]), "owner inventory review must predate context capture")
     manifest = context["manifest"]
-    require(manifest.get("unit_contract_version") in (1, 2), "unsupported historical unit contract")
+    require(manifest.get("unit_contract_version") in (1, 2, 3), "unsupported historical unit contract")
     require(manifest.get("unit_runs", {}).get(unit_id, {}).get("status", "pending") == "pending", "context must be captured before first start")
     if "prior_attempt_ref" in context:
         attempt, original = validate_attempt(project, context["prior_attempt_ref"], stack, cache, evidence_cache=evidence_cache)
@@ -1150,12 +1167,14 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
                 "continuation dropped run findings")
         old_checks = {item["check_id"]: item for item in attempt["checks"]}
         for check in attempt_checks(manifest, unit_id):
-            require(check.get("execution_status") == "not_run" and not check.get("evidence"),
-                    "continuation cannot reuse old acceptance results")
+            require(check.get("execution_status") == "not_run" and not check.get("evidence")
+                    or check_inputs.enabled(manifest) and check.get("reused_from") and check.get("execution_status") == "passed",
+                    "continuation cannot reuse old acceptance results without an applicable independent seal")
             require(same(check.get("findings", []), old_checks[check["check_id"]].get("findings", [])),
                     "continuation dropped check findings")
     checker = historical_checker(project, manifest, context, stack=stack, cache=cache, evidence_cache=evidence_cache)
     checker._history_capturing = unit_id
+    validate_reused_checks(checker, context, context["input_inventory"])
     report = checker.run("implementation", unit_action="start", unit_id=unit_id)
     require(report["result"] == "passed", "original execution context was not authorized/startable: " + json.dumps(report["issues"]))
     reviewed = prepare_inventory(checker, unit_id, context["input_inventory"])
@@ -1169,7 +1188,7 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
 
 @source_archive_invocation
 def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=None, prior_attempt_ref=None, _cache=None):
-    require(manifest.get("unit_contract_version") == VERSION, "migrate legacy records before capturing current execution")
+    require(manifest.get("unit_contract_version") in (2, 3), "migrate legacy records before capturing current execution")
     require(manifest.get("unit_runs", {}).get(unit_id, {}).get("status", "pending") == "pending", "capture context before starting the unit")
     checker = api().Checker(project, copy.deepcopy(manifest), evidence_cache=evidence_cache)
     cache = _cache if _cache is not None else {}
@@ -1192,7 +1211,9 @@ def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=Non
 
 
 @snapshot_hash_invocation
+@metrics.timed("history_completion")
 def validate_completion(project, reference, stack=(), cache=None, *, evidence_cache=None):
+    metrics.count("history_completion_requests")
     cache = cache if cache is not None else {}
     identity = reference.get("content_hash") if isinstance(reference, dict) else None
     require(identity not in stack and len(stack) < 128, "cyclic/excessive completion history")
@@ -1208,6 +1229,7 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
     cache[run_identity] = content_identity
     cache_key = ("completion", identity)
     if cache_key in cache and _snapshot_hash_owner.get().history_result(cache, cache_key):
+        metrics.count("history_completion_cache_hits")
         return copy.deepcopy(cache[cache_key])
     context = validate_context(project, completed["context_ref"], unit, stack, cache, evidence_cache=evidence_cache)
     run = completed["run"]
@@ -1270,7 +1292,7 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
     remember_evidence(post)
     for check in completed["checks"]:
         if check.get("execution_status") in ("passed", "failed"):
-            require(same(check.get("evaluated_execution_inputs"), completed["input_inventory"]["execution_fingerprints"]), "executed check lacks matching test-time execution input observation")
+            require(same(check.get("evaluated_execution_inputs"), check_inputs.expected(completed["input_inventory"], check["check_id"])), "executed check lacks matching test-time execution input observation")
             validate_check_runtime(project, context, check, run, accepting=True)
     cache[cache_key] = copy.deepcopy((completed, context))
     _snapshot_hash_owner.get().history_result(cache, cache_key, remember=True)
@@ -1278,7 +1300,7 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
 
 
 def validate_completion_inventory(context, current, checks):
-    ignored = {"execution_fingerprints", "canonical_hashes", "review"}
+    ignored = {"execution_fingerprints", "check_execution_fingerprints", "canonical_hashes", "review"}
     require(same({k: v for k, v in current.items() if k not in ignored},
                  {k: v for k, v in context["input_inventory"].items() if k not in ignored}), "relevant acceptance inputs changed during execution")
     if not same(current["canonical_hashes"], context["input_inventory"]["canonical_hashes"]):
@@ -1362,7 +1384,10 @@ def observe_runtime(project, probes):
 
 
 def validate_check_runtime(project, context, check, run, *, accepting):
-    """Continuation acceptance needs the runtime actually observed in that run."""
+    """Continuation acceptance needs an actual runtime or a separately validated original seal."""
+    if check.get("reused_from"):
+        require(check_inputs.enabled(context["manifest"]), "sealed reuse requires checker/unit contract 3")
+        return  # validate_reused_checks verifies original runtime plus current environment.
     if "prior_attempt_ref" not in context and "runtime_observation_ref" not in context["input_inventory"]:
         return
     reference = check.get("runtime_observation_ref")
@@ -1423,7 +1448,7 @@ def validate_continuation_findings(project, context, run, checks, inventory):
                     require(check.get("execution_status") == "passed" and check.get("executor") and check.get("evidence")
                             and api().timestamp(run["started_at"]) <= api().timestamp(check.get("executed_at")) <= closed,
                             "inherited finding closure needs fresh passed check evidence: " + key)
-                    require(same(check.get("evaluated_execution_inputs"), inventory["execution_fingerprints"]),
+                    require(same(check.get("evaluated_execution_inputs"), check_inputs.expected(inventory, check["check_id"])),
                             "inherited finding closure cannot use stale check inputs: " + key)
                     validate_check_runtime(project, context, check, run, accepting=True)
 
@@ -1445,7 +1470,7 @@ def attempt_observation_validity(checks, inventory):
     executed = [check for check in checks if check.get("execution_status") in ("passed", "failed")]
     require(all(isinstance(check.get("evaluated_execution_inputs"), dict) and check["evaluated_execution_inputs"]
                 for check in executed), "executed attempt results need their original input observations")
-    return ("unverified_stale_inputs" if any(not same(check["evaluated_execution_inputs"], inventory["execution_fingerprints"])
+    return ("unverified_stale_inputs" if any(not same(check["evaluated_execution_inputs"], check_inputs.expected(inventory, check["check_id"]))
                                              for check in executed) else "matched")
 
 
@@ -1459,7 +1484,7 @@ def unfinished_evidence_alternatives(project, context, record, checker):
         if check.get("execution_status") not in ("passed", "failed"):
             continue
         fingerprints = check["evaluated_execution_inputs"]
-        require(set(fingerprints) == set(record["input_inventory"]["execution_inputs"]),
+        require(set(fingerprints) == set(check_inputs.expected(record["input_inventory"], check["check_id"])),
                 "old attempt observation omits declared execution inputs")
         observed_hashes = {}
         for path, fingerprint in fingerprints.items():
@@ -1489,14 +1514,17 @@ def unfinished_evidence_alternatives(project, context, record, checker):
 
 
 @snapshot_hash_invocation
+@metrics.timed("history_attempt")
 def validate_attempt(project, reference, stack=(), cache=None, *, evidence_cache=None):
     """Validate preserved execution without ever requiring or granting completion."""
+    metrics.count("history_attempt_requests")
     cache = cache if cache is not None else {}
     record = read_ref(project, reference)
     identity = reference["content_hash"]
     marker = ("attempt", identity)
     require(identity not in stack and len(stack) < 128, "cyclic/excessive attempt history")
     if marker in cache and _snapshot_hash_owner.get().history_result(cache, marker):
+        metrics.count("history_attempt_cache_hits")
         return copy.deepcopy(cache[marker])
     require(record.get("event") == "unit_attempt" and record.get("version") == VERSION
             and record.get("validation_contract") == CONTRACT and record.get("acceptance") == "not_completed",
@@ -1535,10 +1563,10 @@ def validate_attempt(project, reference, stack=(), cache=None, *, evidence_cache
             "attempt observation validity differs from its actual input observations")
     for check in record["checks"]:
         if check.get("execution_status") in ("passed", "failed"):
-            require(api().timestamp(run["started_at"]) <= api().timestamp(check["executed_at"]) <= api().timestamp(record["captured_at"]),
+            require(check.get("reused_from") and check_inputs.enabled(post_manifest) or api().timestamp(run["started_at"]) <= api().timestamp(check["executed_at"]) <= api().timestamp(record["captured_at"]),
                     "attempt check was not executed within the actual run")
             require(check.get("evaluated_plan_hash") == run["development_plan_hash"], "attempt check belongs to another plan")
-            require(not check.get("run_id") or check["run_id"] == record["run_id"], "attempt check belongs to another run")
+            require(check.get("reused_from") and check_inputs.enabled(post_manifest) or not check.get("run_id") or check["run_id"] == record["run_id"], "attempt check belongs to another run")
             validate_check_runtime(project, context, check, run, accepting=False)
     for original_canonical in (True, False):
         manifest = copy.deepcopy(post_manifest)
@@ -1554,6 +1582,7 @@ def validate_attempt(project, reference, stack=(), cache=None, *, evidence_cache
         checker = historical_checker(project, manifest, context, record, stack + (identity,), cache,
                                      original_canonical=original_canonical, evidence_cache=evidence_cache)
         checker._history_validating_run = unit
+        checker._history_nonaccepting_attempt = unit
         checker._history_canonical_evidence = unfinished_evidence_alternatives(project, context, record, checker)
         report = checker.run("implementation", unit_action="start", unit_id=unit)
         require(report["result"] == "passed", "unfinished attempt records are invalid: " + json.dumps(report["issues"]))
@@ -1668,13 +1697,14 @@ def _policy_successor(project, attempt, reviewed, *, current_record=None, curren
 
 def continuation_inventory(context, attempt, reviewed, *, project=None, current_record=None, current_manifest=None):
     ignored = {"environment", "runtime_observation_ref", "canonical_hashes", "review",
-               "execution_inputs", "execution_fingerprints"}
+               "execution_inputs", "execution_fingerprints", "check_execution_fingerprints"}
     original = attempt["input_inventory"]
     require(same({k: v for k, v in original.items() if k not in ignored},
                  {k: v for k, v in reviewed.items() if k not in ignored}),
             "continuation changed relevant acceptance definitions or preserved work")
     # A fresh attempt may add reviewed executor inputs, retaining the exact old
-    # selections and bytes. It never edits earlier work or reuses its results.
+    # selections. Version 2 retains byte identity; version 3 separately checks
+    # applicability before retaining any independently sealed result.
     for inventory in (original, reviewed):
         selections, fingerprints = inventory.get("execution_inputs"), inventory.get("execution_fingerprints")
         require(isinstance(selections, dict) and selections and isinstance(fingerprints, dict)
@@ -1685,6 +1715,8 @@ def continuation_inventory(context, attempt, reviewed, *, project=None, current_
                 and same(selection, reviewed["execution_inputs"][path]),
                 "continuation changed or removed preserved execution input: " + path)
         if not same(original["execution_fingerprints"][path], reviewed["execution_fingerprints"][path]):
+            if current_manifest is not None and check_inputs.enabled(current_manifest):
+                continue  # The new attempt reruns changed checks; sealed reuse compares its own inputs.
             require(path == "forge/evidence-policy.json" and project is not None,
                     "continuation changed or removed preserved execution input: " + path)
             _policy_successor(project, attempt, reviewed, current_record=current_record, current_manifest=current_manifest)
@@ -1693,8 +1725,197 @@ def continuation_inventory(context, attempt, reviewed, *, project=None, current_
     attempt_authority(context["manifest"], attempt["post_manifest"])
 
 
+def _without_reuse(check):
+    return {key: value for key, value in check.items() if key not in ("seal_ref", "reused_from")}
+
+
+def _settlement(project, reference, check, unit, run_id, sealed_at):
+    record = read_ref(project, reference)
+    require(record.get("event") == "execution_group_settlement" and record.get("version") == 1,
+            "independent execution-group settlement required")
+    require(record.get("unit_id") == unit and record.get("run_id") == run_id
+            and isinstance(record.get("group_id"), str) and record["group_id"].strip()
+            and isinstance(record.get("check_ids"), list) and check["check_id"] in record["check_ids"],
+            "settlement belongs to another group/run/check")
+    require(record.get("isolation") == "independent" and record.get("status") == "settled"
+            and record.get("producer_state") == "stopped" and record.get("cleanup_state") == "complete"
+            and record.get("accounting_state") == "complete"
+            and all(record.get(key) == [] for key in ("pending_actions", "unknown_outcomes", "open_resources")),
+            "execution group has unsettled producer, cleanup, accounting or outcomes")
+    require(api().timestamp(check["executed_at"]) <= api().timestamp(record.get("completed_at"))
+            <= api().timestamp(sealed_at), "settlement must follow actual observations and precede sealing")
+    return record
+
+
+def _seal_observation(checker, context, check, run, inventory):
+    require(check_inputs.enabled(checker.manifest), "sealing requires checker/unit contract 3")
+    require(check_inputs.fine_grained(check) and check["acceptance"].get("reuse_policy") == "deterministic_isolated",
+            "only explicitly reviewed deterministic isolated checks can be sealed")
+    require(check.get("execution_status") == "passed" and check.get("executor") and check.get("evidence"),
+            "only actual passed observations can be sealed")
+    require(check.get("run_id") == run.get("run_id") and check["run_id"], "seal needs the original actual run identity")
+    require(api().timestamp(run["started_at"]) <= api().timestamp(check["executed_at"]) <= api().timestamp(utcnow()),
+            "sealed observation is outside its original run")
+    require(same(check.get("evaluated_execution_inputs"), check_inputs.expected(inventory, check["check_id"])),
+            "sealed check inputs differ from actual observation")
+    require(not any(item.get("status") != "closed" and (item.get("severity") in ("P0", "P1")
+                    or item.get("release_effect") == "blocking")
+                    for item in check.get("findings", []) + run.get("findings", [])), "blocking findings prevent sealing")
+    hashes, _ = checker.source_inventory(check, "evaluated_source_hashes")
+    require(check_inputs.required_paths(checker, check) <= set(hashes), "sealed observation omits required source hashes")
+    for path, expected_hash in hashes.items():
+        require(checker.snapshot(path, expected_hash, "implementation", "sealed_check_stale"), "sealed source changed: " + path)
+    for evidence in check["evidence"]:
+        require(checker.evidence_snapshot(evidence, "implementation", "sealed_check_evidence",
+                                         checker.check_bindings(check, evidence=evidence)), "sealed evidence is unreadable or changed")
+    validate_check_runtime(checker.project, context, check, run, accepting=True)
+    checker.evidence_accounting(run_id=check["run_id"], unit_id=checker.manifest["unit_plan"]["acceptance"][check["check_id"]]["owner_unit"])
+
+
+def seal_check(project, manifest, unit_id, check_id, settlement_ref, inventory=None, *, evidence_cache=None):
+    """Compatibility entrypoint for one independently settled result."""
+    return seal_checks(project, manifest, unit_id, [check_id], settlement_ref, inventory,
+                       evidence_cache=evidence_cache)[check_id]
+
+
 @source_archive_invocation
-def capture_continuation(project, manifest, unit_id, attempt_ref, run_id, inventory, *, evidence_cache=None):
+def seal_checks(project, manifest, unit_id, check_ids, settlement_ref, inventory=None, *, evidence_cache=None):
+    """One gate preflight for a settled group, with a bounded seal per check."""
+    require(check_inputs.enabled(manifest), "sealing requires checker/unit contract 3")
+    require(isinstance(check_ids, list) and check_ids and len(check_ids) == len(set(check_ids)), "unique check IDs required")
+    require(all(manifest["unit_plan"]["acceptance"][key]["owner_unit"] == unit_id for key in check_ids),
+            "seal check belongs to another unit")
+    run = manifest["unit_runs"][unit_id]
+    require(run.get("status") in ("running", "blocked") and "attempt_ref" not in run,
+            "seal the independently settled result before archiving/interruption")
+    reference = manifest["execution_contexts"][unit_id]
+    context = validate_context(project, reference, unit_id, evidence_cache=evidence_cache)
+    checker = api().Checker(project, copy.deepcopy(manifest), evidence_cache=evidence_cache)
+    report = checker.run("implementation", unit_action="start", unit_id=unit_id, require_current=True)
+    require(report["result"] == "passed", "cannot seal invalid current execution: " + json.dumps(report["issues"]))
+    reviewed = prepare_inventory(checker, unit_id, inventory or context["input_inventory"])
+    checks = {check["check_id"]: check for check in manifest["verification"]["checks"]}
+    sealed_at = utcnow()
+    for key in check_ids:
+        check = checks[key]
+        require("reused_from" not in check, "an inherited result retains its original seal")
+        validate_completion_inventory(context, reviewed, [check])
+        _seal_observation(checker, context, check, run, reviewed)
+        _settlement(project, settlement_ref, check, unit_id, run["run_id"], sealed_at)
+    results = {}
+    for key in check_ids:
+        check = checks[key]
+        selected = {path: reviewed["execution_inputs"][path] for path in check_inputs.expected(reviewed, key)}
+        record = {"event": "sealed_check", "version": 1, "unit_id": unit_id, "run_id": run["run_id"],
+                  "check": copy.deepcopy(_without_reuse(check)), "context_ref": copy.deepcopy(reference),
+                  "input_inventory": {"execution_inputs": selected, "execution_fingerprints": copy.deepcopy(check_inputs.expected(reviewed, key))},
+                  "run": copy.deepcopy(run), "settlement_ref": copy.deepcopy(settlement_ref), "sealed_at": sealed_at,
+                  "accounting": {field: copy.deepcopy(manifest[field]) for field in ("evidence_storage", "evidence_accounting") if field in manifest}}
+        # Snapshot this observation's proof and selected dependencies. The earlier
+        # context is referenced by context_ref, never duplicated in this record.
+        directory = HISTORY + "/sealed-checks/" + uuid.uuid4().hex
+        capture = {"check": copy.deepcopy(_without_reuse(check)), "settlement_ref": settlement_ref,
+                   "canonical": [{"path": path} for path in reviewed["canonical_hashes"]], **record["accounting"]}
+        record["snapshot_root"] = directory + "/files"
+        record["files"] = freeze_files(project, capture, directory, selected, checker=checker)
+        results[key] = store_record(project, "sealed-checks", record, directory)
+    return results
+
+
+def validate_sealed_check(project, reference, attempt, context, checker):
+    seal = read_ref(project, reference)
+    require(seal.get("event") == "sealed_check" and seal.get("version") == 1, "unsupported sealed check")
+    require(seal.get("unit_id") == attempt["unit_id"] and seal.get("run_id") == attempt["run_id"]
+            and same(seal.get("context_ref"), attempt["context_ref"]), "seal does not bind the original attempt")
+    check = next(item for item in attempt["checks"] if item["check_id"] == seal["check"]["check_id"])
+    require(same(seal["check"], _without_reuse(check)) and same(check.get("seal_ref"), reference),
+            "original sealed observation was changed or omitted")
+    require(api().timestamp(seal["sealed_at"]) <= api().timestamp(attempt["captured_at"]),
+            "result was not independently sealed before attempt archival")
+    validate_files(project, seal)
+    compact = seal.get("input_inventory")
+    require(isinstance(compact, dict) and set(compact) == {"execution_inputs", "execution_fingerprints"},
+            "sealed inventory must contain only its selected execution inputs and fingerprints")
+    require(isinstance(compact["execution_inputs"], dict) and isinstance(compact["execution_fingerprints"], dict)
+            and compact["execution_inputs"] and set(compact["execution_inputs"]) == set(compact["execution_fingerprints"]),
+            "sealed selected input and fingerprint identities differ")
+    sealed_run = seal.get("run")
+    require(isinstance(sealed_run, dict) and sealed_run.get("status") in ("running", "blocked"), "original sealed run facts required")
+    for field in ("run_id", "started_at", "development_plan_hash", "approved_baseline_id"):
+        require(same(sealed_run.get(field), attempt["run"].get(field)), "sealed run identity/binding differs from original attempt: " + field)
+    original_manifest = copy.deepcopy(context["manifest"])
+    accounting = seal.get("accounting")
+    require(isinstance(accounting, dict) and set(accounting) <= {"evidence_storage", "evidence_accounting"}, "invalid sealed accounting metadata")
+    require(same(accounting.get("evidence_storage"), context["manifest"].get("evidence_storage")), "sealed storage authority differs from its execution context")
+    for field in ("evidence_storage", "evidence_accounting"):
+        original_manifest.pop(field, None)
+    original_manifest.update(accounting)
+    frozen = historical_checker(project, original_manifest, context, seal,
+                                 cache=checker._history_cache, original_canonical=False,
+                                 evidence_cache=checker.evidence_resolver.cache)
+    # Only check-owned dependencies are needed to recompute its sealed map.
+    selected = {path: seal["input_inventory"]["execution_inputs"][path]
+                for path in check_inputs.expected(seal["input_inventory"], check["check_id"])}
+    actual = {"execution_inputs": selected, "execution_fingerprints": execution_fingerprints(frozen, selected)}
+    expected = check_inputs.fingerprints(frozen, attempt["unit_id"], actual, check["check_id"])[check["check_id"]]
+    require(same(check_inputs.expected(seal["input_inventory"], check["check_id"]), expected),
+            "sealed dependencies differ from immutable observation")
+    _settlement(project, seal["settlement_ref"], check, attempt["unit_id"], attempt["run_id"], seal["sealed_at"])
+    # The context already owns canonical definitions, environment and unit
+    # bindings. Reconstruct these validated fields in memory instead of copying
+    # the full unit inventory into every per-check seal.
+    inventory = copy.deepcopy(context["input_inventory"])
+    inventory.setdefault("check_execution_fingerprints", {})[check["check_id"]] = copy.deepcopy(expected)
+    seal["input_inventory"] = inventory
+    _seal_observation(frozen, context, check, sealed_run, inventory)
+    return seal
+
+
+def _reuse_applicable(seal, current, check):
+    previous = seal["input_inventory"]
+    require(same(check_inputs.expected(previous, check["check_id"]), check_inputs.expected(current, check["check_id"])),
+            "sealed check dependency changed")
+    # Canonical requirements, actual assertions, environment and prerequisite
+    # allocations remain conservative until their own reviewed granular scope exists.
+    for field in ("inputs", "environment", "bindings"):
+        require(same(previous[field], current[field]), "sealed check " + field + " changed")
+    require(same({key: value for key, value in seal["check"].items() if key not in EXECUTION_KEYS},
+                 {key: value for key, value in check.items() if key not in EXECUTION_KEYS}),
+            "sealed check assertion/definition changed")
+
+
+def validate_reused_checks(checker, context, inventory, *, accepting=True):
+    result = {}
+    if not check_inputs.enabled(checker.manifest):
+        require(not any("reused_from" in check or "seal_ref" in check
+                        for check in checker.manifest.get("verification", {}).get("checks", [])),
+                "sealed reuse requires checker/unit contract 3")
+        return result
+    for check in attempt_checks(checker.manifest, context["unit_id"]):
+        reuse = check.get("reused_from")
+        if reuse is None:
+            continue
+        require(isinstance(reuse, dict) and set(reuse) == {"attempt_ref", "seal_ref"}, "invalid original result reference")
+        attempt, original = validate_attempt(checker.project, reuse["attempt_ref"],
+                                             getattr(checker, "_history_stack", ()), checker._history_cache,
+                                             evidence_cache=checker.evidence_resolver.cache)
+        require(any(same(reuse["attempt_ref"], ref) for ref in checker.manifest.get("attempt_history", {}).get(context["unit_id"], [])),
+                "reused result is outside preserved attempt history")
+        historical = historical_checker(checker.project, attempt["post_manifest"], original, attempt,
+                                         cache=checker._history_cache, original_canonical=False,
+                                         evidence_cache=checker.evidence_resolver.cache)
+        seal = validate_sealed_check(checker.project, reuse["seal_ref"], attempt, original, historical)
+        require(same(_without_reuse(check), seal["check"]) and same(check.get("seal_ref"), reuse["seal_ref"]),
+                "reused observation must retain original fields and timestamps")
+        if accepting:
+            _reuse_applicable(seal, inventory, check)
+        require(api().timestamp(seal["sealed_at"]) <= api().timestamp(context["captured_at"]), "reuse predates original seal")
+        result[check["check_id"]] = seal
+    return result
+
+
+@source_archive_invocation
+def capture_continuation(project, manifest, unit_id, attempt_ref, run_id, inventory, *, evidence_cache=None, reuse=True):
     # One read-only preflight shares memoized dependencies; audit it before
     # capture_context creates new snapshot hard links and changes inode ctime.
     with snapshot_hash_scope():
@@ -1719,16 +1940,31 @@ def capture_continuation(project, manifest, unit_id, attempt_ref, run_id, invent
         candidate = copy.deepcopy(manifest)
         candidate.setdefault("attempt_history", {})[unit_id] = refs
         candidate["unit_runs"][unit_id] = {"status": "pending", "run_id": run_id, "findings": copy.deepcopy(attempt["run"].get("findings", []))}
+        reuse_reasons = {}
         for index, check in enumerate(candidate["verification"]["checks"]):
             if candidate["unit_plan"]["acceptance"].get(check["check_id"], {}).get("owner_unit") == unit_id:
-                candidate["verification"]["checks"][index] = {k: v for k, v in check.items() if k not in EXECUTION_KEYS or k == "findings"}
-                candidate["verification"]["checks"][index]["execution_status"] = "not_run"
+                replacement = {k: v for k, v in check.items() if k not in EXECUTION_KEYS or k == "findings"}
+                replacement["execution_status"] = "not_run"
+                if reuse and check_inputs.enabled(manifest) and check.get("seal_ref"):
+                    origin_ref = check.get("reused_from", {}).get("attempt_ref", attempt_ref)
+                    origin_attempt, origin_context = (attempt, original) if same(origin_ref, attempt_ref) else validate_attempt(project, origin_ref, cache=cache, evidence_cache=evidence_cache)
+                    frozen = historical_checker(project, origin_attempt["post_manifest"], origin_context, origin_attempt,
+                                                cache=cache, original_canonical=False, evidence_cache=evidence_cache)
+                    seal = validate_sealed_check(project, check["seal_ref"], origin_attempt, origin_context, frozen)
+                    try:
+                        _reuse_applicable(seal, reviewed, check)
+                    except ValueError as error:
+                        reuse_reasons[check["check_id"]] = str(error)
+                    else:
+                        replacement = copy.deepcopy(check)
+                        replacement["reused_from"] = {"attempt_ref": copy.deepcopy(origin_ref), "seal_ref": copy.deepcopy(check["seal_ref"])}
+                candidate["verification"]["checks"][index] = replacement
         candidate.setdefault("execution_contexts", {}).pop(unit_id, None)
     context_ref = capture_context(project, candidate, unit_id, inventory, evidence_cache=evidence_cache,
                                   prior_attempt_ref=attempt_ref, _cache=cache)
     candidate["execution_contexts"][unit_id] = context_ref
     return {"manifest": candidate, "context_ref": context_ref, "prior_attempt_ref": copy.deepcopy(attempt_ref),
-            "run_id": run_id, "acceptance": "not_completed"}
+            "run_id": run_id, "acceptance": "not_completed", "rerun_reasons": reuse_reasons}
 
 
 def pending_mapping(original, current, mapping):
@@ -1770,9 +2006,13 @@ def applicability(checker, completed, context, inventory, mapping, previous_mani
         require(unit in checker.manifest["unit_plan"]["units"], "completed ID no longer exists")
         current = prepare_inventory(checker, unit, inventory)
         previous = completed["input_inventory"]
-        for field in ("inputs", "bindings", "environment", "execution_inputs", "execution_fingerprints"):
-            changed = differences(previous[field], current[field])
-            require(not changed, "changed " + field + ": " + "; ".join(changed) + "; revalidate " + ", ".join(current["bindings"]["unit"]["required_check_ids"]))
+        if check_inputs.enabled(checker.manifest):
+            changed = check_inputs.changed_checks(previous, current, current["bindings"]["unit"]["required_check_ids"])
+            require(not changed, "changed check inputs; revalidate " + ", ".join(changed))
+        else:
+            for field in ("inputs", "bindings", "environment", "execution_inputs", "execution_fingerprints"):
+                changed = differences(previous[field], current[field])
+                require(not changed, "changed " + field + ": " + "; ".join(changed) + "; revalidate " + ", ".join(current["bindings"]["unit"]["required_check_ids"]))
         for check in completed["checks"]:
             for path, expected in checker.source_inventory(check, "evaluated_source_hashes")[0].items():
                 if path in current["canonical_hashes"]:
@@ -1825,6 +2065,7 @@ class HistoryView:
         self.preserved = {}
         self.attempts = {}
         self.checks = {}
+        self.reused = {}
         self.units = {}
         self.canonical_evidence = getattr(checker, "_history_canonical_evidence", {})
         if not hasattr(checker, "_history_cache"):
@@ -1844,7 +2085,8 @@ class HistoryView:
             require(legacy.get("event") == "legacy_execution_archive" and legacy.get("version") == VERSION and legacy.get("acceptance") == "unverified_not_reusable", "invalid legacy execution archive")
             previous = read_ref(checker.project, legacy["manifest_ref"])
             require(legacy_format(previous), "legacy archive must retain actual supported legacy context")
-            _checker_legacy_files(checker, reference, legacy)
+            if not defer_legacy_payload(reference, legacy):
+                _checker_legacy_files(checker, reference, legacy)
         for key, references in manifest.get("completion_history", {}).items():
             require(key in manifest.get("unit_plan", {}).get("units", {}), "archived completed ID disappeared")
             require(isinstance(references, list) and references, "completion history must retain original references")
@@ -1931,15 +2173,15 @@ class HistoryView:
                             if not same(observed["canonical_hashes"], reviewed["canonical_hashes"]):
                                 operation = "capture-completion" if run.get("status") == "completed" else "capture-attempt"
                                 raise ValueError("canonical owner output changed; reconcile owners and use " + operation + " --inventory with a fresh current review")
-                            require(same({k: v for k, v in observed.items() if k not in ("execution_fingerprints", "canonical_hashes", "review")},
-                                         {k: v for k, v in context["input_inventory"].items() if k not in ("execution_fingerprints", "canonical_hashes", "review")}), "pre-start reviewed acceptance inputs changed during execution")
+                            require(same({k: v for k, v in observed.items() if k not in ("execution_fingerprints", "check_execution_fingerprints", "canonical_hashes", "review")},
+                                         {k: v for k, v in context["input_inventory"].items() if k not in ("execution_fingerprints", "check_execution_fingerprints", "canonical_hashes", "review")}), "pre-start reviewed acceptance inputs changed during execution")
                             owned = {check for check, allocation in manifest["unit_plan"]["acceptance"].items() if allocation["owner_unit"] == key}
                             for check_id in owned:
                                 self.canonical_evidence[check_id] = {path: {value, context["input_inventory"]["canonical_hashes"][path]}
                                                                    for path, value in observed["canonical_hashes"].items()}
                             for check in manifest["verification"]["checks"]:
                                 if check["check_id"] in owned and check.get("execution_status") in ("passed", "failed"):
-                                    require(same(check.get("evaluated_execution_inputs"), observed["execution_fingerprints"]), "check execution inputs changed since actual test observation: " + check["check_id"])
+                                    require(same(check.get("evaluated_execution_inputs"), check_inputs.expected(observed, check["check_id"])), "check execution inputs changed since actual test observation: " + check["check_id"])
                                     validate_check_runtime(checker.project, context, check, run,
                                                            accepting=action == "complete" or run.get("status") == "completed")
                             validate_continuation_findings(checker.project, context, run, attempt_checks(manifest, key), observed)
@@ -1947,6 +2189,7 @@ class HistoryView:
                             checker.issue("unit_history", "development-plan", str(error))
                 continue
             reasons, valid, integrity_checked = [], False, False
+            revalidation_ids = list(manifest.get("unit_plan", {}).get("units", {}).get(key, {}).get("required_check_ids", []))
             try:
                 require(run.get("status") == "completed", "only completed wrappers can reference history")
                 completed, context = validate_completion(checker.project, run["completion_ref"], getattr(checker, "_history_stack", ()), checker._history_cache, evidence_cache=checker.evidence_resolver.cache)
@@ -1966,8 +2209,13 @@ class HistoryView:
                     previous = read_ref(checker.project, assessment["prior_manifest_ref"])
                     pending_mapping(previous, manifest, mapping)
                 integrity_checked = True
-                require(same(prepare_inventory(checker, key, inventory), inventory), "reviewed current input inventory is stale")
-                reasons = applicability(checker, completed, context, inventory, mapping, previous)
+                current_inventory = prepare_inventory(checker, key, inventory)
+                if check_inputs.enabled(manifest):
+                    revalidation_ids = check_inputs.changed_checks(completed["input_inventory"], current_inventory,
+                                                                  manifest["unit_plan"]["units"][key]["required_check_ids"])
+                else:
+                    require(same(current_inventory, inventory), "reviewed current input inventory is stale")
+                reasons = applicability(checker, completed, context, current_inventory, mapping, previous)
                 require(not reasons, "; ".join(reasons))
                 self.preserved[key] = completed
                 self.checks.update({x["check_id"]: copy.deepcopy(x) for x in completed["checks"]})
@@ -1979,7 +2227,17 @@ class HistoryView:
                 if not valid or not integrity_checked:
                     checker.issue("unit_history", "development-plan", key + ": invalid historical record: " + str(error))
             self.units[key] = {"historical_valid": valid, "current_applicability": "needs_revalidation" if reasons else "applicable", "reasons": reasons,
-                               "revalidation_check_ids": list(manifest.get("unit_plan", {}).get("units", {}).get(key, {}).get("required_check_ids", [])) if reasons else []}
+                               "revalidation_check_ids": (revalidation_ids or list(manifest.get("unit_plan", {}).get("units", {}).get(key, {}).get("required_check_ids", []))) if reasons else []}
+        # Reuse is a current assessment of original observations, never a new
+        # execution timestamp or completion of the earlier interrupted attempt.
+        if check_inputs.enabled(manifest):
+            for key, ref in manifest.get("execution_contexts", {}).items():
+                if any(check.get("reused_from") for check in attempt_checks(manifest, key)):
+                    context = validate_context(checker.project, ref, key, getattr(checker, "_history_stack", ()),
+                                               checker._history_cache, evidence_cache=checker.evidence_resolver.cache)
+                    observed = prepare_inventory(checker, key, context["input_inventory"])
+                    self.reused.update(validate_reused_checks(checker, context, observed,
+                                       accepting=getattr(checker, "_history_nonaccepting_attempt", None) != key))
         # Applicability is closed over the CURRENT combined prerequisite graph.
         # A historically valid integration result cannot outlive a stale prerequisite.
         plan = manifest.get("unit_plan", {})
@@ -2131,7 +2389,7 @@ def explicit_revalidation(previous, candidate, unit):
 def validate_transition(project, previous, candidate, mapping, *, evidence_cache=None):
     """Validate the whole transition even when a candidate deletes all active indexes."""
     cache = {}
-    if previous.get("checker_contract_version") != VERSION or previous.get("unit_contract_version") != VERSION:
+    if (previous.get("checker_contract_version"), previous.get("unit_contract_version")) not in ((2, 2), (3, 3)):
         require(legacy_format(previous), "unsupported legacy records require owner-reviewed reconciliation")
         mode = "format_only_no_execution" if pristine_legacy(previous) else "legacy_revalidation"
         validate_adoption_mode(previous, candidate, mode)
@@ -2159,7 +2417,7 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
         require(unit in candidate.get("unit_plan", {}).get("units", {}), "attempted unit identity removed")
         for reference in references:
             require(any(same(reference, item) for item in new_attempts.get(unit, [])), "unfinished attempt history was dropped: " + unit)
-    if previous.get("unit_contract_version") == VERSION:
+    if previous.get("unit_contract_version") in (2, 3):
         for unit, run in previous.get("unit_runs", {}).items():
             if run.get("status") not in ("running", "blocked"):
                 continue
@@ -2197,7 +2455,7 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
     if has_completed:
         pending_mapping(previous, candidate, mapping)
     for unit, run in previous.get("unit_runs", {}).items():
-        if run.get("status") == "completed" and "completion_ref" not in run and candidate.get("unit_contract_version") == VERSION:
+        if run.get("status") == "completed" and "completion_ref" not in run and candidate.get("unit_contract_version") in (2, 3):
             current = candidate.get("unit_runs", {}).get(unit, {})
             archived = False
             if previous.get("unit_contract_version") == 1 and current.get("status", "pending") == "pending":
@@ -2307,12 +2565,18 @@ def adopt_legacy(project, expected_manifest_hash, *, evidence_cache=None):
 
 
 @source_archive_invocation
-def observe_execution_inputs(project, manifest, unit_id, inventory=None, *, evidence_cache=None):
+def observe_execution_inputs(project, manifest, unit_id, inventory=None, *, evidence_cache=None, check_id=None):
     """Observe bytes only; the actual executor must bind this to its real check event."""
     if inventory is None:
         context = read_ref(project, manifest["execution_contexts"][unit_id])
         inventory = context["input_inventory"]
-    return execution_fingerprints(api().Checker(project, manifest, evidence_cache=evidence_cache), inventory["execution_inputs"])
+    checker = api().Checker(project, manifest, evidence_cache=evidence_cache)
+    if check_id is not None:
+        require(check_inputs.enabled(manifest), "per-check observations require checker/unit contract 3")
+        reviewed = prepare_inventory(checker, unit_id, inventory)
+        require(check_id in reviewed["check_execution_fingerprints"], "check is not owned by the unit")
+        return reviewed["check_execution_fingerprints"][check_id]
+    return execution_fingerprints(checker, inventory["execution_inputs"])
 
 
 def current_authority(checker):
@@ -2344,7 +2608,8 @@ def validate_adoption_mode(previous, candidate, mode):
 def candidate_report(checker, migration):
     """A format migration may expose an unfinished plan; it cannot approve one."""
     try:
-        report = checker.run("development-plan", after=True, require_current=True)
+        with history_integrity_scope(checker._source_manifest, force_full=True):
+            report = checker.run("development-plan", after=True, require_current=True)
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:
         if not migration:
             raise
@@ -2452,15 +2717,16 @@ def main():
     parser.add_argument("--manifest", default="forge/sdd-manifest.json")
     parser.add_argument("--evidence-cache", type=Path, help="read-only prepared evidence cache outside the project")
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "observe-runtime",
+    for command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "seal-check", "seal-group", "observe-runtime",
                     "assess", "stage", "activate", "recover", "adopt-legacy", "observe-inputs", "create-source-archive-index", "prepare-source-views"):
         child = sub.add_parser(command)
-        if command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "observe-inputs"):
+        if command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "observe-inputs", "seal-check", "seal-group"):
             child.add_argument("--unit", required=True)
         if command in ("capture-context", "capture-continuation", "assess"):
             child.add_argument("--inventory", required=True)
         if command == "observe-inputs":
             child.add_argument("--inventory")
+            child.add_argument("--check-id")
         if command in ("capture-completion", "capture-attempt"):
             child.add_argument("--context-ref", required=True)
             child.add_argument("--run-id", required=True)
@@ -2470,6 +2736,11 @@ def main():
         if command == "capture-continuation":
             child.add_argument("--attempt-ref", required=True)
             child.add_argument("--run-id", required=True)
+            child.add_argument("--fresh-checks", action="store_true")
+        if command in ("seal-check", "seal-group"):
+            child.add_argument("--check-id" if command == "seal-check" else "--check-ids", required=True, **({"nargs": "+"} if command == "seal-group" else {}))
+            child.add_argument("--settlement-ref", required=True)
+            child.add_argument("--inventory")
         if command == "observe-runtime":
             child.add_argument("--probes", required=True)
         if command == "assess":
@@ -2513,7 +2784,13 @@ def main():
                                      read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache)
         elif args.command == "capture-continuation":
             result = capture_continuation(args.project, manifest, args.unit, read(args.attempt_ref), args.run_id,
-                                          read(args.inventory), evidence_cache=args.evidence_cache)
+                                          read(args.inventory), evidence_cache=args.evidence_cache, reuse=not args.fresh_checks)
+        elif args.command == "seal-group":
+            result = seal_checks(args.project, manifest, args.unit, args.check_ids, read(args.settlement_ref),
+                                 read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache)
+        elif args.command == "seal-check":
+            result = seal_check(args.project, manifest, args.unit, args.check_id, read(args.settlement_ref),
+                                read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache)
         elif args.command == "observe-runtime":
             result = observe_runtime(args.project, read(args.probes))
         elif args.command == "assess":
@@ -2525,7 +2802,7 @@ def main():
         elif args.command == "adopt-legacy":
             result = adopt_legacy(args.project, args.expected_manifest_hash, evidence_cache=args.evidence_cache)
         elif args.command == "observe-inputs":
-            result = observe_execution_inputs(args.project, manifest, args.unit, read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache)
+            result = observe_execution_inputs(args.project, manifest, args.unit, read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache, check_id=args.check_id)
         else:
             result = recover_activation(args.project, read(args.journal_ref))
         print(json.dumps(result, ensure_ascii=True, indent=2))

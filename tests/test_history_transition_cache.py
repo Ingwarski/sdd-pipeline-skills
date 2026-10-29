@@ -314,7 +314,7 @@ class RawReferenceClosureTests(unittest.TestCase):
         for name in ("contexts", "attempts", "completions", "runtime", "legacy"):
             with self.subTest(control=name):
                 reference = self.reference(name + "/synthetic.json")
-                target = self.root / reference["path"]
+                target = (self.root / reference["path"]).resolve()
                 with self.assertRaises(ValueError) as rejected:
                     with self.h.snapshot_hash_scope() as owner:
                         with self.h.snapshot_hash_scope(audit=True):

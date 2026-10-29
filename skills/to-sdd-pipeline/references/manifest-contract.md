@@ -50,7 +50,7 @@ report never invents the last worked unit or a further unit after the final one.
 
 ## Current checker metadata
 
-New manifests use `checker_contract_version: 2` and `unit_contract_version: 2`. Version 1 is readable for audit/import, then migrated on authorized resume under [completion preservation](completion-preservation.md); it is not an alternate execution mode. Mixed pairs and version-2 history hidden in version 1 are rejected. [pipeline-contract.json](pipeline-contract.json) defines artifact paths, owners and required-before edges once. Each artifact ID is also an owner node; named reconciliation nodes inherit through `owner_artifact`. Aggregate nodes specify their own inputs. `consulted_later` never creates a scheduling edge.
+New manifests use `checker_contract_version: 3` and `unit_contract_version: 3`. Existing 2/2 retains conservative behavior until owner-reviewed adoption; version 1 is audit/import only under [completion preservation](completion-preservation.md). Reject mixed pairs and newer semantics hidden in old versions. [pipeline-contract.json](pipeline-contract.json) defines artifact paths, owners and required-before edges. Artifact IDs are owner nodes; reconciliation nodes inherit through `owner_artifact`. Aggregate nodes declare inputs; `consulted_later` creates no scheduling edge.
 
 Also use `traceability_version: 1` and the [typed owner indexes](traceability-contract.md). The [scope/execution contract](scope-and-execution.md) defines source-bound `product_scope`, headless exclusions and direct-host intake persistence. Optional `dispatches` maps owner artifact IDs to `{invocation_id, outputs, source_hashes, consumed_source_fragments}`; returned invocation/output identities and consumed bytes must still match. A stale return is rejected, not silently integrated.
 
@@ -113,7 +113,7 @@ External payloads use `source_manifest_ref`, `codex_access_receipt_ref` and `cla
 
 ## Verification index
 
-At plan validation and implementation handoff, use current [unit execution records](unit-execution-contract.md): `unit_contract_version: 2`, with [completion preservation](completion-preservation.md). These retain canonical `unit_plan`, QA check `acceptance`, actual `unit_runs` and optional user `unit_sequence_exceptions`. Missing records require owner-reviewed migration, never inferred completion. The checker enforces them after plan authoring, for implementation/release and plan audits; `--start-unit ID` / `--complete-unit ID` additionally validate transitions under current implementation authorization.
+At plan validation and implementation handoff, use supported [unit records](unit-execution-contract.md) and [completion preservation](completion-preservation.md): canonical `unit_plan`, QA `acceptance`, actual `unit_runs` and optional user `unit_sequence_exceptions`. Missing records need owner-reviewed reconciliation, never inferred completion. The checker enforces these after planning, for implementation/release and plan audits; `--start-unit ID` / `--complete-unit ID` also validate transitions under current authority.
 
 The [security traceability contract](security-contract.md) defines `artifacts.prd.security_review`, downstream `security_coverage`, and the required `product_security_requirements` gate/check mappings. Record only actual owner returns bound to current document hashes. Missing records require assessment/reconciliation through those owners, not a fabricated historical review or a new approval step.
 

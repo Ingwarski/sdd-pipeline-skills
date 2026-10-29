@@ -1,7 +1,7 @@
 """Single-coordinator immutable catalogs, resumable packs, preparation and retention."""
 from __future__ import annotations
 
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 import hashlib
@@ -18,7 +18,7 @@ import threading
 import time
 import uuid
 
-from .archive import build_pack, verify_pack, capture
+from .archive import build_pack, verify_pack, capture, encoded_pack_bound
 from .io import EvidenceError, atomic_json, hash_file, read_json, safe_relative, _open_regular, _verify_stable, _is_link
 from .policy import validate_policy, resolve_historical_policy, LINEAGE_FIELD
 from .identity import same_reference, same_imported_original
@@ -549,7 +549,7 @@ class Manager:
             if descriptor is not None:
                 os.close(descriptor)
 
-    def _capacity(self, peak, *, migration=False):
+    def _capacity(self, peak, *, migration=False, discard_readbacks=True):
         local_limit = self.limits["migration_local_stop_bytes" if migration else "local_stop_bytes"]
         used, pending, external = self._usage(), 0, 0
         ledger_path = self.state / "accounting.sqlite"
@@ -561,9 +561,13 @@ class Manager:
                     pending += connection.execute("SELECT COALESCE(SUM(bytes),0) FROM working_reservations WHERE state='pending' AND id!=?", (self._working_reservation or "",)).fetchone()[0]
                 external = connection.execute("SELECT COALESCE(SUM(bytes),0) FROM local_usage WHERE kind IN ('capture','restore') AND key!='manager-working'").fetchone()[0]
         if used + external + pending + peak > local_limit:
+            if discard_readbacks and self._discard_readbacks():
+                return self._capacity(peak, migration=migration, discard_readbacks=False)
             raise EvidenceError("combined local working-space allowance exhausted")
         reserve = self.limits["free_space_reserve_bytes"]
         if shutil.disk_usage(self.state).free < pending + peak + reserve:
+            if discard_readbacks and self._discard_readbacks():
+                return self._capacity(peak, migration=migration, discard_readbacks=False)
             raise EvidenceError("measured staging/restoration peak plus preserved free-space reserve unavailable")
 
     def _local_records(self, ledger):
@@ -640,13 +644,21 @@ class Manager:
         if nested and not (metadata_bytes or metadata_files or cache_bytes or additional_peak):
             yield
             return
-        from .accounting import Accounting
+        from .accounting import Accounting, BudgetExceeded
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
             if not (nested and additional_peak):
                 self._local_records(ledger)
-            ident = ledger.reserve_working(peak if not nested or additional_peak else 0, migration=migration,
-                exclude_reservation=self._active_reservation, metadata_bytes=metadata_bytes,
-                metadata_files=metadata_files, cache_bytes=cache_bytes, capacity_path=capacity_path)
+            try:
+                ident = ledger.reserve_working(peak if not nested or additional_peak else 0, migration=migration,
+                    exclude_reservation=self._active_reservation, metadata_bytes=metadata_bytes,
+                    metadata_files=metadata_files, cache_bytes=cache_bytes, capacity_path=capacity_path)
+            except BudgetExceeded:
+                if not self._discard_readbacks():
+                    raise
+                self._local_records(ledger)
+                ident = ledger.reserve_working(peak if not nested or additional_peak else 0, migration=migration,
+                    exclude_reservation=self._active_reservation, metadata_bytes=metadata_bytes,
+                    metadata_files=metadata_files, cache_bytes=cache_bytes, capacity_path=capacity_path)
             if not nested:
                 self._working_reservation = ident
                 self._working_migration = migration
@@ -674,6 +686,8 @@ class Manager:
                     violations = [v for v in result["violations"] if not
                         (not metadata_bytes and not metadata_files and v.startswith("combined metadata")) and not
                         (not cache_bytes and v.startswith("combined cache"))]
+                    if not failed:
+                        violations = self._settlement_readback_release(ledger, violations, migration=migration)
                     if violations and not failed:
                         raise EvidenceError("working resource settlement incomplete: " + "; ".join(violations))
                 finally:
@@ -696,7 +710,7 @@ class Manager:
             raise EvidenceError("catalog working scope requires catalog ownership")
         if self._catalog_working is not None or self._working_depth or self._working_reservation is not None:
             raise EvidenceError("catalog working scope cannot adopt an existing working operation")
-        from .accounting import Accounting
+        from .accounting import Accounting, BudgetExceeded
         overhead = getattr(self.transport, "working_overhead", None)
         control = overhead(upload_bytes=0, download_bytes=0) if overhead else 0
         if type(control) is not int or control < 0:
@@ -706,7 +720,12 @@ class Manager:
             session = getattr(self.transport, "host_session_path", None)
             if session is not None and shutil.disk_usage(session).free < ledger._totals()["pending_local_bytes"] + control + self.limits["free_space_reserve_bytes"]:
                 raise EvidenceError("host transport control peak cannot preserve the configured free-space reserve")
-            ident = ledger.reserve_working(control, metadata_bytes=control, metadata_files=3 if control else 0)
+            try:
+                ident = ledger.reserve_working(control, metadata_bytes=control, metadata_files=3 if control else 0)
+            except BudgetExceeded:
+                if not self._discard_readbacks():
+                    raise
+                ident = ledger.reserve_working(control, metadata_bytes=control, metadata_files=3 if control else 0)
             previous = self._working_reservation
             scope = {"open": True, "thread": threading.get_ident(), "policy": deepcopy(self.policy),
                 "ledger": ledger, "id": ident, "control": control, "active": {}, "uncertain": False,
@@ -732,6 +751,8 @@ class Manager:
                     result = ledger.finish_working(ident, **allocations)
                     violations = [v for v in result["violations"] if not
                         (not control and v.startswith("combined metadata")) and not v.startswith("combined cache")]
+                    if failure is None:
+                        violations = self._settlement_readback_release(ledger, violations)
                     if violations and failure is None:
                         raise EvidenceError("working resource settlement incomplete: " + "; ".join(violations))
                 except BaseException as settlement:
@@ -758,9 +779,16 @@ class Manager:
         if aggregate > scope["bounds"]["bytes"]:
             from .accounting import BudgetExceeded
             try:
-                scope["bounds"] = scope["ledger"].grow_working(scope["id"], aggregate,
-                    metadata_bytes=scope["control"], metadata_files=3 if scope["control"] else 0,
-                    capacity_path=capacity_path)
+                try:
+                    scope["bounds"] = scope["ledger"].grow_working(scope["id"], aggregate,
+                        metadata_bytes=scope["control"], metadata_files=3 if scope["control"] else 0,
+                        capacity_path=capacity_path)
+                except BudgetExceeded:
+                    if not self._discard_readbacks():
+                        raise
+                    scope["bounds"] = scope["ledger"].grow_working(scope["id"], aggregate,
+                        metadata_bytes=scope["control"], metadata_files=3 if scope["control"] else 0,
+                        capacity_path=capacity_path)
             except BudgetExceeded:
                 raise  # Rejected before effects, with the previous hold intact.
             except BaseException:
@@ -1097,18 +1125,40 @@ class Manager:
 
     def _reconcile_ledger(self, catalog, ledger):
         # Remote records are authoritative after cold recovery; local deletion never resets charges.
-        existing = {row[0] for row in ledger.connection.execute("SELECT identity FROM objects")}
+        existing = {row["identity"]: row for row in ledger.connection.execute("SELECT * FROM objects")}
         unique = self._retained_content(catalog["packs"])
         for digest, size in unique.items():
             ledger.record_object("content:" + digest, size, physical_count=0)
         for digest in catalog["packs"]:
             ledger.record_object("pack:" + digest, 0, physical_count=1)
         # Unknown-outcome/orphan transfers occupy the store even before root publication.
-        # Encoded size is a conservative allowance charge; it is not an original-byte claim.
+        # A compressed pack can be much smaller than its originals. Until a
+        # verified catalog supplies member sizes, retain the full permitted
+        # original-byte bound (or a larger observed encoded size). This is a
+        # conservative hold, not a claim that those originals were inspected.
+        original_bound = self.limits["archive_pack_stop_bytes"]
+        lineage = self.policy.get(LINEAGE_FIELD)
+        if catalog.get("unreconciled_packs") and lineage:
+            # A cold ledger must also preserve the larger bound under which an
+            # unknown pack might have been written before a limits reduction.
+            original_bound = max(original_bound,
+                validate_policy(json.loads(lineage["base"]["raw_utf8"]))["limits"]["archive_pack_stop_bytes"],
+                *(step["policy"]["limits"]["archive_pack_stop_bytes"] for step in lineage["steps"]))
+        holds = set()
         for ident, metadata in catalog.get("unreconciled_packs", {}).items():
+            # Preserve the pre-compression immutable encoded-byte record. A
+            # separate, versioned allowance hold can grow across policy changes;
+            # keep its high-water mark until the durable pack is reconciled.
+            prefix = "unreconciled-pack-hold:" + ident + ":"
+            held = max(0, original_bound - metadata["size"],
+                       max((row["bytes"] for key, row in existing.items() if key.startswith(prefix)), default=0))
+            if held:
+                hold = prefix + str(held)
+                ledger.record_object(hold, held, physical_count=0)
+                holds.add(hold)
             ledger.record_object("unreconciled-pack:" + ident, metadata["size"], physical_count=1)
-        active = {"content:" + k for k in unique} | {"pack:" + k for k in catalog["packs"]} | {"unreconciled-pack:" + k for k in catalog.get("unreconciled_packs", {})}
-        for ident in existing - active:
+        active = {"content:" + k for k in unique} | {"pack:" + k for k in catalog["packs"]} | {"unreconciled-pack:" + k for k in catalog.get("unreconciled_packs", {})} | holds
+        for ident in existing.keys() - active:
             ledger.remove_object(ident)
         self._audit_source_payloads()
         ledger.reconcile_metadata("remote-catalog", catalog["metadata_bytes"], catalog["metadata_files"])
@@ -1193,7 +1243,7 @@ class Manager:
 
     def _pack(self, items, checkpoint):
         maximum = self.limits["archive_pack_stop_bytes"]
-        peak = (sum(i["size"] for i in items) + len(items) * 2048 + 65536) * 2 + local_json_size(checkpoint) * 2
+        peak = encoded_pack_bound(i["size"] for i in items) * 2 + local_json_size(checkpoint) * 2
         self._capacity(peak, migration=checkpoint["migration"])
         with self._working(peak, migration=checkpoint["migration"], metadata_bytes=local_json_size(checkpoint) * 2 + len(items) * 4096 + 65536, metadata_files=3), tempfile.TemporaryDirectory(dir=self.staging, prefix="pack-") as temp:
             temp = Path(temp).resolve()
@@ -1211,7 +1261,104 @@ class Manager:
             checkpoint["packs"][pack["sha256"]] = verified
             checkpoint.pop("pending_pack", None)
             self._checkpoint(Path(checkpoint["path"]), checkpoint)
+            self._retain_readback(readback, verified, migration=checkpoint["migration"])
             return verified
+
+    def _retain_readback(self, path, pack, *, migration=False):
+        """Keep independently retrieved bytes only for this bounded archive call.
+
+        The ordinary preparation path still validates the published catalog and
+        emits complete cache receipts. A crash discards this optimisation: the
+        journal never treats a retained staging file as durable evidence.
+        """
+        retained = getattr(self, "_archive_readbacks", None)
+        if retained is None or pack["sha256"] in retained:
+            return
+        if sum(item["pack"]["size"] for item in retained.values()) + pack["size"] > self.limits["cache_stop_bytes"]:
+            return
+        # Preserve headroom for extraction, whole-original assembly and receipt
+        # publication; promotion is optional when this conservative peak cannot
+        # fit. Moving the readback itself adds no bytes to the pack's held peak.
+        try:
+            self._capacity(pack["original_bytes"] * 2 + local_json_size(pack) * 2 + 65536,
+                           migration=migration)
+        except EvidenceError:
+            return
+        destination = self._archive_readback_path / pack["sha256"]
+        path.replace(destination)
+        retained[pack["sha256"]] = {"pack": deepcopy(pack), "path": destination}
+
+    def _retained_readback(self, pack, *, reverify_durable):
+        if reverify_durable:
+            return None
+        retained = getattr(self, "_archive_readbacks", None) or {}
+        item = retained.get(pack["sha256"])
+        if item is None:
+            return None
+        if item["pack"] != pack:
+            raise EvidenceError("retained readback identity differs from published archive")
+        return item["path"]
+
+    def _discard_readbacks(self, *, preparation=False):
+        """Release only this call's optional staged copies, never durable bytes."""
+        if getattr(self, "_readback_preparation", False) and not preparation:
+            return False
+        retained = getattr(self, "_archive_readbacks", None)
+        if not retained:
+            return False
+        for item in retained.values():
+            item["path"].unlink()
+        retained.clear()
+        from .accounting import Accounting
+        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._local_records(ledger)
+        return True
+
+    def _settlement_readback_release(self, ledger, violations, *, migration=False):
+        # Nested settlement includes the remaining outer holds. Optional copies
+        # may be released to restore the combined allowance, but this never
+        # forgives an operation that exceeded its own reserved byte bound.
+        combined = "combined local working usage exceeds allowance"
+        if combined in violations and self._discard_readbacks():
+            totals = ledger.snapshot()["totals"]
+            limit = self.limits["migration_local_stop_bytes" if migration else "local_stop_bytes"]
+            if totals["local_bytes"] + totals["pending_local_bytes"] <= limit:
+                return [violation for violation in violations if violation != combined]
+        return violations
+
+    @contextmanager
+    def _preparation_working(self, ref, packs, *, reverify_durable, receipt_peak, cache_growth, metadata_files):
+        from .accounting import BudgetExceeded
+        # Retained bytes must not disappear after their path has been selected.
+        # Only this entry boundary may evict them and recompute the GET peak.
+        previous = getattr(self, "_readback_preparation", False)
+        self._readback_preparation = True
+        try:
+            with ExitStack() as stack:
+                while True:
+                    peak = ref["size"] + max(((0 if self._retained_readback(pack, reverify_durable=reverify_durable)
+                                              else pack["size"]) + pack["original_bytes"] for pack in packs
+                        if self._session_pack is None or pack["sha256"] != self._session_pack["sha256"]), default=0)
+                    try:
+                        self._capacity(peak + receipt_peak, discard_readbacks=False)
+                    except EvidenceError:
+                        if self._discard_readbacks(preparation=True):
+                            continue
+                        raise
+                    if self._cache_bytes() + cache_growth > self.limits["cache_stop_bytes"]:
+                        raise EvidenceError("bounded evidence cache full; explicitly evict replaceable cache bytes")
+                    try:
+                        stack.enter_context(self._working(peak + receipt_peak, metadata_bytes=receipt_peak,
+                            metadata_files=metadata_files, cache_bytes=cache_growth))
+                        break
+                    except BudgetExceeded:
+                        # The atomic reservation also includes transport control
+                        # overhead and concurrent holds absent from the estimate.
+                        if not self._discard_readbacks(preparation=True):
+                            raise
+                yield
+        finally:
+            self._readback_preparation = previous
 
     def _reference(self, item, locator):
         timestamp(item["sealed_at"])
@@ -1239,7 +1386,7 @@ class Manager:
             nonlocal group, group_bytes
             if not group:
                 return
-            peak = group_bytes * 3 + len(group) * 4096 + 131072 + local_json_size(checkpoint) * 2
+            peak = group_bytes + encoded_pack_bound(entry["size"] for entry in group) * 2 + local_json_size(checkpoint) * 2
             self._capacity(peak, migration=checkpoint["migration"])
             with self._working(peak, migration=checkpoint["migration"]), tempfile.TemporaryDirectory(dir=self.staging, prefix="capture-batch-") as temp:
                 temp = Path(temp).resolve()
@@ -1247,7 +1394,8 @@ class Manager:
                 for entry in group:
                     path = temp / entry["sha256"]
                     capture(entry["path"], path, entry["size"])
-                    captured.append({"path": path, "sha256": entry["sha256"], "size": entry["size"]})
+                    captured.append({"path": path, "sha256": entry["sha256"], "size": entry["size"],
+                        "original_path": entry.get("original_path", Path(entry["path"]).name)})
                 pack = self._pack(captured, checkpoint)
                 for item in pack["members"]:
                     locations[item["sha256"]] = {"object_id": pack["locator"]["object_id"], "key": pack["locator"]["key"],
@@ -1273,14 +1421,26 @@ class Manager:
         return locations
 
     def archive(self, specification, *, migration=False, remove_local=False):
-        try:
-            return self._archive(specification, migration=migration, remove_local=remove_local)
-        finally:
-            ledger = getattr(self, "_archive_ledger", None)
-            if ledger is not None:
-                ledger.close()
-                del self._archive_ledger
-            self._active_reservation = None
+        with self.locked():
+            try:
+                with tempfile.TemporaryDirectory(dir=self.staging, prefix="archive-readbacks-") as temp:
+                    self._archive_readback_path = Path(temp).resolve()
+                    self._archive_readbacks = {}
+                    try:
+                        return self._archive(specification, migration=migration, remove_local=remove_local)
+                    finally:
+                        self._archive_readbacks.clear()
+                        del self._archive_readbacks, self._archive_readback_path
+            finally:
+                ledger = getattr(self, "_archive_ledger", None)
+                if ledger is not None:
+                    ledger.close()
+                    del self._archive_ledger
+                self._active_reservation = None
+                if (self.state / "accounting.sqlite").is_file():
+                    from .accounting import Accounting
+                    with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                        self._local_records(ledger)
 
     def _archive(self, specification, *, migration=False, remove_local=False):
         """Bounded batches, immutable packs. Copying never changes observation timestamps."""
@@ -1427,7 +1587,7 @@ class Manager:
                             offset, digest = 0, hashlib.sha256()
                             while offset < entry["size"] or (entry["size"] == 0 and not segments):
                                 length = min(target_size, entry["size"] - offset)
-                                peak = length * 3 + 139264 + local_json_size(checkpoint) * 2
+                                peak = length + encoded_pack_bound([length]) * 2 + 8192 + local_json_size(checkpoint) * 2
                                 self._capacity(peak, migration=migration)
                                 with self._working(peak, migration=migration), tempfile.TemporaryDirectory(dir=self.staging, prefix="capture-") as temp:
                                     part = Path(temp).resolve() / "part"
@@ -1444,7 +1604,8 @@ class Manager:
                                             count += len(block)
                                     ph = part_hash.hexdigest()
                                     matching = next((p for p in all_packs.values() if any(m["sha256"] == ph and m["size"] == count for m in p["members"])), None)
-                                    packed = matching or self._pack([{"path": part, "sha256": ph, "size": count}], checkpoint)
+                                    packed = matching or self._pack([{"path": part, "sha256": ph, "size": count,
+                                        "original_path": entry.get("original_path", source.name)}], checkpoint)
                                     all_packs[packed["sha256"]] = packed
                                     member = next(m["member"] for m in packed["members"] if m["sha256"] == ph)
                                     segments.append({"object_id": packed["locator"]["object_id"], "key": packed["locator"]["key"],
@@ -1665,19 +1826,15 @@ class Manager:
             if self._session_pack is not None and any(pack["sha256"] != self._session_pack["sha256"] for pack in packs):
                 shutil.rmtree(self._session_path / "members")
                 self._session_pack = None
-            peak = ref["size"] + max((pack["size"] + pack["original_bytes"] for pack in packs
-                if self._session_pack is None or pack["sha256"] != self._session_pack["sha256"]), default=0)
-            self._capacity(peak)
             proofs, offset = [], 0
             receipt_peak = 0 if reusable is not None else (local_json_size(ref) + local_json_size(aliases) + len(segments) * 1024 + 4096) * 2
             existing = self._cache_object_info(target)
             if reusable is None and existing is not None and existing.st_nlink > 1:
                 self._shared_rebuild_required(target, "aliases appeared before preparation")
             cache_growth = 0 if reusable is not None else max(0, ref["size"] - (existing.st_size if existing else 0)) + receipt_peak
-            if self._cache_bytes() + cache_growth > self.limits["cache_stop_bytes"]:
-                raise EvidenceError("bounded evidence cache full; explicitly evict replaceable cache bytes")
-            with self._working(peak + receipt_peak, metadata_bytes=receipt_peak, metadata_files=0 if (receipts / (ref["artifact_id"] + ".json")).exists() else 1,
-                cache_bytes=cache_growth), tempfile.TemporaryDirectory(dir=self.staging, prefix="prepare-") as temp:
+            with self._preparation_working(ref, packs, reverify_durable=reverify_durable, receipt_peak=receipt_peak,
+                metadata_files=0 if (receipts / (ref["artifact_id"] + ".json")).exists() else 1,
+                cache_growth=cache_growth), tempfile.TemporaryDirectory(dir=self.staging, prefix="prepare-") as temp:
                 temp = Path(temp).resolve()
                 whole = temp / "whole"
                 with whole.open("xb") as output:
@@ -1693,11 +1850,18 @@ class Manager:
                             if extracted.exists():
                                 shutil.rmtree(extracted)
                             self._session_pack = None
-                            self._transport_call("get", pack["locator"], archive, pack["size"])
-                            verified = verify_pack(archive, pack["sha256"], pack["size"], pack["members"], destination=extracted,
+                            retained = self._retained_readback(pack, reverify_durable=reverify_durable)
+                            if retained is not None:
+                                actual = self._transport_call("stat", pack["locator"])
+                                if (actual["object_id"], actual["size"]) != (pack["locator"]["object_id"], pack["size"]):
+                                    raise EvidenceError("durable archive identity changed after readback")
+                            else:
+                                self._transport_call("get", pack["locator"], archive, pack["size"])
+                            verified = verify_pack(retained or archive, pack["sha256"], pack["size"], pack["members"], destination=extracted,
                                 max_bytes=pack["original_bytes"], max_files=self.limits["migration_batch_stop_files"],
                                 max_decoder_memory_bytes=self.limits.get("archive_decoder_memory_bytes", 128 * 1024 * 1024))
-                            archive.unlink()
+                            if retained is None:
+                                archive.unlink()
                             self._session_pack = {"sha256": pack["sha256"], "verified": verified}
                         else:
                             verified = self._session_pack["verified"]
