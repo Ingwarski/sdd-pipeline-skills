@@ -8,23 +8,23 @@
     "path": "instruction-baseline.json",
     "sha256": "b9aa3ae4416890799774b00466dde9d16c84b18d11e61c94417873a1991529ce"
   },
-  "reason": "The original numerical consolidation baseline remains unchanged. Independently reviewed cumulative allowances retain earlier approved intake and reporting changes and include unfinished-attempt recovery, current progress, early construction validation, clause-coverage review and optional browser/evidence guidance. Every prior conditional resource and retry remains counted; QA invocations additionally load coverage review, and evidence-consumer invocations load browser guidance in all five visual scenarios. Scenario definitions, seeds, invocation order, retries, tokenizer and measurement method remain unchanged. README retains zero growth. Ceilings equal the exact independently reviewed totals with no spare allowance. Further growth requires independent review of instructions, complete resource loads, measurements and rationale. Static estimates exclude executable helper source and tool output and do not establish live-run cost or behavior. See docs/maintenance.md.",
+  "reason": "The original numerical consolidation baseline remains unchanged. Cumulative allowances retain earlier reviewed intake, recovery, progress, construction, coverage and browser/evidence guidance and add source-based test scope, per-check dependencies, independently settled result reuse, compact evidence capture and explicit legacy integrity boundaries. Independent review of the instruction diff, every ordered resource load and CI measurements approved the exact totals: this change adds 5.41–6.52% over the previously approved scenario ceilings. All conditional resources, seeds, invocation order and retries remain counted; tokenizer, method and scenario definitions are unchanged. README retains zero growth. Ceilings equal measured totals with no spare allowance. Further growth requires independent review of instructions, complete resource loads, measurements and rationale. Static estimates exclude executable helpers and tool output and do not establish live-run savings. See docs/maintenance.md.",
   "absolute": {
-    "entrypoints": 16727,
+    "entrypoints": 16810,
     "readme": 3555,
-    "first_setup_with_retry": 158671,
-    "approved_design_revision": 101688,
-    "interrupted_claude_resume": 119892,
-    "approved_decision_correction": 119683,
-    "completion_preservation": 211944
+    "first_setup_with_retry": 167251,
+    "approved_design_revision": 108316,
+    "interrupted_claude_resume": 126792,
+    "approved_decision_correction": 126583,
+    "completion_preservation": 224222
   },
   "approved_growth_tokens": {
-    "entrypoints": 135,
+    "entrypoints": 218,
     "readme": 0,
-    "first_setup_with_retry": 10661,
-    "approved_design_revision": 9667,
-    "interrupted_claude_resume": 12978,
-    "approved_decision_correction": 12978,
-    "completion_preservation": 25226
+    "first_setup_with_retry": 19241,
+    "approved_design_revision": 16295,
+    "interrupted_claude_resume": 19878,
+    "approved_decision_correction": 19878,
+    "completion_preservation": 37504
   }
 }
