@@ -9,6 +9,7 @@ import sqlite3
 import sys
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 import uuid
 from unittest.mock import patch
@@ -61,7 +62,7 @@ class ProducerManagerRecoveryTests(unittest.TestCase):
         self.assertTrue(self.manager.finish_generation(intent)["settled"])
 
     def test_manager_without_quarantine_keeps_payload_timeout_and_omits_gate_publication_deadline(self):
-        from evidence.producer import run_producer
+        from evidence import producer
         intent = self.manager.begin_generation('ordinary-slow-preflight', 'unit', 4096, 8)
         output = self.fixture.base / 'ordinary-timeout-output'; output.mkdir()
         probe = self.fixture.base / 'request-probe'; probe.mkdir()
@@ -85,15 +86,46 @@ def _observed_popen(*args, **kwargs):
 subprocess.Popen = _observed_popen
 '''.replace('REQUEST_PATH', repr(str(request_file)))
         (probe / 'sitecustomize.py').write_text(hook)
+        payload_timeout = 5
+        preflight_complete = threading.Event()
+        # Model an already elapsed preflight without making native interpreter
+        # startup/exit fit a subsecond timeout. Only the parent's producer-module
+        # clock is replaced; the real guardian and launch gate keep real clocks.
+        preflight_started = time.monotonic() - 2 * payload_timeout
+        clock = SimpleNamespace(sleep=time.sleep, monotonic=lambda:
+            time.monotonic() if preflight_complete.is_set() else preflight_started)
         def delayed_preflight(ledger, *, dry_run):
-            time.sleep(.35)
+            self.assertIsNone(ledger._publication_manager[2])
+            preflight_complete.set()
             return {'actions': [], 'incomplete': False}
         self.recover.side_effect = delayed_preflight
-        with self.ledger() as ledger, patch.dict(os.environ, {'PYTHONPATH': str(probe) + os.pathsep + os.environ.get('PYTHONPATH', '')}):
-            result = run_producer(ledger, 'ordinary-slow-preflight', 'unit', output,
+        requests = []
+        actual_popen = producer.subprocess.Popen
+        def observed_guardian(*args, **kwargs):
+            process = actual_popen(*args, **kwargs)
+            argv = args[0] if args else kwargs.get('args', [])
+            if isinstance(argv, list) and argv and argv[-1] == 'guardian' and process.stdin is not None:
+                original = process.stdin
+                class Stream:
+                    def __getattr__(self, name):
+                        return getattr(original, name)
+                    def write(self, raw):
+                        requests.append(json.loads(raw))
+                        return original.write(raw)
+                process.stdin = Stream()
+            return process
+        with self.ledger() as ledger, \
+                patch.dict(os.environ, {'PYTHONPATH': str(probe) + os.pathsep + os.environ.get('PYTHONPATH', '')}), \
+                patch.object(producer, 'time', clock), patch.object(producer.subprocess, 'Popen', observed_guardian):
+            result = producer.run_producer(ledger, 'ordinary-slow-preflight', 'unit', output,
                 [sys.executable, '-B', '-c', 'from pathlib import Path; Path("ordinary.txt").write_text("ok")'],
-                4096, 8, timeout=.2, poll_interval=.02, intent_id=intent, manager=self.manager)
+                4096, 8, timeout=payload_timeout, poll_interval=.02, intent_id=intent, manager=self.manager)
             self.assertIsNone(ledger._publication_manager)
+        self.assertTrue(preflight_complete.is_set())
+        self.assertLess(preflight_started + payload_timeout, time.monotonic())
+        self.assertEqual(1, len(requests))
+        self.assertEqual(payload_timeout, requests[0]['timeout'])
+        self.assertNotIn('publication_deadline', requests[0])
         self.assertEqual('complete', result['status'], result)
         self.assertEqual('ok', (output / 'ordinary.txt').read_text())
         request = json.loads(request_file.read_bytes())

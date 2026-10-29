@@ -301,13 +301,15 @@ class QuarantineDeviceIntegrationTests(unittest.TestCase):
     def test_whole_lock_and_slow_transport_share_one_deadline_and_restore_alarm(self):
         self.apply()
         other = Manager(self.fixture.fixture.transport, self.manager.home, self.manager.policy)
-        acquired, released, read_started = threading.Event(), threading.Event(), threading.Event()
+        acquired, release, released = threading.Event(), threading.Event(), threading.Event()
+        contended, read_started = threading.Event(), threading.Event()
         errors = []
         def hold_lock():
             try:
                 with other.locked():
                     acquired.set()
-                    time.sleep(.10)
+                    if not release.wait(10):
+                        raise AssertionError('publication never observed the competing catalog lock')
             except BaseException as exc:
                 errors.append(exc)
             finally:
@@ -315,20 +317,48 @@ class QuarantineDeviceIntegrationTests(unittest.TestCase):
         worker = threading.Thread(target=hold_lock)
         worker.start()
         self.addCleanup(worker.join, 2)
+        self.addCleanup(release.set)
         self.assertTrue(acquired.wait(2))
+        original_owner = self.manager._catalog_owner
+        def observed_owner(*args, **kwargs):
+            owner = original_owner(*args, **kwargs)
+            if not contended.is_set():
+                self.assertGreater(signal.getitimer(signal.ITIMER_REAL)[0], 0,
+                                   'the publication alarm must already cover lock contention')
+                contended.set()
+                release.set()
+            return owner
         original_keys = self.fixture.fixture.transport.keys
         def slow_keys(*args, **kwargs):
             read_started.set()
-            time.sleep(.20)
+            self.assertTrue(contended.is_set())
+            self.assertGreater(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+            # Block past the original absolute deadline. The real alarm must
+            # interrupt transport; no startup-speed race or timer reset is used.
+            threading.Event().wait(5)
             return original_keys(*args, **kwargs)
         handler = signal.getsignal(signal.SIGALRM)
-        started = time.monotonic()
-        with self.ledger() as ledger, patch.object(self.fixture.fixture.transport, 'keys', slow_keys):
+        real_setitimer = signal.setitimer
+        armed = []
+        def observed_timer(which, seconds, *args):
+            if seconds > 0:
+                armed.append(seconds)
+            return real_setitimer(which, seconds, *args)
+        with self.ledger() as ledger, patch.object(self.fixture.fixture.transport, 'keys', slow_keys), \
+                patch.object(self.manager, '_catalog_owner', observed_owner), \
+                patch.object(signal, 'setitimer', observed_timer):
+            # Ledger setup is outside the operation under test. Lock acquisition
+            # and all catalog/transport work share this one real timer.
+            started = time.monotonic()
+            deadline = started + 2
             with self.assertRaisesRegex(EvidenceError, 'deadline'):
-                self.manager._producer_publication_coverage(ledger, deadline=started + .22)
+                self.manager._producer_publication_coverage(ledger, deadline=deadline)
         elapsed = time.monotonic() - started
+        self.assertEqual(1, len(armed), 'lock and transport must not each receive a fresh publication timer')
+        self.assertLessEqual(armed[0], 2)
+        self.assertGreaterEqual(time.monotonic(), deadline)
         self.assertTrue(read_started.is_set(), 'exercise transport after real catalog lock contention')
-        self.assertLess(elapsed, .65)
+        self.assertLess(elapsed, 5)
         self.assertTrue(released.wait(2))
         worker.join(2)
         self.assertFalse(worker.is_alive())
