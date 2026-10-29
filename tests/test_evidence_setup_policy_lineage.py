@@ -2,6 +2,7 @@
 from copy import deepcopy
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -332,6 +333,8 @@ class QuarantinedAccountingLineageTests(unittest.TestCase):
         return current
 
     def assert_original_rows_preserved(self, *, allow_new=False):
+        manager = self.fixture.manager
+        publication = manager._publication_view(manager._catalog())
         with self.fixture.ledger() as ledger:
             ledger._publication_manager = (self.fixture.manager, None, None)
             for table, before in self.original_rows.items():
@@ -339,7 +342,9 @@ class QuarantinedAccountingLineageTests(unittest.TestCase):
                 if allow_new:
                     for old in before: self.assertIn(old, after, table)
                 else: self.assertEqual(after, before, table)
-            descriptors = ledger.quarantines()
+            # Snapshot validation is portable; it grants no fresh native
+            # publication capability on a host without the bounded alarm path.
+            descriptors = ledger.quarantines(_publication=publication)
             self.assertEqual(setup_bytes(descriptors[0]), self.original_descriptor_raw)
             self.assertFalse(ledger.snapshot()['accounting_complete'])
             self.assertTrue(ledger.snapshot()['totals_are_lower_bounds'])
@@ -348,7 +353,10 @@ class QuarantinedAccountingLineageTests(unittest.TestCase):
     def test_two_policy_transitions_keep_original_failed_session_and_full_hold_unchanged(self):
         first = self.transition(self.original_policy); second = self.transition(first)
         self.assertEqual(resolve_historical_policy(second, digest(first)), first)
-        self.assertTrue(self.assert_original_rows_preserved()['ready'])
+        readiness = self.assert_original_rows_preserved()
+        self.assertEqual(os.name == 'posix', readiness['ready'], readiness)
+        if os.name != 'posix':
+            self.assertIn('requires POSIX main-thread', readiness['problem'])
         with self.fixture.ledger() as ledger:
             for key in ('project_generated_bytes', 'project_generated_files', 'pending_generated_bytes', 'pending_generated_files'):
                 self.assertEqual(ledger.snapshot()['totals'][key], self.original_totals[key], key)
@@ -359,22 +367,33 @@ class QuarantinedAccountingLineageTests(unittest.TestCase):
     def test_fresh_registered_known_output_and_v2_receipt_preserve_history_after_transition(self):
         self.transition(self.original_policy)
         manager = self.fixture.manager
-        intent = manager.begin_generation('fresh-lineage-run', 'fresh-unit', 4096, 8)
-        output = self.fixture.fixture.base / 'known-lineage-output'; output.mkdir()
-        with self.fixture.ledger(publication=True) as ledger:
-            reservation = ledger.reserve('fresh-lineage-run', 'fresh-unit', 4096, 8, local_bytes=4096)
-            output_id = ledger.register_output('fresh-lineage-run', 'fresh-unit', output)
-            (output / 'known.txt').write_bytes(b'new')
-            settlement = ledger.settle(reservation, 3, 1, local_bytes=3)
-            self.assertFalse(settlement['incomplete'])
-            ledger.acknowledge_output(output_id)
-            self.assertEqual(ledger.reconcile_output(output_id)['new_bytes'], 0)
-            ledger.complete_run('fresh-lineage-run')
-        self.assertTrue(manager.finish_generation(intent, reservation)['settled'])
-        self.assertTrue(self.assert_original_rows_preserved(allow_new=True)['ready'])
+        if os.name == 'posix':
+            intent = manager.begin_generation('fresh-lineage-run', 'fresh-unit', 4096, 8)
+            output = self.fixture.fixture.base / 'known-lineage-output'; output.mkdir()
+            with self.fixture.ledger(publication=True) as ledger:
+                reservation = ledger.reserve('fresh-lineage-run', 'fresh-unit', 4096, 8, local_bytes=4096)
+                output_id = ledger.register_output('fresh-lineage-run', 'fresh-unit', output)
+                (output / 'known.txt').write_bytes(b'new')
+                settlement = ledger.settle(reservation, 3, 1, local_bytes=3)
+                self.assertFalse(settlement['incomplete'])
+                ledger.acknowledge_output(output_id)
+                self.assertEqual(ledger.reconcile_output(output_id)['new_bytes'], 0)
+                ledger.complete_run('fresh-lineage-run')
+            self.assertTrue(manager.finish_generation(intent, reservation)['settled'])
+            self.assertTrue(self.assert_original_rows_preserved(allow_new=True)['ready'])
+        else:
+            with self.assertRaisesRegex(EvidenceError, 'requires POSIX main-thread'):
+                manager.begin_generation('fresh-lineage-run', 'fresh-unit', 4096, 8)
+            with self.fixture.ledger(publication=True) as ledger:
+                with self.assertRaisesRegex(EvidenceError, 'requires POSIX main-thread'):
+                    ledger.reserve('fresh-lineage-run', 'fresh-unit', 4096, 8, local_bytes=4096)
+            readiness = self.assert_original_rows_preserved()
+            self.assertFalse(readiness['ready'])
+            self.assertIn('requires POSIX main-thread', readiness['problem'])
         code, receipt, policy_path = self.fixture.receipt()
         self.assertEqual(code, 0); self.assertEqual(receipt['version'], 2)
-        self.assertEqual(receipt['selected_scope'], {'run_ids': ['fresh-lineage-run'], 'complete': True})
+        selected = ['fresh-lineage-run'] if os.name == 'posix' else []
+        self.assertEqual(receipt['selected_scope'], {'run_ids': selected, 'complete': True})
         self.assertFalse(receipt['accounting_complete']); self.assertFalse(receipt['history_complete'])
         self.assertTrue(receipt['totals_are_lower_bounds']); self.assertTrue(receipt['generation_ready'])
         self.assertEqual(setup_bytes(receipt['quarantines'][0]), self.original_descriptor_raw)
@@ -385,4 +404,10 @@ class QuarantinedAccountingLineageTests(unittest.TestCase):
         project = self.fixture.fixture.base / 'checker-scope'; (project / 'forge').mkdir(parents=True)
         (project / 'forge/evidence-policy.json').write_bytes(policy_path.read_bytes())
         manifest = {'evidence_storage': {'policy_path': 'forge/evidence-policy.json'}, 'evidence_accounting': receipt}
-        sdd.Checker(project, manifest).evidence_accounting(run_id='fresh-lineage-run', unit_id='fresh-unit')
+        checker = sdd.Checker(project, manifest)
+        if os.name == 'posix':
+            checker.evidence_accounting(run_id='fresh-lineage-run', unit_id='fresh-unit')
+        else:
+            self.assertNotIn('fresh-lineage-run', receipt['runs'])
+            with self.assertRaisesRegex(ValueError, 'outside the complete current accounting scope'):
+                checker.evidence_accounting(run_id='fresh-lineage-run', unit_id='fresh-unit')

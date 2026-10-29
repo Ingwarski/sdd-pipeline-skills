@@ -22,6 +22,7 @@ class TransitionCacheTests(unittest.TestCase):
         self.fixture = attempt_fixture.AttemptHistoryTests("runTest")
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
+        self.fixture.p.root = self.fixture.p.root.resolve()
         self.fixture.start()
         self.base = self.fixture.base
         self.p, self.m, self.h = self.fixture.p, self.fixture.m, self.fixture.helper
@@ -165,7 +166,7 @@ class TransitionCacheTests(unittest.TestCase):
                 mock.patch.object(self.h, "read_ref", wraps=self.h.read_ref) as reads:
             with self.assertRaises(ValueError) as rejected:
                 self.transition()
-            self.assertIn(self.attempts[0]["path"], str(rejected.exception))
+            self.assertIn(str(path), str(rejected.exception))
         self.assertGreater(sum(call.args[1] == self.attempts[0] for call in reads.call_args_list), 1)
         self.assertIsNone(self.h._snapshot_hash_owner.get())
 
@@ -183,7 +184,7 @@ class TransitionCacheTests(unittest.TestCase):
                     before = self.p.hash("forge/sdd-manifest.json") if (self.p.root / "forge/sdd-manifest.json").exists() else None
                     with self.assertRaises(ValueError) as rejected:
                         self.transition()
-                    self.assertIn(reference["path"], str(rejected.exception))
+                    self.assertIn(str(path), str(rejected.exception))
                     if before is not None:
                         self.assertEqual(before, self.p.hash("forge/sdd-manifest.json"))
 
@@ -210,7 +211,7 @@ class TransitionCacheTests(unittest.TestCase):
                             self.h.stage_candidate(self.p.root, self.candidate, expected)
                         else:
                             self.h.activate_candidate(self.p.root, staged, expected)
-                    self.assertIn(reference["path"], str(rejected.exception))
+                    self.assertIn(str(path), str(rejected.exception))
                     writes.assert_not_called()
                     records.assert_not_called()
                     replace.assert_not_called()
@@ -301,7 +302,9 @@ class RawReferenceClosureTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="sdd-raw-reference-closure-")
         self.addCleanup(self.temp.cleanup)
-        self.root, self.h = Path(self.temp.name), sdd.history_api()
+        # Resolve temporary-directory aliases before any deletion or link
+        # mutation, so diagnostics still identify the original exact target.
+        self.root, self.h = Path(self.temp.name).resolve(), sdd.history_api()
 
     def reference(self, name="contexts/synthetic.json", payload=b'{"value":1}'):
         relative = "forge/unit-history/" + name
@@ -329,6 +332,7 @@ class RawReferenceClosureTests(unittest.TestCase):
         base = attempt_fixture.history_fixture.UnitHistoryTests("runTest")
         base.setUp()
         self.addCleanup(base.doCleanups)
+        base.p.root = base.p.root.resolve()
         helper, _, context, completion = base.capture_alpha()
         target = base.p.root / context["path"]
         cache = {}
@@ -357,6 +361,7 @@ class RawReferenceClosureTests(unittest.TestCase):
         base = attempt_fixture.history_fixture.UnitHistoryTests("runTest")
         base.setUp()
         self.addCleanup(base.doCleanups)
+        base.p.root = base.p.root.resolve()
         base.p.save()
         helper = base.history()
         staged = helper.adopt_legacy(base.p.root, base.p.hash("forge/sdd-manifest.json"))

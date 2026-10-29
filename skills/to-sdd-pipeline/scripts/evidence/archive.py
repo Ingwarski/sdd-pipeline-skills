@@ -26,11 +26,13 @@ STORED_SUFFIXES = frozenset((".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", 
 def encoded_pack_bound(sizes):
     """Bound ZIP bytes even when the text sample mispredicts compressibility.
 
-    zlib's compressBound formula covers the default window/memory settings
-    used by ZipFile, including framing absent from raw ZIP deflate streams.
-    ZIP headers, ZIP64 records and the central directory have separate slack.
+    Use the conservative fixed-block bound across zlib implementations, with
+    framing slack. Classic zlib's smaller default-parameter compressBound is
+    not sufficient for zlib-ng's level-1 quick encoder. ZipFile streams with
+    no intermediate flushes and finishes once; ZIP headers, ZIP64 records and
+    the central directory have separate slack.
     """
-    return sum(size + (size >> 12) + (size >> 14) + (size >> 25) + 13 + 2048
+    return sum(size + ((size + 7) >> 3) + ((size + 63) >> 6) + 13 + 2048
                for size in sizes) + 65536
 
 
@@ -49,7 +51,7 @@ def _compression_method(stream, obj):
     except UnicodeDecodeError:
         return zipfile.ZIP_STORED
     # A conservative sample avoids spending compression work on high-entropy
-    # text. Original-byte reservations still cover an unrepresentative sample.
+    # text. The encoded reservation covers an unrepresentative sample.
     return zipfile.ZIP_DEFLATED if len(zlib.compress(sample, 1)) * 10 < len(sample) * 9 else zipfile.ZIP_STORED
 
 

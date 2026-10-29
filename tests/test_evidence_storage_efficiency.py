@@ -223,6 +223,55 @@ class ReadbackReuseTests(unittest.TestCase):
 
 
 class SelectiveZipTests(unittest.TestCase):
+    def test_fixed_huffman_expansion_fits_before_write_reservation(self):
+        # RFC 1951 fixed Huffman literals can use nine bits per input byte.
+        # Supply a real decodable stream with that expansion on every runtime,
+        # even when its installed compressor normally chooses smaller blocks.
+        class FixedLiterals:
+            def __init__(self):
+                self.bits, self.count = 3, 3  # BFINAL=1, BTYPE=01.
+                self.codes = []
+                for value in range(256):
+                    code, width = (48 + value, 8) if value < 144 else (256 + value, 9)
+                    self.codes.append((int(format(code, "0%db" % width)[::-1], 2), width))
+
+            def compress(self, data):
+                output = bytearray()
+                for value in data:
+                    code, width = self.codes[value]
+                    self.bits |= code << self.count
+                    self.count += width
+                    while self.count >= 8:
+                        output.append(self.bits & 255)
+                        self.bits >>= 8
+                        self.count -= 8
+                return bytes(output)
+
+            def flush(self):
+                self.count += 7  # End-of-block symbol 256 is seven zero bits.
+                output = bytearray()
+                while self.count > 0:
+                    output.append(self.bits & 255)
+                    self.bits >>= 8
+                    self.count -= 8
+                return bytes(output)
+
+        with tempfile.TemporaryDirectory(prefix="sdd-fixed-deflate-") as temp:
+            root = Path(temp).resolve()
+            data = b"a" * (64 * 1024) + b"\xff" * (1024 * 1024)
+            source = root / "result.log"
+            source.write_bytes(data)
+            item = {"path": source, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+            reserved = encoded_pack_bound([len(data)])
+            with patch.object(zipfile, "_get_compressor", return_value=FixedLiterals()):
+                pack = build_pack([item], root / "pack.zip", len(data), 1)
+            verified = verify_pack(root / "pack.zip", pack["sha256"], pack["size"], pack["members"],
+                                   max_bytes=len(data))
+            self.assertEqual(len(data), verified["original_bytes"])
+            classic_bound = len(data) + (len(data) >> 12) + (len(data) >> 14) + (len(data) >> 25) + 13 + 2048 + 65536
+            self.assertGreater(pack["size"], classic_bound, "fixture must expose the classic-only bound")
+            self.assertLessEqual(pack["size"], reserved)
+
     def test_unrepresentative_sample_stays_within_encoded_reservation(self):
         with tempfile.TemporaryDirectory(prefix="sdd-zip-bound-") as temp:
             root = Path(temp).resolve()

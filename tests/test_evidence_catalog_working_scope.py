@@ -1,5 +1,6 @@
 """Operation-local catalog holds, using isolated synthetic originals only."""
 from collections import Counter
+from contextlib import closing
 from copy import deepcopy
 import json
 import hashlib
@@ -62,7 +63,7 @@ class CatalogWorkingScopeTests(unittest.TestCase):
         self.db = self.manager.state / "accounting.sqlite"
 
     def rows(self):
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             connection.row_factory = sqlite3.Row
             return [dict(row) for row in connection.execute("SELECT * FROM working_reservations ORDER BY created,id")]
 
@@ -99,7 +100,7 @@ class CatalogWorkingScopeTests(unittest.TestCase):
         self.assertEqual(5, Counter(x["operation"] for x in sequences[0])["download_original"])
         self.assertEqual(3, len(self.rows()))
         self.assertTrue(all(row["state"] == "settled" for row in self.rows()))
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             for table in ("runs", "reservations", "durable_generation", "uncertain_generation"):
                 self.assertEqual(0, connection.execute("SELECT COUNT(*) FROM " + table).fetchone()[0])
         self.assert_closed()
@@ -459,7 +460,7 @@ with manager.locked(), manager._catalog_working_scope() as scope:
             ledger.finish_working(old_working)
         tables = ("runs", "reservations", "uncertain_generation", "durable_generation", "outputs", "observations", "producer_sessions", "producer_quarantines")
         def history():
-            with sqlite3.connect(self.db) as connection:
+            with closing(sqlite3.connect(self.db)) as connection:
                 rows = {table: connection.execute("SELECT * FROM " + table + " ORDER BY 1").fetchall() for table in tables}
                 rows["old_working"] = connection.execute("SELECT * FROM working_reservations WHERE id=?", (old_working,)).fetchall()
             recovery = Path(str(self.db) + ".recovery")

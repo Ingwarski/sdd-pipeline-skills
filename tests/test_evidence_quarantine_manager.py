@@ -22,11 +22,17 @@ import evidence_store
 
 class QuarantineManagerTests(unittest.TestCase):
     def setUp(self):
+        self.prepare_fixture()
+
+    def prepare_fixture(self, before_uncertainty=None):
+        """Seed portable preexisting work before the fixture's historical gap."""
         self.fixture = fixtures.EvidenceManagerTests(methodName="runTest")
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.manager = self.fixture.manager
         self.manager.initialize_generation_authority()
+        if before_uncertainty is not None:
+            before_uncertainty()
         self.intent = self.manager.begin_generation("old-run", "old-unit", 1024, 8)
         self.output = self.fixture.base / "unknown-output"
         self.output.mkdir()
@@ -98,7 +104,10 @@ class QuarantineManagerTests(unittest.TestCase):
             for table, rows in before.items():
                 self.assertEqual(rows, [tuple(row) for row in ledger.connection.execute("SELECT * FROM " + table)])
             self.assertFalse(ledger.snapshot()["accounting_complete"])
-            self.assertTrue(ledger.generation_readiness()["ready"])
+            readiness = ledger.generation_readiness()
+            self.assertEqual(os.name == 'posix', readiness["ready"], readiness)
+            if os.name != 'posix':
+                self.assertIn('requires POSIX main-thread', readiness['problem'])
         self.assertFalse(self.manager._catalog()["generation_intents"][self.intent].get("settled"))
 
     def test_fresh_real_producer_finishes_without_completing_old_attempt(self):
@@ -106,6 +115,12 @@ class QuarantineManagerTests(unittest.TestCase):
         if os.name != 'posix':
             with self.assertRaisesRegex(EvidenceError, 'POSIX'):
                 self.manager.begin_generation('fresh-run', 'fresh-unit', 4096, 8)
+            with self.ledger(publication=True) as ledger:
+                with self.assertRaisesRegex(EvidenceError, 'POSIX'):
+                    ledger.reserve('fresh-run', 'fresh-unit', 4096, 8)
+                self.assertIsNone(ledger.connection.execute("SELECT id FROM runs WHERE id='fresh-run'").fetchone())
+            self.assertEqual(self.original_record, self._original_record())
+            self.assertFalse(self.manager._catalog()['generation_intents'][self.intent].get('settled'))
             return  # precise unsupported quarantined-native assertion
         intent = self.manager.begin_generation("fresh-run", "fresh-unit", 4096, 8)
         output = self.fixture.base / "fresh-output"
@@ -145,7 +160,12 @@ class QuarantineManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "publication"):
             self.manager.begin_generation("blocked", "unit", 10, 1)
         self.apply()
-        self.assertTrue(self.manager.assert_generation_authority()["coordinator_authorized"])
+        if os.name == 'posix':
+            self.assertTrue(self.manager.assert_generation_authority()["coordinator_authorized"])
+        else:
+            with self.assertRaisesRegex(EvidenceError, 'requires POSIX main-thread'):
+                self.manager.assert_generation_authority()
+        self.assertIn(self.reservation, self.manager._catalog()['generation_quarantines'])
         self.assertEqual(self.original_record, self._original_record())
 
     def test_catalog_replay_rebinding_and_settlement_are_rejected(self):
@@ -161,40 +181,63 @@ class QuarantineManagerTests(unittest.TestCase):
             self.manager._catalog()
 
     def test_unrelated_pending_intent_and_unknown_hold_cannot_gain_acceptance(self):
+        def preexisting_work():
+            self.manager.begin_generation("parallel-pending", "unit", 10, 1)
+            with self.ledger() as ledger:
+                self.additional_reservation = ledger.reserve("another-unknown", "unit", 12, 2)
+        if os.name != 'posix':
+            self.prepare_fixture(preexisting_work)
         self.apply()
-        self.manager.begin_generation("parallel-pending", "unit", 10, 1)
+        if os.name == 'posix':
+            self.manager.begin_generation("parallel-pending", "unit", 10, 1)
         code, receipt, _ = self.receipt()
         self.assertEqual(1, code)
         self.assertFalse(receipt["generation_ready"])
         self.assertFalse(receipt["selected_scope"]["complete"])
+        self.assertIn('parallel-pending', {item['run_id'] for item in receipt['pending_generation_intents'].values()})
 
         with self.ledger(publication=True) as ledger:
-            reservation = ledger.reserve("another-unknown", "unit", 12, 2)
-            ledger.record_uncertain(reservation, 3, 1)
+            if os.name == 'posix':
+                self.additional_reservation = ledger.reserve("another-unknown", "unit", 12, 2)
+            ledger.record_uncertain(self.additional_reservation, 3, 1)
+            self.assertIsNotNone(ledger.connection.execute('SELECT 1 FROM uncertain_generation WHERE reservation_id=?',
+                                                          (self.additional_reservation,)).fetchone())
         with self.assertRaises(EvidenceError):
             self.manager.begin_generation("blocked", "unit", 10, 1)
 
     def test_scoped_receipt_does_not_hide_unisolated_pending_reservation(self):
+        def preexisting_work(*, publication=False):
+            with self.ledger(publication=publication) as ledger:
+                ledger.reserve("unisolated-known-run", "unit", 10, 1)
+        if os.name != 'posix':
+            self.prepare_fixture(preexisting_work)
         self.apply()
-        with self.ledger(publication=True) as ledger:
-            ledger.reserve("unisolated-known-run", "unit", 10, 1)
+        if os.name == 'posix':
+            preexisting_work(publication=True)
         code, receipt, _ = self.receipt()
         self.assertEqual(1, code)
         self.assertFalse(receipt["generation_ready"])
         self.assertFalse(receipt["selected_scope"]["complete"])
+        self.assertEqual(1, receipt['runs']['unisolated-known-run']['pending_reservations'])
 
     def test_scoped_receipt_does_not_hide_unreconciled_output(self):
+        def preexisting_work(*, publication=False):
+            output = self.fixture.base / "unreconciled-output"
+            output.mkdir()
+            with self.ledger(publication=publication) as ledger:
+                hold = ledger.reserve("unreconciled-run", "unit", 10, 1)
+                ledger.register_output("unreconciled-run", "unit", output)
+                ledger.settle(hold, 0, 0)
+        if os.name != 'posix':
+            self.prepare_fixture(preexisting_work)
         self.apply()
-        output = self.fixture.base / "unreconciled-output"
-        output.mkdir()
-        with self.ledger(publication=True) as ledger:
-            hold = ledger.reserve("unreconciled-run", "unit", 10, 1)
-            ledger.register_output("unreconciled-run", "unit", output)
-            ledger.settle(hold, 0, 0)
+        if os.name == 'posix':
+            preexisting_work(publication=True)
         code, receipt, _ = self.receipt()
         self.assertEqual(1, code)
         self.assertFalse(receipt["generation_ready"])
         self.assertFalse(receipt["selected_scope"]["complete"])
+        self.assertEqual(1, receipt['runs']['unreconciled-run']['unreconciled_outputs'])
 
     def test_missing_original_ledger_cold_restore_retains_hold_and_blocks_generation(self):
         descriptor = self.apply()["descriptor"]
@@ -213,7 +256,8 @@ class QuarantineManagerTests(unittest.TestCase):
     def test_quarantined_run_cannot_be_reused_or_completed(self):
         self.apply()
         sequence = self.manager._catalog()["sequence"]
-        with self.assertRaisesRegex(EvidenceError, "quarantined historical run"):
+        reason = "quarantined historical run" if os.name == 'posix' else 'requires POSIX main-thread'
+        with self.assertRaisesRegex(EvidenceError, reason):
             self.manager.begin_generation("old-run", "old-unit", 1024, 8)
         with self.ledger(publication=True) as ledger:
             with self.assertRaises(EvidenceError):
@@ -231,8 +275,11 @@ class QuarantineManagerTests(unittest.TestCase):
                     "run_id": "unknown-foreign-run", "unit_id": "unit",
                     "reserve_bytes": 10, "reserve_files": 1,
                     "owner_pid": owner["pid"], "owner_host": owner["host"], "owner_identity": owner}}})
-        with self.assertRaisesRegex(EvidenceError, "unknown local accounting"):
+        reason = "unknown local accounting" if os.name == 'posix' else 'requires POSIX main-thread'
+        with self.assertRaisesRegex(EvidenceError, reason):
             self.manager.begin_generation("blocked", "unit", 10, 1)
+        self.assertIn('unknown-foreign-run', {item['run_id'] for item in self.manager._catalog()['generation_intents'].values()})
+        self.assertEqual(self.original_record, self._original_record())
 
     def test_cli_quarantine_defaults_to_dry_run(self):
         path = self.fixture.base / "proof.json"
