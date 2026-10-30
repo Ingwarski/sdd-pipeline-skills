@@ -20,7 +20,7 @@ import inspect
 import shutil
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import socket
 import stat
@@ -206,6 +206,19 @@ def differences(before, after, prefix=""):
     return [prefix]
 
 
+def _containment_path(path):
+    """Compare equivalent resolved Windows anchors without changing I/O paths."""
+    if isinstance(path, PureWindowsPath) and path.root:
+        drive = path.drive
+        if re.fullmatch(r"\\\\\?\\[A-Za-z]:", drive):
+            return PureWindowsPath(drive[4:] + path.root, *path.parts[1:])
+        if drive.casefold().startswith("\\\\?\\unc\\"):
+            components = drive[8:].split("\\")
+            if len(components) == 2 and all(part not in ("", ".", "..", "?") for part in components):
+                return PureWindowsPath("\\\\" + drive[8:] + path.root, *path.parts[1:])
+    return path
+
+
 def physical(project, path):
     require(isinstance(path, str) and path and "\\" not in path, "history path must be relative POSIX text")
     parts = PurePosixPath(path)
@@ -221,7 +234,10 @@ def physical(project, path):
         require(not (stat.S_ISLNK(info.st_mode) or
                      getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)),
                 "history cannot follow links: " + path)
-    require(current.resolve().is_relative_to(root), "history path escapes project")
+    # Concurrent parent creation can make Windows realpath retain its extended
+    # prefix (initial missing-directory error, final missing-file error).
+    require(_containment_path(current.resolve()).is_relative_to(_containment_path(root)),
+            "history path escapes project")
     return current
 
 
