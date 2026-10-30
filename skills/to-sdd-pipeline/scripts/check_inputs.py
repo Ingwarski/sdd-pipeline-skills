@@ -8,7 +8,7 @@ def require(condition, message):
 
 
 def enabled(manifest):
-    return (manifest.get("checker_contract_version"), manifest.get("unit_contract_version")) == (3, 3)
+    return (manifest.get("checker_contract_version"), manifest.get("unit_contract_version")) in ((3, 3), (4, 4))
 
 
 def source_sets(checker):
@@ -65,6 +65,7 @@ def fingerprints(checker, unit_id, inventory, check_id=None):
     """A tree selection retains all membership; uncertainty keeps the whole unit."""
     checks = {check["check_id"]: check for check in checker.manifest["verification"]["checks"]}
     allocations = checker.manifest["unit_plan"]["acceptance"]
+    units = checker.manifest["unit_plan"]["units"]
     groups = source_sets(checker)
     whole = inventory["execution_fingerprints"]
     selections = inventory["execution_inputs"]
@@ -77,6 +78,7 @@ def fingerprints(checker, unit_id, inventory, check_id=None):
             selected_inputs[key] = set(whole)
             continue
         paths = required_paths(checker, check, groups)
+        pending_units = list(allocation["prerequisite_units"]) + list(units[unit_id]["construction_dependencies"])
         # Required prerequisite paths remain explicit inputs even when declared by
         # another check. Consumers cannot reuse stale shared dependencies.
         pending, visited = list(allocation["prerequisite_checks"]), set()
@@ -88,14 +90,15 @@ def fingerprints(checker, unit_id, inventory, check_id=None):
             visited.add(prior)
             paths.update(required_paths(checker, checks[prior], groups))
             pending.extend(allocations[prior]["prerequisite_checks"])
-        pending_units = list(allocation["prerequisite_units"]) + list(checker.manifest["unit_plan"]["units"][unit_id]["construction_dependencies"])
+            pending_units.extend(allocations[prior]["prerequisite_units"])
+            pending_units.extend(units[allocations[prior]["owner_unit"]]["construction_dependencies"])
         seen_units = set()
         while pending_units:
             prior = pending_units.pop()
             if prior in seen_units:
                 continue
             seen_units.add(prior)
-            prior_unit = checker.manifest["unit_plan"]["units"][prior]
+            prior_unit = units[prior]
             paths.update(prior_unit["implementation_paths"])
             pending_units.extend(prior_unit["construction_dependencies"])
         selected = set()

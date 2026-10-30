@@ -153,8 +153,10 @@ hash verification, recovery observations and task-owned cleanup results.
 
 New work uses the latest tested `stable` release and checker/unit contracts 3/3.
 Existing 2/2 stays conservative until owner-reviewed adoption of per-check inputs
-and reuse. Read version 1 only for import and audit, then migrate and genuinely
-reverify legacy acceptance on authorized resume without a version-choice prompt.
+and reuse. Opt-in 4/4 adds reviewed acceptance of sufficiently evidenced original
+observations. Read version 1 only for import/audit, then migrate and assess genuine
+legacy evidence on authorized resume; execute unresolved or fresh-only checks.
+Do not ask users to choose a contract version.
 Read-only requests remain read-only. Preserve code, documents, exact original
 observations, source and approval bindings, and existing permission scope. Missing
 history or stale permission blocks the affected action rather than authorizing a
