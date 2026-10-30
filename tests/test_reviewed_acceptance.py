@@ -1,6 +1,7 @@
 """Generic synthetic proof of current review semantics, not product acceptance."""
 import copy
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 import json
 import unittest
 from unittest import mock
@@ -109,12 +110,17 @@ class ReviewedAcceptanceTests(unittest.TestCase):
     def test_import_and_identical_review_are_idempotent(self):
         f = self.f
         self.assertEqual(f.source_ref, reviewed.import_observations(f.p.root, f.original, "U-1"))
-        first = reviewed.capture(f.p.root, f.m, f.request)
-        self.assertEqual(first, reviewed.capture(f.p.root, f.m, f.request))
+        captured_at = f.h.api().timestamp(f.request["review"]["reviewed_at"]) + timedelta(seconds=1)
+        with mock.patch.object(f.h, "utcnow", return_value=captured_at.isoformat()):
+            first = reviewed.capture(f.p.root, f.m, f.request)
         record = f.h.read_ref(f.p.root, first)
+        self.assertEqual(captured_at.isoformat(), record["recorded_at"])
         self.assertGreater(f.h.api().timestamp(record["recorded_at"]), f.h.api().timestamp(record["review"]["reviewed_at"]))
         self.assertEqual(f.request["review"]["reviewed_at"], record["review"]["reviewed_at"])
-        self.assertEqual(record["recorded_at"], f.h.read_ref(f.p.root, reviewed.capture(f.p.root, f.m, f.request))["recorded_at"])
+        with mock.patch.object(f.h, "utcnow", return_value=(captured_at + timedelta(seconds=1)).isoformat()):
+            retry = reviewed.capture(f.p.root, f.m, f.request)
+        self.assertEqual(first, retry)
+        self.assertEqual(record["recorded_at"], f.h.read_ref(f.p.root, retry)["recorded_at"])
 
     def test_legacy_file_observations_can_be_reviewed_without_relabeling(self):
         f = ReviewedFixture(self, legacy=True, second=False)
@@ -297,6 +303,11 @@ class ReviewedAcceptanceTests(unittest.TestCase):
         f = self.f
         failure_ref, failure_source = self.undated_failure()
         bound = f.h.read_ref(f.p.root, failure_source)["imported_at"]
+        # Explicitly later execution must not depend on the host clock ticking.
+        fresh_at = (f.h.api().timestamp(bound) + timedelta(seconds=1)).isoformat()
+        clock = mock.patch.object(f.h, "utcnow", return_value=fresh_at)
+        clock.start()
+        self.addCleanup(clock.stop)
         run = f.m["unit_runs"]["U-1"]
         run.update(run_id="synthetic-fresh-run", started_at=f.h.utcnow())
         for check in f.m["verification"]["checks"]:
@@ -383,9 +394,11 @@ class ReviewedAcceptanceTests(unittest.TestCase):
 
     def test_decision_cannot_predate_an_input_owner_review(self):
         f = self.f
-        f.request["current_inventory"]["review"]["reviewed_at"] = f.h.utcnow()
-        with self.assertRaisesRegex(ValueError, "predates an input owner review"):
-            f.capture()
+        later_review = (f.h.api().timestamp(f.request["review"]["reviewed_at"]) + timedelta(seconds=1)).isoformat()
+        f.request["current_inventory"]["review"]["reviewed_at"] = later_review
+        with mock.patch.object(f.h, "utcnow", return_value=later_review):
+            with self.assertRaisesRegex(ValueError, "predates an input owner review"):
+                f.capture()
 
     def test_legacy_scalar_hashes_cannot_establish_unknown_tree_membership(self):
         f = ReviewedFixture(self, legacy=True, second=False, plain=True, record_inputs=False)
@@ -446,10 +459,12 @@ class ReviewedAcceptanceTests(unittest.TestCase):
         f.request["review"]["preconditions"]["QA-02"] = [row]
         f.capture()
         self.assertIn("QA-02", f.resolve()["checks"])
-        row["observed_at"] = f.h.utcnow()
+        row["observed_at"] = (f.h.api().timestamp(native["observed_at"]) - timedelta(seconds=1)).isoformat()
         f.request["review"]["reviewed_at"] = f.h.utcnow()
         f.capture()
-        self.assertNotIn("QA-02", f.resolve()["checks"])
+        result = f.resolve()
+        self.assertNotIn("QA-02", result["checks"])
+        self.assertIn("precondition date is not established by native evidence", str(result["reviews"]))
 
     def test_source_change_only_invalidates_affected_check(self):
         f = self.f

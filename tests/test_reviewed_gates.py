@@ -112,10 +112,26 @@ class ReviewedGateTests(unittest.TestCase):
         self.assertNotEqual("passed", self.base.report("implementation", "start", "U-1")["result"])
 
     def test_owner_review_date_cannot_make_acceptance_available_before_capture(self):
-        self.reviewed()
+        h = sdd.history_api()
+        owner_review = "2026-08-21T10:00:00+00:00"
+        system_capture = "2026-08-21T10:00:02+00:00"
+        capture = reviewed_acceptance.capture
+
+        def capture_later(*args, **kwargs):
+            with mock.patch.object(h, "utcnow", return_value=system_capture):
+                return capture(*args, **kwargs)
+
+        # Separate the real capture call from the owner review explicitly;
+        # consecutive wall-clock reads can share one Windows clock tick.
+        with mock.patch.object(h, "utcnow", return_value=owner_review), \
+                mock.patch.object(self.base, "now", return_value=owner_review), \
+                mock.patch.object(reviewed_acceptance, "capture", side_effect=capture_later):
+            self.reviewed()
         receipt = self.base.read(self.m["reviewed_acceptance"]["U-1"][-1])
         reviewed_at = sdd.timestamp(receipt["review"]["reviewed_at"])
         recorded_at = sdd.timestamp(receipt["recorded_at"])
+        self.assertEqual(owner_review, receipt["review"]["reviewed_at"])
+        self.assertEqual(system_capture, receipt["recorded_at"])
         self.assertLess(reviewed_at, recorded_at)
         before_capture = reviewed_at + (recorded_at - reviewed_at) / 2
 
