@@ -42,11 +42,13 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - name: Check history publication and directory membership first
+      - name: Check history and observer regressions first
         working-directory: tests
         run: >-
           python -m unittest -v test_immutable_publication test_history_evidence
           test_reviewed_acceptance.ReviewedAcceptanceTests.test_identical_concurrent_import_and_review_share_complete_publications
+          test_observed_writers.RegistryTests.test_closed_report_replay_is_noop_but_fresh_reuse_blocks
+          test_observed_writers.RegistryTests.test_generic_permission_failure_is_never_retyped_by_later_exec
         env:
           PYTHONDONTWRITEBYTECODE: '1'
       - name: Test stage checker and installer input contract
