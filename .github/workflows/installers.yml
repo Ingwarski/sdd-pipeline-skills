@@ -42,6 +42,11 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
+      - name: Check immutable publication and concurrent imports first
+        working-directory: tests
+        run: python -m unittest -v test_immutable_publication test_reviewed_acceptance.ReviewedAcceptanceTests.test_identical_concurrent_import_and_review_share_complete_publications
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
       - name: Test stage checker and installer input contract
         run: python -m unittest discover -s tests -p 'test_*.py' -v
         env:
@@ -69,7 +74,7 @@ jobs:
         working-directory: tests
         shell: powershell
         run: >-
-          python -m unittest -v test_physical_path_metadata
+          python -m unittest -v test_physical_path_metadata test_immutable_publication
           test_reviewed_acceptance.ReviewedAcceptanceTests.test_identical_concurrent_import_and_review_share_complete_publications
           test_reviewed_acceptance.ReviewedAcceptanceTests.test_decision_cannot_predate_an_input_owner_review
           test_reviewed_acceptance.ReviewedAcceptanceTests.test_import_and_identical_review_are_idempotent

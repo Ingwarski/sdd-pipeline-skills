@@ -10,9 +10,11 @@ import verification_metrics as metrics
 from history_integrity import history_integrity_scope, defer_legacy_payload
 from observation_capture import snapshot_dependencies
 import copy
+import ctypes
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
+import errno
 from functools import wraps
 import hashlib
 import importlib.util
@@ -268,6 +270,35 @@ def write_new(project, path, data):
     return {"path": path, "content_hash": sha(data)}
 
 
+def _rename_noreplace(staged, target):
+    """Move a complete same-directory file without replacing any winner.
+
+    Unlike link/unlink publication, exclusive rename leaves no temporary alias
+    whose later removal changes the published inode during a concurrent read.
+    Unsupported APIs/filesystems fail closed; ordinary POSIX rename overwrites.
+    """
+    if os.name == "nt":
+        os.rename(staged, target)  # Windows rename refuses an existing target.
+        return
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        function = getattr(library, "renamex_np", None)
+        arguments = (os.fsencode(staged), os.fsencode(target), 0x00000004)  # RENAME_EXCL
+        types = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+    elif sys.platform.startswith("linux"):
+        function = getattr(library, "renameat2", None)
+        arguments = (-100, os.fsencode(staged), -100, os.fsencode(target), 1)  # AT_FDCWD, RENAME_NOREPLACE
+        types = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    else:
+        function = None
+    if function is None:
+        raise OSError(errno.ENOTSUP, "atomic no-replace history publication is unavailable", os.fspath(target))
+    function.argtypes, function.restype = types, ctypes.c_int
+    if function(*arguments) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), os.fspath(target))
+
+
 def publish_immutable(project, path, data, *, existing_winner=False):
     """Publish complete bytes without replacing an immutable concurrent winner.
 
@@ -282,7 +313,7 @@ def publish_immutable(project, path, data, *, existing_winner=False):
         try:
             write_new(project, temporary, data)
             try:
-                os.link(staged, target)
+                _rename_noreplace(staged, target)
             except FileExistsError:
                 pass
         finally:
