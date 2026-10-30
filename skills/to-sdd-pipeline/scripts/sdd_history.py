@@ -483,7 +483,7 @@ class _ExternalEvidenceError(ValueError):
 def referenced_paths(project, manifest, *, checker=None, external_refs=None, path_resolver=None):
     """Enumerate declared regular sources/receipts and frozen render trees only."""
     found, seen_json, seen_external, seen_files = set(), set(), set(), set()
-    seen_directories, directory_stamps = set(), {}
+    seen_directories, directory_stamps, directory_members = set(), {}, {}
 
     def directory_stamp(path):
         info = path.stat(follow_symlinks=False)
@@ -495,7 +495,9 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None, pat
         if value in seen_directories:
             return
         directory_stamps[value] = directory_stamp(path)
-        for child in sorted(path.iterdir()):
+        children = sorted(path.iterdir(), key=lambda child: child.name)
+        directory_members[value] = tuple(child.name for child in children)
+        for child in children:
             relative = (PurePosixPath(value) / child.name).as_posix()
             checked = resolve_path(relative)
             if checked.is_dir():
@@ -605,7 +607,10 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None, pat
         add(manifest.get("evidence_storage", {}).get("policy_path", "forge/evidence-policy.json"))
     for value, stamp in directory_stamps.items():
         path = resolve_path(value)
-        require(path.is_dir() and directory_stamp(path) == stamp,
+        # Directory timestamps can stay equal after an immediate mutation.
+        # Audit actual membership once per unique directory, not per mention.
+        require(path.is_dir() and directory_stamp(path) == stamp
+                and tuple(sorted(child.name for child in path.iterdir())) == directory_members[value],
                 "snapshot directory changed during discovery; retry: " + value)
     return found
 
