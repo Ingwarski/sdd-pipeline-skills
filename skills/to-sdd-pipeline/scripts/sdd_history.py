@@ -10,9 +10,11 @@ import verification_metrics as metrics
 from history_integrity import history_integrity_scope, defer_legacy_payload
 from observation_capture import snapshot_dependencies
 import copy
+import ctypes
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
+import errno
 from functools import wraps
 import hashlib
 import importlib.util
@@ -20,7 +22,7 @@ import inspect
 import shutil
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import socket
 import stat
@@ -171,6 +173,14 @@ def same(a, b):
     return encoded(a) == encoded(b)
 
 
+def reviewed_observation(check, accepted):
+    """Identify the exact original observation already validated by a review."""
+    original = accepted.get(check.get("check_id"))
+    fields = EXECUTION_KEYS - {"findings"}
+    return original is not None and same({key: value for key, value in check.items() if key in fields},
+                                         {key: value for key, value in original.items() if key in fields})
+
+
 def merged_findings(*collections):
     """Keep current observations alongside immutable execution observations."""
     result = []
@@ -198,6 +208,19 @@ def differences(before, after, prefix=""):
     return [prefix]
 
 
+def _containment_path(path):
+    """Compare equivalent resolved Windows anchors without changing I/O paths."""
+    if isinstance(path, PureWindowsPath) and path.root:
+        drive = path.drive
+        if re.fullmatch(r"\\\\\?\\[A-Za-z]:", drive):
+            return PureWindowsPath(drive[4:] + path.root, *path.parts[1:])
+        if drive.casefold().startswith("\\\\?\\unc\\"):
+            components = drive[8:].split("\\")
+            if len(components) == 2 and all(part not in ("", ".", "..", "?") for part in components):
+                return PureWindowsPath("\\\\" + drive[8:] + path.root, *path.parts[1:])
+    return path
+
+
 def physical(project, path):
     require(isinstance(path, str) and path and "\\" not in path, "history path must be relative POSIX text")
     parts = PurePosixPath(path)
@@ -213,7 +236,10 @@ def physical(project, path):
         require(not (stat.S_ISLNK(info.st_mode) or
                      getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)),
                 "history cannot follow links: " + path)
-    require(current.resolve().is_relative_to(root), "history path escapes project")
+    # Concurrent parent creation can make Windows realpath retain its extended
+    # prefix (initial missing-directory error, final missing-file error).
+    require(_containment_path(current.resolve()).is_relative_to(_containment_path(root)),
+            "history path escapes project")
     return current
 
 
@@ -242,6 +268,61 @@ def write_new(project, path, data):
         stream.flush()
         os.fsync(stream.fileno())
     return {"path": path, "content_hash": sha(data)}
+
+
+def _rename_noreplace(staged, target):
+    """Move a complete same-directory file without replacing any winner.
+
+    Unlike link/unlink publication, exclusive rename leaves no temporary alias
+    whose later removal changes the published inode during a concurrent read.
+    Unsupported APIs/filesystems fail closed; ordinary POSIX rename overwrites.
+    """
+    if os.name == "nt":
+        os.rename(staged, target)  # Windows rename refuses an existing target.
+        return
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        function = getattr(library, "renamex_np", None)
+        arguments = (os.fsencode(staged), os.fsencode(target), 0x00000004)  # RENAME_EXCL
+        types = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+    elif sys.platform.startswith("linux"):
+        function = getattr(library, "renameat2", None)
+        arguments = (-100, os.fsencode(staged), -100, os.fsencode(target), 1)  # AT_FDCWD, RENAME_NOREPLACE
+        types = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    else:
+        function = None
+    if function is None:
+        raise OSError(errno.ENOTSUP, "atomic no-replace history publication is unavailable", os.fspath(target))
+    function.argtypes, function.restype = types, ctypes.c_int
+    if function(*arguments) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), os.fspath(target))
+
+
+def publish_immutable(project, path, data, *, existing_winner=False):
+    """Publish complete bytes without replacing an immutable concurrent winner.
+
+    A partial write can leave only this attempt's temporary file, never a
+    partial deterministic destination. A caller accepting a different winner
+    must independently validate its semantic identity before using the result.
+    """
+    target = physical(project, path)
+    if not target.exists():
+        temporary = path + ".pending-" + uuid.uuid4().hex
+        staged = physical(project, temporary)
+        try:
+            write_new(project, temporary, data)
+            try:
+                _rename_noreplace(staged, target)
+            except FileExistsError:
+                pass
+        finally:
+            if staged.exists():
+                staged.unlink()
+    digest, size = hash_file(physical(project, path))
+    require(existing_winner or size == len(data) and digest == sha(data),
+            "existing immutable publication differs: " + path)
+    return {"path": path, "content_hash": digest}
 
 
 def write_snapshot(project, path, data):
@@ -399,22 +480,26 @@ class _ExternalEvidenceError(ValueError):
     """Explicit reference failures are never optional application path metadata."""
 
 
-def referenced_paths(project, manifest, *, checker=None, external_refs=None):
+def referenced_paths(project, manifest, *, checker=None, external_refs=None, path_resolver=None):
     """Enumerate declared regular sources/receipts and frozen render trees only."""
     found, seen_json, seen_external, seen_files = set(), set(), set(), set()
-    seen_directories, directory_stamps = set(), {}
+    seen_directories, directory_stamps, directory_members = set(), {}, {}
 
     def directory_stamp(path):
         info = path.stat(follow_symlinks=False)
         return info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns, info.st_ctime_ns
 
+    resolve_path = path_resolver or (lambda value: physical(project, value))
+
     def scan_directory(value, path):
         if value in seen_directories:
             return
         directory_stamps[value] = directory_stamp(path)
-        for child in sorted(path.iterdir()):
-            relative = child.relative_to(Path(project).resolve()).as_posix()
-            checked = physical(project, relative)
+        children = sorted(path.iterdir(), key=lambda child: child.name)
+        directory_members[value] = tuple(child.name for child in children)
+        for child in children:
+            relative = (PurePosixPath(value) / child.name).as_posix()
+            checked = resolve_path(relative)
             if checked.is_dir():
                 scan_directory(relative, checked)
             elif checked.is_file():
@@ -432,7 +517,7 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
         if value in seen_files:
             return  # Consumers recheck containment before reading.
         try:
-            path = physical(project, value)
+            path = resolve_path(value)
         except ValueError:
             if not optional:
                 raise
@@ -449,7 +534,7 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
         if value.startswith(HISTORY + "/"):
             return
         found.add(value)
-        if path.suffix == ".json" and value not in seen_json:
+        if PurePosixPath(value).suffix == ".json" and value not in seen_json:
             seen_json.add(value)
             try:
                 document = api().read_json(path)
@@ -491,7 +576,7 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
             dependencies = snapshot_dependencies(value)
             if dependencies is not None:
                 for reference in dependencies:
-                    path = physical(project, reference["path"])
+                    path = resolve_path(reference["path"])
                     require(path.is_file() and hash_file(path)[0] == reference["content_hash"], "changed or missing observation dependency: " + reference["path"])
                     add(reference["path"])
                 return
@@ -521,8 +606,11 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None):
     if manifest.get("evidence_accounting") is not None:
         add(manifest.get("evidence_storage", {}).get("policy_path", "forge/evidence-policy.json"))
     for value, stamp in directory_stamps.items():
-        path = physical(project, value)
-        require(path.is_dir() and directory_stamp(path) == stamp,
+        path = resolve_path(value)
+        # Directory timestamps can stay equal after an immediate mutation.
+        # Audit actual membership once per unique directory, not per mention.
+        require(path.is_dir() and directory_stamp(path) == stamp
+                and tuple(sorted(child.name for child in path.iterdir())) == directory_members[value],
                 "snapshot directory changed during discovery; retry: " + value)
     return found
 
@@ -549,7 +637,7 @@ def freeze_files(project, manifest, directory, execution_inputs=None, *, checker
 
 
 
-SOURCE_ARCHIVE_EVENTS = frozenset({"unit_execution_context", "unit_completion", "unit_attempt", "legacy_execution_archive", "sealed_check"})
+SOURCE_ARCHIVE_EVENTS = frozenset({"unit_execution_context", "unit_completion", "unit_attempt", "legacy_execution_archive", "sealed_check", "external_check_observations"})
 
 
 class PreparedResolverPolicy:
@@ -646,11 +734,12 @@ class SourceArchive:
         require(isinstance(entries, list) and entries and len(entries) <= 100000, "bounded source archive records required")
         self.originals, self.sources, self.views = {}, {}, {}
         self.view_memos, self.private_blobs, self.view_files = {}, {}, {}
+        self.selected_directories = {}
         self.active_scopes, self.membership = 0, set()
         for entry in entries:
             require(isinstance(entry, dict) and set(entry) == {"record_ref", "snapshot_root", "sources"}, "invalid source archive record binding")
             original = self.read_record(entry["record_ref"])
-            require(original.get("event") in SOURCE_ARCHIVE_EVENTS and original.get("version") == (1 if original.get("event") == "sealed_check" else VERSION),
+            require(original.get("event") in SOURCE_ARCHIVE_EVENTS and original.get("version") == (1 if original.get("event") in ("sealed_check", "external_check_observations") else VERSION),
                     "source archive requires original native history envelope")
             root = entry["snapshot_root"]
             safe_relative(root)
@@ -806,6 +895,46 @@ class SourceArchive:
                     "source view private blob must be independent of the ordinary source object")
         return signature
 
+    def selected_view(self, root, files):
+        """Only imported review sources admit a strict, immutable proof subset."""
+        original = self.originals.get(root, {})
+        complete = original.get("files", {})
+        return (original.get("event") in ("legacy_execution_archive", "external_check_observations")
+                and bool(files) and len(files) < len(complete)
+                and all(same(frozen, complete.get(logical)) for logical, frozen in files.items()))
+
+    def validate_selected_directory(self, root, files, logical, *, remember=True):
+        """A selected tree must retain every recorded member and reject additions."""
+        safe_relative(logical)
+        require(self.selected_view(root, files), "selected source view must bind an imported original")
+        complete = self.originals[root]["files"]
+        require(logical not in complete, "source view access is outside selected proof")
+        expected_files = {name for name in complete if name.startswith(logical.rstrip("/") + "/")}
+        require(expected_files <= set(files), "selected directory omits original source members")
+        descriptor = self.descriptor(root, complete)
+        tree = self.location(descriptor) / "files"
+        path = self.cache_path((tree / logical).relative_to(self.resolver.cache).as_posix())
+        expected_dirs = {name for name in descriptor["directories"]
+                         if name == logical or name.startswith(logical.rstrip("/") + "/")}
+        actual_files, actual_dirs = set(), set()
+        if path.exists():
+            require(path.is_dir() and not api().is_link(path), "selected source directory is not a regular directory")
+            actual_dirs.add(logical)
+            for parent, dirs, names in os.walk(path, followlinks=False):
+                for name in dirs + names:
+                    member = Path(parent) / name
+                    require(not api().is_link(member), "source view cannot follow links")
+                    relative = member.relative_to(tree).as_posix()
+                    if member.is_dir():
+                        actual_dirs.add(relative)
+                    else:
+                        require(member.is_file(), "source view must contain regular files only")
+                        actual_files.add(relative)
+        require(actual_files == expected_files and actual_dirs == expected_dirs,
+                "selected source directory membership changed")
+        if remember:
+            self.selected_directories.setdefault((root, id(files)), set()).add(logical)
+
     def validate_view(self, root, files, *, force=False):
         key = (root, id(files))
         prior = self.view_memos.get(key)
@@ -813,7 +942,10 @@ class SourceArchive:
             tree, original_files = prior
             require(len(files) == len(original_files), "source view overlay membership changed")
             return tree
-        descriptor = self.descriptor(root, files)
+        selected = self.selected_view(root, files)
+        # Reuse the already prepared full view. Selection never creates a new
+        # descriptor, copies payloads, or changes the immutable archive index.
+        descriptor = self.descriptor(root, self.originals[root]["files"] if selected else files)
         directory = self.location(descriptor)
         require(directory.is_dir() and not api().is_link(directory), "complete prepared source view required; run prepare-source-views")
         receipt = self.resolver._json(directory / "receipt.json")
@@ -822,19 +954,25 @@ class SourceArchive:
         require({path.name for path in directory.iterdir()} == {"receipt.json", "files"}, "source view directory membership changed")
         tree = directory / "files"
         require(tree.is_dir() and not api().is_link(tree), "prepared source view tree required")
-        actual_files, actual_dirs = set(), set()
-        for parent, dirs, names in os.walk(tree, followlinks=False):
-            for name in dirs + names:
-                path = Path(parent) / name
-                require(not api().is_link(path), "source view cannot follow links")
-                relative = path.relative_to(tree).as_posix()
-                if path.is_dir():
-                    actual_dirs.add(relative)
-                else:
-                    require(path.is_file(), "source view must contain regular files only")
-                    actual_files.add(relative)
-        require(actual_files == set(files) and actual_dirs == set(descriptor["directories"]), "source view directory membership changed")
+        if selected:
+            for logical in self.selected_directories.get(key, ()):
+                self.validate_selected_directory(root, files, logical, remember=False)
+        else:
+            actual_files, actual_dirs = set(), set()
+            for parent, dirs, names in os.walk(tree, followlinks=False):
+                for name in dirs + names:
+                    path = Path(parent) / name
+                    require(not api().is_link(path), "source view cannot follow links")
+                    relative = path.relative_to(tree).as_posix()
+                    if path.is_dir():
+                        actual_dirs.add(relative)
+                    else:
+                        require(path.is_file(), "source view must contain regular files only")
+                        actual_files.add(relative)
+            require(actual_files == set(files) and actual_dirs == set(descriptor["directories"]), "source view directory membership changed")
         for logical, frozen in files.items():
+            if selected:
+                self.cache_path((tree / logical).relative_to(self.resolver.cache).as_posix())
             source = self.source(frozen)  # Revalidates cache receipt and bytes, even with a complete view.
             source_ref = self.sources.get(frozen["path"])
             expected = ((source_ref["evidence_ref"]["sha256"], source_ref["evidence_ref"]["size"])
@@ -891,6 +1029,8 @@ def source_view_path(project, root, files, logical, archive=None):
         prior_files = archive.view_memos[(root, id(files))][1]
         require(same(files.get(logical), prior_files.get(logical)), "source view overlay path changed")
         path = archive.cache_path((tree / logical).relative_to(archive.resolver.cache).as_posix())
+        if logical not in files and archive.selected_view(root, files):
+            archive.validate_selected_directory(root, files, logical)
         if logical in files:
             source_path = archive.source(files[logical])
             frozen = files[logical]
@@ -1124,6 +1264,41 @@ def remember_evidence(checker):
         references[key] = copy.deepcopy(ref)
 
 
+def reviewed_prior(project, manifest, unit, reference):
+    """Bind a disclosed contextless original to a genuinely new context."""
+    require((manifest.get("checker_contract_version"), manifest.get("unit_contract_version")) == (4, 4),
+            "reviewed prior context requires checker/unit contract 4")
+    references = manifest.get("reviewed_acceptance", {}).get(unit, [])
+    require(references and same(references[-1], reference), "reviewed prior must be the latest retained unit review")
+    review = read_ref(project, reference)
+    require(review.get("event") == "reviewed_unit_acceptance" and review.get("version") == 1
+            and review.get("unit_id") == unit, "reviewed prior identity differs")
+    source = read_ref(project, review["source_ref"])
+    original = read_ref(project, source["manifest_ref"])
+    run = original.get("unit_runs", {}).get(unit, {})
+    require(run.get("status") in ("running", "blocked", "completed")
+            and unit not in original.get("execution_contexts", {})
+            and "attempt_ref" not in run and "completion_ref" not in run,
+            "reviewed prior cannot bypass an existing execution context or attempt")
+    require(unit not in manifest.get("execution_contexts", {}), "reviewed prior requires a genuinely new execution context")
+    require(same(manifest.get("unit_runs", {}).get(unit, {}).get("findings", []), run.get("findings", [])),
+            "reviewed retry dropped original run findings")
+    originals = {check["check_id"]: check for check in attempt_checks(original, unit)}
+    for check in attempt_checks(manifest, unit):
+        require(check["check_id"] in originals and same(check.get("findings", []), originals[check["check_id"]].get("findings", [])),
+                "reviewed retry dropped original check findings")
+    return original
+
+
+def reviewed_run_identity(project, context, run):
+    reference = context.get("reviewed_prior_ref")
+    if reference is not None:
+        original = reviewed_prior(project, context["manifest"], context["unit_id"], reference)
+        require(isinstance(run.get("run_id"), str) and run["run_id"].strip()
+                and run["run_id"] != original["unit_runs"][context["unit_id"]].get("run_id"),
+                "reviewed contextless retry requires a new actual run identity")
+
+
 @snapshot_hash_invocation
 @metrics.timed("history_context")
 def validate_context(project, reference, unit_id, stack=(), cache=None, *, evidence_cache=None):
@@ -1143,8 +1318,11 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
     require(api().timestamp(context["captured_at"]) <= api().timestamp(utcnow()), "future execution context")
     require(api().timestamp(context["input_inventory"]["review"]["reviewed_at"]) <= api().timestamp(context["captured_at"]), "owner inventory review must predate context capture")
     manifest = context["manifest"]
-    require(manifest.get("unit_contract_version") in (1, 2, 3), "unsupported historical unit contract")
+    require(manifest.get("unit_contract_version") in (1, 2, 3, 4), "unsupported historical unit contract")
     require(manifest.get("unit_runs", {}).get(unit_id, {}).get("status", "pending") == "pending", "context must be captured before first start")
+    if "reviewed_prior_ref" in context:
+        require("prior_attempt_ref" not in context, "context cannot combine reviewed prior and an actual attempt")
+        reviewed_prior(project, manifest, unit_id, context["reviewed_prior_ref"])
     if "prior_attempt_ref" in context:
         attempt, original = validate_attempt(project, context["prior_attempt_ref"], stack, cache, evidence_cache=evidence_cache)
         require(attempt["unit_id"] == unit_id, "continuation context belongs to another attempted unit")
@@ -1188,9 +1366,13 @@ def validate_context(project, reference, unit_id, stack=(), cache=None, *, evide
 
 
 @source_archive_invocation
-def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=None, prior_attempt_ref=None, _cache=None):
-    require(manifest.get("unit_contract_version") in (2, 3), "migrate legacy records before capturing current execution")
+def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=None, prior_attempt_ref=None,
+                    reviewed_prior_ref=None, _cache=None):
+    require(manifest.get("unit_contract_version") in (2, 3, 4), "migrate legacy records before capturing current execution")
     require(manifest.get("unit_runs", {}).get(unit_id, {}).get("status", "pending") == "pending", "capture context before starting the unit")
+    if reviewed_prior_ref is not None:
+        require(prior_attempt_ref is None, "context cannot combine reviewed prior and an actual attempt")
+        reviewed_prior(project, manifest, unit_id, reviewed_prior_ref)
     checker = api().Checker(project, copy.deepcopy(manifest), evidence_cache=evidence_cache)
     cache = _cache if _cache is not None else {}
     checker._history_stack, checker._history_cache = (), cache
@@ -1204,9 +1386,11 @@ def capture_context(project, manifest, unit_id, inventory, *, evidence_cache=Non
                "input_inventory": reviewed, "snapshot_root": directory + "/files"}
     if prior_attempt_ref is not None:
         context["prior_attempt_ref"] = copy.deepcopy(prior_attempt_ref)
+    if reviewed_prior_ref is not None:
+        context["reviewed_prior_ref"] = copy.deepcopy(reviewed_prior_ref)
     context["files"] = freeze_files(project, manifest, directory, reviewed["execution_inputs"], checker=checker)
     reference = store_record(project, "contexts", context, directory)
-    if prior_attempt_ref is not None:
+    if prior_attempt_ref is not None or reviewed_prior_ref is not None:
         validate_context(project, reference, unit_id, cache=cache, evidence_cache=evidence_cache)
     return reference
 
@@ -1234,6 +1418,7 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
         return copy.deepcopy(cache[cache_key])
     context = validate_context(project, completed["context_ref"], unit, stack, cache, evidence_cache=evidence_cache)
     run = completed["run"]
+    reviewed_run_identity(project, context, run)
     require(run.get("status") == "completed" and "completion_ref" not in run, "only an actual completed run can be preserved")
     require("run_id" not in run or run["run_id"] == completed["run_id"], "completion identity differs from actual run")
     if "prior_attempt_ref" in context:
@@ -1293,6 +1478,9 @@ def validate_completion(project, reference, stack=(), cache=None, *, evidence_ca
     remember_evidence(post)
     for check in completed["checks"]:
         if check.get("execution_status") in ("passed", "failed"):
+            if (reviewed_observation(check, checker._unit_history.reviewed_checks)
+                    and reviewed_observation(check, post._unit_history.reviewed_checks)):
+                continue
             require(same(check.get("evaluated_execution_inputs"), check_inputs.expected(completed["input_inventory"], check["check_id"])), "executed check lacks matching test-time execution input observation")
             validate_check_runtime(project, context, check, run, accepting=True)
     cache[cache_key] = copy.deepcopy((completed, context))
@@ -1540,6 +1728,7 @@ def validate_attempt(project, reference, stack=(), cache=None, *, evidence_cache
     require(cache_key not in cache or cache[cache_key] == identity, "attempt run identity was reused")
     cache[cache_key] = identity
     context = validate_context(project, record["context_ref"], unit, stack + (identity,), cache, evidence_cache=evidence_cache)
+    reviewed_run_identity(project, context, run)
     if "prior_attempt_ref" in context:
         require(run.get("run_id") == context["manifest"]["unit_runs"][unit]["run_id"],
                 "attempt identity differs from its continuation context")
@@ -2077,6 +2266,12 @@ class HistoryView:
         self.checks = {}
         self.reused = {}
         self.units = {}
+        self.reviewed_checks = {}
+        self.reviewed_units = {}
+        self.reviews = {}
+        self.reviewed_original_runs = set()
+        self._current_runs = set()
+        self._reviewed_execution_checks = set()
         self.canonical_evidence = getattr(checker, "_history_canonical_evidence", {})
         if not hasattr(checker, "_history_cache"):
             checker._history_cache = {}
@@ -2086,6 +2281,12 @@ class HistoryView:
         checker = self.checker
         manifest = checker.manifest
         plan_hash = manifest.get("artifacts", {}).get("development-plan", {}).get("content_hash")
+        if "reviewed_acceptance" in manifest:
+            import reviewed_acceptance
+            reviewed = reviewed_acceptance.resolve(checker)
+            self.reviewed_checks = reviewed["checks"]
+            self.reviewed_units = reviewed["units"]
+            self.reviews = reviewed["reviews"]
         for run in manifest.get("unit_runs", {}).values():
             merged_findings(run.get("findings", []))
         for check in manifest.get("verification", {}).get("checks", []):
@@ -2163,6 +2364,18 @@ class HistoryView:
                     checker.issue("unit_history", "development-plan", key + ": invalid unfinished attempt: " + str(error))
                 continue
             if "completion_ref" not in run:
+                # An explicit present-day review can recognize the procedural
+                # gap of this exact original run. It never excuses a damaged
+                # context or a different new run, and does not create a context.
+                review = self.reviews.get(key, {})
+                if (key not in manifest.get("execution_contexts", {})
+                        and review.get("source_run_matches_current") is True):
+                    self.reviewed_original_runs.add(key)
+                    continue
+                if getattr(checker, "_history_validating_run", None) == key:
+                    # Immutable completion/attempt validators own the surrounding
+                    # context, result and runtime checks for this exact run.
+                    self._current_runs.add(key)
                 if run.get("status") in ("running", "blocked", "completed"):
                     if run.get("development_plan_hash") != plan_hash:
                         self.units[key] = {"historical_valid": False, "current_applicability": "needs_revalidation", "reasons": ["unfinished/unarchived old-plan run cannot be preserved"]}
@@ -2173,6 +2386,7 @@ class HistoryView:
                                     "v2 completion requires an immutable completion envelope; capture actual results before activation")
                             ref = manifest.get("execution_contexts", {})[key]
                             context = validate_context(checker.project, ref, key, getattr(checker, "_history_stack", ()), checker._history_cache, evidence_cache=checker.evidence_resolver.cache)
+                            reviewed_run_identity(checker.project, context, run)
                             require(context["manifest"]["artifacts"]["development-plan"]["content_hash"] == plan_hash, "execution context belongs to another plan")
                             require(api().timestamp(context["captured_at"]) <= api().timestamp(run.get("started_at")), "context was captured after start")
                             if "prior_attempt_ref" in context:
@@ -2191,10 +2405,16 @@ class HistoryView:
                                                                    for path, value in observed["canonical_hashes"].items()}
                             for check in manifest["verification"]["checks"]:
                                 if check["check_id"] in owned and check.get("execution_status") in ("passed", "failed"):
+                                    if reviewed_observation(check, self.reviewed_checks):
+                                        # Separately validated original observations
+                                        # are not executions of this new context.
+                                        self._reviewed_execution_checks.add(check["check_id"])
+                                        continue
                                     require(same(check.get("evaluated_execution_inputs"), check_inputs.expected(observed, check["check_id"])), "check execution inputs changed since actual test observation: " + check["check_id"])
                                     validate_check_runtime(checker.project, context, check, run,
                                                            accepting=action == "complete" or run.get("status") == "completed")
                             validate_continuation_findings(checker.project, context, run, attempt_checks(manifest, key), observed)
+                            self._current_runs.add(key)
                         except (ValueError, OSError, KeyError, TypeError) as error:
                             checker.issue("unit_history", "development-plan", str(error))
                 continue
@@ -2248,6 +2468,47 @@ class HistoryView:
                     observed = prepare_inventory(checker, key, context["input_inventory"])
                     self.reused.update(validate_reused_checks(checker, context, observed,
                                        accepting=getattr(checker, "_history_nonaccepting_attempt", None) != key))
+        # A different actual execution must be validated on its own merits. An
+        # older reviewed pass must never replace fresh but invalid claimed proof.
+        for check in self.original.get("verification", {}).get("checks", []):
+            key = check.get("check_id")
+            if (key in self.reviewed_checks and check.get("execution_status") in ("passed", "failed")
+                    and not reviewed_observation(check, self.reviewed_checks)):
+                del self.reviewed_checks[key]
+                owner = manifest["unit_plan"]["acceptance"][key]["owner_unit"]
+                self.reviews[owner]["reasons"].append(key + ": distinct actual execution requires its own validation")
+                self.reviews[owner]["current_applicability"] = "needs_revalidation"
+        invalidated = set()
+        if (manifest.get("checker_contract_version"), manifest.get("unit_contract_version")) == (4, 4):
+            import reviewed_acceptance
+            observations = [("current", check) for check in self.original.get("verification", {}).get("checks", [])
+                            if check.get("execution_status") == "passed"]
+            observations.extend(("preserved", check) for record in self.preserved.values() for check in record["checks"]
+                                if check.get("execution_status") == "passed")
+            observations.extend(("reused", record["check"]) for record in self.reused.values())
+            observations.extend(("reviewed", check) for check in self.reviewed_checks.values())
+            for source, observation in observations:
+                key = observation["check_id"]
+                owner = manifest["unit_plan"]["acceptance"][key]["owner_unit"]
+                try:
+                    reviewed_acceptance.require_no_counterevidence(checker, owner, observation)
+                except (ValueError, OSError, KeyError, TypeError) as error:
+                    if source == "current":
+                        invalidated.add(key)
+                    if source == "reviewed":
+                        self.reviewed_checks.pop(key, None)
+                    if source == "reused":
+                        self.reused.pop(key, None)
+                        invalidated.add(key)
+                    if source == "preserved" and owner in self.preserved:
+                        del self.preserved[owner]
+                        self.units[owner]["current_applicability"] = "needs_revalidation"
+                        self.units[owner]["reasons"].append(str(error))
+                        self.units[owner]["revalidation_check_ids"] = list(manifest["unit_plan"]["units"][owner]["required_check_ids"])
+                        manifest["unit_runs"][owner] = {"status": "pending", "findings": manifest["unit_runs"][owner].get("findings", [])}
+                    if source == "reviewed" and owner in self.reviews:
+                        self.reviews[owner]["current_applicability"] = "needs_revalidation"
+                        self.reviews[owner]["reasons"].append(key + ": " + str(error))
         # Applicability is closed over the CURRENT combined prerequisite graph.
         # A historically valid integration result cannot outlive a stale prerequisite.
         plan = manifest.get("unit_plan", {})
@@ -2255,32 +2516,77 @@ class HistoryView:
         changed = True
         while changed:
             changed = False
-            for key in list(self.preserved):
+            accepted_units = set(self.preserved) | set(self.reviewed_units)
+            observations = {check["check_id"]: check for record in self.preserved.values() for check in record["checks"]}
+            observations.update(self.reviewed_checks)
+            accepted_checks = set(observations)
+            # Original chronology is proved from each consumer's own preserved
+            # source by reviewed_acceptance. A later genuine prerequisite rerun
+            # must not rewrite when that consumer's original preconditions held.
+            for check_id in list(self.reviewed_checks):
+                allocation = allocations[check_id]
+                owner = allocation["owner_unit"]
+                dependencies = (set(plan["units"][owner]["construction_dependencies"])
+                                | set(allocation["prerequisite_units"])) - {owner}
+                missing_units = dependencies - accepted_units
+                missing_checks = set(allocation["prerequisite_checks"]) - accepted_checks
+                if missing_units or missing_checks:
+                    del self.reviewed_checks[check_id]
+                    review = self.reviews[owner]
+                    review["current_applicability"] = "needs_revalidation"
+                    reason = "current prerequisite acceptance unavailable: " + ", ".join(sorted(missing_units | missing_checks))
+                    review["reasons"].append(check_id + ": " + reason)
+                    decision = review.get("check_decisions", {}).get(check_id)
+                    if decision is not None:
+                        decision["outcome"] = "needs_revalidation"
+                        decision["reasons"].append(reason)
+                    changed = True
+            for key in sorted(set(self.preserved) | set(self.reviewed_units)):
                 dependencies = set(plan["units"][key]["construction_dependencies"])
                 for allocation in allocations.values():
                     if allocation["owner_unit"] == key:
                         dependencies.update(allocation["prerequisite_units"])
                         dependencies.update(allocations[check]["owner_unit"] for check in allocation["prerequisite_checks"])
                 dependencies.discard(key)
-                missing = {dep for dep in dependencies if dep not in self.preserved}
-                if missing:
-                    self.units[key]["current_applicability"] = "needs_revalidation"
-                    self.units[key]["reasons"].append("current prerequisite acceptance unavailable: " + ", ".join(sorted(missing)))
-                    self.units[key]["revalidation_check_ids"] = list(plan["units"][key]["required_check_ids"])
-                    del self.preserved[key]
-                    manifest["unit_runs"][key] = {"status": "pending", "findings": manifest["unit_runs"][key].get("findings", [])}
+                missing = dependencies - (set(self.preserved) | set(self.reviewed_units))
+                incomplete = (key in self.reviewed_units
+                              and not set(plan["units"][key]["required_check_ids"]) <= set(self.reviewed_checks))
+                if missing or incomplete:
+                    reason = ("current prerequisite acceptance unavailable: " + ", ".join(sorted(missing))
+                              if missing else "required reviewed check acceptance unavailable")
+                    if key in self.preserved:
+                        self.units[key]["current_applicability"] = "needs_revalidation"
+                        self.units[key]["reasons"].append(reason)
+                        self.units[key]["revalidation_check_ids"] = list(plan["units"][key]["required_check_ids"])
+                        del self.preserved[key]
+                        manifest["unit_runs"][key] = {"status": "pending", "findings": manifest["unit_runs"][key].get("findings", [])}
+                    if key in self.reviewed_units:
+                        del self.reviewed_units[key]
+                        self.reviews[key]["current_applicability"] = "needs_revalidation"
+                        self.reviews[key]["reasons"].append(reason)
+                        self.reviews[key]["revalidation_check_ids"] = list(plan["units"][key]["required_check_ids"])
+                        self.reviews[key]["accepted_check_ids"] = []
+                        if missing:
+                            self.reviewed_checks = {check_id: check for check_id, check in self.reviewed_checks.items()
+                                                    if allocations[check_id]["owner_unit"] != key}
                     changed = True
+        for key, review in self.reviews.items():
+            accepted = sorted(check_id for check_id in self.reviewed_checks if allocations[check_id]["owner_unit"] == key)
+            review["accepted_check_ids"] = accepted
+            review["revalidation_check_ids"] = sorted(set(plan["units"][key]["required_check_ids"]) - set(accepted))
         self.checks = {check["check_id"]: copy.deepcopy(check) for record in self.preserved.values() for check in record["checks"]}
+        effective_checks = {**self.checks, **self.reviewed_checks}
         # Every inherited result enters generic/security/release validation through this one view.
         for index, check in enumerate(manifest.get("verification", {}).get("checks", [])):
             key = check.get("check_id")
-            if key in self.checks:
-                replacement = {**check, **{k: v for k, v in self.checks[key].items() if k in EXECUTION_KEYS}}
-                replacement["findings"] = merged_findings(self.checks[key].get("findings", []), check.get("findings", []))
+            if key in effective_checks:
+                replacement = {**check, **{k: copy.deepcopy(v) for k, v in effective_checks[key].items() if k in EXECUTION_KEYS}}
+                replacement["findings"] = merged_findings(effective_checks[key].get("findings", []), check.get("findings", []))
                 manifest["verification"]["checks"][index] = replacement
             elif check.get("phase") in ("implementation", "both"):
                 owner = manifest.get("unit_plan", {}).get("acceptance", {}).get(key, {}).get("owner_unit")
-                if owner in self.units and owner not in self.preserved:
+                if ((owner in self.units or owner in self.reviews and owner not in self._current_runs)
+                        and owner not in self.preserved or key in self._reviewed_execution_checks or key in invalidated):
                     manifest["verification"]["checks"][index] = {k: v for k, v in check.items() if k not in EXECUTION_KEYS or k == "findings"}
                     manifest["verification"]["checks"][index]["execution_status"] = "not_run"
         # Old exceptions remain in their original snapshots; they grant no current starts.
@@ -2288,7 +2594,8 @@ class HistoryView:
             if checker.evidence_snapshot(ref, "implementation", "unit_exception")
             and checker.evidence_json(ref).get("development_plan_hash") == plan_hash]
         manifest["prototype_promotions"] = [record for record in manifest.get("prototype_promotions", []) if record.get("unit_id") not in self.preserved]
-        if action == "start" and getattr(checker, "_history_capturing", None) != unit_id and unit_id not in self.preserved:
+        if (action == "start" and getattr(checker, "_history_capturing", None) != unit_id
+                and unit_id not in self.preserved and unit_id not in self.reviewed_units):
             try:
                 context = validate_context(checker.project, manifest.get("execution_contexts", {})[unit_id], unit_id, getattr(checker, "_history_stack", ()), checker._history_cache, evidence_cache=checker.evidence_resolver.cache)
                 require(context["manifest"]["artifacts"]["development-plan"]["content_hash"] == plan_hash, "start context belongs to another plan")
@@ -2378,6 +2685,39 @@ def completion_refs(manifest):
     return references
 
 
+def reviewed_contextless_replacement(project, previous, candidate, unit, *, cache, evidence_cache):
+    """Retain exact old facts before a genuinely new context replaces a gap."""
+    run = previous.get("unit_runs", {}).get(unit, {})
+    if (previous.get("checker_contract_version"), previous.get("unit_contract_version")) != (4, 4):
+        return False
+    references = previous.get("reviewed_acceptance", {}).get(unit, [])
+    if (not references or unit in previous.get("execution_contexts", {})
+            or "attempt_ref" in run or "completion_ref" in run):
+        return False
+    import reviewed_acceptance
+    checker = api().Checker(project, copy.deepcopy(previous), evidence_cache=evidence_cache)
+    checker._history_cache = cache
+    reviewed = reviewed_acceptance.resolve(checker)
+    metadata = reviewed["reviews"].get(unit, {})
+    if metadata.get("source_run_matches_current") is not True:
+        return False
+    review = read_ref(project, references[-1])
+    source = read_ref(project, review["source_ref"])
+    original = read_ref(project, source["manifest_ref"])
+    require(same(original.get("unit_runs", {}).get(unit), run)
+            and same(attempt_checks(original, unit), attempt_checks(previous, unit)),
+            "replacement must retain exact original contextless run and observations")
+    context_ref = candidate.get("execution_contexts", {}).get(unit)
+    require(context_ref is not None, "reviewed contextless replacement needs a fresh execution context")
+    context = validate_context(project, context_ref, unit, cache=cache, evidence_cache=evidence_cache)
+    require(same(context.get("reviewed_prior_ref"), references[-1]),
+            "fresh context must explicitly bind its reviewed prior source")
+    require(any(same(references[-1], reference) for reference in context["manifest"].get("reviewed_acceptance", {}).get(unit, [])),
+            "fresh context must retain the original reviewed source")
+    remember_evidence(checker)
+    return True
+
+
 def explicit_revalidation(previous, candidate, unit):
     """Append acceptance/prerequisites without reusing the old result or changing identity."""
     before = previous["unit_plan"]["units"][unit]
@@ -2399,7 +2739,9 @@ def explicit_revalidation(previous, candidate, unit):
 def validate_transition(project, previous, candidate, mapping, *, evidence_cache=None):
     """Validate the whole transition even when a candidate deletes all active indexes."""
     cache = {}
-    if (previous.get("checker_contract_version"), previous.get("unit_contract_version")) not in ((2, 2), (3, 3)):
+    previous_versions = (previous.get("checker_contract_version"), previous.get("unit_contract_version"))
+    candidate_versions = (candidate.get("checker_contract_version"), candidate.get("unit_contract_version"))
+    if previous_versions not in ((2, 2), (3, 3), (4, 4)):
         require(legacy_format(previous), "unsupported legacy records require owner-reviewed reconciliation")
         mode = "format_only_no_execution" if pristine_legacy(previous) else "legacy_revalidation"
         validate_adoption_mode(previous, candidate, mode)
@@ -2421,13 +2763,38 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
                             "legacy snapshot source changed: " + logical)
                 archives.append(legacy)
         require(archives, "version 2 adoption requires an archive of the exact active version 1 manifest")
+    previous_reviews = previous.get("reviewed_acceptance", {})
+    candidate_reviews = candidate.get("reviewed_acceptance", {})
+    require(isinstance(previous_reviews, dict) and isinstance(candidate_reviews, dict),
+            "reviewed acceptance index must be an object")
+    for unit, references in previous_reviews.items():
+        require(unit in candidate.get("unit_plan", {}).get("units", {}), "reviewed unit identity removed")
+        retained = candidate_reviews.get(unit, [])
+        require(isinstance(references, list) and isinstance(retained, list)
+                and len(retained) >= len(references) and same(retained[:len(references)], references),
+                "reviewed acceptance history was dropped or reordered: " + unit)
+    for unit, references in candidate_reviews.items():
+        require(isinstance(references, list), "review history must be a reference list")
+        for reference in references[len(previous_reviews.get(unit, [])):]:
+            import reviewed_acceptance
+            review = read_ref(project, reference)
+            require(same(review.get("authority_fields"), reviewed_acceptance.authority(candidate)),
+                    "review was captured against a different current authority or plan")
+    if (candidate_versions == (4, 4)
+            and (previous_versions != (4, 4) or not same(previous_reviews, candidate_reviews))):
+        # Reviewing existing observations is a separate transaction from changing
+        # authority, accounting, checks, plan definitions or actual execution.
+        mutable = {"checker_contract_version", "unit_contract_version", "reviewed_acceptance"}
+        require(same({key: value for key, value in previous.items() if key not in mutable},
+                     {key: value for key, value in candidate.items() if key not in mutable}),
+                "review adoption must preserve original state, authority and accounting")
     old_refs, new_refs = completion_refs(previous), completion_refs(candidate)
     old_attempts, new_attempts = attempt_refs(previous), attempt_refs(candidate)
     for unit, references in old_attempts.items():
         require(unit in candidate.get("unit_plan", {}).get("units", {}), "attempted unit identity removed")
         for reference in references:
             require(any(same(reference, item) for item in new_attempts.get(unit, [])), "unfinished attempt history was dropped: " + unit)
-    if previous.get("unit_contract_version") in (2, 3):
+    if previous.get("unit_contract_version") in (2, 3, 4):
         for unit, run in previous.get("unit_runs", {}).items():
             if run.get("status") not in ("running", "blocked"):
                 continue
@@ -2440,6 +2807,8 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
                 same_execution = (completed["run"].get("started_at") == run.get("started_at")
                                   and completed["run"].get("run_id") == run.get("run_id"))
             if same_execution:
+                continue
+            if reviewed_contextless_replacement(project, previous, candidate, unit, cache=cache, evidence_cache=evidence_cache):
                 continue
             preserved = False
             for reference in new_attempts.get(unit, []):
@@ -2465,8 +2834,16 @@ def validate_transition(project, previous, candidate, mapping, *, evidence_cache
     if has_completed:
         pending_mapping(previous, candidate, mapping)
     for unit, run in previous.get("unit_runs", {}).items():
-        if run.get("status") == "completed" and "completion_ref" not in run and candidate.get("unit_contract_version") in (2, 3):
+        if run.get("status") == "completed" and "completion_ref" not in run and candidate.get("unit_contract_version") in (2, 3, 4):
             current = candidate.get("unit_runs", {}).get(unit, {})
+            if candidate_versions == (4, 4) and candidate_reviews.get(unit) and same(run, current):
+                # The candidate gate independently validates the explicit review.
+                # Retaining the actual run is not an ordinary completion envelope.
+                require(same(attempt_checks(previous, unit), attempt_checks(candidate, unit)),
+                        "review adoption changed original observations")
+                continue
+            if reviewed_contextless_replacement(project, previous, candidate, unit, cache=cache, evidence_cache=evidence_cache):
+                continue
             archived = False
             if previous.get("unit_contract_version") == 1 and current.get("status", "pending") == "pending":
                 for reference in candidate.get("legacy_history", []):
@@ -2655,7 +3032,15 @@ def stage_candidate(project, candidate_manifest, expected_manifest_hash, pending
               "report": report, "staged_at": utcnow()}
     if adoption_mode is not None:
         record["adoption_mode"] = adoption_mode  # Informational; never grants execution authority.
-    return store_record(project, "candidates", record)
+    # Identical retries retain the first staging timestamp and immutable record.
+    identity = {key: value for key, value in record.items() if key != "staged_at"}
+    directory = HISTORY + "/candidates/" + sha(encoded(identity))
+    path = directory + "/record.json"
+    ref = publish_immutable(project, path, encoded(record), existing_winner=True)
+    existing = read_ref(project, ref)
+    require(same({key: value for key, value in existing.items() if key != "staged_at"}, identity),
+            "staged candidate identity conflicts")
+    return ref
 
 
 @source_archive_invocation
@@ -2672,6 +3057,23 @@ def activate_candidate(project, candidate_ref, expected_manifest_hash, *, eviden
         os.fsync(stream.fileno())
     try:
         before = live.read_bytes()
+        after = encoded(candidate["manifest"])
+        directory = HISTORY + "/activations/" + sha(encoded(candidate_ref))
+        journal_path = directory + "/record.json"
+        journal, existing = None, None
+        if physical(project, journal_path).exists():
+            journal = {"path": journal_path, "content_hash": hash_file(physical(project, journal_path))[0]}
+            existing = read_ref(project, journal)
+            require(existing.get("event") == "manifest_activation" and existing.get("version") == VERSION
+                    and same(existing.get("candidate_ref"), candidate_ref), "activation journal identity conflicts")
+            read_ref(project, existing["before"])
+            read_ref(project, existing["after"])
+            require(api().hash_matches(expected_manifest_hash, existing["before"]["content_hash"])
+                    and api().hash_matches(existing["after"]["content_hash"], sha(after)),
+                    "activation journal transition conflicts")
+            if sha(before) == sha(after):
+                return {"status": "already_activated", "journal_ref": journal, "manifest_hash": sha(after),
+                        "acceptance": "not_revalidated", "action": "transaction already applied; run the current gate to evaluate current acceptance"}
         require(api().hash_matches(expected_manifest_hash, sha(before)), "active manifest changed; restage candidate")
         previous = api().read_json(live)
         validate_adoption_mode(previous, candidate["manifest"], candidate.get("adoption_mode"))
@@ -2685,12 +3087,16 @@ def activate_candidate(project, candidate_ref, expected_manifest_hash, *, eviden
         report = candidate_report(checker, migration)
         require(same(report, candidate["report"]), "candidate applicability changed; restage candidate")
         require(same(candidate_hashes(project, candidate["manifest"], evidence_cache=evidence_cache, include_external=not migration, checker=checker), candidate["observed_hashes"]), "candidate source/evidence/history changed; restage candidate")
-        after = encoded(candidate["manifest"])
-        directory = HISTORY + "/activations/" + uuid.uuid4().hex
-        before_ref = write_new(project, directory + "/before.json", before)
-        after_ref = write_new(project, directory + "/after.json", after)
-        journal = store_record(project, "activations", {"event": "manifest_activation", "version": VERSION, "candidate_ref": candidate_ref,
-                              "before": before_ref, "after": after_ref, "prepared_at": utcnow()}, directory)
+        def member(name, data):
+            path = directory + "/" + name + ".json"
+            return publish_immutable(project, path, data)
+        before_ref, after_ref = member("before", before), member("after", after)
+        if journal is None:
+            journal = publish_immutable(project, directory + "/record.json", encoded({"event": "manifest_activation", "version": VERSION, "candidate_ref": candidate_ref,
+                                        "before": before_ref, "after": after_ref, "prepared_at": utcnow()}))
+        else:
+            require(same(existing["before"], before_ref) and same(existing["after"], after_ref),
+                    "activation journal member identity conflicts")
         require(sha(live.read_bytes()) == sha(before), "active manifest changed during activation")
         require(same(candidate_hashes(project, candidate["manifest"], evidence_cache=evidence_cache, include_external=not migration, checker=checker), candidate["observed_hashes"]), "candidate source/evidence changed during activation")
         temporary = live.with_name(".sdd-manifest-" + uuid.uuid4().hex + ".tmp")
@@ -2728,7 +3134,8 @@ def main():
     parser.add_argument("--evidence-cache", type=Path, help="read-only prepared evidence cache outside the project")
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "seal-check", "seal-group", "observe-runtime",
-                    "assess", "stage", "activate", "recover", "adopt-legacy", "observe-inputs", "create-source-archive-index", "prepare-source-views"):
+                    "assess", "stage", "activate", "recover", "adopt-legacy", "observe-inputs", "create-source-archive-index", "prepare-source-views",
+                    "import-observations", "prepare-original-inventory", "capture-review"):
         child = sub.add_parser(command)
         if command in ("capture-context", "capture-completion", "capture-attempt", "capture-continuation", "observe-inputs", "seal-check", "seal-group"):
             child.add_argument("--unit", required=True)
@@ -2737,6 +3144,18 @@ def main():
         if command == "observe-inputs":
             child.add_argument("--inventory")
             child.add_argument("--check-id")
+        if command == "capture-context":
+            child.add_argument("--reviewed-prior-ref")
+        if command == "import-observations":
+            child.add_argument("--unit", required=True)
+            child.add_argument("--source-manifest", required=True)
+        if command == "capture-review":
+            child.add_argument("--request", required=True)
+        if command == "prepare-original-inventory":
+            child.add_argument("--unit", required=True)
+            child.add_argument("--source-kind", required=True, choices=("legacy_archive", "external_observations"))
+            child.add_argument("--source-ref", required=True)
+            child.add_argument("--inventory", required=True)
         if command in ("capture-completion", "capture-attempt"):
             child.add_argument("--context-ref", required=True)
             child.add_argument("--run-id", required=True)
@@ -2779,14 +3198,26 @@ def main():
     try:
         require(sys.version_info >= (3, 12), "Python 3.12+ required")
         manifest = read(args.manifest)
-        if args.command == "create-source-archive-index":
+        if args.command == "import-observations":
+            import reviewed_acceptance
+            result = reviewed_acceptance.import_observations(args.project, read(args.source_manifest), args.unit,
+                                                            evidence_cache=args.evidence_cache)
+        elif args.command == "capture-review":
+            import reviewed_acceptance
+            result = reviewed_acceptance.capture(args.project, manifest, read(args.request), evidence_cache=args.evidence_cache)
+        elif args.command == "prepare-original-inventory":
+            import reviewed_acceptance
+            result = reviewed_acceptance.prepare_original_inventory(args.project, manifest, args.unit,
+                args.source_kind, read(args.source_ref), read(args.inventory), evidence_cache=args.evidence_cache)
+        elif args.command == "create-source-archive-index":
             result = create_source_archive_index(args.project, read(args.mapping), evidence_cache=args.evidence_cache,
                                                  view_strategy=args.view_strategy, encoding=args.encoding)
         elif args.command == "prepare-source-views":
             result = prepare_source_views(args.project, read(args.index_ref), evidence_cache=args.evidence_cache,
                                           max_bytes=args.max_bytes, max_files=args.max_files)
         elif args.command == "capture-context":
-            result = capture_context(args.project, manifest, args.unit, read(args.inventory), evidence_cache=args.evidence_cache)
+            result = capture_context(args.project, manifest, args.unit, read(args.inventory), evidence_cache=args.evidence_cache,
+                                     reviewed_prior_ref=read(args.reviewed_prior_ref) if args.reviewed_prior_ref else None)
         elif args.command == "capture-completion":
             result = capture_completion(args.project, manifest, args.unit, read(args.context_ref), args.run_id, read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache)
         elif args.command == "capture-attempt":

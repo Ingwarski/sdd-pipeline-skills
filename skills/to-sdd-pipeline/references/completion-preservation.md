@@ -1,6 +1,6 @@
 # Current workflow, migration and completion preservation
 
-Use the latest tested SDD release. Contract 3 supports per-check comparison and sealed-result reuse; 2 retains conservative behavior, and 1 is import-only. New authoring uses 3/3; existing 2/2 uses [reviewed adoption](contract3-adoption.md) when adopting those semantics. Preserve history and permission.
+Use the latest tested SDD release. New authoring uses 3/3; 2/2 retains conservative behavior and uses [reviewed adoption](contract3-adoption.md) for per-check comparison and seals. Version 1 is import-only. Opt-in 4/4 adds [reviewed evidence acceptance](reviewed-acceptance.md) for adequate legacy or contextless observations. Preserve history and permission.
 
 ## Boundaries and owners
 
@@ -8,11 +8,11 @@ Preserve completed unit IDs, obligations and original events. Reconcile pending 
 
 PRD/design/architecture owners determine meanings; DoD owns completion/rerun conditions; QA owns checks and shared acceptance definitions; planning owns allocation/input review. The authorized executor records actual execution. The orchestrator indexes supplied returns, never invented decisions, results or equivalence. Helpers capture facts; the checker remains read-only.
 
-Project AGENTS.md continues to govern full-unit execution, six pause reasons, coordination and recovery. A history record cannot restart an ended session. Existing approved-decision documentation corrections retain their narrow [authorization exception](authorization-corrections.md); actual pending-scope or unit-boundary changes need the normal fresh current-plan prompt. Archived permission alone never authorizes a new start; unchanged current permission remains valid only within its existing scope.
+Project AGENTS.md governs full-unit execution, pauses, coordination and recovery; history cannot restart an ended session. Approved-decision documentation corrections retain their narrow [authorization exception](authorization-corrections.md); actual pending-scope or unit-boundary changes need the normal fresh current-plan prompt. Archived permission never authorizes a new start; unchanged current permission retains its existing scope.
 
 ## Immutable history and current acceptance
 
-Capture the actual authorized context before execution can overwrite it. Finalize completion only from an actual completed run whose required acceptance passes. Retain original plan bindings, chronology, authorization/correction receipts, sequencing exceptions, prototype-promotion receipts, implementation/evidence identities and original QA results. Shared immutable snapshots are referenced rather than copied into every unit.
+For normal execution, capture the authorized context before starting; finalize completion only from an actual completed run whose required acceptance passes. Retain original plan bindings, chronology, authorization/correction receipts, sequencing exceptions, prototype-promotion receipts, implementation/evidence identities and QA results. Share immutable snapshots. A 4/4 review is a separate current acceptance decision, never a reconstructed context or completed run.
 
 Assess revised plans directly against the actual completed run. Never chain assessments, rewrite hashes/timestamps or copy passes onto changed definitions. Genuine revalidation creates a new run, retaining history. Pending/running/blocked attempts remain unfinished; preserve partial work and resume through current authorization/acceptance.
 
@@ -26,7 +26,7 @@ Report plan validity, historical acceptance and current permission separately: a
 
 Unit prerequisites, generic gates, security and release use one resolved acceptance result. Stored labels alone never qualify. Show original results/dates and identify reused runs. Recheck current sources, evidence, findings and dependencies before dependent starts/resumes and release; full integration/release obligations remain required.
 
-Contract 3 may explicitly select `history_integrity: {legacy_payloads: "audit_only"}` on the manifest; absence/default `every_gate` retains full checking. This changes normal-gate assurance only for bulk payloads of `legacy_execution_archive` records already marked `unverified_not_reusable`. Their archive/manifest metadata and recorded file membership remain checked; contexts, attempts, completions, current/prerequisite evidence and authority retain full validation. `--audit`, release and import/migration verify the legacy bytes too. The report exposes deferred archive/file counts and `not_audited_this_gate`; unknown last verification is null. This option neither prunes history nor bounds all historical gate cost; select it through owner review, not silently during installation or resume.
+Contracts 3/4 may explicitly select `history_integrity: {legacy_payloads: "audit_only"}`; absence/default `every_gate` retains full checking. Only inactive `legacy_execution_archive` bulk payloads may be deferred. Archive/manifest metadata and file membership remain checked; accepted review dependencies, contexts, attempts, completions, current/prerequisite evidence and authority retain full validation. `--audit`, release and import/migration verify legacy bytes too. Reports expose deferred archive/file counts and `not_audited_this_gate`; unknown last verification is null. Select this assurance change through owner review; it neither prunes history nor bounds all historical gate cost.
 
 ## Resume and migration
 
@@ -36,9 +36,9 @@ During authorized SDD resume, inspect the actual project, sources, receipts and 
 
 `migration_ready` validates conversion, archive and unchanged gate only; nested `project_validation` can remain blocked/incomplete. Inspect the candidate, activate with matching active/source hashes, rerun the checker and reconcile owners. Activation retains diagnostics and grants no acceptance/permission.
 
-Migration archives actual legacy records, retains blocking findings and removes old current-acceptance claims. Keep the exact implementation gate and receipts: valid unchanged authority retains its scope; missing, stale or invalid authority remains blocked. Do not rebind a changed plan or manufacture consent. Review the current requirements/QA, capture fresh authorized context and run genuine acceptance checks in dependency order before relying on earlier work. Old passes cannot be copied forward. Missing evidence/capability remains a named blocker; fixes follow existing authorization boundaries. A newly required prompt is for missing or changed authority, never for the format upgrade itself.
+Migration archives actual legacy records, retains blocking findings and removes unsupported current-acceptance claims. Keep the exact implementation gate and receipts: unchanged valid authority retains its scope; missing/stale/invalid authority stays blocked. Do not rebind a changed plan or manufacture consent. Before rerunning old work, review evidence sufficiency through the 4/4 procedure when applicable. Reuse only computed applicable checks; execute unresolved, changed or fresh-only checks under fresh authorized contexts in dependency order. Never copy passes forward. Missing evidence/capability stays a named blocker. A newly required prompt concerns missing/changed authority, never the format upgrade itself.
 
-Retain current-format history/applicability; toolchain/rule changes require affected revalidation, not clearing sound history each resume. Continue only with current checks and existing permission.
+Retain sound history on resume; revalidate affected toolchain/rule changes within current permission.
 
 ## Capture and correction procedure
 
@@ -51,11 +51,11 @@ Retain current-format history/applicability; toolchain/rule changes require affe
 
 ## Worked example
 
-After pending Profile revisions/Notifications splits, assess completed Login directly from its original run. Retain obligations/mappings; assign new integration to new work and revalidate changed session security. Report applicability, pending work, plan validity and permission separately.
+When splitting pending work, preserve original completions and obligations; allocate new integration and revalidate affected security. Report acceptance, pending work, plan validity and permission separately.
 
 ## Records and helper
 
-Use matched checker/unit contract versions 3/3 for selective verification, or retain supported 2/2 behavior; keep `traceability_version: 1`. History envelopes remain version 2. Preserve `unit_plan`, QA ownership and actual execution records. References are `{path, content_hash}` with project-relative regular files and SHA-256. The helper appends immutable records below `forge/unit-history/`; completed runs are never overwritten.
+Use matched checker/unit versions: 2/2 conservative, 3/3 selective verification, 4/4 reviewed acceptance; keep `traceability_version: 1`. Existing history envelopes remain version 2. Preserve `unit_plan`, QA ownership and execution records. References are `{path, content_hash}` with project-relative regular files and SHA-256. The helper appends immutable records below `forge/unit-history/`; completed runs are never overwritten.
 
 | Record | Binding and use |
 | --- | --- |
@@ -65,7 +65,8 @@ Use matched checker/unit contract versions 3/3 for selective verification, or re
 | `unit_runs[unit_id].attempt_ref` | Immutable `unit_attempt` retaining an actual running/blocked run, every owned check including unrun checks, original context, current work snapshots and owner-reviewed status documents. Never completion. |
 | `attempt_history[unit_id]` | Original unfinished-attempt references retained across retries. A continuation context points to its `prior_attempt_ref`; new evidence uses a distinct run ID. |
 | `completion_applicability` | Direct original `completion_ref`, current plan hash, current reviewed inventory, immediately prior active manifest reference, explicit pending-unit mapping and calculated outcome/reasons. A stored outcome is never trusted without recomputation. |
-| `legacy_history` | References to actual version 1 manifest archives, labeled `unverified_not_reusable`. These preserve history and cannot satisfy a check or authorize a start. |
+| `legacy_history` | Actual version 1 archives remain `unverified_not_reusable`; the archive alone supplies no acceptance or permission. A separate 4/4 review may adopt sufficient original observations. |
+| `reviewed_acceptance[unit_id]` | Append-only review references under 4/4; the latest is recomputed against current requirements. Original run status/times remain unchanged. See the [review contract](reviewed-acceptance.md). |
 | Staged candidate and activation journal | Candidate manifest, expected active revision, observed inputs and validation report; journal preserves before/after manifest references for recovery. |
 
 The inventory contains `review: {reviewer, reviewed_at, complete: true, rationale}`, non-secret `environment` identities, and `sources` covering every applicable canonical artifact. Each source selection uses `mode: "full"`, `mode: "sections"` with exact unique `headings`, or a permitted `mode: "unused"` with a reason. The helper calculates selected-byte hashes and binds current full canonical hashes. The owner must include shared definitions and new obligations; a mechanically valid selection does not establish semantic completeness.
@@ -78,7 +79,7 @@ Seal a passed `deterministic_isolated` check only after its independent executio
 
 Seals freeze original run facts, post-run canonical bytes and per-check dependencies/evidence, retaining the validated context reference. Attach each as the original check's `seal_ref`. A continuation may retain an applicable seal using `reused_from: {attempt_ref, seal_ref}` with unchanged executor, `run_id`, `executed_at`, evidence and outcome. The earlier unit stays interrupted/failed. Invalid seals block; valid but stale seals become `not_run` with `rerun_reasons`. No seal, fresh-only policy or `--fresh-checks` requires new execution. Current authority and inherited findings remain required; never reseal an inherited result as newly executed.
 
-Use Python 3.12+ and the bundled `scripts/sdd_history.py` with `--project PROJECT`. For storage-backed evidence, prepare verified original bytes using the [storage contract](evidence-storage-contract.md), then pass the global `--evidence-cache PATH` before the command, as with the checker. History retains external references, compact receipts and source snapshots without copying archived bulky evidence into Git. Missing prepared originals, dependency closure or required accounting block accepted history. Migration may preserve unavailable legacy references as unverified history; they require genuine current revalidation. Storage and history preserve existing authority only.
+Use Python 3.12+ and bundled `scripts/sdd_history.py --project PROJECT`. For managed evidence, prepare verified original bytes under the [storage contract](evidence-storage-contract.md), then pass global `--evidence-cache PATH` before the command. History retains external references, compact receipts and source snapshots without copying bulky archives into Git. Missing originals, dependency closure or required accounting block acceptance. Migration may preserve unavailable legacy references as unverified history; restore/review sufficient proof or execute checks whose essential facts remain missing. Storage/history preserve existing authority only.
 
 Optional `source_archive_index_ref` names an immutable `unit_source_archive_index`,
 binding original record references, snapshot roots, paths/hashes to managed
@@ -112,7 +113,7 @@ Its commands are:
 - `capture-continuation --unit ID --attempt-ref attempt-ref.json --run-id NEW_RUN_ID --inventory reviewed-continuation.json [--fresh-checks]`: returns candidate `manifest`, `context_ref` and `prior_attempt_ref`. Fresh inventory includes the new probe's `runtime_observation_ref`/exact `environment`. Contract 3 validates eligible seals; other checks become unrun. Save candidate, reconcile progress, stage/activate, pass `--start-unit`, record actual start. Execute missing/failed/stale checks; version 2 always requires fresh checks.
 - `--manifest candidate-manifest.json assess --completion-ref completion-ref.json --inventory reviewed.json --pending-map pending-map.json`: reviews the candidate against the actual active `forge/sdd-manifest.json`. Mapping values are current unit IDs; keys are changed pending IDs or `__added__`. Preserve every old acceptance obligation, including obligations introduced in earlier revisions.
 - `stage --candidate candidate-manifest.json --expected-manifest-hash SHA256 [--pending-map pending-map.json]`, then `activate --candidate-ref candidate-ref.json --expected-manifest-hash SHA256`: validate and atomically replace the active manifest only while the expected revision and inputs still match. Mapping may come from its matching assessments; supply it explicitly for a transition without them.
-- `adopt-legacy --expected-manifest-hash SHA256`: archives supported version 1 records and stages version 2 with the exact existing gate. Its `migration_ready` report means conversion only; inspect nested `project_validation`, activate and verify as above. Prior execution needs genuine revalidation; no pre-start context or old pass is reconstructed.
+- `adopt-legacy --expected-manifest-hash SHA256`: archives supported version 1 records and stages version 2 with the exact existing gate. `migration_ready` means conversion only; inspect nested `project_validation`, activate and verify. Then review adequate evidence under 4/4 or run missing checks; never reconstruct pre-start context or old passes.
 - `recover --journal-ref journal-ref.json`: reports whether the recorded activation happened, did not happen, or conflicts with later state. It never overwrites later work or silently removes another writer's lock.
 
 Reference arguments name JSON files containing returned references, not history envelopes. Put the finished run and owner-reconciled results in a candidate; use `--manifest candidate-manifest.json capture-completion ...`, index its reference, then stage/activate. Completion requires complete-unit validation; never publish unvalidated completion. Save actual command outputs/checker reports.
@@ -159,6 +160,6 @@ Source documents are owner-written before candidate validation; activation makes
 
 ## Compatibility and verification
 
-Keep legacy reading for import and immutable history, not ongoing version 1 execution. Contracts 2/2 remain valid conservatively; per-check/reuse features require 3/3 and predecessor rejection. Test frozen supported older checkers at planning, start, completion, audit and release boundaries. Reject mixed pairs and newer semantics disguised as an older version. Preserve original history, approval and security requirements; unsupported tools must stop rather than ignore new acceptance fields.
+Keep version 1 import/history-only. Preserve 2/2 behavior; per-check/sealed reuse requires 3/3 or 4/4, reviewed acceptance requires 4/4. Test frozen predecessors at planning, start, completion, audit and release. Reject mixed pairs and newer semantics disguised as older versions. Preserve history, approval and security requirements; unsupported tools must stop rather than ignore acceptance fields.
 
 Regression tests cover repeated corrections, exact QA wording/shared definitions, missing or changed sources/evidence/runtime, invalid historical authority, partial attempts, completed-ID reassignment, obligation mappings, original order/exceptions, prototype reuse, real-consumer release acceptance, interrupted activation and concurrent changes. A separate fresh-context assistant exercise must produce actual observations, use genuine available history and disclose unavailable approval/host behavior. Record deterministic instruction loads including conditional references and retries separately from observed agent cost/time. No synthetic fixture proves product acceptance or authenticates a user event.

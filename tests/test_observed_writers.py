@@ -40,6 +40,11 @@ def snapshot(pid, unique, parent, *, birth=100, version=10, parent_version=9, pp
 
 @unittest.skipUnless(os.name == 'posix', 'Registry integration requires real POSIX 0700 roots and directory-FD nofollow operations')
 class RegistryTests(unittest.TestCase):
+    # Allow real collector and ledger work to reach the semantic assertion on
+    # busy CI. This is a deadline, not a sleep; ready operations return early.
+    # Deliberately short generic failure/deadline probes keep their own limits.
+    SEMANTIC_TIMEOUT = 3
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='sdd-observed-fixture-')
         self.addCleanup(self.temp.cleanup)
@@ -222,14 +227,14 @@ class RegistryTests(unittest.TestCase):
         observer = self.registered_target(scoped=True); self.nodes.pop(101)
         with patch.object(observed, '_no_handles', side_effect=lambda *args, **kwargs: self.scope.chmod(0o777)):
             try:
-                with self.assertRaises(EvidenceError): observer.prepare_cleanup(.2)
+                with self.assertRaises(EvidenceError): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
             finally: self.scope.chmod(0o700)
-        observer.prepare_cleanup(3)
+        observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         self.scope.chmod(0o777)
         try:
             with self.assertRaises(EvidenceError): observer.close(.02)
         finally: self.scope.chmod(0o700)
-        observer.close(3)
+        observer.close(self.SEMANTIC_TIMEOUT)
         self.scope.chmod(0o777)
         try:
             value = self.record_now(); self.assertEqual(value['observation_session']['state'], 'closed')
@@ -247,7 +252,7 @@ class RegistryTests(unittest.TestCase):
             observer.sample(force_census=True)
         self.assertIn('pid:102', observer.value['pending']); self.assertNotIn('1100', observer.value['writers'])
         self.nodes.pop(102); self.nodes.pop(101)
-        with self.assertRaises(EvidenceError): observer.prepare_cleanup(.1)
+        with self.assertRaises(EvidenceError): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
 
     def test_v2_scope_old_unrelated_complete_sibling_ancestry_excludes(self):
         observer = self.registered_target(scoped=True)
@@ -334,7 +339,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(grandchild['lineage_observation_sequences'], observed.exact_chain_sequences(session, '1000', grandchild['observation_sequence']))
         self.assertEqual(observer.value['observations'][:len(prefix)], prefix)
         for pid in (101, 102, 103): self.nodes.pop(pid)
-        observer.prepare_cleanup(3); observer.close(3)
+        observer.prepare_cleanup(self.SEMANTIC_TIMEOUT); observer.close(self.SEMANTIC_TIMEOUT)
         record = self.record_now(); observed.validate_registry(record)
         self.assertEqual(observed.disposition_problems(record, ledger=self.ledger), [])
         runtime.update(self.ledger, self.attempt, lambda value: value.update(status='terminal'))
@@ -357,9 +362,9 @@ class RegistryTests(unittest.TestCase):
         with patch.object(observer._sampler, 'observe_pid') as capture:
             with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=102, include_image=True))
             capture.assert_not_called()
-        self.nodes.pop(101); observer.prepare_cleanup(3)
+        self.nodes.pop(101); observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
-        observer.close(3)
+        observer.close(self.SEMANTIC_TIMEOUT)
         with self.assertRaises(EvidenceError): observer.request(dict(command='observe_pid', pid=101, include_image=True))
 
     def test_image_missing_or_partial_capture_never_uses_old_full(self):
@@ -372,7 +377,7 @@ class RegistryTests(unittest.TestCase):
             self.assertIsNone(observer.request(dict(command='observe_pid', pid=101, include_image=True))['image'])
         self.assertTrue(observer.value['native_sampler']['unresolved'])
         self.nodes.pop(101)
-        with self.assertRaises(EvidenceError): observer.prepare_cleanup(.1)
+        with self.assertRaises(EvidenceError): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
 
     def test_image_zombie_and_esrch_are_not_complete_images(self):
         observer = self.registered()
@@ -567,14 +572,14 @@ class RegistryTests(unittest.TestCase):
     def test_close_requires_fresh_absence_and_no_handles(self):
         observer = self.registered()
         del self.nodes[101]
-        result = observer.close(.1)
+        result = observer.close(self.SEMANTIC_TIMEOUT)
         self.assertTrue(result['closed'])
         self.assertFalse(observed.disposition_problems(self.record_now(), ledger=self.ledger))
         observed._no_handles.assert_called()
         self.assertEqual(observer.value['closure']['sequence'], 1)
 
     def test_closed_report_replay_is_noop_but_fresh_reuse_blocks(self):
-        observer = self.registered(); del self.nodes[101]; observer.close(.1)
+        observer = self.registered(); del self.nodes[101]; observer.close(self.SEMANTIC_TIMEOUT)
         before = self.ledger.connection.total_changes
         runtime.update(self.ledger, self.attempt, lambda _: None)
         self.assertEqual(self.ledger.connection.total_changes, before)
@@ -766,7 +771,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, 'pending hold'): observer.allocate('late', 1)
         self.assertTrue(observed.disposition_problems(self.record_now(), ledger=self.ledger))
         self.ledger.connection.execute("UPDATE working_reservations SET state='pending' WHERE id=?", (self.working,))
-        del self.nodes[101]; observer.close(.1)
+        del self.nodes[101]; observer.close(self.SEMANTIC_TIMEOUT)
         frozen = copy.deepcopy(observer.value['working_binding'])
         self.ledger.finish_working(self.working, local_key='closed-runtime', actual_bytes=0)
         self.assertFalse(observed.disposition_problems(self.record_now(), ledger=self.ledger))
@@ -787,7 +792,7 @@ class RegistryTests(unittest.TestCase):
             for file in files: file.unlink()
 
     def test_sequential_node_sessions_preserve_closed_history_and_all_dispositions(self):
-        first = self.registered(); del self.nodes[101]; first.close(3)
+        first = self.registered(); del self.nodes[101]; first.close(self.SEMANTIC_TIMEOUT)
         frozen = copy.deepcopy(first.value); del self.nodes[200]
         self.created[0].rmdir()  # Prior CLOSED session's allocated root was cleaned.
         second_owner = snapshot(199, 1900, 800, birth=200, version=19, parent_version=8, ppid=98)
@@ -804,7 +809,7 @@ class RegistryTests(unittest.TestCase):
             browser = snapshot(202, 2200, 1900, birth=202, version=21, parent_version=19, ppid=199)
             self.nodes[202] = browser
             second.register_root(202, browser['identity'], '/fixture/python', [allocation['ref']])
-            del self.nodes[202]; second.close(3)
+            del self.nodes[202]; second.close(self.SEMANTIC_TIMEOUT)
             self.assertTrue(observed._no_handles.call_args_list[-2].kwargs['allow_absent'])
             self.assertFalse(observed._no_handles.call_args_list[-1].kwargs['allow_absent'])
             self.assertFalse(observed.disposition_problems(self.record_now(), ledger=self.ledger))
@@ -832,7 +837,7 @@ class RegistryTests(unittest.TestCase):
         with patch.object(observed, 'sources', return_value=changed):
             with self.assertRaisesRegex(EvidenceError, 'source'): self.record_now()
             with self.assertRaisesRegex(EvidenceError, 'source'): observer.allocate('invalid source', 1)
-        del self.nodes[101]; observer.close(.1)
+        del self.nodes[101]; observer.close(self.SEMANTIC_TIMEOUT)
         with patch.object(observed, 'sources', return_value=changed):
             self.assertEqual(self.record_now()['observation_session']['source_sha256'], before)
             self.assertFalse(observed.disposition_problems(self.record_now(), ledger=self.ledger))
@@ -841,7 +846,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(EvidenceError): self.record_now()
 
     def test_cumulative_session_bound_and_immutable_history_digest(self):
-        observer = self.registered(); del self.nodes[101]; observer.close(.1)
+        observer = self.registered(); del self.nodes[101]; observer.close(self.SEMANTIC_TIMEOUT)
         value = self.record_now()
         archived = dict(sha256=__import__('hashlib').sha256(observed.canonical(observer.value).encode()).hexdigest(), session=observer.value)
         value['observation_history'] = [archived] * observed.MAX_SESSIONS
@@ -865,24 +870,24 @@ class RegistryTests(unittest.TestCase):
         payload = self.created[0] / 'profile'; payload.write_bytes(b'preserve until guarded cleanup')
         try:
             with self.real_handle_checks():
-                reply = observer.request(dict(command='prepare_cleanup', timeout=.5))
+                reply = observer.request(dict(command='prepare_cleanup', timeout=self.SEMANTIC_TIMEOUT))
                 self.assertEqual(reply, dict(ready=True, root_refs=sorted(observer.value['working_roots']), sequence=1, closed=False))
                 self.assertEqual(observer.value['state'], 'closing')
                 self.assertTrue(observer.value['cleanup_barrier']['valid'])
                 self.assertIsNone(observer.value['closure'])
                 self.assertTrue(observed.disposition_problems(self.record_now(), ledger=self.ledger))
-                with self.assertRaisesRegex(EvidenceError, 'payload'): observer.close(.02)
+                with self.assertRaisesRegex(EvidenceError, 'payload'): observer.close(self.SEMANTIC_TIMEOUT)
                 with patch.object(observed, '_bounded_usage', side_effect=AssertionError('no filesystem walk while caller cleans')):
                     payload.unlink()
                     observer.sample(force_census=True)
-                    self.assertTrue(observer.close(.5)['closed'])
+                    self.assertTrue(observer.close(self.SEMANTIC_TIMEOUT)['closed'])
                 self.assertFalse(observed.disposition_problems(self.record_now(), ledger=self.ledger))
         finally:
             if payload.exists(): payload.unlink()
 
     def test_prepare_ack_then_death_or_guardian_stop_never_closes(self):
         observer = self.registered(); del self.nodes[101]
-        observer.prepare_cleanup(.5)
+        observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         observer.fail('EOF during caller content cleanup', lost=True)
         session = self.record_now()['observation_session']
         self.assertFalse(session['cleanup_barrier']['valid'])
@@ -891,14 +896,14 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(EvidenceError): observer.close(.02)
 
     def test_guardian_stop_after_prepare_latches_valid_structural_failure(self):
-        observer = self.registered(); del self.nodes[101]; observer.prepare_cleanup(.5)
+        observer = self.registered(); del self.nodes[101]; observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         runtime.stop_registered(self.ledger, self.attempt)
         value = self.record_now()
         self.assertFalse(value['observation_session']['cleanup_barrier']['valid'])
         self.assertTrue(value['observation_session']['lost_history'])
 
     def test_closing_refuses_new_roots_allocations_and_registration(self):
-        observer = self.registered(); del self.nodes[101]; observer.prepare_cleanup(.5)
+        observer = self.registered(); del self.nodes[101]; observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         with self.assertRaisesRegex(EvidenceError, 'ownership changed'): observer.allocate('late root', 1)
         with self.assertRaises(EvidenceError):
             observer.register_root(101, self.browser['identity'], '/fixture/python', [next(iter(observer.value['working_roots']))])
@@ -908,9 +913,9 @@ class RegistryTests(unittest.TestCase):
         observer = self.registered(); del self.nodes[101]
         path = self.created[0]
         with self.real_handle_checks(result=(0, b'123\n', b'')):
-            with self.assertRaisesRegex(EvidenceError, 'handles'): observer.prepare_cleanup(.5)
+            with self.assertRaisesRegex(EvidenceError, 'handles'): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         with self.real_handle_checks():
-            observer.prepare_cleanup(.5)
+            observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
             old = path.with_name(path.name + '-saved'); path.rename(old)
             try:
                 path.symlink_to(old, target_is_directory=True)
@@ -923,11 +928,11 @@ class RegistryTests(unittest.TestCase):
                 if path.exists(): path.rmdir()
                 old.rename(path)
             with patch.object(observed, '_bounded_lsof', return_value=(0, b'456\n', b'')):
-                with self.assertRaisesRegex(EvidenceError, 'handles'): observer.close(.02)
-            self.assertTrue(observer.close(.5)['closed'])
+                with self.assertRaisesRegex(EvidenceError, 'handles'): observer.close(self.SEMANTIC_TIMEOUT)
+            self.assertTrue(observer.close(self.SEMANTIC_TIMEOUT)['closed'])
 
     def test_new_postbarrier_writer_invalidates_precleanup_receipt(self):
-        observer = self.registered(); del self.nodes[101]; observer.prepare_cleanup(.5)
+        observer = self.registered(); del self.nodes[101]; observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         self.nodes[102] = snapshot(102, 1100, 1000, birth=105, parent_version=10, ppid=1, pgid=555)
         with self.assertRaisesRegex(EvidenceError, 'invalidated'):
             observer.sample(force_census=True)
@@ -944,7 +949,7 @@ class RegistryTests(unittest.TestCase):
             self.assertIn('pid:103', observer.value['pending'])
             self.assertNotIn('1200', observer.value['writers'])
             self.nodes.pop(103); self.nodes.pop(101)
-            with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(.5)
+            with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         self.assertIn('pid:103', self.record_now()['observation_session']['pending'])
 
     def test_old_app_process_and_exact_unrelated_old_app_ancestry_exclude(self):
@@ -962,7 +967,7 @@ class RegistryTests(unittest.TestCase):
             self.assertEqual(self.ledger.connection.total_changes, before)
 
     def test_postbarrier_new_target_orphan_invalidates_without_signal_rights(self):
-        observer = self.registered_target(); del self.nodes[101]; observer.prepare_cleanup(.5)
+        observer = self.registered_target(); del self.nodes[101]; observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         helper = str(self.target.parents[2] / 'Frameworks' / 'helper')
         self.nodes[103] = snapshot(103, 1200, 7777, birth=105, parent_version=77, ppid=1, pgid=666)
         with patch.object(observed, 'executable_path', side_effect=lambda pid: helper if pid == 103 else '/fixture/python'), \
@@ -1027,7 +1032,7 @@ class RegistryTests(unittest.TestCase):
         observer._drain_native()
         self.assertTrue(observer.value['native_sampler']['unresolved'])
         self.nodes.pop(102); self.nodes.pop(101)
-        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(.2)
+        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         self.assertTrue(observed.disposition_problems(self.record_now(), ledger=self.ledger))
 
     def test_lost_capture_tail_preserves_incomplete_journal(self):
@@ -1038,7 +1043,7 @@ class RegistryTests(unittest.TestCase):
             with self.assertRaisesRegex(EvidenceError, 'unflushed tail'): observer._drain_native(through=watermark)
         observer.fail('lost capture tail', lost=True)
         self.assertTrue(self.record_now()['observation_session']['lost_history'])
-        with self.assertRaisesRegex(EvidenceError, 'lost unflushed'): observer.prepare_cleanup(.1)
+        with self.assertRaisesRegex(EvidenceError, 'lost unflushed'): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
 
     def typed_helper_exec(self, observer, pid=102, before_version=718685, after_version=718686, *, parent='1000'):
         self.nodes[pid] = snapshot(pid, 10000 + pid, parent, birth=103, version=before_version,
@@ -1075,8 +1080,8 @@ class RegistryTests(unittest.TestCase):
         self.assertFalse(observer.value['native_sampler']['unresolved'])
         self.assertFalse(observer.value['pending'])
         self.nodes.pop(101); self.nodes.pop(102); self.nodes.pop(103)
-        self.assertTrue(observer.prepare_cleanup(.5)['ready'])
-        self.assertTrue(observer.close(.5)['closed'])
+        self.assertTrue(observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)['ready'])
+        self.assertTrue(observer.close(self.SEMANTIC_TIMEOUT)['closed'])
         self.assertFalse(observed.disposition_problems(self.record_now(), ledger=self.ledger))
 
     def test_typed_exec_resolution_rejects_wrong_birth_parent_uid_boot_or_epoch(self):
@@ -1107,7 +1112,7 @@ class RegistryTests(unittest.TestCase):
         self.assertIn('exec:' + str(transition['capture_sequence']), observer.value['pending'])
         self.assertFalse(observer.value['writers'])
         self.nodes.pop(101); self.nodes.pop(102)
-        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(.1)
+        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
 
     def test_all_terminal_consumers_reject_unqualified_typed_exec(self):
         observer = self.registered(); self.typed_helper_exec(observer, parent='9999')
@@ -1139,7 +1144,7 @@ class RegistryTests(unittest.TestCase):
         self.assertTrue(observer.value['native_sampler']['unresolved'])
         self.assertFalse(observer.value['native_sampler']['exec_transitions'])
         self.nodes.pop(101); self.nodes.pop(102)
-        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(.1)
+        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
 
     def test_root_executable_lookup_failure_cannot_ack_or_release_go(self):
         observer = self.arm(); allocation = observer.allocate('held wrapper', 4096)
@@ -1216,7 +1221,7 @@ class RegistryTests(unittest.TestCase):
                              for item in observer.value['observations']))
         self.assertEqual(observer.graphs['1000']._nodes['10102']['executable_uuid'], after['snapshot']['executable_uuid'])
         self.nodes.pop(102); self.nodes.pop(101)
-        observer.prepare_cleanup(3); self.assertTrue(observer.close(3)['closed'])
+        observer.prepare_cleanup(self.SEMANTIC_TIMEOUT); self.assertTrue(observer.close(self.SEMANTIC_TIMEOUT)['closed'])
 
     def test_mixed_diagnostic_rejects_wrong_endpoint_identity_epoch_root_or_order(self):
         observer = self.registered(); self.mixed_helper_boundary(observer); original = self.record_now()
@@ -1250,15 +1255,15 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(diagnostic['qualification']['mode'], 'known_epoch_exit_gap')
         self.assertEqual(diagnostic['path_status'], 'unobserved')
         self.assertNotIn('executable', diagnostic)
-        self.nodes.pop(101); observer.prepare_cleanup(3); observer.close(3)
+        self.nodes.pop(101); observer.prepare_cleanup(self.SEMANTIC_TIMEOUT); observer.close(self.SEMANTIC_TIMEOUT)
 
     def test_known_zombie_path_gap_still_requires_numeric_absence(self):
         observer = self.registered(); diagnostic = self.path_gap(observer, post='zombie')
         self.assertIsNotNone(diagnostic['qualification'])
         self.assertEqual(diagnostic['followup']['snapshot']['status'], 'zombie')
         self.nodes.pop(101)
-        with self.assertRaisesRegex(EvidenceError, 'numeric ESRCH'): observer.prepare_cleanup(.1)
-        self.nodes.pop(102); observer.prepare_cleanup(3); observer.close(3)
+        with self.assertRaisesRegex(EvidenceError, 'numeric ESRCH'): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
+        self.nodes.pop(102); observer.prepare_cleanup(self.SEMANTIC_TIMEOUT); observer.close(self.SEMANTIC_TIMEOUT)
 
     def test_permitted_same_epoch_gap_requires_later_genuine_full_receipt(self):
         observer = self.registered(); diagnostic = self.path_gap(observer, post='alive')
@@ -1268,7 +1273,7 @@ class RegistryTests(unittest.TestCase):
         diagnostic = observer.value['native_sampler']['helper_diagnostics'][0]
         self.assertEqual(diagnostic['qualification']['mode'], 'bounded_same_epoch_gap')
         self.assertIsNone(diagnostic['qualification']['before_observation_sequence'])
-        self.nodes.pop(102); self.nodes.pop(101); observer.prepare_cleanup(3); observer.close(3)
+        self.nodes.pop(102); self.nodes.pop(101); observer.prepare_cleanup(self.SEMANTIC_TIMEOUT); observer.close(self.SEMANTIC_TIMEOUT)
 
     def test_path_gap_raw_zombie_cannot_regress_to_alive_even_with_rebound_digest(self):
         observer = self.registered(); self.path_gap(observer, post='alive')
@@ -1291,7 +1296,7 @@ class RegistryTests(unittest.TestCase):
             diagnostic = self.path_gap(observer, pid=102 + index, query_errno=error)
             self.assertIsNone(diagnostic['qualification'])
         self.nodes.pop(101)
-        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(.1)
+        with self.assertRaisesRegex(EvidenceError, 'pending'): observer.prepare_cleanup(self.SEMANTIC_TIMEOUT)
         value = self.record_now(); value['status'] = 'terminal'; self.save(value)
         self.assertTrue(producer.recover_producers(self.ledger, dry_run=True)['incomplete'])
         with self.assertRaisesRegex(EvidenceError, 'observed writer'): quarantine.original_state(self.ledger, self.attempt)
@@ -1321,7 +1326,7 @@ class RegistryTests(unittest.TestCase):
 
     def test_removed_raw_helper_receipts_or_bindings_are_rejected_by_all_readers(self):
         observer = self.registered(); self.path_gap(observer); self.nodes.pop(101)
-        observer.prepare_cleanup(3); observer.close(3)
+        observer.prepare_cleanup(self.SEMANTIC_TIMEOUT); observer.close(self.SEMANTIC_TIMEOUT)
         original = self.record_now()
         for field in ('helper_diagnostics', 'helper_diagnostic_bindings'):
             value = copy.deepcopy(original)
@@ -1354,7 +1359,7 @@ class RegistryTests(unittest.TestCase):
 
     def test_collector_stopped_joined_drained_before_closed_ack(self):
         observer = self.registered(); self.nodes.pop(101)
-        observer.close(.5)
+        observer.close(self.SEMANTIC_TIMEOUT)
         sampler = observer.value['native_sampler']
         self.assertEqual(sampler['state'], 'stopped')
         self.assertEqual(sampler['stopped_sequence'], sampler['durable_sequence'])

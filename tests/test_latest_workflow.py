@@ -93,17 +93,19 @@ class LatestWorkflowTests(unittest.TestCase):
         self.assertIn("implementation_not_authorized", {issue["code"] for issue in report["issues"]})
 
     def test_current_intake_does_not_require_a_future_plan(self):
-        self.m.clear()
-        self.m.update(checker_contract_version=2, unit_contract_version=2, traceability_version=1,
-                      language={"working_language": "en", "artifact_language": "en"}, artifacts={})
-        result, report = self.cli("--before", "product-idea")
-        self.assertEqual(0, result.returncode, report)
-        self.assertNotIn("implementation_gate", self.m)
-        self.assertNotIn("unit_plan", self.m)
-        self.assertEqual("not_authorized", report["execution_authority"]["status"])
+        for version in (2, 3, 4):
+            with self.subTest(version=version):
+                self.m.clear()
+                self.m.update(checker_contract_version=version, unit_contract_version=version, traceability_version=1,
+                              language={"working_language": "en", "artifact_language": "en"}, artifacts={})
+                result, report = self.cli("--before", "product-idea")
+                self.assertEqual(0, result.returncode, report)
+                self.assertNotIn("implementation_gate", self.m)
+                self.assertNotIn("unit_plan", self.m)
+                self.assertEqual("not_authorized", report["execution_authority"]["status"])
 
     def test_mixed_future_and_malformed_versions_fail_closed(self):
-        for checker_version, unit_version in ((1, 2), (2, 1), (4, 4), (2, 3), (3, 2),
+        for checker_version, unit_version in ((1, 2), (2, 1), (5, 5), (2, 3), (3, 2), (3, 4), (4, 3),
                                                (True, 1), (1, True), ("2", "2"),
                                                (2.0, 2), (2, 2.0), ({}, 1), (2, None)):
             with self.subTest(checker=checker_version, units=unit_version):

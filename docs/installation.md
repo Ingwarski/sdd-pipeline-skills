@@ -2,6 +2,8 @@
 
 Run commands from the durable SDD clone. Mutating installer/update work requires Python 3.12+; Python 3.14 is the recommended stable series under [runtime policy](../runtime-policy.json). Both installers and the checker use the standard library, with no additional Python packages or Node dependency. Missing Python or invalid sources/references stop before cleanup or link changes.
 
+Immutable history publication requires filesystem support for atomic exclusive rename: Linux `renameat2`, macOS `renamex_np`, or Windows rename. An unsupported API or filesystem stops publication and preserves any existing record.
+
 For new installations, use `git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git`, then inside the clone `git switch -c main`. The local branch remains `main`; its selected remote channel is `stable`, the latest release that passed CI. Run the installer below. It creates links, never skill copies. Later use the updater: plain `git pull` does not perform retirement cleanup.
 
 ### Agent-assisted installation or update

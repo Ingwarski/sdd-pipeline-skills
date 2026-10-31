@@ -25,7 +25,14 @@ def implementation_progress(checker, worked_unit=None, action=None):
                        "ready_to_record_completion")
         elif action == "start":
             outcome = "start_blocked" if checker.issues else "start_permitted"
+        review = state.get("reviewed_acceptance", {}).get(worked_unit)
+        currently_accepted = accepted is not None and worked_unit in accepted
+        if review is not None and currently_accepted and action is None:
+            outcome = "accepted_complete"
         worked = {"unit_id": worked_unit, "recorded_status": status, "outcome": outcome}
+        if review is not None:
+            worked["current_acceptance"] = "accepted" if currently_accepted else "unavailable"
+            worked["acceptance_review"] = review
         if run.get("reason"):
             worked["reason"] = run["reason"]
     return {"total_units": state.get("total_units"),

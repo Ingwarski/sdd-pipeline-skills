@@ -26,7 +26,7 @@ For an existing plan, preserve old IDs, allocations, results and authorization r
 
 ## Record versions
 
-Use [completion preservation](completion-preservation.md). Contract 3 adds reviewed per-check inputs and sealed-result reuse; contract 2 remains supported with whole-unit comparison and fresh continuation checks. Version 1 is import/audit only. Owners review adoption of new semantics; installation never rewrites project records or grants permission.
+Use [completion preservation](completion-preservation.md). Contract 2 retains whole-unit comparison/fresh continuation; 3 adds per-check inputs/seals; 4 adds [reviewed acceptance](reviewed-acceptance.md). Version 1 is import/audit-only. Owners review adoption; installation never rewrites projects or grants permission.
 
 ## Current unit records
 
@@ -76,7 +76,7 @@ Revalidate completed records, including on resume; stale evidence/open blockers 
 
 Current work uses [completion preservation](completion-preservation.md): capture authorized context before execution, retain immutable actual completion, and calculate current applicability against owner-reviewed inputs and the original run. Shared unit, security and release gates consume that same resolved acceptance. Changed relevant definitions, sources, runtime, findings or evidence require specific revalidation; no historical pass or changed-plan review grants implementation authority.
 
-The legacy `revalidation_ref` receipt is readable only for preserving and auditing imported history. Migration archives its original observations and receipts as unverified history and removes old current-acceptance claims. It does not carry version 1 acceptance into version 2. Perform genuine current checks under valid existing authorization before dependent execution.
+Legacy `revalidation_ref` is import/audit-only. Migration archives original observations and receipts as unverified history, removing old acceptance claims; version 1 acceptance does not carry into version 2. Before dependent execution, establish current acceptance through sufficient 4/4 review evidence or fresh checks within valid authority.
 
 `unit_sequence_exceptions` lists legacy `{path, content_hash}` receipts or direct/wrapped version 1 evidence references preserving actual user events. Each receipt contains `event: unit_sequence_exception`, `role: user`, original `message`, `prompt_id`, timezone-aware `received_at`, current `development_plan_hash`, explicit `approved_baseline_id`, target `unit_id`, and nonempty `prior_unit_ids` being skipped. It must follow the current implementation prompt and precede the exceptional start. Only earlier independent units may be skipped: exceptions never waive construction/acceptance prerequisites, required checks, completion evidence or release work. Unscoped generic continuation is not this event. The host authenticates original user provenance; the checker verifies its declared binding.
 

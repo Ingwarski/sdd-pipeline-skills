@@ -1,6 +1,8 @@
 """Synthetic path-boundary tests for the native history resolver."""
 import errno
-from pathlib import Path
+import ntpath
+import os
+from pathlib import Path, PureWindowsPath
 import stat
 import tempfile
 import unittest
@@ -118,6 +120,60 @@ class PhysicalPathMetadataTests(unittest.TestCase):
         for value in invalid:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.history.physical(self.root, value)
+
+    def test_equivalent_resolved_windows_anchors_preserve_containment(self):
+        pairs = (
+            (r"C:\project", r"\\?\C:\project\pending.json"),
+            (r"\\?\C:\project", r"c:\PROJECT\pending.json"),
+            (r"\\server\share\project", r"\\?\UNC\server\share\project\pending.json"),
+            (r"\\?\UNC\server\share\project", r"\\SERVER\SHARE\project\pending.json"),
+        )
+        for root, child in pairs:
+            with self.subTest(root=root, child=child):
+                self.assertTrue(self.history._containment_path(PureWindowsPath(child)).is_relative_to(
+                    self.history._containment_path(PureWindowsPath(root))))
+
+    def test_windows_anchor_comparison_preserves_escape_and_namespace_boundaries(self):
+        pairs = (
+            (r"C:\project", r"\\?\C:\project-other\pending.json"),
+            (r"C:\project", r"\\?\D:\project\pending.json"),
+            (r"C:\project", r"\\?\C:\project.\pending.json"),
+            (r"C:\project", "\\\\?\\C:\\project \\pending.json"),
+            (r"C:\project", r"\\?\GLOBALROOT\Device\project\pending.json"),
+            (r"C:\project", r"\\?\Volume{synthetic}\project\pending.json"),
+            (r"C:\project", r"\\.\C:\project\pending.json"),
+            (r"\\server\share\project", r"\\?\UNC\other\share\project\pending.json"),
+            (r"\\server\share\project", r"\\?\UNC\server\other\project\pending.json"),
+            (r"\\.\share\project", r"\\?\UNC\.\share\project\pending.json"),
+        )
+        for root, child in pairs:
+            with self.subTest(root=root, child=child):
+                self.assertFalse(self.history._containment_path(PureWindowsPath(child)).is_relative_to(
+                    self.history._containment_path(PureWindowsPath(root))))
+
+    @unittest.skipUnless(os.name == "nt", "native Windows realpath error transition")
+    def test_missing_parent_race_keeps_original_io_path(self):
+        leaf = self.root / "concurrent-parent" / "pending.json"
+        leaf.parent.mkdir()
+        original = ntpath._getfinalpathname
+        calls = []
+
+        def missing_parent_then_leaf(path):
+            if ntpath.normcase(os.fspath(path)) == ntpath.normcase(str(leaf)):
+                calls.append(path)
+                error = FileNotFoundError(errno.ENOENT, "synthetic concurrent parent creation", str(leaf))
+                error.winerror = 3 if len(calls) == 1 else 2
+                raise error
+            return original(path)
+
+        with mock.patch.object(ntpath, "_getfinalpathname", side_effect=missing_parent_then_leaf):
+            self.assertTrue(str(leaf.resolve()).startswith("\\\\?\\"))
+            self.assertGreaterEqual(len(calls), 3)
+            calls.clear()
+            result = self.history.physical(self.root, "concurrent-parent/pending.json")
+            self.assertGreaterEqual(len(calls), 3)
+        self.assertEqual(leaf, result)
+        self.assertFalse(str(result).startswith("\\\\?\\"))
 
 
 if __name__ == "__main__":

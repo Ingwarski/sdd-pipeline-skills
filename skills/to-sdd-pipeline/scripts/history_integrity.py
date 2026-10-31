@@ -17,17 +17,22 @@ _HASH = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 
 
 def policy_mode(manifest):
-    """An explicit version-3 policy; older records retain every-gate integrity."""
+    """An explicit current policy; older records retain every-gate integrity."""
     if "history_integrity" not in manifest:
         return "every_gate"
-    if any(type(manifest.get(key)) is not int or manifest[key] != 3
-           for key in ("checker_contract_version", "unit_contract_version")):
-        raise ValueError("history integrity policy requires checker and unit contracts 3")
+    versions = tuple(manifest.get(key) for key in ("checker_contract_version", "unit_contract_version"))
+    if any(type(value) is not int for value in versions) or versions not in ((3, 3), (4, 4)):
+        raise ValueError("history integrity policy requires checker and unit contracts 3 or 4")
     policy = manifest["history_integrity"]
     if (not isinstance(policy, dict) or set(policy) != {"legacy_payloads"}
             or policy["legacy_payloads"] not in ("every_gate", "audit_only")):
         raise ValueError("history_integrity requires legacy_payloads: every_gate or audit_only")
     return policy["legacy_payloads"]
+
+
+def review_source_requires_full(source_kind):
+    """Reviewed proof does not broaden the existing legacy-only deferral policy."""
+    return source_kind != "legacy_archive" or _mode.get() != "audit_only"
 
 
 class IntegrityScope:

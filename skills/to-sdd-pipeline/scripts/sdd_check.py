@@ -864,10 +864,42 @@ class Checker:
             raise ValueError("source fragment changed during checker invocation")
         return value
 
+    def reviewed_evidence_view(self, record, check=None):
+        """Use an accepted original only for its exact immutable reference."""
+        views = getattr(self, "_reviewed_evidence_views", {})
+        history = getattr(self, "_unit_history", None)
+        if not views or history is None or not isinstance(record, dict):
+            return None
+        h = history_api()
+        view = views.get(h.sha(h.encoded(record)))
+        if view is None or view["checker"] is self:
+            return None
+        original = view["check"]
+        if not h.reviewed_observation(original, history.reviewed_checks):
+            return None  # Dependency closure may have removed this observation.
+        if check is not None and not h.reviewed_observation(check, {original["check_id"]: original}):
+            return None
+        return view["checker"]
+
+    def reviewed_evidence_accounting(self, original):
+        """Original byte custody does not replace current managed accounting."""
+        for identity in sorted(original.evidence_resolver.visited):
+            reference = original.evidence_resolver.references[identity]
+            original.evidence_resolver.resolve(reference)
+            self.evidence_resolver.resolve(reference)
+            self.evidence_accounting(reference)
+
     def evidence_snapshot(self, record, target, code="invalid_evidence", bindings=None):
         try:
             ref = evidence_reference(record)
             if ref is None:
+                original = self.reviewed_evidence_view(record)
+                if original is not None:
+                    if not original.evidence_snapshot(record, target, code, bindings):
+                        self.issue(code, target, "reviewed original evidence failed snapshot validation")
+                        return False
+                    self.reviewed_evidence_accounting(original)
+                    return True
                 if not isinstance(record, dict):
                     raise ValueError("evidence record must be an object")
                 if not self.snapshot(record.get("path"), record.get("content_hash"), target, code):
@@ -1049,6 +1081,11 @@ class Checker:
         return scope
 
     def evidence_json(self, record):
+        original = self.reviewed_evidence_view(record)
+        if original is not None and evidence_reference(record) is None:
+            value = original.evidence_json(record)
+            self.reviewed_evidence_accounting(original)
+            return value
         ref = evidence_reference(record)
         value = self.evidence_resolver.json(ref) if ref is not None else self.evidence_resolver.json_file(
             self.path(record["path"], no_links=True), record.get("schema", "evidence-json-v1"))
@@ -1065,6 +1102,11 @@ class Checker:
 
     def evidence_bytes(self, record):
         """Read verified original bytes without assigning a new execution context."""
+        original = self.reviewed_evidence_view(record)
+        if original is not None and evidence_reference(record) is None:
+            data = original.evidence_bytes(record)
+            self.reviewed_evidence_accounting(original)
+            return data
         ref = evidence_reference(record)
         path = self.evidence_resolver.resolve(ref) if ref is not None else self.path(record["path"], no_links=True)
         before = self.file_hash(path)
@@ -1108,6 +1150,11 @@ class Checker:
         reference = entry.get("source_inventory_ref")
         if reference is None:
             return inline, entry.get("consumed_source_fragments", {})
+        original = self.reviewed_evidence_view(reference, entry)
+        if original is not None:
+            value = original.source_inventory(entry, key)
+            self.reviewed_evidence_accounting(original)
+            return value
         ref = evidence_reference(reference)
         if ref is None or ref.get("schema") != "source-inventory-v1":
             raise ValueError("shared source inventory reference schema required")
@@ -1813,7 +1860,14 @@ class Checker:
                     evaluated = {}
                 if check.get("phase") in ("implementation", "both") and not evaluated:
                     self.issue("missing_evaluated_revision", "qa-checklist", key)
-                if hasattr(self, "_unit_history") and key in self._unit_history.checks:
+                reviewed = (hasattr(self, "_unit_history")
+                            and history_api().reviewed_observation(check, self._unit_history.reviewed_checks))
+                if reviewed:
+                    # The reviewed resolver compares the complete current input
+                    # mapping. Old whole-document hashes remain original facts,
+                    # not an additional current-applicability policy.
+                    evaluated = {}
+                elif hasattr(self, "_unit_history") and key in self._unit_history.checks:
                     canonical = {spec["path"] for spec in self.specs.values()}
                     evaluated = {path: value for path, value in evaluated.items() if path not in canonical}
                     # Original complete doc hashes were checked in the archived run.
@@ -1827,7 +1881,7 @@ class Checker:
                         remaining[path] = value
                     evaluated = remaining
                 try:
-                    inherited = hasattr(self, "_unit_history") and key in self._unit_history.checks
+                    inherited = reviewed or (hasattr(self, "_unit_history") and key in self._unit_history.checks)
                     review = None if inherited else validate_revalidation(self, check=check)
                     current = review["current_source_hashes"] if review is not None else evaluated
                     self.sources({"source_hashes": current}, "qa-checklist")
@@ -2190,7 +2244,7 @@ class Checker:
                     {key: current_scope[key] for key in ("profile", "capabilities")} if current_scope is not None else None), "original manifest product scope mismatch")
                 if self.ui:
                     require(all(original["active_baseline"].get(key) == self.manifest["active_baseline"].get(key) for key in ("baseline_id", "prototype_tree_hash", "visual_target_hash")), "original manifest frozen baseline mismatch")
-                supported_original = (original.get("checker_contract_version"), original.get("unit_contract_version")) in ((1, 1), (2, 2), (3, 3))
+                supported_original = (original.get("checker_contract_version"), original.get("unit_contract_version")) in ((1, 1), (2, 2), (3, 3), (4, 4))
                 require(supported_original and all(type(original.get(k)) is int for k in ("checker_contract_version", "unit_contract_version")) and self.correction_json_equal(original["unit_plan"], unit_plan), "original manifest unit contract changed")
                 original_verification = original["verification"]
                 original_qa = {check["check_id"]: check["acceptance"] for check in original_verification["checks"]
@@ -2269,7 +2323,7 @@ class Checker:
 
     def units(self, action=None, unit_id=None, release=False):
         """Validate planning separately from recorded runs and requested transitions."""
-        if type(self.manifest.get("unit_contract_version")) is not int or self.manifest["unit_contract_version"] not in (1, 2, 3):
+        if type(self.manifest.get("unit_contract_version")) is not int or self.manifest["unit_contract_version"] not in (1, 2, 3, 4):
             self.issue("migration_required", "development-plan", "owner-reviewed supported unit contract records required; do not infer completed units")
             return
         try:
@@ -2390,6 +2444,12 @@ class Checker:
 
         runs = self.manifest.get("unit_runs", {})
         require(isinstance(runs, dict) and set(runs) <= unit_ids, "unknown unit run")
+        history = getattr(self, "_unit_history", None)
+        reviewed_checks = getattr(history, "reviewed_checks", {})
+        reviewed_units = getattr(history, "reviewed_units", {})
+        acceptance_reviews = getattr(history, "reviews", {})
+        reviewed_original_runs = getattr(history, "reviewed_original_runs", set())
+        require(set(reviewed_units) <= unit_ids, "reviewed acceptance names an unknown unit")
         exceptions = self.manifest.get("unit_sequence_exceptions", [])
         require(isinstance(exceptions, list), "sequence exceptions must be receipts")
         plan_hash = self.artifacts["development-plan"]["content_hash"]
@@ -2424,6 +2484,19 @@ class Checker:
                 return
             seen.add(check_id)
             check, record, qa = checks[check_id], acceptance[check_id], qa_contract[check_id]
+            if history_api().reviewed_observation(check, reviewed_checks):
+                accepted_at = timestamp(acceptance_reviews[record["owner_unit"]]["recorded_at"])
+                require(timestamp(check.get("executed_at")) <= accepted_at <= finished,
+                        check_id + ": reviewed acceptance postdates dependent execution")
+                require(check.get("execution_status") == "passed" and check.get("definition_status") == "prepared",
+                        check_id + ": reviewed check is not passed")
+                require(check.get("executor") and check.get("evidence"), check_id + ": missing reviewed execution evidence")
+                require(not blocking(check.get("findings", [])), check_id + ": unresolved blocking finding")
+                if qa["evidence_mode"] == "real_consumers":
+                    require(check.get("execution_mode") == "real_consumers"
+                            and any(self.evidence_kind(item) == "integration" for item in check["evidence"]),
+                            check_id + ": reviewed checks still require real-consumer integration evidence")
+                return  # Current inputs and prerequisite applicability share the history resolver.
             if hasattr(self, "_unit_history") and check_id in self._unit_history.checks:
                 require(timestamp(check.get("executed_at")) <= finished, check_id + ": inherited evidence postdates dependent execution")
                 require(record["owner_unit"] in self._unit_history.preserved, check_id + ": historical acceptance has no applicable completed owner")
@@ -2460,6 +2533,11 @@ class Checker:
                 require(check.get("execution_mode") == "real_consumers" and any(self.evidence_kind(x) == "integration" for x in check["evidence"]), check_id + ": mocks/fixtures cannot replace real-consumer integration evidence")
             for prerequisite in check_edges[check_id]:
                 prior_owner = acceptance[prerequisite]["owner_unit"]
+                if history_api().reviewed_observation(checks[prerequisite], reviewed_checks):
+                    # A review accepts existing observations now; it does not
+                    # manufacture completion/start times for their original run.
+                    passed(prerequisite, executed, executed, seen)
+                    continue
                 prior_run = runs.get(prior_owner, {})
                 prior_review = reviews.get(prior_owner)
                 current_acceptance = review["reviewed_at"] if review is not None else executed
@@ -2477,8 +2555,23 @@ class Checker:
                 if allocation["owner_unit"] == key:
                     require(not blocking(checks[check_id].get("findings", [])), check_id + ": unresolved blocking finding")
 
-        for key, run in runs.items():
+        acceptance_runs = {**{key: {"status": "pending"} for key in reviewed_units}, **runs}
+        for key, run in acceptance_runs.items():
             require(run.get("status") in ("pending", "running", "blocked", "completed"), key + ": invalid unit status")
+            if key in reviewed_units:
+                clear_unit_findings(key, run)
+                accepted_at = timestamp(reviewed_units[key]["recorded_at"])
+                require(accepted_at <= now, key + ": reviewed acceptance is in the future")
+                for check_id in units[key]["required_check_ids"]:
+                    require(history_api().reviewed_observation(checks[check_id], reviewed_checks),
+                            check_id + ": reviewed unit lacks required accepted original check")
+                    passed(check_id, accepted_at, accepted_at)
+                completed[key] = accepted_at
+                continue  # The original run status and timestamps remain historical facts.
+            if key in reviewed_original_runs:
+                # A source-bound historical run can remain visible with only
+                # partial current acceptance. It is not a current execution.
+                continue
             if run["status"] == "pending":
                 require(not run.get("started_at") and not run.get("completed_at"), key + ": pending run cannot claim execution")
                 continue
@@ -2517,7 +2610,8 @@ class Checker:
                     continue
                 require(prior not in edges[key] and any(target == key and prior in skipped and received <= at for target, skipped, received in waivers), key + ": prior unit " + prior + " incomplete at start without explicit exception")
         for key, run in runs.items():
-            if run["status"] != "pending" and not (hasattr(self, "_unit_history") and key in self._unit_history.preserved):
+            if (run["status"] != "pending" and key not in reviewed_units and key not in reviewed_original_runs
+                    and not (hasattr(self, "_unit_history") and key in self._unit_history.preserved)):
                 can_start(key, timestamp(run["started_at"]), original=key in reviews)
         eligible, run_blockers = [], []
         for key in order:
@@ -2534,20 +2628,28 @@ class Checker:
                 pass
         self._unit_progress_state.update(
             accepted_unit_ids=[key for key in order if key in completed],
-            eligible_unit_ids=eligible, run_blockers=run_blockers)
+            eligible_unit_ids=eligible, run_blockers=run_blockers,
+            reviewed_acceptance={key: {field: copy.deepcopy(review[field])
+                                      for field in ("reviewed_at", "recorded_at", "review_ref", "current_applicability") if field in review}
+                                 for key, review in reviewed_units.items() if key in completed})
         if action:
             require(unit_id in units, "unknown boundary unit")
             run = runs.get(unit_id, {"status": "pending"})
             if action == "start":
-                require(run["status"] != "completed", unit_id + ": already complete")
+                require(run["status"] != "completed" and unit_id not in completed, unit_id + ": already complete")
                 can_start(unit_id, now)
             elif action == "complete":
-                if "evidence_storage" in self.manifest:
-                    self.evidence_accounting(run_id=run.get("run_id"), unit_id=unit_id)
-                require(run["status"] in ("running", "completed"), unit_id + ": unit must be running before completion")
-                clear_unit_findings(unit_id, run)
-                for check_id in units[unit_id]["required_check_ids"]:
-                    passed(check_id, timestamp(run.get("started_at")), now)
+                if unit_id in reviewed_units:
+                    require(unit_id in completed, unit_id + ": reviewed acceptance is incomplete")
+                else:
+                    require(unit_id not in reviewed_original_runs,
+                            unit_id + ": original reviewed run lacks complete current acceptance; capture fresh execution for remaining checks")
+                    if "evidence_storage" in self.manifest:
+                        self.evidence_accounting(run_id=run.get("run_id"), unit_id=unit_id)
+                    require(run["status"] in ("running", "completed"), unit_id + ": unit must be running before completion")
+                    clear_unit_findings(unit_id, run)
+                    for check_id in units[unit_id]["required_check_ids"]:
+                        passed(check_id, timestamp(run.get("started_at")), now)
         if release:
             require(set(completed) == unit_ids, "release requires every unit, including integration, completed")
 
@@ -2583,6 +2685,10 @@ class Checker:
         self.artifacts = self.manifest.get("artifacts", {})
         if hasattr(self, "_unit_history"):
             del self._unit_history
+        # An empty review index may disappear between calls. No review cache
+        # may retain mutable observations merely because resolution is skipped.
+        for attribute in ("_reviewed_evidence_views", "_reviewed_counterevidence"):
+            self.__dict__.pop(attribute, None)
         if hasattr(self, "_unit_progress_state"):
             del self._unit_progress_state
         if not hasattr(self, "_history_stack"):
@@ -2631,17 +2737,19 @@ class Checker:
         checker_version, unit_version = self.manifest.get("checker_contract_version"), self.manifest.get("unit_contract_version")
         if require_current:
             versions = (checker_version, unit_version)
-            if all(type(value) is int for value in versions) and versions in ((2, 2), (3, 3)):
+            if all(type(value) is int for value in versions) and versions in ((2, 2), (3, 3), (4, 4)):
                 pass
             elif all(value is None or type(value) is int and value == 1 for value in versions):
                 self.issue("migration_required", "manifest", "resume with the latest tested workflow: preserve existing work and approvals, migrate legacy records, and reverify before continuing")
             else:
-                self.issue("unsupported_contract_version", "manifest", "checker and unit contracts must both be version 2 or both version 3; reconcile mixed, malformed or unsupported versions without rewriting history")
+                self.issue("unsupported_contract_version", "manifest", "checker and unit contracts must match at version 2, 3 or 4; reconcile mixed, malformed or unsupported versions without rewriting history")
+        if (checker_version, unit_version) != (4, 4) and "reviewed_acceptance" in self.manifest:
+            self.issue("unsupported_contract_version", "manifest", "reviewed acceptance requires checker/unit contract 4")
         if not check_inputs.enabled(self.manifest) and any("seal_ref" in check or "reused_from" in check for check in self.manifest.get("verification", {}).get("checks", [])):
             self.issue("unsupported_contract_version", "manifest", "sealed reuse requires checker/unit contract 3")
         if checker_version == 1 and history_api().contains_v2_fields(self.manifest):
             self.issue("migration_required", "manifest", "v2 history fields require verified checker/unit contract version 2 migration")
-        if (checker_version, unit_version) in ((2, 2), (3, 3)):
+        if (checker_version, unit_version) in ((2, 2), (3, 3), (4, 4)):
             self.manifest = copy.deepcopy(self.manifest)
             self.artifacts = self.manifest.get("artifacts", {})
             self._unit_history = history_api().HistoryView(self)
@@ -2655,7 +2763,7 @@ class Checker:
             self.issue("unit_boundary", "implementation", "unit transitions require implementation node, start/complete action and unit ID")
         self.product_scope()
         legacy_early_read = not require_current and checker_version == 1 and unit_version is None
-        if type(checker_version) is not int or checker_version not in (1, 2, 3) or (checker_version != unit_version and not legacy_early_read):
+        if type(checker_version) is not int or checker_version not in (1, 2, 3, 4) or (checker_version != unit_version and not legacy_early_read):
             self.issue("migration_required", "manifest", "retain existing documents/history; add verified metadata using manifest-contract.md")
         language = self.manifest.get("language", {})
         if not language.get("working_language") or language.get("artifact_language") != language.get("working_language"):
@@ -2700,6 +2808,13 @@ class Checker:
         result = "blocked" if self.issues else "passed"
         if self.issues and all(item["code"] == "migration_required" for item in self.issues):
             result = "migration_required"
+        history_report = None
+        if hasattr(self, "_unit_history"):
+            history_report = {"units": self._unit_history.units}
+            if self._unit_history.reviews:
+                import reviewed_acceptance
+                history_report["reviews"] = {key: reviewed_acceptance.diagnostic(review)
+                                             for key, review in self._unit_history.reviews.items()}
         return {"result": result, "node": node, "mode": "audit" if audit else "after" if after else "before",
                 "unit_action": unit_action, "unit_id": unit_id,
                 "skipped_artifacts": sorted(self.skipped),
@@ -2707,7 +2822,7 @@ class Checker:
                 "issues": self.issues, "warnings": sorted(set(self.warnings)),
                 **({"implementation_progress": implementation_progress(self, unit_id, unit_action)}
                    if "development-plan" in self.checked else {}),
-                **({"unit_history": {"units": self._unit_history.units}, "execution_authority": history_api().current_authority(self)} if hasattr(self, "_unit_history") else {}),
+                **({"unit_history": history_report, "execution_authority": history_api().current_authority(self)} if history_report is not None else {}),
                 "limits": "Checks declared metadata, file integrity, stages and evidence references; not semantic quality, research authenticity or runner enforcement."}
 
 
