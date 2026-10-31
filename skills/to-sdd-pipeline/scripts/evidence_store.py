@@ -132,6 +132,7 @@ def history_publication_guard(project, manifest_path, *, evidence_cache=None, en
     if not enabled:
         yield None
         return
+    project = Path(project).resolve()
     import sdd_history
     manifest = read_json(sdd_history.physical(project, manifest_path), 16 * 1024 * 1024)
     adopted = isinstance(manifest.get("history_integrity"), dict) and manifest["history_integrity"].get("optional_diagnostics_ref")
