@@ -134,8 +134,11 @@ def history_publication_guard(project, manifest_path, *, evidence_cache=None, en
         return
     project = Path(project).resolve()
     import sdd_history
+    from evidence.history_namespace import namespace_status
+    namespace = namespace_status(project)
     manifest = read_json(sdd_history.physical(project, manifest_path), 16 * 1024 * 1024)
-    adopted = isinstance(manifest.get("history_integrity"), dict) and manifest["history_integrity"].get("optional_diagnostics_ref")
+    adopted = namespace is not None or (isinstance(manifest.get("history_integrity"), dict)
+        and manifest["history_integrity"].get("optional_diagnostics_ref"))
     if not adopted:
         # Legacy prepared-proof work does not need a new provider session. The
         # designated coordinator persists adoption locally; old branches on that

@@ -10,6 +10,7 @@ from unittest.mock import patch
 import test_evidence_manager as fixtures
 from evidence.manager import Manager
 from evidence.io import EvidenceError
+from evidence.history_namespace import physical_path
 from evidence.resolver import EvidenceResolver
 from evidence.relocation import create_relocation, validate_relocation
 
@@ -101,7 +102,7 @@ class LifecycleStorageTests(unittest.TestCase):
         envelope = directory / "record.json"
         envelope.write_text(json.dumps({"event": "unit_completion", "version": 2, "evidence": [ref]}))
         self.adopt()
-        envelope.unlink()
+        physical_path(self.project, HISTORY + "/synthetic-orphan/record.json").unlink()
         with self.assertRaisesRegex(EvidenceError, "retained immutable history envelope"):
             self.manager.checkpoint_lifecycle("main")
         self.assertIn(ref["artifact_id"], self.manager._catalog()["refs"])

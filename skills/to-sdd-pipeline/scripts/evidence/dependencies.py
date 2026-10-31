@@ -18,6 +18,7 @@ import stat
 from .identity import same_reference
 from .io import EvidenceError, _is_link, _open_regular, _parents, _unique_pairs, _verify_stable, safe_relative
 from .resolver import SCHEMAS, evidence_reference, validate_reference
+from . import history_namespace
 
 
 HISTORY = "forge/unit-history"
@@ -70,7 +71,7 @@ def _hash(value):
 
 def _path(project, relative):
     safe_relative(relative)
-    path = project.joinpath(*relative.split("/"))
+    path = history_namespace.physical_path(project, relative)
     _parents(path)
     if path.exists() or path.is_symlink():
         info = path.lstat()
@@ -153,7 +154,7 @@ class _Collector:
         self.catalog, self.resolve_external, self.retirement = catalog, resolve_external, retirement
         self.result = {"version": 1, "project_id": catalog.get("project_id"), "store_id": catalog.get("store_id"),
             "manifest_path": safe_relative(manifest_path), "inputs": {}, "history_membership": {},
-            "directory_membership": {},
+            "directory_membership": {}, "history_namespace": history_namespace.namespace_status(self.project),
             "roots": [], "edges": [], "reasons": {}, "blockers": [], "json_artifacts": {},
             "catalog_revision": {"root_key": catalog.get("root_key"), "sequence": catalog.get("sequence")},
             "statistics": {"metadata_bytes": 0, "json_parses": 0, "parse_cache_hits": 0,
@@ -441,6 +442,8 @@ class _Collector:
             safe_relative(relative)
         except ValueError:
             return  # Incidental URLs/observed machine paths are not project refs.
+        if history_namespace.is_reserved_path(relative):
+            return  # Physical namespace controls are covered by the namespace facts.
         if overlay is not None and relative in overlay:
             self.local_reference(overlay[relative], origin, overlay, depth=depth + 1)
             return
@@ -620,6 +623,8 @@ def assert_unchanged(project, inventory, *, allow_blockers=False):
         raise EvidenceError("dependency inventory identity is invalid")
     if inventory.get("blockers") and not allow_blockers:
         raise EvidenceError("dependency discovery is incomplete: " + "; ".join(inventory["blockers"][:3]))
+    if history_namespace.namespace_status(root) != inventory.get("history_namespace"):
+        raise EvidenceError("history namespace changed after discovery")
     inputs = inventory.get("inputs")
     if not isinstance(inputs, dict) or len(inputs) > MAX_FILES:
         raise EvidenceError("dependency inventory input membership is invalid")

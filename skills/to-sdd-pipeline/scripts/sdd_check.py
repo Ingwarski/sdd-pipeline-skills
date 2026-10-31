@@ -801,12 +801,15 @@ class Checker:
             reference = self._history_overlay.get(relative)
             return history_api().source_view_path(self.project, self._history_snapshot_root,
                                                   self._history_overlay, relative, getattr(self, "_history_source_archive", None))
-        resolved = (self.project / relative).resolve()
+        from evidence.history_namespace import HISTORY, is_reserved_path, physical_path
+        mapped_history = relative == HISTORY or relative.startswith(HISTORY + "/") or is_reserved_path(relative)
+        native = physical_path(self.project, relative) if mapped_history else self.project / relative
+        resolved = native.resolve()
         if not resolved.is_relative_to(self.project):
             raise ValueError("link escapes project: " + relative)
         if no_links:
             current = self.project
-            for part in parsed.parts:
+            for part in native.relative_to(self.project).parts:
                 current = current / part
                 if (current.exists() or current.is_symlink()) and is_link(current):
                     raise ValueError("frozen source path contains a link/reparse point: " + relative)

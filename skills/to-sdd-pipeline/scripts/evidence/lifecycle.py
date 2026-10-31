@@ -35,7 +35,8 @@ def review_record(value):
 
 def empty_state():
     return {"version": 1, "adopted": False, "automatic_cleanup": False,
-        "participants": {}, "classifications": {}, "ever_referenced": [], "events": []}
+        "participants": {}, "classifications": {}, "ever_referenced": [], "events": [],
+        "namespace_preparations": {}, "history_namespaces": {}}
 
 
 def apply_event(state, event, references):
@@ -65,6 +66,36 @@ def apply_event(state, event, references):
         state["adoption_review_digest"] = digest(event["review"])
     elif not state["adopted"]:
         raise EvidenceError("lifecycle event precedes adoption")
+    elif action == "namespace_prepare":
+        if (set(event) != common | {"participant_id", "automatic_cleanup"}
+                or not isinstance(event["participant_id"], str) or not ID.fullmatch(event["participant_id"])
+                or type(event["automatic_cleanup"]) is not bool):
+            raise EvidenceError("invalid history namespace preparation")
+        participant = event["participant_id"]
+        if participant in state["namespace_preparations"]:
+            raise EvidenceError("history namespace preparation already pending")
+        previous = state["participants"].get(participant)
+        if previous and previous.get("retired"):
+            raise EvidenceError("retired participant cannot prepare a history namespace")
+        state["namespace_preparations"][participant] = {"automatic_cleanup": event["automatic_cleanup"]}
+        state["automatic_cleanup"] = False
+    elif action == "namespace_commit":
+        from .history_namespace import validate_namespace_facts
+        if set(event) != common | {"participant_id", "namespace"}:
+            raise EvidenceError("invalid history namespace commit")
+        participant = event["participant_id"]
+        pending = state["namespace_preparations"].get(participant)
+        if pending is None or participant not in state["participants"] or state["participants"][participant]["retired"]:
+            raise EvidenceError("history namespace commit requires pending verified participant")
+        facts = validate_namespace_facts(event["namespace"])
+        inventory = state["participants"][participant]["inventory"]
+        if any(facts[key] != inventory.get(key) for key in ("project_id", "store_id")):
+            raise EvidenceError("history namespace belongs to a different participant project/store")
+        if inventory.get("history_namespace") != facts:
+            raise EvidenceError("history namespace commit differs from verified inventory")
+        state["history_namespaces"][participant] = facts
+        del state["namespace_preparations"][participant]
+        state["automatic_cleanup"] = pending["automatic_cleanup"] if not state["namespace_preparations"] else False
     elif action == "checkpoint":
         if set(event) != common | {"participant_id", "inventory"}:
             raise EvidenceError("invalid lifecycle checkpoint")
@@ -182,6 +213,7 @@ class LifecycleMixin:
         state = catalog.get("lifecycle", empty_state())
         local = self._lifecycle_bindings()["participants"]
         return {"adopted": state["adopted"], "automatic_cleanup": state["automatic_cleanup"],
+            "namespace_pending": sorted(state["namespace_preparations"]),
             "adoption_review_digest": state.get("adoption_review_digest"),
             "local_participants": sorted(key for key, value in local.items() if self.project is not None and
                 value.get("project") == str(self.project) and value.get("host") == socket.gethostname()),
@@ -207,38 +239,108 @@ class LifecycleMixin:
 
     def _lifecycle_writer_guard(self, catalog):
         state = catalog.get("lifecycle", empty_state())
-        if state["adopted"] and self._lifecycle_bound_participant(state) is None:
-            raise EvidenceError("lifecycle writer must register its project participant before publication")
+        if state["adopted"]:
+            participant = self._lifecycle_bound_participant(state)
+            if participant is None:
+                raise EvidenceError("lifecycle writer must register its project participant before publication")
+            if participant in state["namespace_preparations"]:
+                raise EvidenceError("history namespace adoption is unfinished; resume adoption before publication")
+            from .history_namespace import require_history_namespace
+            facts = require_history_namespace(self.project)
+            if state["history_namespaces"].get(participant) != facts:
+                raise EvidenceError("lifecycle writer history namespace is not registered")
+
+    def prepare_history_namespace(self, participant_id, *, review, automatic_cleanup=True, manifest_path=None):
+        """Durably fence old storage and hold cleanup before moving history."""
+        review = review_record(review)
+        if type(automatic_cleanup) is not bool:
+            raise EvidenceError("automatic cleanup choice must be Boolean")
+        from .history_namespace import recovery_read_scope
+        with recovery_read_scope(self.project, project_id=self.policy["project_id"],
+                store_id=self.policy["store_id"], participant_id=participant_id), self.locked():
+            catalog = self._catalog(mutation=True)
+            if catalog.get("pending_deletions") or (self.state / "pruning.json").exists():
+                raise EvidenceError("reconcile legacy deletion intent before lifecycle adoption")
+            binding = self._lifecycle_binding(participant_id, manifest_path)
+            state = deepcopy(catalog.get("lifecycle", empty_state()))
+            pending = state["namespace_preparations"].get(participant_id)
+            if state["adopted"] and state.get("adoption_review_digest") != digest(review):
+                raise EvidenceError("evidence lifecycle already adopted with a different decision")
+            if pending is not None:
+                if pending["automatic_cleanup"] != automatic_cleanup:
+                    raise EvidenceError("pending history namespace adoption differs from cleanup decision")
+                return self.lifecycle_status(catalog=catalog)
+            previous = state["participants"].get(participant_id)
+            if previous and previous.get("retired"):
+                raise EvidenceError("retired participant cannot prepare a history namespace")
+            if participant_id in state["history_namespaces"]:
+                if state["automatic_cleanup"] != automatic_cleanup:
+                    raise EvidenceError("evidence lifecycle already adopted with a different decision")
+                return self.lifecycle_status(catalog=catalog)
+            if state["namespace_preparations"]:
+                raise EvidenceError("another participant history namespace adoption remains pending")
+            events = []
+            if not state["adopted"]:
+                # Reject missing original durable proof before recording even
+                # pending adoption. No physical namespace mutation occurs here.
+                initial = self._lifecycle_collect(binding, catalog)
+                self._verify_lifecycle_roots(catalog, initial["roots"])
+                first = event(state, "adopt", review=review, automatic_cleanup=False)
+                apply_event(state, first, catalog["refs"])
+                events.append(first)
+            elif state["automatic_cleanup"] != automatic_cleanup:
+                raise EvidenceError("evidence lifecycle already adopted with a different decision")
+            preparation = event(state, "namespace_prepare", participant_id=participant_id,
+                                automatic_cleanup=automatic_cleanup)
+            events.append(preparation)
+            self._publish(catalog, {"version": 1, "lifecycle_events": events})
+            return self.lifecycle_status()
+
+    def ensure_lifecycle_history_namespace(self, participant_id):
+        """Perform the journalled rename through an audited proof-pin transition."""
+        from .history_namespace import ensure_history_namespace
+        from .source_payloads import SourcePayloadScope
+        scope = self._source_payload_scope or SourcePayloadScope(self.project, self.cache, self.policy)
+        with scope.verified_history_namespace_transition():
+            # The old scope's finally audit above still owns every prior pin.
+            # Normal accounting creates a fresh scope under the mapped paths.
+            self._source_payload_scope = None
+            return ensure_history_namespace(self.project, project_id=self.policy["project_id"],
+                store_id=self.policy["store_id"], participant_id=participant_id)
 
     def adopt_lifecycle(self, participant_id, *, manifest_path="forge/sdd-manifest.json", review, automatic_cleanup=True):
         review = review_record(review)
         if type(automatic_cleanup) is not bool:
             raise EvidenceError("automatic cleanup choice must be Boolean")
-        with self.locked():
+        from .history_namespace import recovery_read_scope
+        with recovery_read_scope(self.project, project_id=self.policy["project_id"],
+                store_id=self.policy["store_id"], participant_id=participant_id), self.locked():
+            from .history_namespace import require_history_namespace
+            self.prepare_history_namespace(participant_id, review=review, automatic_cleanup=automatic_cleanup,
+                                           manifest_path=manifest_path)
+            facts = self.ensure_lifecycle_history_namespace(participant_id)
             catalog = self._catalog(mutation=True)
             if catalog.get("pending_deletions") or (self.state / "pruning.json").exists():
                 raise EvidenceError("reconcile legacy deletion intent before lifecycle adoption")
             state = deepcopy(catalog.get("lifecycle", empty_state()))
             binding = self._lifecycle_binding(participant_id, manifest_path)
-            if state["adopted"]:
-                if state.get("adoption_review_digest") != digest(review) or state["automatic_cleanup"] != automatic_cleanup:
-                    raise EvidenceError("evidence lifecycle already adopted with a different decision")
-                previous = state["participants"].get(participant_id)
-                if previous is None or previous["retired"]:
-                    raise EvidenceError("adoption retry does not match its original participant")
-                inventory = self._lifecycle_collect(binding, catalog, previous["inventory"])
+            previous = state["participants"].get(participant_id)
+            inventory = self._lifecycle_collect(binding, catalog, (previous or {}).get("inventory"))
+            if participant_id not in state["namespace_preparations"]:
+                if previous is None or state["history_namespaces"].get(participant_id) != facts:
+                    raise EvidenceError("adoption retry does not match its original participant namespace")
                 if inventory["digest"] != previous["inventory"]["digest"]:
                     raise EvidenceError("adoption retry inputs changed; checkpoint explicitly")
                 self._store_lifecycle_binding(participant_id, binding)
                 return self.lifecycle_status(catalog=catalog)
-            inventory = self._lifecycle_collect(binding, catalog)
             self._verify_lifecycle_roots(catalog, inventory["roots"])
             from .dependencies import assert_unchanged
             assert_unchanged(Path(binding["project"]), inventory)
-            first = event(state, "adopt", review=review, automatic_cleanup=automatic_cleanup)
+            if require_history_namespace(self.project) != facts:
+                raise EvidenceError("history namespace changed before lifecycle activation")
+            first = event(state, "checkpoint", participant_id=participant_id, inventory=inventory)
             apply_event(state, first, catalog["refs"])
-            second = event(state, "checkpoint", participant_id=participant_id, inventory=inventory)
-            apply_event(state, second, catalog["refs"])
+            second = event(state, "namespace_commit", participant_id=participant_id, namespace=facts)
             self._publish(catalog, {"version": 1, "lifecycle_events": [first, second]})
             self._store_lifecycle_binding(participant_id, binding)
             return self.lifecycle_status()
@@ -288,7 +390,9 @@ class LifecycleMixin:
                     max_decoder_memory_bytes=self.limits.get("archive_decoder_memory_bytes", 128 * 1024 * 1024))
 
     def checkpoint_lifecycle(self, participant_id, *, manifest_path=None, dry_run=False, cleanup=True):
-        with self.locked():
+        from .history_namespace import recovery_read_scope
+        with recovery_read_scope(self.project, project_id=self.policy["project_id"],
+                store_id=self.policy["store_id"], participant_id=participant_id), self.locked():
             catalog = self._catalog(mutation=True)
             state = catalog.get("lifecycle", empty_state())
             if not state["adopted"]:
@@ -300,9 +404,24 @@ class LifecycleMixin:
             previous = state["participants"].get(participant_id)
             if previous and previous["retired"]:
                 raise EvidenceError("retired participant cannot publish new dependencies")
+            from .history_namespace import require_history_namespace
+            registering = participant_id not in state["history_namespaces"]
+            if registering:
+                if dry_run:
+                    raise EvidenceError("history namespace registration required before dry-run checkpoint")
+                cleanup_choice = state["namespace_preparations"].get(participant_id,
+                    {"automatic_cleanup": state["automatic_cleanup"]})["automatic_cleanup"]
+                self.prepare_history_namespace(participant_id, review=state["adoption_review"],
+                    automatic_cleanup=cleanup_choice, manifest_path=binding["manifest_path"])
+                self.ensure_lifecycle_history_namespace(participant_id)
+                catalog = self._catalog(mutation=True)
+                state = catalog["lifecycle"]
+            facts = require_history_namespace(self.project)
+            if not registering and facts != state["history_namespaces"][participant_id]:
+                raise EvidenceError("participant history namespace changed")
             inventory = self._lifecycle_collect(binding, catalog, (previous or {}).get("inventory"))
             changed = previous is None or previous["inventory"]["digest"] != inventory["digest"]
-            if changed and not dry_run:
+            if (changed or registering) and not dry_run:
                 restored = [catalog["retired_refs"][ident] for ident in inventory["roots"] if ident not in catalog["refs"]]
                 cancelled = set()
                 if restored:
@@ -312,13 +431,19 @@ class LifecycleMixin:
                         cancelled.update(part["pack_sha256"] for part in storage["locator"].get("segments") or [storage["locator"]])
                 value = event(state, "checkpoint", participant_id=participant_id, inventory=inventory)
                 segment = {"version": 1, "lifecycle_events": [value]}
+                if registering:
+                    self._verify_lifecycle_roots(self._lifecycle_recoverable_catalog(catalog), inventory["roots"])
+                    next_state = deepcopy(state)
+                    apply_event(next_state, value, {**catalog["retired_refs"], **catalog["refs"]})
+                    segment["lifecycle_events"].append(event(next_state, "namespace_commit",
+                        participant_id=participant_id, namespace=facts))
                 if restored:
                     segment.update(refs=restored, cancelled_deletions=sorted(cancelled & set(catalog.get("pending_deletions", {}))))
                 self._publish(catalog, segment)
             if not dry_run:
                 self._store_lifecycle_binding(participant_id, binding)
             actions = []
-            if cleanup and state["automatic_cleanup"] and not dry_run:
+            if cleanup and not dry_run and self._catalog()["lifecycle"]["automatic_cleanup"]:
                 actions = self.cleanup_lifecycle(dry_run=False)
             return {"participant_id": participant_id, "changed": changed, "inventory_digest": inventory["digest"],
                 "statistics": inventory.get("statistics", {}), "dry_run": dry_run, "actions": actions}
@@ -374,6 +499,8 @@ class LifecycleMixin:
         state = catalog.get("lifecycle", empty_state())
         if not state["adopted"]:
             raise EvidenceError("lifecycle adoption required for permanent deletion")
+        if state["namespace_preparations"]:
+            raise EvidenceError("history namespace adoption remains pending; permanent deletion is held")
         self._lifecycle_producer_guard(catalog)
         bindings = self._lifecycle_bindings()["participants"]
         protected, reasons, checks = set(), {}, []
@@ -391,6 +518,9 @@ class LifecycleMixin:
             binding = bindings.get(participant)
             if binding is None:
                 raise EvidenceError("registered lifecycle participant is unavailable: " + participant)
+            from .history_namespace import require_history_namespace
+            if require_history_namespace(binding["project"]) != state["history_namespaces"].get(participant):
+                raise EvidenceError("participant history namespace is not adopted: " + participant)
             current = self._lifecycle_collect(binding, catalog, value["inventory"])
             if current["digest"] != value["inventory"]["digest"]:
                 raise EvidenceError("participant records changed; checkpoint before deletion: " + participant)
@@ -468,6 +598,10 @@ class LifecycleMixin:
     def _lifecycle_recheck(self, inventory, catalog):
         from .dependencies import assert_unchanged
         for binding, snapshot in inventory["checks"]:
+            from .history_namespace import require_history_namespace
+            facts = require_history_namespace(binding["project"])
+            if facts not in catalog.get("lifecycle", empty_state())["history_namespaces"].values():
+                raise EvidenceError("history namespace changed before lifecycle deletion")
             assert_unchanged(Path(binding["project"]), snapshot)
         roots = self._transport_call("keys", self.prefix + "roots/")
         current = max((item if isinstance(item, str) else item["key"] for item in roots), default=None)

@@ -37,8 +37,15 @@ Update affected dependencies after accepted changes; incomplete scope blocks
 permanent deletion, not otherwise valid work.
 
 Adoption publishes catalog version 2 so old storage clients cannot mutate/prune
-the store. Portable policy version 1 remains unchanged. Do not downgrade after
-adoption or discard original archives to make an older tool pass.
+the store. It moves history bytes intact into a versioned physical directory and
+replaces the old directory with a regular protocol marker, blocking old history
+writers. Logical references, hashes and portable policy version 1 stay unchanged;
+current tools resolve the stored bytes. All participating roots must complete this
+migration before deletion. Do not downgrade or recreate the old history directory.
+
+Interrupted migration keeps cleanup blocked. Resume the same adoption request;
+preserve its journal, both locations and any activation lock. Conflicting files,
+links or changed identities require reconciliation, never automatic overwrite.
 
 ## Optional historical diagnostics
 

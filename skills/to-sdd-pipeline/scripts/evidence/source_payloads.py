@@ -211,6 +211,42 @@ class SourcePayloadScope:
         self._audit_inputs()
 
     @contextmanager
+    def verified_history_namespace_transition(self):
+        """Verify an exact prefix rename without dropping unrelated proof pins.
+
+        The manager replaces this invocation-local scope only for the known
+        namespace migration. Every consumed file keeps its original identity
+        and bytes; directory membership may change only in its physical prefix.
+        """
+        from .history_namespace import HISTORY, PHYSICAL_HISTORY
+        self.audit()
+        old_root, new_root = self.project / HISTORY, self.project / PHYSICAL_HISTORY
+        paths = set(self.aliases) | set(self.source_files)
+        for cache in (self.resolver.hashes, self.resolver.documents, self.controls):
+            paths.update(cache)
+        originals = {path: (_regular(path), hash_file(path)) for path in paths}
+        directories = dict(self.directories)
+        try:
+            yield
+        finally:
+            # Failed migration can leave the original tree untouched or moved
+            # before its marker is installed. Verify the known original inode
+            # at its exact destination; never infer ownership of another tree.
+            moved = not old_root.is_dir()
+            def selected(path):
+                return new_root / path.relative_to(old_root) if moved and path.is_relative_to(old_root) else path
+            for path, (signature, digest) in originals.items():
+                target = selected(path)
+                self.history.require(_regular(target) == signature and hash_file(target) == digest,
+                    "source payload proof changed during history namespace transition: " + str(path))
+            for path, expected in directories.items():
+                target = selected(path)
+                info = target.lstat()
+                self.history.require(stat.S_ISDIR(info.st_mode) and (info.st_dev, info.st_ino,
+                    tuple(sorted(child.name for child in target.iterdir()))) == expected,
+                    "source payload directory changed during history namespace transition")
+
+    @contextmanager
     def verified_receipt_transition(self, reference, receipt):
         """Advance only a storage receipt, keeping every other proof input pinned.
 

@@ -31,6 +31,7 @@ import sys
 import uuid
 
 from evidence.resolver import EvidenceResolver, INACTIVE_HISTORY_KEYS, evidence_reference, validate_reference, _regular, JSON_LIMIT
+from evidence import history_namespace
 from evidence.io import safe_relative, _parents, _open_regular, _verify_stable, hash_file, read_json as bounded_json
 from evidence.policy import validate_policy, MAX_POLICY_BYTES
 from evidence import diagnostics
@@ -227,8 +228,10 @@ def physical(project, path):
     parts = PurePosixPath(path)
     require(not parts.is_absolute() and all(p not in ("..", ".") for p in path.split("/")), "unsafe history path: " + path)
     root = Path(project).resolve()
+    mapped_history = path == HISTORY or path.startswith(HISTORY + "/") or history_namespace.is_reserved_path(path)
+    mapped = history_namespace.physical_path(root, path) if mapped_history else root.joinpath(*parts.parts)
     current = root
-    for part in parts.parts:
+    for part in mapped.relative_to(root).parts:
         current /= part
         try:
             info = current.lstat()
@@ -262,6 +265,7 @@ def read_ref(project, ref):
 
 
 def write_new(project, path, data):
+    history_namespace.guard_history_write(project, path)
     target = physical(project, path)
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("xb") as stream:
@@ -307,6 +311,7 @@ def publish_immutable(project, path, data, *, existing_winner=False):
     partial deterministic destination. A caller accepting a different winner
     must independently validate its semantic identity before using the result.
     """
+    history_namespace.guard_history_write(project, path)
     target = physical(project, path)
     if not target.exists():
         temporary = path + ".pending-" + uuid.uuid4().hex
@@ -328,6 +333,7 @@ def publish_immutable(project, path, data, *, existing_winner=False):
 
 def write_snapshot(project, path, data):
     """Share immutable content-addressed bytes while retaining real render-tree paths."""
+    history_namespace.guard_history_write(project, path)
     digest = sha(data)
     blob = physical(project, HISTORY + "/blobs/" + digest)
     blob.parent.mkdir(parents=True, exist_ok=True)
@@ -386,7 +392,9 @@ def execution_fingerprints(checker, selections):
     result = {}
     for logical, selection in selections.items():
         require(isinstance(selection, dict) and selection.get("mode") in ("file", "tree", "absent"), "execution input requires file/tree/absent mode")
-        require(not logical.startswith(HISTORY + "/") and logical not in (".", "", "/"), "execution inventory must select relevant paths, not history or the whole project")
+        require(not logical.startswith(HISTORY + "/") and logical not in (".", "", "/", HISTORY)
+                and not history_namespace.is_reserved_path(logical),
+                "execution inventory must select relevant paths, not history or the whole project")
         target = checker.path(logical, no_links=True)
         mode = selection["mode"]
         if not target.exists():
@@ -500,6 +508,8 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None, pat
         directory_members[value] = tuple(child.name for child in children)
         for child in children:
             relative = (PurePosixPath(value) / child.name).as_posix()
+            if relative == HISTORY or relative.startswith(HISTORY + "/") or history_namespace.is_reserved_path(relative):
+                continue  # Generated history/control files are not authored source trees.
             checked = resolve_path(relative)
             if checked.is_dir():
                 scan_directory(relative, checked)
@@ -511,6 +521,13 @@ def referenced_paths(project, manifest, *, checker=None, external_refs=None, pat
 
     def add(value, *, optional=False):
         if not isinstance(value, str) or not value:
+            return
+        try:
+            reserved = history_namespace.is_reserved_path(value)
+        except ValueError:
+            reserved = False  # Existing path validation handles incidental application metadata.
+        if reserved:
+            require(optional, "history namespace controls cannot be authored snapshot inputs")
             return
         if value in seen_directories:
             require(not value.startswith(HISTORY), "history directories cannot be embedded recursively")
@@ -626,7 +643,7 @@ def freeze_files(project, manifest, directory, execution_inputs=None, *, checker
         elif target.is_dir():
             physical(project, directory + "/files/" + logical).mkdir(parents=True, exist_ok=True)
             for path in target.rglob("*"):
-                relative = path.relative_to(Path(project).resolve()).as_posix()
+                relative = history_namespace.logical_path(project, path)
                 physical(project, relative)
                 if path.is_file():
                     paths.add(relative)
@@ -1267,7 +1284,7 @@ def _checker_legacy_files(checker, reference, record):
             physical(checker.project, logical)
         return
     validate_files(checker.project, record)
-    registrations = tuple((checker.project / ref["path"], owner.hashes[checker.project / ref["path"]])
+    registrations = tuple((physical(checker.project, ref["path"]), owner.hashes[physical(checker.project, ref["path"])])
                           for ref in diagnostics.effective_files(checker.project, record).values())
     owner.legacy_files[key] = (content, registrations)
 
@@ -2697,7 +2714,7 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
                         paths.add(path)
                         target = physical(project, path)
                         if target.is_dir():
-                            paths.update(item.relative_to(Path(project).resolve()).as_posix() for item in target.rglob("*"))
+                            paths.update(history_namespace.logical_path(project, item) for item in target.rglob("*"))
                 visit(child, collect_external)
         elif isinstance(value, list):
             for child in value:

@@ -82,7 +82,9 @@ def adopt(manager, *, participant_id, manifest_path, review, members, automatic_
     key = _digest(request)
     # Machine-owned transaction state remains outside the consuming repository.
     journal_path = manager.state / ("lifecycle-adoption-" + key + ".json")
-    with manager.locked():
+    from .history_namespace import recovery_read_scope
+    with recovery_read_scope(manager.project, project_id=manager.policy["project_id"],
+            store_id=manager.policy["store_id"], participant_id=participant_id), manager.locked():
         if journal_path.exists():
             journal = read_json(journal_path, manager.limits["metadata_stop_bytes"])
             if journal.get("request") != request:
@@ -127,10 +129,15 @@ def adopt(manager, *, participant_id, manifest_path, review, members, automatic_
             atomic_json(selected, candidate)
             if hash_file(selected)[0] != journal["installed_hash"]:
                 raise EvidenceError("lifecycle candidate serialization changed")
-        else:
-            # Re-run the read-only review validation on retries too. This never
-            # substitutes today's facts for the original preserved observations.
-            diagnostics.load_review(manager.project, candidate)
+        # Fence the previous storage protocol before any namespace move can
+        # release this lock through an error. Pending adoption disables cleanup
+        # in the authoritative catalog, not merely in this machine's journal.
+        manager.prepare_history_namespace(participant_id, review=review,
+            automatic_cleanup=automatic_cleanup, manifest_path=manifest_path)
+        manager.ensure_lifecycle_history_namespace(participant_id)
+        # Re-run the exact review on retries, after completing a moved-only
+        # namespace. Do not substitute today's facts for original observations.
+        diagnostics.load_review(manager.project, candidate)
         if journal["status"] != "adopted":
             with diagnostics.scope(manager.project, candidate):
                 observations = sdd_history.candidate_hashes(manager.project, candidate,

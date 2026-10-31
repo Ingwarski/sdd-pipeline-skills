@@ -3,6 +3,7 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from unittest.mock import patch
 import test_optional_diagnostics as diagnostic_fixture
 import test_evidence_manager as storage_fixture
 from evidence.io import EvidenceError, atomic_json, hash_file
+from evidence.history_namespace import physical_path
 from evidence.manager import Manager
 from evidence import lifecycle_cli
 from evidence_store import checkpoint_after_history, history_publication_guard, probe
@@ -59,7 +61,7 @@ class LifecycleCliTests(unittest.TestCase):
         self.assertEqual(root, self.manager._catalog()['root_key'])
         self.assertEqual(manifest, self.manifest.read_bytes())
         for relative, data in history_before.items():
-            self.assertEqual(data, (self.p.root / relative).read_bytes())
+            self.assertEqual(data, physical_path(self.p.root, relative).read_bytes())
         self.assertEqual(self.m['unit_runs'] if 'unit_runs' in self.m else None,
                          json.loads(manifest).get('unit_runs'))
 
@@ -167,6 +169,101 @@ class LifecycleCliTests(unittest.TestCase):
         self.assertNotEqual('cleanup_deferred', status.get('status'), status)
         self.assertEqual(root, self.manager._catalog()['root_key'])
         self.assertEqual(before, self.manifest.read_bytes())
+
+    def test_current_history_cli_publishes_logical_reference_and_full_gate_still_passes(self):
+        self.adopt()
+        self.p.write('synthetic-probes.json', json.dumps({'runtime': [sys.executable, '--version']}))
+        command = [sys.executable, '-B', str(ROOT / 'skills/to-sdd-pipeline/scripts/sdd_history.py'),
+            '--project', str(self.p.root), '--evidence-cache', str(self.manager.cache),
+            'observe-runtime', '--probes', 'synthetic-probes.json']
+        outcome = subprocess.run(command, capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, SDD_EVIDENCE_HOME=str(self.storage.home)))
+        self.assertEqual(0, outcome.returncode, outcome.stdout + outcome.stderr)
+        reference = json.loads(outcome.stdout)
+        self.assertTrue(reference['path'].startswith('forge/unit-history/'))
+        self.assertTrue(physical_path(self.p.root, reference['path']).is_file())
+        self.assertTrue((self.p.root / 'forge/unit-history').is_file())
+        self.assertEqual('runtime_observation', self.diagnostics.h.read_ref(self.p.root, reference)['event'])
+        manifest = json.loads(self.manifest.read_bytes())
+        result = self.diagnostics.h.api().Checker(self.p.root, manifest,
+            evidence_cache=self.manager.cache).run('product-idea', audit=True, require_current=True)
+        self.assertEqual('passed', result['result'], result)
+
+    def test_copied_fenced_checkout_registers_a_distinct_participant(self):
+        from evidence.history_namespace import require_history_namespace
+        self.adopt()
+        copied = self.storage.base / 'copied-checkout'
+        shutil.copytree(self.p.root, copied)
+        manager = Manager(self.storage.transport, self.storage.home, self.policy, project=copied)
+        result = manager.checkpoint_lifecycle('synthetic-branch', cleanup=False)
+        self.assertEqual('synthetic-branch', result['participant_id'])
+        self.assertEqual({'synthetic-main', 'synthetic-branch'}, set(manager.lifecycle_status()['participants']))
+        self.assertEqual('synthetic-main', require_history_namespace(copied)['participant_id'])
+        self.assertEqual('synthetic-branch', manager.lifecycle_participant())
+
+    def test_pending_other_participant_holds_cleanup_without_blocking_registered_writer(self):
+        self.adopt()
+        copied = self.storage.base / 'pending-checkout'
+        shutil.copytree(self.p.root, copied)
+        branch = Manager(self.storage.transport, self.storage.home, self.policy, project=copied)
+        branch.prepare_history_namespace('synthetic-branch', review=self.review, automatic_cleanup=True)
+        self.assertEqual(['synthetic-branch'], self.manager.lifecycle_status()['namespace_pending'])
+        with self.manager.locked():
+            self.manager._lifecycle_writer_guard(self.manager._catalog(mutation=True))
+        with branch.locked():
+            with self.assertRaisesRegex(EvidenceError, 'register|unfinished'):
+                branch._lifecycle_writer_guard(branch._catalog(mutation=True))
+        with self.assertRaisesRegex(EvidenceError, 'namespace.*pending|namespace.*unfinished'):
+            self.manager.cleanup_lifecycle(dry_run=False)
+
+    def test_interrupted_namespace_migration_holds_cleanup_until_exact_adoption_retry(self):
+        with patch('evidence.history_namespace._write_marker', side_effect=OSError('synthetic marker interruption')):
+            with self.assertRaises(EvidenceError):
+                self.adopt()
+        with self.assertRaises(EvidenceError):
+            self.manager.cleanup_lifecycle(dry_run=False)
+        self.assertEqual('adopted', self.adopt()['result'])
+        self.assertEqual([], self.manager.cleanup_lifecycle(dry_run=False))
+
+    def test_cleanup_rejects_missing_namespace_marker_without_removing_history(self):
+        from evidence.history_namespace import PHYSICAL_HISTORY
+        self.adopt()
+        history = self.p.root / PHYSICAL_HISTORY
+        before = {path.relative_to(history).as_posix(): path.read_bytes()
+                  for path in history.rglob('*') if path.is_file()}
+        (self.p.root / 'forge/unit-history').unlink()
+        with self.assertRaises(EvidenceError):
+            self.manager.cleanup_lifecycle(dry_run=False)
+        self.assertEqual(before, {path.relative_to(history).as_posix(): path.read_bytes()
+                                 for path in history.rglob('*') if path.is_file()})
+
+    def test_namespace_transition_preserves_unrelated_consumed_control_pins(self):
+        from evidence import history_namespace as namespace
+        from evidence.source_payloads import SourcePayloadScope
+        policy_path = self.p.root / 'forge/evidence-policy.json'
+        original_policy = policy_path.read_bytes()
+        original_history = {path.relative_to(self.p.root / namespace.HISTORY).as_posix(): path.read_bytes()
+            for path in (self.p.root / namespace.HISTORY).rglob('*') if path.is_file()}
+        rename = namespace._rename_directory
+        def change_consumed_control(source, target):
+            rename(source, target)
+            if Path(source) == self.p.root / namespace.HISTORY:
+                # The normalized policy is identical. Resetting all proof pins
+                # at the move would conceal this unrelated raw-input change.
+                policy_path.write_bytes(original_policy + b' ')
+        with self.assertRaisesRegex((EvidenceError, ValueError), "source payload .*changed during"):
+            with self.manager.locked():
+                scope = SourcePayloadScope(self.p.root, self.manager.cache, self.policy)
+                self.assertIn(policy_path, scope.control_paths())
+                self.manager._source_payload_scope = scope
+                with patch.object(namespace, '_rename_directory', side_effect=change_consumed_control):
+                    self.manager.adopt_lifecycle('synthetic-main', review=self.review)
+        self.assertEqual(original_policy + b' ', policy_path.read_bytes())
+        moved = self.p.root / namespace.PHYSICAL_HISTORY
+        for relative, raw in original_history.items():
+            self.assertEqual(raw, (moved / relative).read_bytes())
+        with self.assertRaises(EvidenceError):
+            self.manager.cleanup_lifecycle(dry_run=False)
 
 
 if __name__ == '__main__':

@@ -18,6 +18,7 @@ import test_evidence_manager as storage_fixture
 from test_sdd_check import sdd
 from evidence.manager import Manager
 from evidence.resolver import EvidenceResolver
+from evidence.history_namespace import physical_path
 
 
 TOY_RUNNER = '''import json
@@ -101,7 +102,7 @@ class LifecycleProject:
         self.initial_runs = copy.deepcopy(self.m["unit_runs"])
         self.initial_checks = copy.deepcopy(self.m["verification"]["checks"])
         self.initial_authority = copy.deepcopy(self.m["implementation_gate"])
-        self.envelopes = {ref["path"]: (self.p.root / ref["path"]).read_bytes()
+        self.envelopes = {ref["path"]: physical_path(self.p.root, ref["path"]).read_bytes()
                           for ref in self.references}
         self.archive_sources()
         self.prepare_views()
@@ -179,7 +180,7 @@ class LifecycleProject:
             sources = []
             for logical, frozen in record["files"].items():
                 locations.append((sources, frozen, logical))
-                specs.append({"path": str((self.p.root / frozen["path"]).resolve()),
+                specs.append({"path": str(physical_path(self.p.root, frozen["path"]).resolve()),
                     "original_path": frozen["path"], "sealed_at": storage_fixture.SEALED,
                     "kind": "source_snapshot", "schema": "evidence-bytes-v1",
                     "provenance": {"run_id": "synthetic-lifecycle-source-archive", "unit_id": "U-1"},
@@ -218,8 +219,8 @@ class LifecycleProject:
     def cold_restore(self):
         for record in self.records:
             for source in record["sources"]:
-                (self.p.root / source["path"]).unlink(missing_ok=True)
-        blobs = self.p.root / self.h.HISTORY / "blobs"
+                physical_path(self.p.root, source["path"]).unlink(missing_ok=True)
+        blobs = physical_path(self.p.root, self.h.HISTORY + "/blobs")
         if blobs.exists():
             shutil.rmtree(blobs)
         shutil.rmtree(self.cache)
@@ -237,11 +238,30 @@ class LifecycleProject:
         self.owner.assertEqual(self.initial_runs, self.m["unit_runs"])
         self.owner.assertEqual(self.initial_checks, self.m["verification"]["checks"])
         self.owner.assertEqual(self.initial_authority, self.m["implementation_gate"])
-        self.owner.assertEqual(self.envelopes, {path: (self.p.root / path).read_bytes()
+        self.owner.assertEqual(self.envelopes, {path: physical_path(self.p.root, path).read_bytes()
                                               for path in self.envelopes})
 
 
 class EvidenceLifecycleEndToEndTests(unittest.TestCase):
+    def test_moved_only_adoption_retry_preserves_source_archive_gate_and_history(self):
+        from evidence.io import EvidenceError
+        f = LifecycleProject(self)
+        review = f.review()
+        with mock.patch.object(f, "review", return_value=review):
+            with mock.patch("evidence.history_namespace._write_marker",
+                            side_effect=OSError("synthetic marker interruption")):
+                with self.assertRaises(EvidenceError):
+                    f.adopt()
+        with self.assertRaises(EvidenceError):
+            f.manager.cleanup_lifecycle(dry_run=False)
+        result = f.manager.adopt_lifecycle("synthetic-main", review=review, automatic_cleanup=True)
+        self.assertTrue(result["adopted"])
+        with mock.patch("subprocess.run", side_effect=AssertionError("adoption recovery must not execute application checks")):
+            after = f.report(action="start", unit="U-2")
+        self.assertEqual("passed", after["result"], after)
+        self.assertEqual(["U-1"], f.invocations())
+        f.assert_original_records()
+
     def test_completed_project_survives_cleanup_relocation_and_cold_release_without_reruns(self):
         f = LifecycleProject(self, complete_all=True)
         self.assertEqual(["U-1", "U-2", "U-3"], f.invocations())
