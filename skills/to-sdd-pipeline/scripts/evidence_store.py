@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Explicit, bounded evidence management. The SDD checker never calls this tool."""
 import argparse
+from contextlib import contextmanager
 import importlib.util
 import json
 import os
@@ -16,6 +17,7 @@ from evidence.transports import LocalTransport, RcloneDriveTransport, ConnectedD
 from evidence.manager import Manager
 from evidence.archive import build_pack, verify_pack
 from evidence.accounting import Accounting, git_blob_growth
+from evidence import lifecycle_cli
 
 
 def home_path(value=None):
@@ -109,6 +111,94 @@ def references(args, manager):
     return list(catalog["refs"].values())
 
 
+def _history_home(evidence_cache):
+    home = None
+    if evidence_cache is not None:
+        cache = Path(evidence_cache).resolve()
+        if cache.name == "cache" and cache.parent.parent.name == "projects":
+            home = str(cache.parent.parent.parent)
+    return home
+
+
+def _history_manager(project, *, evidence_cache=None):
+    from types import SimpleNamespace
+    return load_manager(SimpleNamespace(project=str(Path(project).resolve()), home=_history_home(evidence_cache),
+                        policy=None, config=None, project_id=None, host_session=None))
+
+
+@contextmanager
+def history_publication_guard(project, manifest_path, *, evidence_cache=None, enabled=True):
+    """Serialize managed history publication with dependency-based deletion."""
+    if not enabled:
+        yield None
+        return
+    project = Path(project).resolve()
+    import sdd_history
+    manifest = read_json(sdd_history.physical(project, manifest_path), 16 * 1024 * 1024)
+    adopted = isinstance(manifest.get("history_integrity"), dict) and manifest["history_integrity"].get("optional_diagnostics_ref")
+    if not adopted:
+        # Legacy prepared-proof work does not need a new provider session. The
+        # designated coordinator persists adoption locally; old branches on that
+        # coordinator still see the barrier even without a new manifest field.
+        policy_path = Path(project) / "forge/evidence-policy.json"
+        if not policy_path.exists():
+            yield None
+            return
+        policy = validate_policy(read_json(policy_path, 1024 * 1024))
+        home = home_path(_history_home(evidence_cache))
+        binding_path = home / "bindings" / (policy["project_id"] + ".json")
+        bound = binding_path.exists()
+        if bound:
+            binding = read_json(binding_path, 1024 * 1024)
+            home = home_path(_history_home(evidence_cache) or binding.get("evidence_home"))
+        state = home / "projects" / policy["project_id"]
+        if not (state / "lifecycle-bindings.json").exists() and not any(state.glob("lifecycle-adoption-*.json")):
+            if not bound:
+                yield None
+                return
+            # Serialize with adoption without opening the provider. Recheck
+            # after acquiring the lock in case adoption won the race.
+            local = Manager(None, home, policy, project=Path(project).resolve())
+            with local.locked():
+                fresh = read_json(sdd_history.physical(project, manifest_path), 16 * 1024 * 1024)
+                fresh_marker = isinstance(fresh.get("history_integrity"), dict) and fresh["history_integrity"].get("optional_diagnostics_ref")
+                if not fresh_marker and not (state / "lifecycle-bindings.json").exists() and not any(state.glob("lifecycle-adoption-*.json")):
+                    yield None
+                    return
+    try:
+        manager = _history_manager(project, evidence_cache=evidence_cache)
+    except (EvidenceError, FileNotFoundError) as error:
+        if adopted or not (isinstance(error, FileNotFoundError) or isinstance(error.__cause__, FileNotFoundError)):
+            raise
+        yield None
+        return
+    with manager.locked():
+        catalog = manager._catalog(mutation=True)
+        manager._lifecycle_writer_guard(catalog)
+        if adopted and not catalog.get("lifecycle", {}).get("adopted"):
+            raise EvidenceError("lifecycle adoption is unfinished; resume it before history publication")
+        yield manager
+
+
+def checkpoint_after_history(project, manifest_path, *, evidence_cache=None):
+    """Refresh adopted dependencies after a successful history publication.
+
+    This is called by the mutating CLI, not history validators or the checker.
+    Preserve the original command's stdout/reference schema and report cleanup
+    separately. An unavailable binding defers cleanup, never changes acceptance.
+    """
+    try:
+        import sdd_history
+        selected = sdd_history.physical(project, manifest_path)
+        manifest = read_json(selected, 16 * 1024 * 1024)
+        if not isinstance(manifest.get("history_integrity"), dict) or not manifest["history_integrity"].get("optional_diagnostics_ref"):
+            return None
+        manager = _history_manager(project, evidence_cache=evidence_cache)
+        return lifecycle_cli.checkpoint(manager, manifest_path=manifest_path)
+    except (EvidenceError, ValueError, OSError, KeyError, TypeError) as error:
+        return {"status": "cleanup_deferred", "reason": str(error)}
+
+
 def probe(args):
     config = read_json(Path(args.config).resolve(), 1024 * 1024)
     home = home_path(config.get("evidence_home"))
@@ -141,7 +231,7 @@ def probe(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("archive", "prepare", "restore", "recover", "import", "adopt", "cleanup", "reconcile", "retention-policy", "status", "accounting-receipt", "run", "complete-run", "initialize-generation-authority", "acknowledge-missing-upload", "quarantine-producer", "revalidate-quarantine-device", "git-review", "setup-probe"):
+    for name in ("archive", "prepare", "restore", "recover", "import", "adopt", "cleanup", "reconcile", "retention-policy", "status", "accounting-receipt", "run", "complete-run", "initialize-generation-authority", "acknowledge-missing-upload", "quarantine-producer", "revalidate-quarantine-device", "git-review", "setup-probe") + lifecycle_cli.COMMANDS:
         sub = commands.add_parser(name)
         sub.add_argument("--project")
         sub.add_argument("--policy")
@@ -151,7 +241,9 @@ def main():
         sub.add_argument("--host-session", help="Active agent's bundled Drive tool session; never saved as account configuration")
         sub.add_argument("--refs")
         sub.add_argument("--artifact", action="append")
-        if name == "archive":
+        if name in lifecycle_cli.COMMANDS:
+            lifecycle_cli.arguments(sub, name)
+        elif name == "archive":
             sub.add_argument("--spec", required=True)
             sub.add_argument("--migration", action="store_true")
             sub.add_argument("--remove-local", action="store_true")
@@ -214,7 +306,9 @@ def main():
             manager = load_manager(args)
             if args.command in ("archive", "prepare", "restore", "recover", "import", "adopt", "run"):
                 manager.cleanup(dry_run=False)
-            if args.command == "archive":
+            if args.command in lifecycle_cli.COMMANDS:
+                result = lifecycle_cli.execute(args, manager)
+            elif args.command == "archive":
                 result = {"version": 1, "refs": manager.archive(read_json(Path(args.spec).resolve(), manager.limits["metadata_stop_bytes"]),
                     migration=args.migration, remove_local=args.remove_local)}
             elif args.command in ("import", "adopt"):
@@ -305,6 +399,10 @@ def main():
             selected = Path(args.output).expanduser().absolute()
             selected.parent.mkdir(parents=True, exist_ok=True)
             atomic_json(selected.parent.resolve() / selected.name, result)
+        if args.command in ("archive", "import", "adopt", "run", "complete-run"):
+            status = lifecycle_cli.checkpoint(manager)
+            if status.get("status") != "not_adopted":
+                print(json.dumps({"evidence_lifecycle": status}, ensure_ascii=True), file=sys.stderr)
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
         if (args.command == "accounting-receipt" and result.get("version") == 2
                 and result.get("kind") == "scoped-known-generation"

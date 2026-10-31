@@ -439,10 +439,10 @@ with manager.locked(), manager._catalog_working_scope() as scope:
             with self.subTest(point=point):
                 if point == "audit":
                     original = self.manager._audit_source_payloads
-                    def audit():
+                    def audit(*, full=False):
                         if self.manager._catalog_working is not None:
                             raise EvidenceError("synthetic final audit failure")
-                        return original()
+                        return original(full=full)
                     fault = patch.object(self.manager, "_audit_source_payloads", side_effect=audit)
                 else:
                     fault = patch.object(Accounting, "finish_working", side_effect=OSError("synthetic finish failure"))

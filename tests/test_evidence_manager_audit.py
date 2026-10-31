@@ -1,7 +1,7 @@
 """Regression coverage for shared accounting, retained packs and active adoption."""
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -44,8 +44,17 @@ class ManagerAuditTests(unittest.TestCase):
         paths = [self.fixture.file("one", b"a"), self.fixture.file("two", b"b")]
         refs = self.manager.archive(self.fixture.spec(*paths))
         self.assertEqual(1, self.manager.status()["physical_objects"])
-        self.manager.cleanup(now=fixtures.SEALED_TIME + timedelta(days=30), dry_run=False,
-            expire=True, protected_refs=[refs[1]["artifact_id"]], reference_snapshot_complete=True)
+        project = self.base / "synthetic-project"
+        (project / "forge").mkdir(parents=True)
+        atomic_json(project / "forge/sdd-manifest.json", {"checker_contract_version": 3,
+            "unit_contract_version": 3, "verification": {"checks": [{"evidence": [refs[1]]}]}})
+        self.manager = Manager(self.fixture.transport, self.fixture.home, self.policy, project=project)
+        review = {"reviewer": "synthetic-owner", "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "rationale": "Synthetic shared-pack accounting lifecycle."}
+        self.manager.adopt_lifecycle("synthetic-main", review=review)
+        self.manager.classify_lifecycle([refs[0]["artifact_id"]], role="optional_diagnostic",
+            review=review, purpose_complete=True)
+        self.manager.cleanup_lifecycle(dry_run=False)
         status = self.manager.status()
         self.assertEqual(1, status["refs"])
         self.assertEqual(2, status["retained_unique_bytes"])
@@ -55,8 +64,8 @@ class ManagerAuditTests(unittest.TestCase):
             ledger.reserve("new", "U-new", 1, 1, retained_bytes=1)
         cold = self.cold()
         self.assertEqual(2, cold.status()["retained_allowance_bytes"])
-        self.manager.cleanup(now=fixtures.SEALED_TIME + timedelta(days=30), dry_run=False,
-            expire=True, reference_snapshot_complete=True)
+        self.manager.retire_lifecycle_scope("synthetic-main", review=review)
+        self.manager.cleanup_lifecycle(dry_run=False)
         self.assertEqual(0, self.manager.status()["retained_allowance_bytes"])
         self.assertEqual(2, self.manager.status()["gross_generated_bytes"])
 

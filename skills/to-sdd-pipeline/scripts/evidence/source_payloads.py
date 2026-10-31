@@ -5,11 +5,15 @@ counts all physical occupancy and logical membership; only exact payload aliases
 are distinguished from control JSON. No project context means no exemptions.
 """
 from copy import deepcopy
+from contextlib import contextmanager
+import os
 from pathlib import Path
 import re
+import stat
 
 from . import policy as policies
 from .io import EvidenceError, hash_file
+from .identity import same_reference
 from .resolver import EvidenceResolver, JSON_LIMIT, _regular
 
 
@@ -36,6 +40,8 @@ class SourcePayloadScope:
         self.cache = self.resolver.cache
         self.project = Path(project).resolve() if project is not None else None
         self.manifest, self.archives, self.controls, self.aliases = {}, {}, {}, {}
+        self.directories, self.source_files = {}, {}
+        self._payload_memo = None
         self._eligible = False
         if self.project is None or not self.project.is_dir():
             return
@@ -108,9 +114,12 @@ class SourcePayloadScope:
         if not self._eligible:
             return set()
         self._audit_inputs()
+        candidate_set = frozenset(Path(path).absolute() for path in candidate_json_paths)
+        if self._payload_memo is not None and self._payload_memo[0] == candidate_set:
+            return set(self._payload_memo[1])
         h = self.history
         groups, candidates = {}, set()
-        for candidate in candidate_json_paths:
+        for candidate in candidate_set:
             path = Path(candidate).absolute()
             try:
                 relative = path.relative_to(self.cache)
@@ -137,6 +146,20 @@ class SourcePayloadScope:
             root, files = expected[descriptor_hash]  # Never trust receipt.view.files.
             tree = archive.validate_view(root, files, force=True)
             h.require(tree.parent == directory, "source payload view directory/descriptor mismatch")
+            for parent, dirs, names in os.walk(directory, followlinks=False):
+                parent = Path(parent)
+                info = parent.lstat()
+                h.require(stat.S_ISDIR(info.st_mode), "source payload view directory changed")
+                value = (info.st_dev, info.st_ino, tuple(sorted(dirs + names)))
+                h.require(parent not in self.directories or self.directories[parent] == value,
+                          "source payload view directory membership changed")
+                self.directories[parent] = value
+            for alias, (blob, _, _, source) in archive.view_files.items():
+                for path in (alias, blob, source):
+                    signature = _regular(path)
+                    h.require(path not in self.source_files or self.source_files[path] == signature,
+                              "source payload source file changed during operation")
+                    self.source_files[path] = signature
             for logical, frozen in files.items():
                 source = archive.sources.get(frozen["path"])
                 if source is None:
@@ -154,6 +177,7 @@ class SourcePayloadScope:
                 if alias in candidates:
                     proved.add(alias)
         self._audit_inputs()
+        self._payload_memo = (candidate_set, frozenset(proved))
         return proved
 
     def _audit_inputs(self):
@@ -165,6 +189,58 @@ class SourcePayloadScope:
                 h.require(_regular(path) == signature, "source payload proof input changed during operation: " + str(path))
         for path, signature in self.aliases.items():
             h.require(_regular(path) == signature, "source payload alias changed during operation: " + str(path))
+        for path, signature in self.source_files.items():
+            h.require(_regular(path) == signature, "source payload source file changed during operation: " + str(path))
+        for path, expected in self.directories.items():
+            info = path.lstat()
+            h.require(stat.S_ISDIR(info.st_mode) and (info.st_dev, info.st_ino,
+                tuple(sorted(child.name for child in path.iterdir()))) == expected,
+                "source payload view directory membership changed")
+        for archive, _ in self.archives.values():
+            for key, descriptor in archive.views.items():
+                h.require(h.same(descriptor[1], archive.view_memos[key][1]),
+                          "source view overlay changed during validation")
+
+    def audit_pins(self):
+        """Recheck an operation's established proof before reversible accounting.
+
+        Full native validation still runs at publication/deletion and outer exit.
+        File identities, byte-change clocks, overlays and directory membership
+        are checked each time; no proof crosses an operation boundary.
+        """
+        self._audit_inputs()
+
+    @contextmanager
+    def verified_receipt_transition(self, reference, receipt):
+        """Advance only a storage receipt, keeping every other proof input pinned.
+
+        Manager already independently checked the replacement durable bytes.
+        This verifies the new ordinary resolver closure before accepting the
+        exact control-file transition; it never rebuilds native history.
+        """
+        self._audit_inputs()
+        path = self.cache / "receipts" / (reference["artifact_id"] + ".json")
+        previous = self.resolver.documents.get(path)
+        immutable = lambda value: {key: item for key, item in value.items()
+            if key not in ("verified_archive", "storage_relocations")}
+        if previous is not None and not same_reference(immutable(previous[1]), immutable(receipt)):
+            raise EvidenceError("receipt transition changes pinned original evidence or aliases")
+        if path in self.controls or path in self.aliases or path in self.resolver.hashes:
+            raise EvidenceError("receipt transition cannot rewrite a pinned original/control")
+        yield  # Manager owns the one exact cache receipt write.
+        fresh = EvidenceResolver(self.cache)
+        fresh.metadata_limit, fresh.closure_limit = self.resolver.metadata_limit, self.resolver.closure_limit
+        fresh.resolve(reference)
+        current = fresh.documents[path]
+        if not self.history.same(current[1], receipt):
+            raise EvidenceError("verified receipt transition changed before validation")
+        if previous is not None:
+            total = self.resolver.json_bytes + current[0][2] - previous[0][2]
+            if total > self.resolver.metadata_limit:
+                raise EvidenceError("receipt transition exceeds prepared metadata allowance")
+            self.resolver.documents[path] = current
+            self.resolver.json_bytes = total
+        self._audit_inputs()
 
     def audit(self):
         self._audit_inputs()

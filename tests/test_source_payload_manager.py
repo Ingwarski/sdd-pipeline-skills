@@ -176,6 +176,18 @@ class SourcePayloadManagerTests(unittest.TestCase):
                 self.manager._transport_call("put", "synthetic/control.json", source)
         self.assertEqual(before, self.manager.transport.puts)
 
+    def test_irreversible_delete_requires_full_audit_not_only_input_pins(self):
+        self.enable_project()
+        with patch.object(self.manager.transport, 'delete') as delete:
+            with self.assertRaisesRegex(EvidenceError, 'full deletion boundary audit'):
+                with self.manager.locked():
+                    self.manager._metadata_records()
+                    self.instances[0].audit_pins = lambda: None
+                    self.audit_error = EvidenceError('full deletion boundary audit')
+                    self.manager._audit_source_payloads()  # Reversible accounting can check pins.
+                    self.manager._transport_call('delete', 'synthetic/disposable')
+            delete.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -166,6 +166,13 @@ A successful migration or metadata repair does not execute product checks. Use
 [acceptance rules](../skills/to-sdd-pipeline/references/unit-execution-contract.md)
 for owner review and revalidation.
 
+For [evidence lifecycle](../skills/to-sdd-pipeline/references/evidence-lifecycle.md)
+changes, exercise adoption, dependency updates, cleanup, empty-cache recovery and
+release in isolated synthetic projects. Verify unchanged acceptance without extra
+application-test execution; include stale participants, interrupted deletion and
+mixed-pack relocation. Building migration support does not authorize migrating
+real consuming projects or touching their evidence stores.
+
 For browser tasks, close task-created sessions and helpers. Verify ownership and
 lack of active use before deleting each task-created temporary profile. Preserve
 unrelated browser state and requested evidence.
