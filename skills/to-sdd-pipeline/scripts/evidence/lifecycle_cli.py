@@ -182,7 +182,7 @@ def execute(args, manager):
         result = manager.retire_lifecycle_scope(args.participant, review=_selected_json(args.review, manager))
         return {"retirement": result, "cleanup": _automatic_cleanup(manager)}
     if command == "lifecycle-cleanup":
-        return manager.cleanup_lifecycle(dry_run=not args.apply)
+        return {"actions": manager.cleanup_lifecycle(dry_run=not args.apply)}
     if command == "lifecycle-relocate":
         return manager.relocate_lifecycle_pack(args.pack_sha256, dry_run=not args.apply)
     return manager.lifecycle_status()

@@ -153,6 +153,11 @@ class LifecycleCliTests(unittest.TestCase):
         after = {str(path.relative_to(self.storage.store)): hash_file(path)
                  for path in self.storage.store.rglob('*') if path.is_file()}
         self.assertEqual(before, after)
+        for flags in ([], ['--apply']):
+            cleaned = subprocess.run(command + ['lifecycle-cleanup'] + common + flags,
+                                     env=environment, capture_output=True, text=True, timeout=60)
+            self.assertEqual(0, cleaned.returncode, cleaned.stdout + cleaned.stderr)
+            self.assertEqual({'actions': []}, json.loads(cleaned.stdout))
 
     def test_history_checkpoint_noop_does_not_change_acceptance_or_catalog(self):
         self.adopt()
