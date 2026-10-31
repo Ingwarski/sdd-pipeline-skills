@@ -103,7 +103,7 @@ Frozen rendering inputs include shared fonts, images, CSS and scripts; mutable r
 
 ## Evidence storage
 
-Select managed local storage outside Git, a chosen folder/disk/mount, or **Google Drive**. Setup records destination, aggregate/local limits, retention and adoption choice. Machine paths/credentials stay outside Git; `forge/evidence-policy.json` holds portable IDs and policy. Moving to another folder on the same disk reduces Git clutter without freeing disk space.
+Select managed local storage outside Git, a chosen folder/disk/mount, or **Google Drive**. Setup records destination and aggregate/local limits; lifecycle adoption separately enables automatic cleanup. Machine paths/credentials stay outside Git; `forge/evidence-policy.json` holds portable IDs and policy. Moving to another folder on the same disk reduces Git clutter without freeing disk space.
 
 **Google Drive prerequisites:** connect the agent's Google Drive integration before choosing connected storage. Codex uses the Google Drive plugin; Claude Code needs an available compatible Drive connector or MCP integration. These integrations are separate from the 13 skills. A connected account alone does not prove byte-transfer compatibility. Setup verifies original synthetic bytes and reports missing capabilities. [Connection and transport setup](docs/drive-transport.md) covers host availability, connector limits, and optional standalone rclone. Local and selected-folder storage need no Drive connection.
 
@@ -113,7 +113,7 @@ Storage prepares active bytes outside the checkout. The read-only checker verifi
 
 Versioned defaults cover cumulative run/unit/project generation and file counts, retained unique content/objects, combined metadata/index size, local capture/cache/staging/restoration reservations, retries and free-space reserve. Workers/resumes/worktrees share stable IDs and charges; deduplication/cleanup do not refund generation. Managed producers stop truthfully on exhaustion. External writers can bypass physical enforcement, so registered outputs must reconcile before completion. [Numeric policy and sizing rationale](docs/evidence-storage.md#defaults-and-sizing).
 
-Local generated-artifact expiry defaults to **30 days** from original sealing. Protection checks preserve current acceptance/prerequisites, baselines, approvals/authorization, unresolved failures, explicit retention and imported recovery archives. Cache eviction differs from permanent expiry; a sole durable local store is not disposable cache. Cleanup runs at managed boundaries or explicit command, with dry-run and verified deletion; no default daemon. Drive expiry is explicitly selected.
+Required proof has no age expiry. The adopted [evidence lifecycle](skills/to-sdd-pipeline/references/evidence-lifecycle.md) deletes registered material only after acceptance, history, investigation and worktree dependencies end. Unknown scope remains protected. Keep optional debugging output temporary; necessary investigation evidence may use the selected store. Replaceable local copies require verified durable coverage. Installation never adopts cleanup; no default daemon.
 
 For projects using GitHub Actions, configure artifact and log retention under the project's policy. This skillset repository uses 30 days when uploads are needed. Workflow YAML does not configure log retention, and local protections cannot prevent GitHub expiry. Preserve required bytes in the durable store first. [GitHub retention guidance](https://docs.github.com/en/actions/tutorials/store-and-share-data).
 

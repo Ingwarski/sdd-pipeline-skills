@@ -26,7 +26,9 @@ Report plan validity, historical acceptance and current permission separately: a
 
 Unit prerequisites, generic gates, security and release use one resolved acceptance result. Stored labels alone never qualify. Show original results/dates and identify reused runs. Recheck current sources, evidence, findings and dependencies before dependent starts/resumes and release; full integration/release obligations remain required.
 
-Contracts 3/4 may explicitly select `history_integrity: {legacy_payloads: "audit_only"}`; absence/default `every_gate` retains full checking. Only inactive `legacy_execution_archive` bulk payloads may be deferred. Archive/manifest metadata and file membership remain checked; accepted review dependencies, contexts, attempts, completions, current/prerequisite evidence and authority retain full validation. `--audit`, release and import/migration verify legacy bytes too. Reports expose deferred archive/file counts and `not_audited_this_gate`; unknown last verification is null. Select this assurance change through owner review; it neither prunes history nor bounds all historical gate cost.
+In contracts 3/4, owner-reviewed `history_integrity: {legacy_payloads: "audit_only"}` defers inactive `legacy_execution_archive` payloads only at ordinary gates. Default `every_gate`, audits, release and import/migration validate them. Metadata, membership and required proof remain checked. Reports include deferred counts and `not_audited_this_gate`; unknown last verification is null. This permits no pruning or overall cost guarantee.
+
+[Lifecycle adoption](evidence-lifecycle.md) binds exact optional snapshot members through `history_integrity.optional_diagnostics_ref`. Full audits may omit only these reviewed diagnostics. Required proof/input/authority reads remain strict. Original records and outcomes remain unchanged.
 
 ## Resume and migration
 

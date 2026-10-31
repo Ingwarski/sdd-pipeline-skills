@@ -33,6 +33,7 @@ import uuid
 from evidence.resolver import EvidenceResolver, INACTIVE_HISTORY_KEYS, evidence_reference, validate_reference, _regular, JSON_LIMIT
 from evidence.io import safe_relative, _parents, _open_regular, _verify_stable, hash_file, read_json as bounded_json
 from evidence.policy import validate_policy, MAX_POLICY_BYTES
+from evidence import diagnostics
 
 VERSION = 2
 CONTRACT = "sdd-unit-history-v2"
@@ -119,7 +120,7 @@ def source_archive_invocation(function):
         reference = explicit
         if reference is None and _source_archive.get() is None:
             reference = manifest.get("source_archive_index_ref") if isinstance(manifest, dict) else None
-        with source_archive_scope(values.get("project"), reference, values.get("evidence_cache"),
+        with diagnostics.scope(values.get("project"), manifest if isinstance(manifest, dict) else {}), source_archive_scope(values.get("project"), reference, values.get("evidence_cache"),
                                   policy_manifest=manifest if isinstance(manifest, dict) and manifest else None):
             return function(*args, **kwargs)
     return scoped
@@ -813,6 +814,7 @@ class SourceArchive:
             self.validate_view(*descriptor, force=True)
 
     def source(self, frozen):
+        diagnostics.guard_path(self.project, frozen["path"])
         source = self.sources.get(frozen["path"])
         if source is None:
             return physical(self.project, frozen["path"])
@@ -851,14 +853,14 @@ class SourceArchive:
         """Complete allowed views, derived only from immutable original envelopes."""
         views = []
         for root, original in self.originals.items():
-            views.append((root, original["files"]))
+            views.append((root, diagnostics.effective_files(self.project, original)))
             if original.get("event") in ("unit_completion", "unit_attempt"):
                 require(isinstance(original.get("context_ref"), dict), "source view requires its original context reference")
                 context = self.read_record(original["context_ref"])
                 require(context.get("event") == "unit_execution_context" and context.get("version") == VERSION,
                         "source view requires its original native pre-start context")
                 require(context["snapshot_root"] in self.originals, "prepare source views requires indexed pre-start context")
-                files = dict(original["files"])
+                files = dict(diagnostics.effective_files(self.project, original))
                 for artifact in context["manifest"]["artifacts"].values():
                     if artifact["path"] in context["files"]:
                         files[artifact["path"]] = context["files"][artifact["path"]]
@@ -898,20 +900,37 @@ class SourceArchive:
     def selected_view(self, root, files):
         """Only imported review sources admit a strict, immutable proof subset."""
         original = self.originals.get(root, {})
-        complete = original.get("files", {})
+        complete = diagnostics.effective_files(self.project, original)
         return (original.get("event") in ("legacy_execution_archive", "external_check_observations")
                 and bool(files) and len(files) < len(complete)
                 and all(same(frozen, complete.get(logical)) for logical, frozen in files.items()))
 
+    def prepared_descriptor(self, root, files):
+        """An existing full view can back a read-only optional withholding probe."""
+        descriptor = self.descriptor(root, files)
+        if self.location(descriptor).is_dir():
+            return descriptor, False
+        original = self.originals[root]
+        retained = diagnostics.effective_files(self.project, original)
+        omitted = set(original["files"]) - set(retained)
+        if omitted:
+            complete = dict(files)
+            complete.update({name: original["files"][name] for name in omitted})
+            full = self.descriptor(root, complete)
+            if self.location(full).is_dir():
+                return full, True
+        return descriptor, False
+
     def validate_selected_directory(self, root, files, logical, *, remember=True):
         """A selected tree must retain every recorded member and reject additions."""
         safe_relative(logical)
+        diagnostics.guard_path(self.project, root + "/" + logical)
         require(self.selected_view(root, files), "selected source view must bind an imported original")
-        complete = self.originals[root]["files"]
+        complete = diagnostics.effective_files(self.project, self.originals[root])
         require(logical not in complete, "source view access is outside selected proof")
         expected_files = {name for name in complete if name.startswith(logical.rstrip("/") + "/")}
         require(expected_files <= set(files), "selected directory omits original source members")
-        descriptor = self.descriptor(root, complete)
+        descriptor, _ = self.prepared_descriptor(root, complete)
         tree = self.location(descriptor) / "files"
         path = self.cache_path((tree / logical).relative_to(self.resolver.cache).as_posix())
         expected_dirs = {name for name in descriptor["directories"]
@@ -945,7 +964,8 @@ class SourceArchive:
         selected = self.selected_view(root, files)
         # Reuse the already prepared full view. Selection never creates a new
         # descriptor, copies payloads, or changes the immutable archive index.
-        descriptor = self.descriptor(root, self.originals[root]["files"] if selected else files)
+        base_files = diagnostics.effective_files(self.project, self.originals[root]) if selected else files
+        descriptor, optional_full_view = self.prepared_descriptor(root, base_files)
         directory = self.location(descriptor)
         require(directory.is_dir() and not api().is_link(directory), "complete prepared source view required; run prepare-source-views")
         receipt = self.resolver._json(directory / "receipt.json")
@@ -969,7 +989,14 @@ class SourceArchive:
                     else:
                         require(path.is_file(), "source view must contain regular files only")
                         actual_files.add(relative)
-            require(actual_files == set(files) and actual_dirs == set(descriptor["directories"]), "source view directory membership changed")
+            if optional_full_view:
+                required_dirs = set(self.descriptor(root, files)["directories"])
+                optional = set(self.originals[root]["files"]) - set(diagnostics.effective_files(self.project, self.originals[root]))
+                require(set(files) <= actual_files <= set(files) | optional
+                        and required_dirs <= actual_dirs <= set(descriptor["directories"]),
+                        "source view directory membership changed")
+            else:
+                require(actual_files == set(files) and actual_dirs == set(descriptor["directories"]), "source view directory membership changed")
         for logical, frozen in files.items():
             if selected:
                 self.cache_path((tree / logical).relative_to(self.resolver.cache).as_posix())
@@ -1017,11 +1044,13 @@ def source_archive_scope(project, reference=None, evidence_cache=None, *, policy
 
 
 def archived_source_path(project, frozen):
+    diagnostics.guard_path(project, frozen["path"])
     archive = _source_archive.get()
     return archive.source(frozen) if archive is not None else physical(project, frozen["path"])
 
 
 def source_view_path(project, root, files, logical, archive=None):
+    diagnostics.guard_path(project, root + "/" + logical)
     archive = _source_archive.get() or archive
     if archive is not None and root in archive.originals:
         safe_relative(logical)
@@ -1094,13 +1123,23 @@ def create_source_archive_index(project, records, *, evidence_cache=None, view_s
     return write_new(project, reference["path"], data)
 
 
-def prepare_source_views(project, index_ref, *, evidence_cache, max_bytes, max_files):
+def prepare_source_views(project, index_ref, *, evidence_cache, max_bytes, max_files, manifest=None):
+    """Prepare only supported proof views under the actual current policy."""
+    if manifest is None:
+        manifest_path = physical(project, "forge/sdd-manifest.json")
+        manifest = api().read_json(manifest_path) if manifest_path.is_file() else {}
+    with diagnostics.scope(project, manifest):
+        return _prepare_source_views(project, index_ref, evidence_cache=evidence_cache,
+            max_bytes=max_bytes, max_files=max_files, manifest=manifest)
+
+
+def _prepare_source_views(project, index_ref, *, evidence_cache, max_bytes, max_files, manifest):
     """Explicit bounded assembly; immutable index selects copy or shared links."""
     require(_source_archive.get() is None and _snapshot_hash_owner.get() is None,
             "prepare source views outside active read-only history validation")
     require(type(max_bytes) is int and max_bytes >= 0 and type(max_files) is int and max_files >= 0,
             "explicit source view byte/file capacity required")
-    archive = SourceArchive(project, index_ref, evidence_cache)
+    archive = SourceArchive(project, index_ref, evidence_cache, policy_manifest=manifest)
     descriptors = archive.expected_views()
     sources = {}
     logical_members = sum(len(files) for _, files in descriptors.values())
@@ -1124,7 +1163,14 @@ def prepare_source_views(project, index_ref, *, evidence_cache, max_bytes, max_f
     copied = 0 if archive.view_strategy == "shared_cache_links" else source_bytes
     require(copied + metadata <= max_bytes, "source view unique byte/metadata capacity exceeded")
     base = archive.cache_path("source-views/" + index_ref["content_hash"])
-    require(not base.exists(), "prepared source views already exist; validate or select a fresh cache")
+    if base.exists():
+        require(base.is_dir() and not api().is_link(base), "prepared source view root must be a directory")
+        for root, files in descriptors.values():
+            archive.validate_view(root, files)
+        archive.audit()
+        return {"status": "already_prepared", "index_ref": index_ref, "view_strategy": archive.view_strategy,
+            "unique_copied_bytes": 0, "unique_linked_bytes": 0, "metadata_bytes": metadata,
+            "logical_members": logical_members, "views": len(descriptors), "source_inventory": archive.source_inventory()}
     require(shutil.disk_usage(archive.resolver.cache).free >= copied + metadata, "insufficient free space for source views")
     base.mkdir(parents=True, exist_ok=False)
     try:
@@ -1173,8 +1219,9 @@ def prepare_source_views(project, index_ref, *, evidence_cache, max_bytes, max_f
         archive.private_blobs.clear()
         archive.view_files.clear()
         archive.views.clear()
-        for source in archive.sources.values():
-            archive.source({key: source[key] for key in REF_KEYS})
+        for _, files in descriptors.values():
+            for frozen in files.values():
+                archive.source(frozen)
         for root, files in descriptors.values():
             archive.validate_view(root, files)
         archive.audit()
@@ -1193,6 +1240,7 @@ def validate_files(project, record, *, hash_owner=None):
         for logical, ref in record["files"].items():
             physical(project, logical)
             require(ref.get("path") == record["snapshot_root"] + "/" + logical, "snapshot path must preserve logical identity")
+        for logical, ref in diagnostics.effective_files(project, record).items():
             path = archived_source_path(project, ref)
             require(path.is_file() and api().hash_matches(ref.get("content_hash"), owner.file_hash(path)), "historical snapshot changed: " + logical)
 
@@ -1220,7 +1268,7 @@ def _checker_legacy_files(checker, reference, record):
         return
     validate_files(checker.project, record)
     registrations = tuple((checker.project / ref["path"], owner.hashes[checker.project / ref["path"]])
-                          for ref in record["files"].values())
+                          for ref in diagnostics.effective_files(checker.project, record).values())
     owner.legacy_files[key] = (content, registrations)
 
 
@@ -1228,10 +1276,10 @@ def _checker_legacy_files(checker, reference, record):
 def historical_checker(project, manifest, context, completion=None, stack=(), cache=None, original_canonical=True, *, evidence_cache=None):
     owner = _snapshot_hash_owner.get()
     validate_files(project, context, hash_owner=owner)
-    files = dict(context["files"])
+    files = dict(diagnostics.effective_files(project, context))
     if completion:
         validate_files(project, completion, hash_owner=owner)
-        files = dict(completion["files"])  # A post-run deletion must not resurrect a pre-start file.
+        files = dict(diagnostics.effective_files(project, completion))  # A post-run deletion must not resurrect a pre-start file.
         if original_canonical:
             for artifact in context["manifest"]["artifacts"].values():
                 logical = artifact["path"]
@@ -1249,7 +1297,7 @@ def historical_checker(project, manifest, context, completion=None, stack=(), ca
     if completion and original_canonical:
         # Pre-start authoring observations retain their original repository view;
         # actual implementation/evidence and post-run owner observations use completion bytes.
-        checker._history_observation_overlay = context["files"]
+        checker._history_observation_overlay = diagnostics.effective_files(project, context)
         checker._history_observation_snapshot_root = context["snapshot_root"]
     checker._history_stack = stack
     checker._history_cache = cache if cache is not None else {}
@@ -2608,8 +2656,20 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
     """Optimistic guard covers executable/evidence/history inputs as well as docs."""
     external_refs = []
     paths, visited = set(referenced_paths(project, manifest, external_refs=external_refs)), set()
-    def visit(value, collect_external=True):
+    def visit(value, collect_external=True, record_ref=None):
         if isinstance(value, dict):
+            if value.get("event") == "unit_source_archive_index" and record_ref is not None:
+                selected = _source_archive.get()
+                selected = selected if selected is not None and selected.reference == record_ref else SourceArchive(
+                    project, record_ref, evidence_cache, _document=value, policy_manifest=manifest)
+                retained = {frozen["path"] for original in selected.originals.values()
+                    for frozen in diagnostics.effective_files(project, original).values()}
+                for entry in selected.record["records"]:
+                    visit(entry["record_ref"], collect_external)
+                for path, source in selected.sources.items():
+                    if path in retained:
+                        visit(source, collect_external)
+                return
             if value.get("event") == "legacy_execution_archive":
                 collect_external = False  # Retained, unverified legacy refs grant no acceptance.
             external = evidence_reference(value)
@@ -2624,10 +2684,12 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
                 paths.add(path)
                 if path.startswith(HISTORY + "/") and "/files/" not in path and path.endswith(".json") and path not in visited:
                     visited.add(path)
-                    visit(read_ref(project, value), collect_external)
+                    visit(read_ref(project, value), collect_external, record_ref=value)
             for key, child in value.items():
                 if key in INACTIVE_HISTORY_KEYS:
                     continue
+                if key == "files" and "snapshot_root" in value:
+                    child = diagnostics.effective_files(project, value)
                 if key in ("implementation_paths", "required_source_paths") and isinstance(child, list):
                     paths.update(child)
                 if key == "execution_inputs" and isinstance(child, dict):
@@ -2643,13 +2705,16 @@ def candidate_hashes(project, manifest, *, evidence_cache=None, include_external
     visit(manifest)
     result = {}
     for path in sorted(paths):
+        diagnostics.guard_path(project, path)
         archive = _source_archive.get()
         source = archive.sources.get(path) if archive is not None else None
         target = archived_source_path(project, {key: source[key] for key in REF_KEYS}) if source else physical(project, path)
         result[path] = sha(target.read_bytes()) if target.is_file() else "directory" if target.is_dir() else None
     archive = _source_archive.get()
     if archive is not None:
-        external_refs.extend(source["evidence_ref"] for source in archive.sources.values())
+        retained = {frozen["path"] for original in archive.originals.values()
+            for frozen in diagnostics.effective_files(project, original).values()}
+        external_refs.extend(source["evidence_ref"] for path, source in archive.sources.items() if path in retained)
     if checker is not None:
         external_refs.extend(checker.evidence_resolver.references.values())
         external_refs.extend(getattr(checker, "_history_cache", {}).get("evidence_references", {}).values())
@@ -2995,7 +3060,7 @@ def validate_adoption_mode(previous, candidate, mode):
 def candidate_report(checker, migration):
     """A format migration may expose an unfinished plan; it cannot approve one."""
     try:
-        with history_integrity_scope(checker._source_manifest, force_full=True):
+        with history_integrity_scope(checker._source_manifest, force_full=True, project=checker.project):
             report = checker.run("development-plan", after=True, require_current=True)
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:
         if not migration:
@@ -3193,6 +3258,23 @@ def main():
             child.add_argument("--max-bytes", required=True, type=int)
             child.add_argument("--max-files", required=True, type=int)
     args = parser.parse_args()
+    try:
+        from evidence_store import history_publication_guard
+        with history_publication_guard(args.project, args.manifest, evidence_cache=args.evidence_cache,
+                                       enabled=args.command in HISTORY_MUTATIONS) as manager:
+            return _execute_cli(args, manager)
+    except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:
+        print(json.dumps({"result": "blocked", "detail": str(error)}))
+        return 1
+
+
+HISTORY_MUTATIONS = frozenset(("capture-context", "capture-completion", "capture-attempt", "capture-continuation",
+                             "seal-check", "seal-group", "capture-review", "import-observations",
+                             "prepare-original-inventory", "create-source-archive-index", "stage", "activate",
+                             "adopt-legacy", "recover", "assess", "observe-runtime"))
+
+
+def _execute_cli(args, manager=None):
     def read(path):
         return api().read_json(physical(args.project, path))
     try:
@@ -3246,6 +3328,11 @@ def main():
             result = observe_execution_inputs(args.project, manifest, args.unit, read(args.inventory) if args.inventory else None, evidence_cache=args.evidence_cache, check_id=args.check_id)
         else:
             result = recover_activation(args.project, read(args.journal_ref))
+        if args.command in HISTORY_MUTATIONS and manager is not None:
+            from evidence.lifecycle_cli import checkpoint
+            lifecycle = checkpoint(manager, manifest_path=args.manifest)
+            if lifecycle is not None:
+                print(json.dumps({"evidence_lifecycle": lifecycle}, ensure_ascii=True), file=sys.stderr)
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:

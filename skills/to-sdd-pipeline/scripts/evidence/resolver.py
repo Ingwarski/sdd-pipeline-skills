@@ -242,7 +242,7 @@ class EvidenceResolver:
         receipt = self._json(self._path("receipts", key + ".json"))
         if not isinstance(receipt, dict):
             raise ValueError("prepared receipt identity/reference mismatch: " + key)
-        canonical = {k: v for k, v in receipt.items() if k not in ("verified_archive", "original_references")}
+        canonical = {k: v for k, v in receipt.items() if k not in ("verified_archive", "original_references", "storage_relocations")}
         validate_reference(canonical)
         aliases = receipt.get("original_references", [])
         if not isinstance(aliases, list) or len(aliases) > self.closure_limit:
@@ -256,6 +256,10 @@ class EvidenceResolver:
         # Use the verified adopted form for closure and zero-generation accounting;
         # content, bindings, provenance and sealing time are identical.
         ref = canonical
+        storage = ref
+        if "storage_relocations" in receipt:
+            from .relocation import receipt_storage_reference
+            storage = receipt_storage_reference(ref, receipt["storage_relocations"])
         if key in self.references and not same_reference(self.references[key], ref):
             raise ValueError("artifact identity refers to conflicting evidence")
         self.references[key] = ref
@@ -265,7 +269,7 @@ class EvidenceResolver:
         try:
             archive = receipt.get("verified_archive")
             archives = archive if isinstance(archive, list) else [archive]
-            locator = ref["locator"]
+            locator = storage["locator"]
             segments = locator.get("segments")
             locators = segments if segments is not None else [locator]
             for item in locators:

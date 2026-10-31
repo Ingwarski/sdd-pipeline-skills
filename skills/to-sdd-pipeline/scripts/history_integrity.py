@@ -9,6 +9,7 @@ from contextvars import ContextVar
 import re
 
 from evidence.io import safe_relative
+from evidence import diagnostics
 
 
 _mode = ContextVar("sdd_legacy_payload_integrity", default=None)
@@ -21,12 +22,16 @@ def policy_mode(manifest):
     if "history_integrity" not in manifest:
         return "every_gate"
     versions = tuple(manifest.get(key) for key in ("checker_contract_version", "unit_contract_version"))
-    if any(type(value) is not int for value in versions) or versions not in ((3, 3), (4, 4)):
-        raise ValueError("history integrity policy requires checker and unit contracts 3 or 4")
     policy = manifest["history_integrity"]
-    if (not isinstance(policy, dict) or set(policy) != {"legacy_payloads"}
+    if (not isinstance(policy, dict) or not {"legacy_payloads"} <= set(policy) <= {"legacy_payloads", "optional_diagnostics_ref"}
             or policy["legacy_payloads"] not in ("every_gate", "audit_only")):
         raise ValueError("history_integrity requires legacy_payloads: every_gate or audit_only")
+    supported = versions in ((3, 3), (4, 4)) or (versions == (2, 2)
+        and policy["legacy_payloads"] == "every_gate" and "optional_diagnostics_ref" in policy)
+    if any(type(value) is not int for value in versions) or not supported:
+        raise ValueError("history integrity policy requires checker and unit contracts 3 or 4; contract 2 permits only reviewed optional diagnostics with every_gate")
+    if "optional_diagnostics_ref" in policy:
+        _reference(policy["optional_diagnostics_ref"])
     return policy["legacy_payloads"]
 
 
@@ -52,11 +57,12 @@ class IntegrityScope:
             "legacy_payload_status": "not_audited_this_gate" if deferred else "no_payload_checks_deferred",
             "last_full_payload_verification": None,
             "scope": "Only unusable legacy payload bytes may be deferred; metadata and current acceptance dependencies remain verified. A null last verification time means unknown.",
+            **diagnostics.report(),
         }
 
 
 @contextmanager
-def history_integrity_scope(manifest, *, force_full=False):
+def history_integrity_scope(manifest, *, force_full=False, project=None):
     """Share the selected policy with nested history gates for this call only.
 
     Full audits and release/migration callers use force_full. A nested operation
@@ -71,8 +77,9 @@ def history_integrity_scope(manifest, *, force_full=False):
     mode_token = _mode.set(effective)
     state_token = _state.set(state)
     try:
-        yield IntegrityScope(selected if root else state.get("selected", selected),
-                             effective, root=root, state=state)
+        with diagnostics.scope(project, manifest):
+            yield IntegrityScope(selected if root else state.get("selected", selected),
+                                 effective, root=root, state=state)
     finally:
         _state.reset(state_token)
         _mode.reset(mode_token)
