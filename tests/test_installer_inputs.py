@@ -122,15 +122,23 @@ class InstallerInputTests(unittest.TestCase):
         (self.clone / "skills/to-sdd-pipeline/references/common-contract.md").unlink()
         self.assert_failed_without_mutation(self.install())
 
-    def test_missing_progress_module_stops_before_any_installation_mutation(self):
-        (self.clone / "skills/to-sdd-pipeline/scripts/progress.py").unlink()
-        result = self.install()
-        self.assert_failed_without_mutation(result)
-        self.assertIn("Installation preflight failed", result.stderr + result.stdout)
-        self.assertIn("progress.py", result.stderr + result.stdout)
-        self.assertEqual("Synthetic retired copy.\n", (self.retired / "marker.txt").read_text(encoding="utf-8"))
-        self.assertFalse(self.evidence_home.exists(), "Preflight must precede evidence setup writes")
-        self.assertEqual([], list(self.unrelated_project.iterdir()))
+    def test_missing_runtime_module_stops_before_any_installation_mutation(self):
+        for name in ("progress.py", "check_inputs.py", "history_integrity.py",
+                     "observation_capture.py", "verification_metrics.py"):
+            with self.subTest(module=name):
+                path = self.clone / "skills/to-sdd-pipeline/scripts" / name
+                original = path.read_bytes()
+                try:
+                    path.unlink()
+                    result = self.install()
+                    self.assert_failed_without_mutation(result)
+                    self.assertIn("Installation preflight failed", result.stderr + result.stdout)
+                    self.assertIn(name, result.stderr + result.stdout)
+                    self.assertEqual("Synthetic retired copy.\n", (self.retired / "marker.txt").read_text(encoding="utf-8"))
+                    self.assertFalse(self.evidence_home.exists(), "Preflight must precede evidence setup writes")
+                    self.assertEqual([], list(self.unrelated_project.iterdir()))
+                finally:
+                    path.write_bytes(original)
 
     def test_invalid_frontmatter_stops_before_mutation(self):
         (self.clone / "skills/to-wireframes/SKILL.md").write_text("# Not a valid skill\n", encoding="utf-8")

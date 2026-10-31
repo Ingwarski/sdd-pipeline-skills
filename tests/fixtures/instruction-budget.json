@@ -8,23 +8,23 @@
     "path": "instruction-baseline.json",
     "sha256": "b9aa3ae4416890799774b00466dde9d16c84b18d11e61c94417873a1991529ce"
   },
-  "reason": "The original numerical consolidation baseline remains unchanged. Independently reviewed cumulative allowances retain earlier approved intake and reporting changes and include unfinished-attempt recovery, current progress, early construction validation, clause-coverage review and optional browser/evidence guidance. Every prior conditional resource and retry remains counted; QA invocations additionally load coverage review, and evidence-consumer invocations load browser guidance in all five visual scenarios. Scenario definitions, seeds, invocation order, retries, tokenizer and measurement method remain unchanged. README retains zero growth. Ceilings equal the exact independently reviewed totals with no spare allowance. Further growth requires independent review of instructions, complete resource loads, measurements and rationale. Static estimates exclude executable helper source and tool output and do not establish live-run cost or behavior. See docs/maintenance.md.",
+  "reason": "The original checksum-pinned numerical baseline, scenarios, seeds, invocation order and retries remain unchanged. Earlier reviewed cumulative allowances remain in force. Independent review approved only the completion-preservation ceiling increase from 224222 to 242045 and cumulative growth of 55327 against 186718. The new reviewed-acceptance procedure is 1997 tokens, counted on all nine history-owner invocations including the retry (17973 tokens); other instructions save 150 tokens in that scenario, for net growth of 17823 (7.9488%). All 48 ordered resource loads were independently checked and recomputed with the pinned tokenizer. All other ceilings are unchanged; README remains 3555 and every other measured workflow is below its prior ceiling. The new ceiling has no spare allowance. Future growth requires independent review of the full instructions, loads and rationale. Static estimates exclude executable helpers and tool output and establish no live-run savings. See docs/maintenance.md.",
   "absolute": {
-    "entrypoints": 16727,
+    "entrypoints": 16810,
     "readme": 3555,
-    "first_setup_with_retry": 158671,
-    "approved_design_revision": 101688,
-    "interrupted_claude_resume": 119892,
-    "approved_decision_correction": 119683,
-    "completion_preservation": 211944
+    "first_setup_with_retry": 167251,
+    "approved_design_revision": 108316,
+    "interrupted_claude_resume": 126792,
+    "approved_decision_correction": 126583,
+    "completion_preservation": 242045
   },
   "approved_growth_tokens": {
-    "entrypoints": 135,
+    "entrypoints": 218,
     "readme": 0,
-    "first_setup_with_retry": 10661,
-    "approved_design_revision": 9667,
-    "interrupted_claude_resume": 12978,
-    "approved_decision_correction": 12978,
-    "completion_preservation": 25226
+    "first_setup_with_retry": 19241,
+    "approved_design_revision": 16295,
+    "interrupted_claude_resume": 19878,
+    "approved_decision_correction": 19878,
+    "completion_preservation": 55327
   }
 }

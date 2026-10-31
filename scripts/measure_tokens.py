@@ -80,6 +80,8 @@ def resource_loads(skill, scenario, revision=None):
         paths.append(SHARED + "authorization-corrections.md")
     if reads_history(skill, scenario, entry):
         paths.append(SHARED + "completion-preservation.md")
+        if scenario.get("completion_preservation"):
+            paths.append(SHARED + "reviewed-acceptance.md")
     if skill in scenario.get("evidence_storage_consumers", []):
         paths.append(SHARED + "evidence-storage-contract.md")
         # These fixed scenarios all have visual products. Count the conditional

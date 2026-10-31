@@ -1,0 +1,27 @@
+{
+  "command": [
+    "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-p",
+    "test_*.py",
+    "-v"
+  ],
+  "at": "2026-10-21T23:21:53.376587+00:00",
+  "exit_code": 0,
+  "seconds": 441.344,
+  "tracked_authored_file_count": 93,
+  "tracked_authored_files_unchanged": true,
+  "changed": [],
+  "ignored_bytecode_excluded": true,
+  "frozen_source_hashes": {
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": "0c0ae2804eda1d28e01c0e3c81181e549b7044512fd7f45782c2f09481b1b3e7",
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f",
+    "tests/test_history_file_cache.py": "c50ce2053ac545333d3a22d4f3c24738fd274d42e4c538b785843bbcec98e0b5"
+  },
+  "product_acceptance": false
+}

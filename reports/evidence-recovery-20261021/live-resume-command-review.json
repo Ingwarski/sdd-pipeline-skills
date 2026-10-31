@@ -1,0 +1,935 @@
+{
+  "acceptance": {
+    "allocations": {
+      "QA-EXP-BND-00-FUNCTIONAL": {
+        "obligation_ids": [],
+        "owner_unit": "UNIT-EXP-00",
+        "prerequisite_checks": [],
+        "prerequisite_units": []
+      },
+      "QA-EXP-BND-00-OPS": {
+        "obligation_ids": [],
+        "owner_unit": "UNIT-EXP-00",
+        "prerequisite_checks": [
+          "QA-EXP-BND-00-FUNCTIONAL"
+        ],
+        "prerequisite_units": []
+      },
+      "QA-EXP-BND-00-SECURITY": {
+        "obligation_ids": [
+          "NFR-EXP-SEC01",
+          "NFR-EXP-SEC02",
+          "NFR-EXP-SEC03",
+          "NFR-EXP-SEC07",
+          "NFR-EXP-SEC08",
+          "NFR-EXP-SEC09",
+          "NFR-EXP-SEC13",
+          "NFR-EXP-SEC16"
+        ],
+        "owner_unit": "UNIT-EXP-00",
+        "prerequisite_checks": [
+          "QA-EXP-BND-00-FUNCTIONAL"
+        ],
+        "prerequisite_units": []
+      }
+    },
+    "gates": [
+      "functional_and_regression_requirements",
+      "product_security_requirements",
+      "operational_readiness"
+    ],
+    "provider_zero_exit": "observations_complete_acceptance_not_asserted; independently inspect lanes.",
+    "required_checks": [
+      "QA-EXP-BND-00-FUNCTIONAL",
+      "QA-EXP-BND-00-OPS",
+      "QA-EXP-BND-00-SECURITY"
+    ],
+    "rule": "Actual disposable restored inventory matches source; real provider/protected-media/report lanes named with limitations+budgets; security denial/concurrency/recovery outcomes observed; missing capability or unresolved budgets keeps affected check blocked. Pure/prepared/runtime-identity/engine/accounting success is not product QA.",
+    "scope_limit": "No UNIT01 or UNIT06 work; no source/spec/manifest/QA/evidence status changed by this review."
+  },
+  "bounded_fix_verification": {
+    "changed_files": [
+      "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "tests/test_additive_continuation.py"
+    ],
+    "checks": [
+      {
+        "command": "python3 -B -m unittest discover -s tests -p test_additive_continuation.py -v",
+        "result": "passed",
+        "seconds": 9.552,
+        "tests": 8
+      },
+      {
+        "command": "python3 -B -m unittest discover -s tests -p test_attempt_history.py -v",
+        "result": "passed",
+        "seconds": 46.333,
+        "tests": 11
+      }
+    ],
+    "evidence_class": "Synthetic isolated history/checker fixtures, including actual Python --version identity probe and full native capture/transition/start; no product acceptance, private ledger, SQL, browser, network or Git operation.",
+    "source_hashes": {
+      "skills/to-sdd-pipeline/scripts/sdd_history.py": "194bea3521fbf9534481bb018cf93c403a403cdb2329fa9ce56f7f39db45b516",
+      "tests/test_additive_continuation.py": "57f5685eac699b23ac28d6f0ef92ada0f9cdbc25673c797bf519e228b43055d7"
+    }
+  },
+  "commands": [
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/evidence_store.py",
+        "quarantine-producer",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--host-session",
+        "<ACTIVE_DRIVE_HOST_SESSION>",
+        "--attempt-id",
+        "55471474-44b9-48ae-a486-833beca16465",
+        "--proof",
+        "<ROOT_DISPOSITION_PROOF_JSON>"
+      ],
+      "id": "a1-quarantine-dry",
+      "notes": [],
+      "prerequisites": [
+        "Original ledger and original producer record intact; root verifies current native identities and preserved raw capture.",
+        "Root has authored the exact bound proof below after reviewing the fresh audit; no historical totals assertion."
+      ],
+      "stdout_or_output": "<ROOT_QUARANTINE_DRY_JSON>"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/evidence_store.py",
+        "quarantine-producer",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--host-session",
+        "<ACTIVE_DRIVE_HOST_SESSION>",
+        "--attempt-id",
+        "55471474-44b9-48ae-a486-833beca16465",
+        "--proof",
+        "<ROOT_DISPOSITION_PROOF_JSON>",
+        "--apply"
+      ],
+      "id": "a2-quarantine-apply",
+      "notes": [
+        "Old session/run/hold/uncertain row and durable intent stay unresolved; no complete-run for old run."
+      ],
+      "prerequisites": [
+        "a1 succeeds with exact original bindings and conservative unchanged floor/full reservation."
+      ],
+      "stdout_or_output": "<ROOT_QUARANTINE_APPLY_JSON>"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_check.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "--before",
+        "implementation"
+      ],
+      "id": "b0-before-implementation",
+      "notes": [],
+      "prerequisites": [
+        "Current installed skill/source provenance verified by root; evidence cache prepared with genuine existing reference closure."
+      ],
+      "stdout_or_output": "<BEFORE_IMPLEMENTATION_REPORT>"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-runtime-producer.py",
+        "--phase",
+        "pre",
+        "--run-id",
+        "<FRESH_RUN_ID>",
+        "--host-session",
+        "<ACTIVE_DRIVE_HOST_SESSION>",
+        "--port",
+        "<PRE_LOOPBACK_PORT>"
+      ],
+      "id": "b1-pre-identity",
+      "notes": [
+        "Native producer reserves128MiB/2000logicalfiles; separate2GiB workinghold;900s owner deadline/1080s native timeout.",
+        "Do not invoke root-managed context: continuation captures its own context."
+      ],
+      "prerequisites": [
+        "a2 succeeded; fresh run ID differs from both original failed product run and old failed runtime prerequisite run.",
+        "Run asynchronously: root must issue native observe-runtime while its six browser sessions remain held.",
+        "Root verifies live included allowance and budgets before launch; actual ports and native resources selected/owned by root."
+      ],
+      "stdout_or_output": "/Users/ingwar/.sdd-pipeline/evidence/projects/6576cc96-a5ae-43fa-a6d0-1f7f85c1bfd3/runtime-coordination/<FRESH_RUN_ID>/pre.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-history-command.py",
+        "--label",
+        "retry3-runtime-pre",
+        "--",
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_history.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "observe-runtime",
+        "--probes",
+        "<RETRY3_PRE_PROBES_PROJECT_RELATIVE_JSON>"
+      ],
+      "id": "b2-observe-pre",
+      "notes": [
+        "Helper stdout file contains returned immutable reference; read referenced record to obtain exact environment, never reconstruct environment from version strings."
+      ],
+      "prerequisites": [
+        "b1 ready while still alive; probes use retry3/root-runtime-query.mjs and actual chosen pre port."
+      ],
+      "stdout_or_output": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/retry3-runtime-pre.stdout.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-history-command.py",
+        "--label",
+        "retry3-continuation",
+        "--",
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_history.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "capture-continuation",
+        "--unit",
+        "UNIT-EXP-00",
+        "--attempt-ref",
+        "forge/implementation/platform-expansion/unit-00/current-20261021/root-attempt-ref.json",
+        "--run-id",
+        "<FRESH_RUN_ID>",
+        "--inventory",
+        "<REVIEWED_CONTINUATION_INVENTORY_PROJECT_RELATIVE_JSON>"
+      ],
+      "id": "b3-capture-continuation",
+      "notes": [
+        "Returned JSON has manifest,context_ref,prior_attempt_ref,run_id,acceptance. Save manifest as complete candidate and context_ref as retry3/root-context-ref.json.",
+        "No separate capture-context command, no guessed context fields."
+      ],
+      "prerequisites": [
+        "Fresh owner review after b2 observation; runtime_observation_ref=b2 returnedref, environment=exact referenced observation.environment.",
+        "Revised additive continuation helper installed and verified; original execution selections and exact fingerprints retained, retry3 actual executor closure added; semantic sources/inputs/bindings unchanged."
+      ],
+      "stdout_or_output": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/retry3-continuation.stdout.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-history-command.py",
+        "--label",
+        "retry3-continuation-stage",
+        "--",
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_history.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "stage",
+        "--candidate",
+        "<CONTINUATION_CANDIDATE_PROJECT_RELATIVE_JSON>",
+        "--expected-manifest-hash",
+        "<UNCHANGED_ACTIVE_MANIFEST_SHA256>"
+      ],
+      "id": "b4-stage-continuation",
+      "notes": [],
+      "prerequisites": [
+        "b3 valid; save returned manifest intact and reconcile only required operational progress without acceptance changes."
+      ],
+      "stdout_or_output": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/retry3-continuation-stage.stdout.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-history-command.py",
+        "--label",
+        "retry3-continuation-activate",
+        "--",
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_history.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "activate",
+        "--candidate-ref",
+        "forge/implementation/platform-expansion/unit-00/current-20261021-retry3/retry3-continuation-stage.stdout.json",
+        "--expected-manifest-hash",
+        "<UNCHANGED_ACTIVE_MANIFEST_SHA256>"
+      ],
+      "id": "b5-activate-continuation",
+      "notes": [],
+      "prerequisites": [
+        "b4 valid candidate reference; root serializes all operational writes; expected active hash unchanged."
+      ],
+      "stdout_or_output": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/retry3-continuation-activate.stdout.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_check.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "--start-unit",
+        "UNIT-EXP-00"
+      ],
+      "id": "b6-start-guard",
+      "notes": [
+        "On successful guard root records the actual start, not fabricated prior time: status running, fresh run_id, started_at, current development_plan_hash and approved_baseline_id.",
+        "Use native candidate/stage/activation flow for the resulting actual-start manifest; no direct invented acceptance; root-managed run independently rechecks --start-unit."
+      ],
+      "prerequisites": [
+        "b5 succeeded; active pending continuation has exact returned context."
+      ],
+      "stdout_or_output": "<START_GUARD_REPORT>"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-runtime-producer.py",
+        "--phase",
+        "post",
+        "--run-id",
+        "<FRESH_RUN_ID>",
+        "--host-session",
+        "<ACTIVE_DRIVE_HOST_SESSION>",
+        "--port",
+        "<POST_LOOPBACK_PORT>"
+      ],
+      "id": "c1-post-start-identity",
+      "notes": [
+        "Post here means post actual start and before product checks; it must precede main which seals the storage run."
+      ],
+      "prerequisites": [
+        "b6 succeeded and actual running start persisted; same fresh run ID.",
+        "Stop pre with authenticated owner POST, await terminal finally, independently verify pre cleanup before simultaneous resources exceed reserved capacity."
+      ],
+      "stdout_or_output": "/Users/ingwar/.sdd-pipeline/evidence/projects/6576cc96-a5ae-43fa-a6d0-1f7f85c1bfd3/runtime-coordination/<FRESH_RUN_ID>/post.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-history-command.py",
+        "--label",
+        "retry3-runtime-post",
+        "--",
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_history.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "observe-runtime",
+        "--probes",
+        "<RETRY3_POST_PROBES_PROJECT_RELATIVE_JSON>"
+      ],
+      "id": "c2-observe-post",
+      "notes": [
+        "Environment must equal new context inventory environment; bind returned reference to every subsequent actual check runtime_observation_ref before its executed_at."
+      ],
+      "prerequisites": [
+        "c1 ready and still held; observation started_at is after actual run.started_at."
+      ],
+      "stdout_or_output": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/retry3-runtime-post.stdout.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-runtime-cleanup.py",
+        "--phase",
+        "pre",
+        "--run-id",
+        "<FRESH_RUN_ID>"
+      ],
+      "id": "phase-cleanup-pre",
+      "notes": [
+        "Only exact phase workinghold is settled; does not complete shared run.",
+        "Run pre cleanup after b2/b3 as soon as pre identity no longer required; run post cleanup after c2 and before main."
+      ],
+      "prerequisites": [
+        "Root sends authenticated owner POST /stop using token from that exact phase private control file without printing it.",
+        "Wait for root-runtime-producer process to return and all normal finally cleanup; helper requires complete deferred native producer, final reports, exact absence and unchanged raw captured inputs."
+      ],
+      "stdout_or_output": "<PRE_INDEPENDENT_CLEANUP_REPORT>"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-runtime-cleanup.py",
+        "--phase",
+        "post",
+        "--run-id",
+        "<FRESH_RUN_ID>"
+      ],
+      "id": "phase-cleanup-post",
+      "notes": [
+        "Only exact phase workinghold is settled; does not complete shared run.",
+        "Run pre cleanup after b2/b3 as soon as pre identity no longer required; run post cleanup after c2 and before main."
+      ],
+      "prerequisites": [
+        "Root sends authenticated owner POST /stop using token from that exact phase private control file without printing it.",
+        "Wait for root-runtime-producer process to return and all normal finally cleanup; helper requires complete deferred native producer, final reports, exact absence and unchanged raw captured inputs."
+      ],
+      "stdout_or_output": "<POST_INDEPENDENT_CLEANUP_REPORT>"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-history-command.py",
+        "--label",
+        "retry3-inputs-before",
+        "--",
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_history.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "observe-inputs",
+        "--unit",
+        "UNIT-EXP-00",
+        "--inventory",
+        "<REVIEWED_CONTINUATION_INVENTORY_PROJECT_RELATIVE_JSON>"
+      ],
+      "id": "c3-observe-inputs-before",
+      "notes": [],
+      "prerequisites": [
+        "Started continuation, exact source inventory and environment settled; no source changes after this point."
+      ],
+      "stdout_or_output": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/retry3-inputs-before.stdout.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-managed.py",
+        "run",
+        "--host-session",
+        "<ACTIVE_DRIVE_HOST_SESSION>",
+        "--run-id",
+        "<FRESH_RUN_ID>",
+        "--output-dir",
+        "/Users/ingwar/.sdd-pipeline/evidence/projects/6576cc96-a5ae-43fa-a6d0-1f7f85c1bfd3/captures/<FRESH_RUN_ID>/main",
+        "--runtime-suffix",
+        "<FRESH_SHORT_SAFE_RUNTIME_SUFFIX>",
+        "--node-bin",
+        "/Users/ingwar/.local/nodejs/node-v24.16.0-darwin-arm64/bin/node",
+        "--mysql-bin",
+        "<VERIFIED_MYSQL_BIN_DIRECTORY>",
+        "--playwright-module",
+        "/Users/ingwar/.npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.mjs",
+        "--temp-base",
+        "<ACTUAL_RESOLVED_USER_TEMP>",
+        "--port",
+        "<PRODUCT_LOOPBACK_PORT>"
+      ],
+      "id": "c4-main",
+      "notes": [
+        "Main calls actual provider observations, isolated restore,14selected SQL tests and actual private media/browser probes.",
+        "Provider exit zero alone means observations collected; blocked capability lanes,512MiB source limit or missing budgets block affected acceptance.",
+        "Main default producer complete_run=True seals fresh storage run; later post producers on that run would fail reserve.",
+        "Separate root workinghold remains pending until independently verified runtime/browser/schema/helper absence; no automatic zero settlement."
+      ],
+      "prerequisites": [
+        "Actual running start and c2 matching runtime receipt; both identity phases completely stopped/independently cleaned.",
+        "root-context-ref.json contains exact b3 returned context_ref, fresh root-storage-reservation.json path unused.",
+        "Original local first failure capture10files<1MiB available with unchanged recorded hashes for preserve_first_failure.",
+        "Root verifies existing private inputs and exact SQL selections at consumption; this reviewer did not read them.",
+        "Included allowance checked again;2GiB runtimehold,128MiB/2000capture,4800s timeout remain enforced."
+      ],
+      "stdout_or_output": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-generation-result.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-history-command.py",
+        "--label",
+        "retry3-inputs-after",
+        "--",
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_history.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "observe-inputs",
+        "--unit",
+        "UNIT-EXP-00",
+        "--inventory",
+        "<REVIEWED_CONTINUATION_INVENTORY_PROJECT_RELATIVE_JSON>"
+      ],
+      "id": "c5-observe-inputs-after",
+      "notes": [
+        "Require equality with c3 actual execution fingerprints for every claimed check; changed inputs require rerun."
+      ],
+      "prerequisites": [
+        "c4 actual completion/failure captured."
+      ],
+      "stdout_or_output": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/retry3-inputs-after.stdout.json"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/evidence_store.py",
+        "accounting-receipt",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--host-session",
+        "<ACTIVE_DRIVE_HOST_SESSION>",
+        "--output",
+        "<FRESH_ACCOUNTING_RECEIPT_PROJECT_RELATIVE_OR_ABSOLUTE_JSON>"
+      ],
+      "id": "c6-accounting-receipt",
+      "notes": [
+        "Version2 scoped-known-generation expected: global accounting_complete=false,incomplete=true,totals_are_lower_bounds=true,history_complete=false;generation_ready=true only with exact isolated oldintent closure.",
+        "selected_scope derived by native ledger, never manually supplied; original failed run cannot be marked complete or added.",
+        "Portable policy original-byte SHA remains outer policy_sha256; descriptor canonical policy SHA separate.",
+        "No complete-run on oldfailedrun; main already completes fresh storage run if healthy."
+      ],
+      "prerequisites": [
+        "Every nonquarantined producer reservation settled and output reconciled; no pending new intent; independent working cleanup complete before resource closure claims."
+      ],
+      "stdout_or_output": "<FRESH_ACCOUNTING_RECEIPT_JSON>"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_check.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "--complete-unit",
+        "UNIT-EXP-00"
+      ],
+      "id": "c7-complete-unit-guard",
+      "notes": [
+        "Nonzero keeps UNIT00 incomplete and bars UNIT01/06."
+      ],
+      "prerequisites": [
+        "Root QA/DoD owner review records actual functional/security/ops outcomes, exact evaluated sources+matching before/after inputs, c2 runtime ref and actual evidence; no missing/blocked required lane.",
+        "Fresh native generated evidence archived and independently original-byte verified/prepared with c6 accounting receipt; all original failed history retained."
+      ],
+      "stdout_or_output": "<COMPLETE_UNIT_GUARD_REPORT>"
+    },
+    {
+      "argv": [
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-history-command.py",
+        "--label",
+        "retry3-completion",
+        "--",
+        "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts/sdd_history.py",
+        "--project",
+        "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+        "--manifest",
+        "<ACTUAL_COMPLETED_CANDIDATE_PROJECT_RELATIVE_JSON>",
+        "--evidence-cache",
+        "<PREPARED_CACHE>",
+        "capture-completion",
+        "--unit",
+        "UNIT-EXP-00",
+        "--context-ref",
+        "forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-context-ref.json",
+        "--run-id",
+        "<FRESH_RUN_ID>",
+        "--inventory",
+        "<POST_RUN_OWNER_REVIEWED_INVENTORY_PROJECT_RELATIVE_JSON>"
+      ],
+      "id": "c8-capture-completion",
+      "notes": [
+        "Capture validates completion; then root indexes returned completion_ref and uses stage/activate with the observed active hash, followed by complete-unit guard again.",
+        "If failure/interruption occurs instead, use capture-attempt with actual outcome and preserve status; never manufacture completion."
+      ],
+      "prerequisites": [
+        "c7 passes; candidate records genuine completed_at and actual same run; fresh owner review follows actual checks and any status-only canonical update."
+      ],
+      "stdout_or_output": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/retry3-completion.stdout.json"
+    }
+  ],
+  "compatibility_gap": {
+    "consequence": "Original exact-only implementation blocked truthful addition of new executor sources. Authorized bounded additive change now provides supported continuation when originals remain exact; changed/removed original selections or bytes remain rejected.",
+    "current_observed_old_inventory": "root-reviewed-inventory.json selects original current-20261021 root/Python/media/controller paths and original provider preparation; retry3 paths absent.",
+    "finding": "capture_continuation currently requires preserved-work inventory identity, including execution_inputs and execution_fingerprints, to equal the immutable prior attempt; only environment,runtime_observation_ref,canonical_hashes,review are ignored.",
+    "new_actual_harness": "retry3 authored source closure includes new root helpers, Python live tree and media journal/deadline/runtime files.",
+    "resolution": {
+      "authorized_by": "Root explicit bounded implementation instruction in current task",
+      "bounds": [
+        "original and reviewed selection/fingerprint key domains must match individually",
+        "every original path selection and fingerprint must be unchanged",
+        "new path requires freshly computed exact fingerprint through prepare_inventory",
+        "fresh owner review still follows attempt capture/runtime observation",
+        "same distinct-run, runtime, authority/plan/baseline/QA rules unchanged",
+        "all owned checks reset to not_run; no old evidence/execution metadata accepted",
+        "immutable attempt sources/results/references preserved byte-exact"
+      ],
+      "not_a_bypass": "No fresh pendingrun/context path without prior_attempt_ref can replace the active unfinished run through validate_transition; it requires exact immutable attemptedrun/check/context preservation and captured continuation context.",
+      "root_integration_required": "Verify final revised installed sdd_history.py before native operations. Keep all old selected helper files byte-exact; add every actual retry3 source/test/helper dependency path rather than replacing or removing old inputs.",
+      "source_change": "continuation_inventory permits additive reviewed execution_inputs while every original selection and exact fingerprint must remain; sources/inputs/bindings and remaining semantic fields stay exact."
+    },
+    "root_action": "Use fresh native reviewed inventory retaining every original selection and fingerprint, with all actual retry3 source closure added. Verify revised installed helper; no original source/authority/QA weakening or status bypass.",
+    "second_constraint": "root-managed context action separately captures context with no prior_attempt_ref and would not replace native capture-continuation; serialize returned context_ref to root-context-ref.json instead.",
+    "source": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_history.py:934"
+  },
+  "created_at": "2026-10-21T15:51:16.658627+00:00",
+  "important_order": [
+    "quarantine dry/apply original runtime attempt; never finish it",
+    "fresh pre held browser identity",
+    "native observe-runtime while pre held",
+    "fresh owner inventory from exact observed environment; resolve inventory gap before capture",
+    "capture-continuation creates context; persist returnedref; stage/activate pending continuation",
+    "start-unit guard then actual running start",
+    "post-start held browser identity and native observe-runtime; exact environment equality",
+    "authenticated stops, native finally and independent cleanup for pre/post",
+    "observe-inputs before; main actual probes; observe-inputs after",
+    "independent main runtime cleanup; native accounting v2 receipt; actual archive/readback/QA/DoD",
+    "complete-unit guard; capture completion using real completed candidate; stage/activate; guard again"
+  ],
+  "kind": "read-only-live-resume-command-review",
+  "owner_stop_contract": {
+    "headers": {
+      "x-unit00-control-token": "Read exact phase private control_file JSON control_token; do not print or archive secret token."
+    },
+    "method": "POST",
+    "source": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/media/runtime-identity.mjs",
+    "then": "Await root-runtime-producer terminal result, then phase-cleanup command; timeout/deadline/failure never implies success.",
+    "url": "Read exact phase control_file JSON base_url + stop_endpoint; verify current phase binding and loopback."
+  },
+  "pre_post_probe_payload_template": {
+    "browser_identity": [
+      "/Users/ingwar/.local/nodejs/node-v24.16.0-darwin-arm64/bin/node",
+      "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-runtime-query.mjs",
+      "http://127.0.0.1:<ACTUAL_PHASE_PORT>/identity"
+    ],
+    "mysql": [
+      "<ACTUAL_VERIFIED_MYSQLD_ABSOLUTE_EXECUTABLE>",
+      "--version"
+    ],
+    "node": [
+      "/Users/ingwar/.local/nodejs/node-v24.16.0-darwin-arm64/bin/node",
+      "--version"
+    ],
+    "os": [
+      "/usr/bin/uname",
+      "-srvmp"
+    ],
+    "python": [
+      "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "--version"
+    ]
+  },
+  "quarantine_proof_required_exact_schema": {
+    "attempt_id": "55471474-44b9-48ae-a486-833beca16465",
+    "external_disposition": {
+      "coverage": "all-unregistered-helpers-and-resources",
+      "journal": {
+        "path": "/Users/ingwar/.sdd-pipeline/evidence/projects/6576cc96-a5ae-43fa-a6d0-1f7f85c1bfd3/captures/unit00-current-20261021-r1-3ec4aa2d/identity-pre/owned-resources.json",
+        "sha256": "61347beeab760550f39e6c69f99adbe689329f25d5d267b5ba57653e91c421c1"
+      },
+      "limitations": "<ROOT_REVIEWED_HONEST_LIMITATIONS_INCLUDING_COARSE_NODE_PS_IDENTITY_AND_UNKNOWN_HISTORICAL_GENERATION>",
+      "proof": {
+        "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-live-disposition-audit.json",
+        "sha256": "ca351a44c9e696f72284f0074253e78543c55a1b139fc27362fa7086b0e68051"
+      }
+    },
+    "kind": "producer-disposition",
+    "observed_at": "<ACTUAL_TIME_AFTER_FRESH_AUDIT_REVIEW>",
+    "original_record_sha256": "<ROOT_HASH_OF_EXACT_RAW_ORIGINAL_PRODUCER_SESSION_RECORD_UTF8_BYTES>",
+    "verifier": "<ACTUAL_ROOT_REVIEWER>",
+    "version": 1
+  },
+  "readproof": [
+    {
+      "bytes": 20326,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/AGENTS.md",
+      "sha256": "0417831994f8f55289c34a1a728b061caaa785cc8b45e6d5367b9fc5ea8c6d47"
+    },
+    {
+      "bytes": 12464,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/guardrails.md",
+      "sha256": "2a2b1625aa5bb35125709f3860f706cd3fa6e4262d2d86ea2955cf6bb39bb6f1"
+    },
+    {
+      "bytes": 4241926,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/sdd-manifest.json",
+      "sha256": "fa67eddaa41e659d1bfa3e86d378d7a04d7e496e5459b21612b2fbae38fd002a"
+    },
+    {
+      "bytes": 522400,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/development-plan.md",
+      "sha256": "0515ce2b0c0ab01ebbc9de5f06cae8e52b9dc6cd94286900673ff8e3b56d3dac"
+    },
+    {
+      "bytes": 2356802,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/qa-checklist.md",
+      "sha256": "c8a96df44f697e170fb7d6d2d9d4cfcd3fa6f576881c5f63efb41022145ff519"
+    },
+    {
+      "bytes": 27680,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/docs/dod-evals.md",
+      "sha256": "4c4eabd54e7d01275a3e4c622d5441fc1975c2ef5307c16bbd02937bc622d293"
+    },
+    {
+      "bytes": 3664,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/evidence-policy.json",
+      "sha256": "b18289dec07ea26357e8d8f6361ae10919ade17d6043bfb05fb71cc9f6598a0e"
+    },
+    {
+      "bytes": 23198,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021/root-reviewed-inventory.json",
+      "sha256": "7b5a3f554b02eba410c41d7fddef93d22982ac5f69114a5d6b7c6e6b1ea0cc6a"
+    },
+    {
+      "bytes": 175,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021/root-attempt-ref.json",
+      "sha256": "9ea79796ce91260a6351b6bf44aa5316c31c4672ab62f1ad38272545140cf309"
+    },
+    {
+      "bytes": 2330,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/ASSEMBLY.md",
+      "sha256": "ed67ab21af5028eb0ab4d46189432b164dd7cf920028c973b03cd2bc4f5d7dbe"
+    },
+    {
+      "bytes": 62108,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/assembly-source-inventory.json",
+      "sha256": "92d69664504aa959a9ec86a0d719a9e00818fbe2b62ea6b734550b9fd5bd200e"
+    },
+    {
+      "bytes": 7855,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-managed.py",
+      "sha256": "ad5ea40662fe28ae7b70d0ce3c6df3e4fda45f92c29109e7f6edded109670e57"
+    },
+    {
+      "bytes": 2981,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-history-command.py",
+      "sha256": "3f1945cbb8a268121de4891cb852558d0a69c3de8e3898c1c1d969b8e1dee3b1"
+    },
+    {
+      "bytes": 5870,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-runtime-producer.py",
+      "sha256": "2eb89ca7526c145a1988b862b68f822a35671aa98a99c544069febf4751b1727"
+    },
+    {
+      "bytes": 1082,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-runtime-query.mjs",
+      "sha256": "cb09c39afb085ac597f5e15dc1c1d7a6a687f1ba2701734a349f5e8b634d7d72"
+    },
+    {
+      "bytes": 699,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-identity-launch.py",
+      "sha256": "82416c71f180eb62a28ea28321b14401612c78f72cb1f2d9eddd3d1b6f6b5e1f"
+    },
+    {
+      "bytes": 22270,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-runtime-cleanup.py",
+      "sha256": "df761e5fca6774c0c0f6183dd7b8f0ecb16fe56698fca025b08c75507d59ac2c"
+    },
+    {
+      "bytes": 26439,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-batch.py",
+      "sha256": "bd333fedbe9120ca4ef340d6f88e8a78e6d5dbfc667a11335605426172b3f685"
+    },
+    {
+      "bytes": 13722,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/media/runtime-identity.mjs",
+      "sha256": "d91f126fb468f654c9e7118a0dcb9487fb68d0ad375cbd0c0fbaec91019ab6a8"
+    },
+    {
+      "bytes": 119810,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "sha256": "194bea3521fbf9534481bb018cf93c403a403cdb2329fa9ce56f7f39db45b516"
+    },
+    {
+      "bytes": 22566,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence_store.py",
+      "sha256": "acb8a2f58ee810ee345b26c794170f79ab4e197a6dfd172a3d1ed18e98335bbd"
+    },
+    {
+      "bytes": 13908,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/quarantine.py",
+      "sha256": "4a15452b413a0bccaae4656116929a76a03f1fb78485e921c27156c9d3a36851"
+    },
+    {
+      "bytes": 22387,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/references/completion-preservation.md",
+      "sha256": "8e739a5d9a9d1198e9a5580abd66c3969367e75dfd61214eadce8b9283a8d6ce"
+    },
+    {
+      "bytes": 13748,
+      "method": "local source read or exact applicable-section inspection; no command executed",
+      "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/references/unit-execution-contract.md",
+      "sha256": "ecd0fcbcdc69fed315d0a273a75d254faf8f58b24719bbcd5ac19157ce38b95e"
+    }
+  ],
+  "required_root_inputs_not_guessed": {
+    "ACTIVE_DRIVE_HOST_SESSION": "Actual currently active connected tool session, never persist credentials.",
+    "ACTUAL_RESOLVED_USER_TEMP": "Resolve OS current temp now; audit observed /private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T at its own timestamp only.",
+    "FRESH_RUN_ID": "New bounded safe ID distinct from both known failures and any prior storage run; same ID across pre/post/main/continuation.",
+    "FRESH_SHORT_SAFE_RUNTIME_SUFFIX": "Must produce socket paths<104bytes and absent runtime directories; root chooses.",
+    "PREPARED_CACHE": "Root-selected actual verified cache; no provider fetch performed here.",
+    "PRE_POST_PRODUCT_LOOPBACK_PORTS": "Fresh available/owned loopback selections; historical62322 is not reused by assumption.",
+    "REVIEWED_CONTINUATION_INVENTORY": "Native review/environment/sources/execution_inputs schema; retain all original selections/fingerprints and ADD actual retry3 closure only under revised helper. assembly-source-inventory.json alone is not this native inventory.",
+    "ROOT_DISPOSITION_PROOF_JSON": "Root-authored exact native proof after current audit; original rawsessionhash is unavailable to this read-only worker.",
+    "VERIFIED_MYSQL_BIN_DIRECTORY": "Existing executable directory, previously observed binary /private/tmp/happypro-platform-mysql-runtime/mysql-8.4.11-macos15-arm64/bin/mysqld; root verifies availability and canonical identity."
+  },
+  "scope": {
+    "actual_resources_started": [],
+    "mutations_performed": [
+      "This report",
+      "Authorized bounded continuation_inventory change in engine sdd_history.py",
+      "New tests/test_additive_continuation.py only"
+    ],
+    "network_or_browser_or_SQL_or_Git_action": false,
+    "next_unit_allowed": false,
+    "private_ledger_or_config_read": false,
+    "sole_write": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/live-resume-command-review.json",
+    "unit": "UNIT-EXP-00",
+    "usage": {
+      "extra_API_or_reset_authorized": false,
+      "included_used_percent": 58,
+      "ordinaryUsageAllowed": true
+    }
+  },
+  "status": "BOUNDED_ADDITIVE_CONTINUATION_FIXED_SOURCE_TESTED_ROOT_INTEGRATION_AND_LIVE_INPUTS_REQUIRED",
+  "verified_current_bindings": {
+    "audit_source": {
+      "finished_at": "2026-10-21T15:33:15.892211+00:00",
+      "limitations": [
+        "This is a finite current observation; no perpetual guarantee or authenticated claim about unregistered or unobservable helpers.",
+        "lsof covers processes visible to the current user; it is not a privileged all-users kernel audit.",
+        "Original one-second Node ps identities do not establish native kernel birth identities. Additional prior native-proof PIDs were checked for present absence only; ledger/ownership records were not read.",
+        "Unknown historic overwritten/deleted generation remains unknown; original missing terminal stamp and missing original final hashes stay missing.",
+        "No accounting-complete, successful old-run, product QA/DoD, generation authority or permission claim is made. Root owns accounting inspection, any assertion and any supported quarantine application.",
+        "Reading original files may affect operating-system access times; no original contents, identity, mtime, ctime or birthtime were altered by this audit."
+      ],
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry3/root-live-disposition-audit.json",
+      "sha256": "ca351a44c9e696f72284f0074253e78543c55a1b139fc27362fa7086b0e68051",
+      "summary": {
+        "all_13_exact_task_paths_absent": true,
+        "all_50_journal_identities_observed_not_present": true,
+        "all_6_raw_files_match_original_proof": true,
+        "critical_mismatches": [],
+        "no_current_command_line_path_references": true,
+        "no_current_user_open_file_path_references": true,
+        "original_cleanup_proof_hash_matches_pre_binding": true
+      }
+    },
+    "baseline": "HP-EXP-B-v37-20260926",
+    "current_unit_record": {
+      "approved_baseline_id": "HP-EXP-B-v37-20260926",
+      "attempt_ref": {
+        "content_hash": "fb5c00979d4eddf52a2de5e894319d0dbce69542f75be09d97fb787ed932ecbc",
+        "path": "forge/unit-history/attempts/2237502185ce43b79fe5f79789762f41/record.json"
+      },
+      "development_plan_hash": "0515ce2b0c0ab01ebbc9de5f06cae8e52b9dc6cd94286900673ff8e3b56d3dac",
+      "executor": "Codex root with native prepared-worker contributions and independent source reviews",
+      "failure_observation_ref": {
+        "content_hash": "bcd9ef57af1fa741a301ad605cf9ed94843a52ad3bd38aff450bc1b0ca843817",
+        "path": "forge/implementation/platform-expansion/unit-00/current-20261021/root-failed-attempt-observation.json"
+      },
+      "findings": [],
+      "reason": "Actual provider setup and restore-monitor harness failures; SQL and media not run. Preserve this failure before repair; no QA acceptance.",
+      "run_id": "unit00-current-20261021-197d3fa544ad",
+      "scope": "Genuine current prerequisite requalification; historical product results remain at original bindings. No merge/deployment/spending authorization.",
+      "start_guard": {
+        "content_hash": "1ba38f42f102211a46a06f9b5429dc8f3a4b60a917b9e17ff558ed8eb3cae35e",
+        "path": "forge/implementation/platform-expansion/unit-00/current-20261021/root-start-guard.json"
+      },
+      "started_at": "2026-10-20T22:50:10.329386+00:00",
+      "status": "running"
+    },
+    "engine": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+    "failed_runtime_attempt": "55471474-44b9-48ae-a486-833beca16465",
+    "failed_runtime_floor_bytes": 16888829,
+    "failed_runtime_floor_logical_versions": 100,
+    "failed_runtime_output": "bd2c1cb0-ca47-4cbb-855c-81244f4bf68f",
+    "failed_runtime_run": "unit00-current-20261021-r1-3ec4aa2d",
+    "implementation_gate": {
+      "approved_baseline_id": "HP-EXP-B-v37-20260926",
+      "awaiting_at": "2026-10-18T15:09:43.330687+00:00",
+      "development_plan_hash": "0515ce2b0c0ab01ebbc9de5f06cae8e52b9dc6cd94286900673ff8e3b56d3dac",
+      "product_scope_hash": "541dc1aebcab8909d4f4996966ffc9838fddd6c83ef2e595f46b61b02602b729",
+      "prompt_id": "user-unit06-and-sequential-continuation-20261020",
+      "prompt_receipt": {
+        "content_hash": "f88b8e7dad38db2f6a58d48a7612d15ff49433a05c07798833dcc1e2698ee6ca",
+        "path": "forge/implementation/platform-expansion/unit-06/resume-20261020/implementation-prompt.json"
+      },
+      "prompt_received_at": "2026-10-19T23:24:39.805526+00:00",
+      "reason": "UNIT-EXP-06 then later units sequentially under current plan, with required genuine prerequisite requalification; no merge, deployment, paid-service or extra-credit authority.",
+      "released_at": "2026-10-19T23:24:39.805960+00:00",
+      "source_version": "HP-EXP-B/v37",
+      "state": "authorized_for_phase3"
+    },
+    "installed_scripts_entry": "/Users/ingwar/.codex/skills/to-sdd-pipeline/scripts",
+    "plan_sha256": "0515ce2b0c0ab01ebbc9de5f06cae8e52b9dc6cd94286900673ff8e3b56d3dac",
+    "preserved_product_attempt_ref": {
+      "content_hash": "fb5c00979d4eddf52a2de5e894319d0dbce69542f75be09d97fb787ed932ecbc",
+      "path": "forge/unit-history/attempts/2237502185ce43b79fe5f79789762f41/record.json"
+    },
+    "product": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+    "python": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+  },
+  "version": 1
+}

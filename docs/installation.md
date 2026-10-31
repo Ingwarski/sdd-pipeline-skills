@@ -2,6 +2,8 @@
 
 Run commands from the durable SDD clone. Mutating installer/update work requires Python 3.12+; Python 3.14 is the recommended stable series under [runtime policy](../runtime-policy.json). Both installers and the checker use the standard library, with no additional Python packages or Node dependency. Missing Python or invalid sources/references stop before cleanup or link changes.
 
+Immutable history publication requires filesystem support for atomic exclusive rename: Linux `renameat2`, macOS `renamex_np`, or Windows rename. An unsupported API or filesystem stops publication and preserves any existing record.
+
 For new installations, use `git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git`, then inside the clone `git switch -c main`. The local branch remains `main`; its selected remote channel is `stable`, the latest release that passed CI. Run the installer below. It creates links, never skill copies. Later use the updater: plain `git pull` does not perform retirement cleanup.
 
 ### Agent-assisted installation or update
@@ -75,9 +77,34 @@ not reset Git history or discard unrelated work. Use
 
 Updating the installed skillset does not scan or modify product repositories. When a project is next resumed for SDD work, the current workflow upgrades older records and reverifies existing work before continuing. It preserves product files, original records and approval boundaries; migration does not authorize new implementation or deployment. Follow the [completion-preservation procedure](../skills/to-sdd-pipeline/references/completion-preservation.md) in that project's context. This is separate from downloading a tested skillset release, and needs no version-choice question.
 
-Read-only local validation: run `python3 scripts/installation_status.py --root CLONE --skill-root CODEX_ROOT --skill-root CLAUDE_ROOT`, substituting discovered absolute paths and the detected Python executable. Add confirmed legacy/project roots via repeated `--cleanup-root`. It checks exact link/junction targets and recursively linked resources, not merely 13 existing SKILL.md files. Remote revision, clean Git state and Python support are separate checks; never interpret this helper alone as “up to date.”
+Read-only local validation: run `python3 scripts/installation_status.py --root CLONE --skill-root CODEX_ROOT --skill-root CLAUDE_ROOT`, substituting discovered absolute paths and the detected Python executable. Add confirmed legacy/project roots via repeated `--cleanup-root`. It checks exact link/junction targets and recursively linked resources, not merely 13 existing SKILL.md files. Its `scope: local_installation` and `release_provenance: not_checked` remain explicit even when links and storage are `current`. Remote revision, clean Git state and Python support are separate checks; never interpret this helper alone as “up to date.”
 
 For old clones missing the helper/updater/channel option, a clean `git merge --ff-only FETCH_HEAD` after fetching `stable` bootstraps current tooling. If retired copies block that merge, use a full temporary checkout of the fetched revision only for its `--retire-only` / `-RetireOnly` installer, with explicit managed roots and the old clone's `skills/` as a cleanup root. Never install links from that temporary checkout or recreate deletion logic by hand. Unrelated changes still block updating; cleanup already performed is irreversible and must be reported.
+
+### Explicitly selected prerelease
+
+Published `stable` remains the default. A user may explicitly select an unpublished
+candidate for scoped testing or use; a request to install or resume SDD without
+that selection does not opt in. Preserve an existing candidate selection within
+its authorized scope instead of repeating a version-choice question. Installing a
+candidate does not publish it or authorize product implementation or migration.
+
+Before calling that candidate tested, record its repository origin, full commit
+SHA, the user's selection and scope, required CI results/links for that exact SHA,
+and the installed-target report in the task's evidence outside reusable skills.
+Verify the source checkout is clean and at that SHA, Python is supported, and all
+required platform/content jobs succeeded; do not carry an earlier commit's green
+CI forward. Report the observed published `stable` revision separately. Unknown
+or failed CI means an unverified development candidate, not a tested release.
+
+On resume, recheck candidate identity, clean source and installed targets against
+that record. Changed bytes or an uncovered revision require fresh validation;
+authoring through installed links is unverified until the final commit passes.
+The updater still refuses unpublished/diverging commits and never downgrades to
+`stable`. Do not run it as a repair for an intentionally selected candidate.
+After candidate verification, use normal project gates and existing authority.
+Returning to the release channel follows the supported updater only when it can
+fast-forward, or a separately authorized installation from a durable stable clone.
 
 ### Retired skills
 

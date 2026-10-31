@@ -1,0 +1,273 @@
+{
+  "kind": "independent frozen catalog inventory optimization review",
+  "observed_at": "2026-10-21T16:44:47.205979+00:00",
+  "scope": [
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py",
+    "skills/to-sdd-pipeline/scripts/evidence/transports.py",
+    "tests/test_catalog_inventory.py",
+    "reports/evidence-recovery-20261021/catalog-inventory-verification.json"
+  ],
+  "source_sha256": {
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py": "c5fdc9a90d3ea0c6dfe6e412bfb1faa9b6cb0758f7eb454b318239ac554ed8c1",
+    "skills/to-sdd-pipeline/scripts/evidence/transports.py": "5ef4647f81121bcf8ac9f1110cef6860d89a92d7d7eb83853f795441f9f5233f",
+    "tests/test_catalog_inventory.py": "5abe041b41670fea2cf6bb16428dc7dd73c71836484f1aa38730d0fcd150ba24",
+    "reports/evidence-recovery-20261021/catalog-inventory-verification.json": "ebba96cf813b546fdbeb7e96c4cc9bfde9e1cb4ed165fb2604df8c72504ee367"
+  },
+  "frozen_verification_source_hashes_match": true,
+  "source_unchanged_at_end": true,
+  "included_usage": {
+    "used_percent": 59,
+    "ordinary_usage_allowed": true,
+    "extra_API_reset_requested": false
+  },
+  "findings": [],
+  "semantic_review": [
+    {
+      "area": "freshness and cache scope",
+      "conclusion": "inventory performs a new complete listing each call; keys projects that fresh inventory to sorted exact strings. Manager stores no cross-call listing/authority cache. Explicit authority entries originate only from the current _catalog_locked listing; standalone _generation_authority freshly enumerates."
+    },
+    {
+      "area": "admission metadata totals",
+      "conclusion": "Listed sizes are never used as admission totals. authority_bytes and every historical root/index\u2014including orphan index\u2014are freshly statted via stable locator. Root/index membership and final combined count/byte checks remain. The latest-root key remains a string for publication comparisons."
+    },
+    {
+      "area": "stable source bindings",
+      "conclusion": "Connected stat(locator) revalidates metadata schema/key and stable object ID through fresh metadata. Native host metadata independently checks the selected live folder, nontrashed binary type and immutable name. Descriptor locators still drive referenced segment reads; same keys cannot bypass original object identity checks."
+    },
+    {
+      "area": "original byte verification",
+      "conclusion": "_read_remote_json still performs fresh bounded stat, reserved download and original hash measurement. Connected get performs another fresh stat and independent stable-ID original download with bypass_cache. Root key names remain bound to original root hash/sequence; each segment still matches exact descriptor hash/size. Publication index/root put paths retain independent original-byte readbacks."
+    },
+    {
+      "area": "enumeration rejection and bounds",
+      "conclusion": "Full prefix checking, validated metadata, duplicate keys/object IDs across pages, token validity/repetition/page bound, object limit and combined response bytes remain enforced. Native incomplete/truncated/saturated listing rejection remains in unchanged host adapter; no new support for saturated native folders is claimed."
+    },
+    {
+      "area": "fallback and concurrency",
+      "conclusion": "Transports without callable inventory retain existing keys behavior. _publish still performs a separate fresh roots keys listing immediately before upload, rejects changed latest root and retains both capacity checks/readback steps. Coordinator/mutation ownership checks are unchanged."
+    },
+    {
+      "area": "verification report interpretation",
+      "conclusion": "Recorded isolated adapter counts show 4 listings,14 metadata calls,4 original downloads and unchanged1616 bytes/6 objects versus original5 listings,10 lookups,4 metadata calls,4 downloads. Native32-versus44 tool figures are explicitly source-derived, not live provider measurements. This reviewer checked the stated formulas against unchanged native list/metadata/download source; no live latency/throughput inference is made."
+    }
+  ],
+  "pure_probe_results": [
+    {
+      "case": "sorted-fresh-inventory-and-string-keys",
+      "actual": "accepted",
+      "expected": "accepted",
+      "passed": true,
+      "error": null,
+      "read_only_calls": [
+        "list",
+        "list"
+      ]
+    },
+    {
+      "case": "duplicate-key-across-pages",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "duplicate Drive object identity in catalog listing",
+      "read_only_calls": [
+        "list",
+        "list"
+      ]
+    },
+    {
+      "case": "duplicate-id-across-pages",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "duplicate Drive object identity in catalog listing",
+      "read_only_calls": [
+        "list",
+        "list"
+      ]
+    },
+    {
+      "case": "out-of-prefix",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "Drive list returned a key outside requested prefix",
+      "read_only_calls": [
+        "list"
+      ]
+    },
+    {
+      "case": "noninteger-size",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "object size must be nonnegative",
+      "read_only_calls": [
+        "list"
+      ]
+    },
+    {
+      "case": "invalid-optional-hash",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "invalid transport sha256 metadata",
+      "read_only_calls": [
+        "list"
+      ]
+    },
+    {
+      "case": "repeated-token",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "Drive list has invalid or repeated continuation token",
+      "read_only_calls": [
+        "list",
+        "list"
+      ]
+    },
+    {
+      "case": "object-bound",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "Drive object listing exceeds configured object bound",
+      "read_only_calls": [
+        "list"
+      ]
+    },
+    {
+      "case": "metadata-bound",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "Drive listing exceeds combined metadata bound or has invalid objects",
+      "read_only_calls": [
+        "list"
+      ]
+    },
+    {
+      "case": "fresh-size-stat",
+      "actual": "accepted",
+      "expected": "accepted",
+      "passed": true,
+      "error": null,
+      "read_only_calls": [
+        "list",
+        "metadata"
+      ]
+    },
+    {
+      "case": "fresh-changed-id",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "Drive object identity mismatch",
+      "read_only_calls": [
+        "list",
+        "metadata"
+      ]
+    },
+    {
+      "case": "fresh-changed-key",
+      "actual": "rejected",
+      "expected": "rejected",
+      "passed": true,
+      "error": "transport metadata key does not match requested key",
+      "read_only_calls": [
+        "list",
+        "metadata"
+      ]
+    },
+    {
+      "case": "authority reuses explicit same-snapshot entries but standalone calls freshly enumerate",
+      "passed": true,
+      "events": [
+        [
+          "read-original-authority",
+          {
+            "object_id": "authority",
+            "key": "projects/p/authority/coordinator.json",
+            "size": 200
+          },
+          4096
+        ],
+        [
+          "fresh-inventory",
+          "projects/p/authority/"
+        ],
+        [
+          "read-original-authority",
+          {
+            "object_id": "authority",
+            "key": "projects/p/authority/coordinator.json",
+            "size": 200
+          },
+          4096
+        ],
+        [
+          "fresh-inventory",
+          "projects/p/authority/"
+        ],
+        [
+          "read-original-authority",
+          {
+            "object_id": "authority",
+            "key": "projects/p/authority/coordinator.json",
+            "size": 200
+          },
+          4096
+        ]
+      ]
+    },
+    {
+      "case": "optional inventory fallback chooses keys or inventory without changing legacy interface",
+      "passed": true,
+      "selected_methods": [
+        "keys",
+        "inventory"
+      ]
+    }
+  ],
+  "all_pure_probes_match": true,
+  "probe_classification": "Actual inventory/keys/stat and manager dispatch/authority functions with in-memory callbacks only. No constructors, provider calls, filesystem fixture setup, SQLite, runtime resources or transfers. These establish function behavior and call intent only.",
+  "source_reviewed_tests": "All13 new tests reviewed: fresh counts/sizes, legacy fallback, stat growth/identity mismatch, membership/authority ambiguity, repeated calls, publication fence, corrupt independent readback, native partial listing and inventory validation/bounds.",
+  "owner_recorded_checks": [
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_catalog_inventory.py -v",
+      "result": "passed",
+      "seconds": 0.596,
+      "tests": 13
+    },
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_evidence_transports.py -v",
+      "result": "passed",
+      "seconds": 13.923,
+      "tests": 68
+    },
+    {
+      "command": "python3 -B -m unittest discover -s tests -p 'test_evidence_*manager*.py' -v",
+      "result": "passed",
+      "seconds": 34.748,
+      "tests": 82
+    }
+  ],
+  "owner_check_classification": "Recorded owner results inspected; not independently re-executed or represented as this reviewer runs.",
+  "not_run": [
+    "unit suites",
+    "full regression suite",
+    "actual provider/host/Drive calls",
+    "private actual state or ledger",
+    "Git",
+    "browser/runtime/resources",
+    "installation or live snapshot change"
+  ],
+  "limitations": [
+    "A fresh remote enumeration is not an atomic cloud snapshot; ordinary concurrent remote changes still require existing stable-ID stats/readbacks and publication fence. No broader provider consistency guarantee is introduced.",
+    "Root full suite, final exact-source CI and separately authorized later installation remain required. Installed immutable5f3 live execution snapshot was neither read nor modified by this review."
+  ],
+  "writes": [
+    "reports/evidence-recovery-20261021/catalog-inventory-review.json"
+  ],
+  "resources_created": []
+}

@@ -1,0 +1,11 @@
+test_agent_installation_guidance_is_consistent (test_skill_contracts.SkillContractTests.test_agent_installation_guidance_is_consistent) ... ok
+test_later_lookups_are_not_required_inputs (test_skill_contracts.SkillContractTests.test_later_lookups_are_not_required_inputs) ... ok
+test_local_markdown_links_resolve (test_skill_contracts.SkillContractTests.test_local_markdown_links_resolve) ... ok
+test_manifest_names_match_artifact_owners (test_skill_contracts.SkillContractTests.test_manifest_names_match_artifact_owners) ... ok
+test_reconciliation_nodes_inherit_owner_prerequisites (test_skill_contracts.SkillContractTests.test_reconciliation_nodes_inherit_owner_prerequisites) ... ok
+test_skill_frontmatter_with_real_yaml_parser (test_skill_contracts.SkillContractTests.test_skill_frontmatter_with_real_yaml_parser) ... skipped 'PyYAML is test-only; installed in the content CI job'
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.025s
+
+OK (skipped=1)

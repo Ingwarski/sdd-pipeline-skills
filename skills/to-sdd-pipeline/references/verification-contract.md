@@ -27,6 +27,14 @@ Report **checks prepared; tests not run**, release readiness `not_evaluated`, du
 
 Bounded acceptance proves contributions only. Integration/release owners retain full requirements and required real-consumer checks; mocks cannot substitute and deferred checks stay required/pending. The [unit contract](unit-execution-contract.md) defines ownership, dependencies, evidence and transitions. DoD precedes QA/planning; later bindings create no artifact cycle.
 
+## Economical execution
+
+Choose the least costly boundary that proves each claim: logic for deterministic rules, the actual platform's enforcement/persistence boundary, UI for layout/input, and supported native/provider environments where required. Retain real integration coverage; browser repetition does not strengthen an engine-independent assertion.
+
+One setup or journey may support several separately observed assertions, including applicable H1-H10. Record each outcome; a successful bundle cannot pass skipped or unexecuted checks. Share infrastructure with isolated contexts/data. Resize existing states for layout where equivalent; separately cover initialization and interactions that depend on the starting environment. Independent groups may run concurrently inside the active unit, with shared mutations serialized.
+
+During edits, run checks that resolve the current change or uncertainty. Before completion, every required outcome needs fresh or validly reusable evidence. Rerun failed and affected checks, not a full matrix by habit; unknown impact requires broader coverage. A retry needs a relevant change, diagnostic hypothesis or bounded transient-failure investigation. Preserve original failures and unresolved flakiness; retry limits are ceilings, not targets.
+
 ## Bind only existing references
 
 Gate/check membership must agree bidirectionally, without duplicates. Each applicable gate needs an applicable check. Excluded checks need reasons and cannot cover required clauses or H1–H10. Trace/verification check IDs agree; JOB/UC references resolve to canonical definitions.
@@ -41,7 +49,7 @@ After approval, owners act in order: brief records baseline → architecture rev
 |---|---|
 | `approved_visual_baseline_fidelity` | Active Baseline ID, immutable target hash, route/state/viewport, permitted variance, concrete QA IDs, `VisualQAEvidence`; promotion receipt when reuse is declared. Reject stale baselines, missing coverage, unexplained drift, or blocking findings. |
 | `heuristic_usability_review` | Applicable H1-H10, primary journey, supported inputs, error/recovery, accessible critical actions; screen for visual checks. Review every applicable heuristic/scope; unexplained omissions or deferred critical review block. |
-| `representative_user_task_validation` | Applicable critical/consequential/new or changed flow, representative user group and observed session evidence; device for visual checks. Only observed representative-user task completion can pass. |
+| `representative_user_task_validation` | Flow requiring participant evidence because of an explicit requirement or material task risk; representative group and observed session evidence, device for visual checks. Newness alone is insufficient. Only observed representative-user task completion can pass. |
 
 Headless scope excludes visual fidelity. Source-backed applicability/exclusion determines interaction gates; use the nonvisual record when applicable.
 
@@ -57,7 +65,7 @@ Every QA item: stable check ID, source obligation, task, expected behavior, scop
 
 Heuristic/user-task checks may declare `interaction_scope: {kind: "nonvisual", context, rationale}`. Both strings must be nonempty and present in canonical QA: `context` identifies the actual interface/workflow and supported conditions; `rationale` explains source-backed applicability. It replaces visual context/baseline bindings only; all other fields/rules remain. Applicable headless interaction checks require it; mixed UI products may use it for genuinely nonvisual checks. Otherwise UI checks retain visual requirements. Visual fidelity cannot use it. Existing inapplicability/status rules remain.
 
-Every executed result retains check/gate ID, exact evaluated artifact/baseline or implementation revision, executor, heuristic reviewer where applicable, original time, environment/content fixture, evidence kind/identity/hash, outcome, findings and rerun rule. QA keeps compact current records and verified detail/history references under [storage rules](evidence-storage-contract.md). Supersede stale acceptance explicitly without changing original observations. Under unit contract v2, [completion preservation](completion-preservation.md) resolves current applicability consistently for unit, security and release gates. A stored historical pass alone is insufficient; passing requires readable, hash-bound evidence appropriate to the current claim. Migration and storage access never execute checks.
+Every executed result retains check/gate ID, exact evaluated inputs/baseline, executor/reviewer, original time, environment/fixture, evidence identity/hash, outcome, findings and rerun rule. Keep compact current records and verified detail/history references under [storage rules](evidence-storage-contract.md). Supersede stale acceptance without changing observations. [Completion preservation](completion-preservation.md) resolves applicability consistently for unit, security and release gates; a stored pass alone is insufficient. Passing needs readable evidence appropriate to the current claim. Migration and storage access never execute checks.
 
 ## Severity and release effect
 

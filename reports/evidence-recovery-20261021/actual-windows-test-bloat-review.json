@@ -1,0 +1,206 @@
+{
+  "kind": "actual-windows-test-bloat-review",
+  "generated_at_local": "2026-10-22T04:34:54.101459+03:00",
+  "scope": {
+    "engine_root": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+    "engine_head": "5651687fea1671245b928be91294b66104599c9b",
+    "method": "Read-only analysis of completed Windows CI log, completed supported-path local suite log/metadata, and current test fixture/source code. No tests or probes were run."
+  },
+  "observations": {
+    "windows": {
+      "job": "windows (3.14)",
+      "source_revision_in_log": "6c1fec38a4d1353837b7147b18302b9afda8baf4",
+      "suite_tests_reported": 1085,
+      "suite_seconds_reported": 2185.102,
+      "errors": 3,
+      "skips": 28,
+      "errors_test_names": [
+        "test_crash_after_local_policy_write_before_pending_checkpoint_retirement_is_idempotent (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_crash_after_local_policy_write_before_pending_checkpoint_retirement_is_idempotent) ... ERROR",
+        "test_second_transition_and_exact_retry_do_not_duplicate_policy_steps (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_second_transition_and_exact_retry_do_not_duplicate_policy_steps) ... ERROR",
+        "test_stale_source_fork_cannot_publish_over_advanced_head (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_stale_source_fork_cannot_publish_over_advanced_head) ... ERROR"
+      ],
+      "log_bytes": 312917,
+      "first_timestamped_case_utc": "2026-10-22T00:48:22.886711+00:00",
+      "last_timestamped_case_utc": "2026-10-22T01:24:46.755529+00:00",
+      "adjacent_completion_event_intervals": 1080,
+      "largest_observed_completion_gaps": [
+        {
+          "completion_gap_seconds": 151.697,
+          "preceding_result": "test_executed_legacy_migration_preserves_missing_stale_and_invalid_authority (test_unit_history.UnitHistoryTests.test_executed_legacy_migration_preserves_missing_stale_and_invalid_authority) ... ok",
+          "following_result": "test_five_sequential_completions_reuse_validation_within_one_check_only (test_unit_history.UnitHistoryTests.test_five_sequential_completions_reuse_validation_within_one_check_only) ... ok",
+          "log_lines": [
+            1085,
+            1086
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        },
+        {
+          "completion_gap_seconds": 130.065,
+          "preceding_result": "test_reopened_finding_can_close_again_without_rewriting_earlier_closure (test_attempt_history.AttemptHistoryTests.test_reopened_finding_can_close_again_without_rewriting_earlier_closure) ... ok",
+          "following_result": "test_repeated_retry_validation_reuses_one_operation_cache_and_rejects_old_identity (test_attempt_history.AttemptHistoryTests.test_repeated_retry_validation_reuses_one_operation_cache_and_rejects_old_identity) ... ok",
+          "log_lines": [
+            47,
+            48
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        },
+        {
+          "completion_gap_seconds": 124.843,
+          "preceding_result": "test_stale_legacy_plan_can_migrate_but_cannot_authorize_execution (test_unit_history.UnitHistoryTests.test_stale_legacy_plan_can_migrate_but_cannot_authorize_execution) ... ok",
+          "following_result": "test_stale_predecessor_invalidates_dependent_completion (test_unit_history.UnitHistoryTests.test_stale_predecessor_invalidates_dependent_completion) ... ok",
+          "log_lines": [
+            1119,
+            1120
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        },
+        {
+          "completion_gap_seconds": 80.945,
+          "preceding_result": "test_partial_edits_and_deletions_preserve_stale_results_without_reusing_acceptance (test_attempt_history.AttemptHistoryTests.test_partial_edits_and_deletions_preserve_stale_results_without_reusing_acceptance) ... ok",
+          "following_result": "test_reopened_finding_can_close_again_without_rewriting_earlier_closure (test_attempt_history.AttemptHistoryTests.test_reopened_finding_can_close_again_without_rewriting_earlier_closure) ... ok",
+          "log_lines": [
+            46,
+            47
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        },
+        {
+          "completion_gap_seconds": 76.307,
+          "preceding_result": "test_second_revision_cannot_drop_checks_introduced_by_first_revision (test_unit_history.UnitHistoryTests.test_second_revision_cannot_drop_checks_introduced_by_first_revision) ... ok",
+          "following_result": "test_source_evidence_and_environment_changes_require_revalidation_without_rewriting_code (test_unit_history.UnitHistoryTests.test_source_evidence_and_environment_changes_require_revalidation_without_rewriting_code) ... ok",
+          "log_lines": [
+            1114,
+            1115
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        },
+        {
+          "completion_gap_seconds": 56.184,
+          "preceding_result": "test_failed_and_interrupted_status_edits_preserve_actual_results_and_block_completion (test_attempt_history.AttemptHistoryTests.test_failed_and_interrupted_status_edits_preserve_actual_results_and_block_completion) ... ok",
+          "following_result": "test_inherited_findings_require_preserved_identity_and_evidenced_closure (test_attempt_history.AttemptHistoryTests.test_inherited_findings_require_preserved_identity_and_evidenced_closure) ... ok",
+          "log_lines": [
+            43,
+            44
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        },
+        {
+          "completion_gap_seconds": 52.547,
+          "preceding_result": "test_frozen_predecessor_rejects_top_level_version_gate (test_unit_history.UnitHistoryTests.test_frozen_predecessor_rejects_top_level_version_gate) ... ok",
+          "following_result": "test_full_release_resolves_history_for_generic_and_security_checks (test_unit_history.UnitHistoryTests.test_full_release_resolves_history_for_generic_and_security_checks) ... ok",
+          "log_lines": [
+            1088,
+            1089
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        },
+        {
+          "completion_gap_seconds": 36.493,
+          "preceding_result": "test_changed_acceptance_authority_and_fabricated_hashes_are_rejected (test_attempt_history.AttemptHistoryTests.test_changed_acceptance_authority_and_fabricated_hashes_are_rejected) ... ok",
+          "following_result": "test_continuation_probes_real_runtime_resets_results_and_preserves_work (test_attempt_history.AttemptHistoryTests.test_continuation_probes_real_runtime_resets_results_and_preserves_work) ... ok",
+          "log_lines": [
+            40,
+            41
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        },
+        {
+          "completion_gap_seconds": 32.881,
+          "preceding_result": "test_actual_frozen_predecessor_rejects_version_two_at_every_boundary (test_unit_history.UnitHistoryTests.test_actual_frozen_predecessor_rejects_version_two_at_every_boundary) ... ok",
+          "following_result": "test_added_required_check_requires_new_authorized_run_and_retains_original_history (test_unit_history.UnitHistoryTests.test_added_required_check_requires_new_authorized_run_and_retains_original_history) ... ok",
+          "log_lines": [
+            1074,
+            1075
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        },
+        {
+          "completion_gap_seconds": 32.489,
+          "preceding_result": "test_interrupted_archive_with_passed_checks_cannot_complete (test_attempt_history.AttemptHistoryTests.test_interrupted_archive_with_passed_checks_cannot_complete) ... ok",
+          "following_result": "test_partial_edits_and_deletions_preserve_stale_results_without_reusing_acceptance (test_attempt_history.AttemptHistoryTests.test_partial_edits_and_deletions_preserve_stale_results_without_reusing_acceptance) ... ok",
+          "log_lines": [
+            45,
+            46
+          ],
+          "interpretation": "Completion-to-completion gap attributed approximately to the following serial test plus runner overhead; not a measured function profile."
+        }
+      ]
+    },
+    "mac_supported_path": {
+      "suite_tests_reported": 1087,
+      "suite_seconds_reported": 413.736,
+      "result": "passed",
+      "skips": 11,
+      "started_at_utc": "2026-10-22T01:22:29.318630+00:00",
+      "finished_at_utc": "2026-10-22T01:29:23.515109+00:00",
+      "log_bytes": 195682,
+      "metadata_path": "reports/evidence-recovery-20261021/policy-lineage-newline-root-supported-path-full-tests.json",
+      "metadata_log_sha256": "2f8ffd25973a61df60a142e5eea8d8d8268818a6effb3b31b5a8b753014c2959"
+    },
+    "comparison_limit": "Approximate 5.28x runtime difference (2185.102/413.736), not a controlled benchmark: Windows log is a different revision and reports 1085 cases with 3 errors/28 skips; mac supported-path log has 1087 cases, 11 skips and passed. Windows verbose timestamps give completion intervals; the local Mac log has no per-test timestamps. Neither log proves physical disk writes or attributes time to a Python function."
+  },
+  "source_analysis": {
+    "source_sha256": {
+      "tests/test_unit_history.py": "ecfb39251537d96fc5a3e96879537125a9fc63531811af6e4615c0e6c56a193c",
+      "tests/test_attempt_history.py": "cca93e50aee615d004b7f245b3907751b93af017bf942d659917efbb7e60f6e3",
+      "tests/test_sdd_check.py": "1e8005bfe90bde013627941bc41352504592dec333d9482d6da76e2a39a3096c",
+      "tests/test_unit_execution.py": "4c41f61204bfee0dd7da7acf09a8947b424f91c8f2f568116e590e6455fbaa95"
+    },
+    "slow_test_examples": [
+      {
+        "test": "test_five_sequential_completions_reuse_validation_within_one_check_only",
+        "source": "tests/test_unit_history.py:860",
+        "observed_preceding_completion_gap_seconds": 151.697,
+        "coverage": "Builds a five-unit dependency sequence, validates the release with historical completion views, bounds repeated historical_checker calls within one check, then mutates evidence and requires fresh validation to block."
+      },
+      {
+        "test": "test_repeated_retry_validation_reuses_one_operation_cache_and_rejects_old_identity",
+        "source": "tests/test_attempt_history.py:328",
+        "observed_preceding_completion_gap_seconds": 130.065,
+        "coverage": "Four interrupted retry/capture/continuation cycles exercise operation-scoped Checker reuse and reject reuse of the oldest attempt ID."
+      },
+      {
+        "test": "test_stale_predecessor_invalidates_dependent_completion",
+        "source": "tests/test_unit_history.py:672",
+        "observed_preceding_completion_gap_seconds": 124.843,
+        "coverage": "Tests both construction and acceptance-check dependency paths, alters evidence after completion, and requires dependent history/release to become stale."
+      },
+      {
+        "test": "test_reopened_finding_can_close_again_without_rewriting_earlier_closure",
+        "source": "tests/test_attempt_history.py:280",
+        "observed_preceding_completion_gap_seconds": 80.945,
+        "coverage": "Multiple attempt/continuation cycles ensure a reopened finding can close while prior immutable closure bytes remain unchanged."
+      },
+      {
+        "test": "test_source_evidence_and_environment_changes_require_revalidation_without_rewriting_code",
+        "source": "tests/test_unit_history.py:276",
+        "observed_preceding_completion_gap_seconds": 76.307,
+        "coverage": "Tests source/environment drift, revalidation requirement, and preserving implementation bytes."
+      }
+    ],
+    "fixture_io": "UnitHistoryTests.setUpClass copies the skills tree once to construct a frozen predecessor checker; tests/test_unit_history.py:30-40 then uses isolated synthetic Project fixtures via UnitExecutionTests.setUp and tests/test_sdd_check.py:23. This is class-level setup, not repeated product-checkout copying. The frozen checker computes a whole-skill toolchain identity, so removing surrounding fixture files without proving the predecessor contract could invalidate the test."
+  },
+  "assessment": {
+    "proven_redundant_tests_or_checks": [],
+    "conclusion": "No duplicate coverage or safely droppable test was demonstrated. The longest observed gaps correspond to distinct recovery invariants: historical validation cache scope, retry identity, stale dependency invalidation, immutable finding closure, and source/environment revalidation. Removing or combining them risks losing independent regression evidence.",
+    "safe_next_step": "Add non-mutating per-test duration telemetry at unittest TestResult startTest/stopTest in a future unchanged full-suite run, first on Windows, and keep the complete suite and all assertions. Use that to separate Python/test work from runner overhead before attempting any fixture optimization. If profiling later confirms repeated work inside a single validation operation, optimize only the scoped implementation cache while retaining fresh validation on later calls.",
+    "verification_limits": [
+      "No test suite rerun, profiler, Windows environment, provider, accounting DB, or source changes were used.",
+      "The completion gaps are log-derived approximations and include between-test/runner overhead; they do not identify exact function costs.",
+      "The three Windows failures were newline serialization cases in the older source revision and are unrelated to the runtime analysis; current source is at 5651687.",
+      "The supported Mac log is a different source revision and lacks per-test completion timestamps."
+    ]
+  },
+  "evidence_sha256": {
+    "root-ci-6c1fec3-failed.log": "11250b96cc0bd8be7585cc901151cdd4c9dcff9c959d6c41fa1cfc789e93b79b",
+    "policy-lineage-newline-root-supported-path-full-tests.log": "2f8ffd25973a61df60a142e5eea8d8d8268818a6effb3b31b5a8b753014c2959",
+    "policy-lineage-newline-root-supported-path-full-tests.json": "b8f890a05fe597644252b85820d13586b09ff6ae888923935097124a82cad772"
+  },
+  "write_boundary": {
+    "only_report_written": true,
+    "tests_or_source_written": false,
+    "git_mutated": false,
+    "network_or_external_ci_used": false,
+    "writing_stopped_after_report": true
+  }
+}

@@ -25,7 +25,14 @@ def implementation_progress(checker, worked_unit=None, action=None):
                        "ready_to_record_completion")
         elif action == "start":
             outcome = "start_blocked" if checker.issues else "start_permitted"
+        review = state.get("reviewed_acceptance", {}).get(worked_unit)
+        currently_accepted = accepted is not None and worked_unit in accepted
+        if review is not None and currently_accepted and action is None:
+            outcome = "accepted_complete"
         worked = {"unit_id": worked_unit, "recorded_status": status, "outcome": outcome}
+        if review is not None:
+            worked["current_acceptance"] = "accepted" if currently_accepted else "unavailable"
+            worked["acceptance_review"] = review
         if run.get("reason"):
             worked["reason"] = run["reason"]
     return {"total_units": state.get("total_units"),
@@ -91,11 +98,28 @@ def _candidate(checker):
     return "implementation", stages
 
 
-def workflow_progress(checker, *, worked_unit=None, require_current=False):
+def workflow_progress(checker, *, worked_unit=None, require_current=False, _current_node=None):
+    with checker.history_hash_scope() as owner:
+        checker._history_hash_owner = owner
+        return _workflow_progress(checker, worked_unit=worked_unit, require_current=require_current,
+                                  _current_node=_current_node)
+
+
+def _workflow_progress(checker, *, worked_unit=None, require_current=False, _current_node=None):
     """At most two normal gate probes; no writes, network or recursive projections."""
     def probe(node, after=False):
+        # Only the gate currently being evaluated may supply this projection.
+        # No saved report or result from an earlier invocation is reusable here.
+        # The enclosing invocation still audits all observed input identities.
+        if (_current_node == node and not after
+                and getattr(checker, "_invocation_active", False)):
+            return checker, {"result": "blocked" if checker.issues else "passed",
+                             "issues": list(checker.issues),
+                             "warnings": sorted(set(checker.warnings)),
+                             "checked_artifacts": sorted(checker.checked)}
         child = type(checker)(checker.project, checker._source_manifest, checker.contract,
                               evidence_cache=checker.evidence_resolver.cache)
+        child._history_hash_owner = checker._history_hash_owner
         report = child.run(node, after=after, require_current=require_current, projections=False)
         return child, report
 
@@ -128,7 +152,8 @@ def workflow_progress(checker, *, worked_unit=None, require_current=False):
     ready = [node] if report["result"] == "passed" else []
     gate_issues = list(report["issues"])
     blockers = list(gate_issues)
-    validate_intake_progress(current)
+    if current is not checker:  # The current gate already checked intake.
+        validate_intake_progress(current)
     intake_issues = [item for item in current.issues if item not in gate_issues]
     if intake_issues:
         ready = []
@@ -174,7 +199,8 @@ def workflow_progress(checker, *, worked_unit=None, require_current=False):
             "limits": "Read-only projection of validated records; does not infer answers, grant permission, execute work or prove semantic acceptance."}
 
 
-def validate_ready_projection(checker, *, derived=None, require_current=False):
+def validate_ready_projection(checker, *, derived=None, require_current=False,
+                              current_node=None, after=False, audit=False, unit_action=None):
     saved = checker.manifest.get("next_ready_nodes")
     if saved is None:  # Existing manifests may omit this advisory projection.
         return
@@ -182,7 +208,9 @@ def validate_ready_projection(checker, *, derived=None, require_current=False):
         checker.issue("stale_progress", "manifest", "next_ready_nodes must be a unique node list")
         return
     if derived is None:
-        derived = workflow_progress(checker, require_current=require_current)["progress"]
+        reusable_node = current_node if not (after or audit or unit_action) else None
+        derived = workflow_progress(checker, require_current=require_current,
+                                    _current_node=reusable_node)["progress"]
     if saved != derived["next_ready_nodes"]:
         checker.issue("stale_progress", "manifest",
                       "next_ready_nodes differs from current gates; run --progress and reconcile the projection")

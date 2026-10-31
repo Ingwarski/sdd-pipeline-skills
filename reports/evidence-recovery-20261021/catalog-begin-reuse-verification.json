@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "status": "implementation_frozen_targeted_checks_passed_pending_root_review",
+  "at": "2026-10-21T22:50:06.600168+00:00",
+  "baseline": {
+    "branch": "codex/fix-evidence-recovery",
+    "head": "3f38fc87ba15999bed13fe9e8e03ad16b5f1824c",
+    "verification": "Read worktree HEAD and loose branch ref directly; no repository Git command."
+  },
+  "requested_profile": {
+    "model": "gpt-6.1-sol",
+    "reasoning": "high",
+    "application_verified": false,
+    "basis": "Inherited requested settings; concurrency/accounting require careful review."
+  },
+  "included_usage": {
+    "used_percent_before_work": 67,
+    "ordinaryUsageAllowed": true,
+    "extra_credits_api_or_reset_used": false
+  },
+  "exclusive_paths": [
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py",
+    "tests/test_evidence_producer_manager.py",
+    "reports/evidence-recovery-20261021/catalog-begin-reuse-design.md",
+    "reports/evidence-recovery-20261021/catalog-begin-reuse-verification.json"
+  ],
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py": {
+      "sha256": "f088932abf55334e7955e23ddbf58d4e7f0f482ace7707de15ec3e38b52de425",
+      "bytes": 126022
+    },
+    "tests/test_evidence_producer_manager.py": {
+      "sha256": "773656e3780daf71d78ea8de098af7308ed02326ef13b6cc7c8659eced837001",
+      "bytes": 27507
+    },
+    "reports/evidence-recovery-20261021/catalog-begin-reuse-design.md": {
+      "sha256": "45fe4aa34fe3d48ca9408019151177d5a5b998f497beb2de5932d277f68a7248",
+      "bytes": 3320
+    }
+  },
+  "installed_v5": {
+    "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery-installed-v5/skills/to-sdd-pipeline/scripts/evidence/manager.py",
+    "sha256": "c5fdc9a90d3ea0c6dfe6e412bfb1faa9b6cb0758f7eb454b318239ac554ed8c1",
+    "bytes": 125536,
+    "writes_or_relink_performed": false,
+    "scope": "Read-only comparison of manager source; no installed-source or active-product mutation."
+  },
+  "interface": {
+    "new_private_context_manager": "Manager._generation_catalog()",
+    "public_assert_result": "unchanged coordinator_authorized/coordinator dictionary",
+    "public_begin_result": "unchanged new durable intent ID",
+    "remote_cache": "none",
+    "reuse_lifetime": "Only the final catalog yielded while the existing coordinator catalog lock remains held."
+  },
+  "lock_order": {
+    "initial_catalog": "Existing brief catalog lock; unchanged full validation.",
+    "authority": "Unchanged separate fresh original authority read.",
+    "producer_recovery": "Outside retained final lock, preserving shutdown lock behavior.",
+    "automatic_settlement": "Existing finish_generation locks and fresh catalog/publication unchanged.",
+    "final_validation": "Catalog lock -> full fresh catalog -> Accounting reconciliation/readiness, consistent with existing settlement order.",
+    "publication": "Same retained lock, same catalog object; existing fresh root-key conflict guard, capacity checks and independent readback unchanged.",
+    "recovery_reload": "Mandatory final reload remains even when recovery performs publication."
+  },
+  "measurements": {
+    "before": {
+      "class": "actual isolated local fixture",
+      "catalog_loads_per_begin": 3,
+      "command": "PYTHONPATH=tests canonical Python -B heredoc using ProducerManagerRecoveryTests fixture and wrapping manager._catalog; no remote provider",
+      "exit_code": 0
+    },
+    "after": {
+      "class": "actual isolated focused regression",
+      "catalog_loads_two_successive_begins": 4,
+      "catalog_loads_per_begin": 2,
+      "recovery_catalog_lock_depths": [
+        0,
+        0
+      ],
+      "final_readiness_lock_depths": [
+        1,
+        1
+      ],
+      "same_final_catalog_object_at_publication": true,
+      "fresh_next_begin_sees_prior_intent": true
+    },
+    "connected_host_estimate": {
+      "class": "source-derived, not measured live",
+      "assumptions": {
+        "roots": 9,
+        "indexes": 9,
+        "latest_root_segments": 9,
+        "authority": 1,
+        "registered_pack": 1,
+        "complete_single_page_listings": true,
+        "auto_settlements": 0,
+        "retries": 0,
+        "concurrent_changes": false
+      },
+      "native_drive_calls_per_catalog": 87,
+      "begin_before": 297,
+      "begin_after": 210,
+      "saved": 87,
+      "constructor_host_requests_excluded": 2,
+      "scope": "No retained pack original download; catalog JSON retrieval remains."
+    }
+  },
+  "test_runs": [
+    {
+      "command": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_evidence_producer_manager",
+      "tests": 26,
+      "failures": 1,
+      "errors": 3,
+      "skips": 0,
+      "seconds": 5.394,
+      "exit_code": 1,
+      "classification": "authoring fixture failures; production source unchanged afterward",
+      "details": [
+        {
+          "tests": [
+            "test_begin_reuses_final_catalog_only_inside_publication_lock",
+            "test_final_catalog_reads_changed_original_index_bytes_after_recovery",
+            "test_final_catalog_rechecks_authority_after_recovery"
+          ],
+          "error": "TypeError: synthetic recover/change_bytes/replace_authority callbacks accepted no ledger positional argument. Fixed signatures to match recover_producers(ledger, dry_run=...)."
+        },
+        {
+          "test": "test_incomplete_recovery_preserves_hold_floor_and_publication_state",
+          "error": "Overbroad totals equality included legitimately changing manager control metadata: metadata_bytes 202528 versus 160852 and metadata_files 6 versus 7. Producer runs and reservations remained unchanged."
+        }
+      ]
+    },
+    {
+      "command": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_evidence_producer_manager",
+      "tests": 26,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 5.294,
+      "exit_code": 1,
+      "classification": "remaining authoring fixture accounting distinction",
+      "details": [
+        {
+          "test": "test_incomplete_recovery_preserves_hold_floor_and_publication_state",
+          "error": "ledger_bytes 201849 versus 156497 changed with journal/WAL accounting. Final test explicitly distinguishes metadata/local/cache/ledger occupancy from producer charges, compares all remaining totals and exact runs/reservations, and adds exact uncertain_generation row equality. No acceptance assertion in an existing test was removed or weakened."
+        }
+      ]
+    },
+    {
+      "command": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_evidence_producer_manager test_evidence_manager test_evidence_manager_audit test_evidence_quarantine_manager test_evidence_accounting_recovery",
+      "tests": 101,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 35.85,
+      "exit_code": 0,
+      "classification": "final frozen-source isolated regression families"
+    }
+  ],
+  "focused_coverage": [
+    "two fresh catalog passes for each new begin and actual shared lock lifetime",
+    "public authority return shape and lock cleanup",
+    "same-size valid-JSON index tampering between initial and final validation",
+    "authority changes during recovery",
+    "out-of-band remote root change after readiness prevents upload",
+    "actual automatic recovery intent settlement is visible to final catalog",
+    "unknown owner retains entire original reservation",
+    "incomplete recovery retains original run, reservation and uncertainty floor",
+    "publication enforces changed capacity after readiness",
+    "two real Manager clients with same home serialize publication and retain both intents"
+  ],
+  "test_environment": {
+    "python": "3.12.14",
+    "executable": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "platform": "macOS-27.0.1-arm64-arm-64bit"
+  },
+  "scope_disclosure": {
+    "shared_repository_git": false,
+    "isolated_test_git_subprocess": true,
+    "detail": "The pre-existing test_evidence_manager.test_cli_git_review_obeys_policy_and_counts_added_then_removed_blob invoked Git in an isolated temporary fixture. Parent was notified. No engine/product Git state was touched.",
+    "private_ledger_provider_browser_network_or_product_runtime": false,
+    "fixture_resources": "Temporary local stores, fixture subprocesses and thread workers owned/cleaned by existing tests; no cleanup failures reported."
+  },
+  "limitations": [
+    "No live Drive latency/call-count measurement.",
+    "No native Windows/Linux or Python3.14 execution for this delta.",
+    "Root independent review, complete regression/maintenance suites, Git, release and any installation remain pending.",
+    "Initial draft test-file content hashes were not recorded before the authoring failures; all failure outcomes remain recorded here."
+  ],
+  "writing_stopped": true
+}

@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "kind": "mac-ci-producer-recovery-verification",
+  "observed_at": "2026-10-21T22:01:02.944776+00:00",
+  "runtime": {
+    "executable": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "python": "3.12.14",
+    "platform": "macOS-27.0.1-arm64-arm-64bit"
+  },
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/evidence/producer.py": {
+      "baseline_sha256": "0b12eb0ea2f2401c4c154946f2ee8e6686e6685b87c36e141da85134cb8185af",
+      "current_sha256": "cadccf258717f97d6ca0daea5111cbe17781aafaf2b88aa6c3a3042b1940b359"
+    },
+    "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": {
+      "baseline_sha256": "81ac24626435c06959d79ac02219a0e1e0b316a469c952eab0e8ebd34755b4cb",
+      "current_sha256": "7f72f0879cb16f5ce00d59f56a2bf09ebe9ae97721c5987d057422e4998653e0"
+    },
+    "tests/test_evidence_producer_recovery.py": {
+      "baseline_sha256": null,
+      "current_sha256": "9290649d31d1288cc18378b18e9a0b843b7666d091d353739930aebcfb8fcf0b"
+    }
+  },
+  "baseline": {
+    "exact_failing_test_runs": 1,
+    "passed": true,
+    "native_hosted_failure_reproduced": false,
+    "seconds": 0.613
+  },
+  "intermediate_checks": [
+    {
+      "tests": 9,
+      "passed": true,
+      "seconds": 7.541
+    },
+    {
+      "tests": 9,
+      "passed": true,
+      "tracked_fixture_cleanup": true
+    },
+    {
+      "tests": 33,
+      "passed": true
+    }
+  ],
+  "final_check": {
+    "method": "unittest combined isolated workflow/producer/fault/abandoned-accounting/managed-group suite",
+    "test_files": [
+      "tests/test_evidence_producer_recovery.py",
+      "tests/test_evidence_producer.py",
+      "tests/test_evidence_producer_faults.py",
+      "tests/test_evidence_abandoned_accounting.py",
+      "tests/test_evidence_managed_group_identity.py"
+    ],
+    "all_workflow_fixture_directories_removed": true,
+    "all_workflow_owned_identities_gone": true,
+    "errors": 0,
+    "failures": 0,
+    "skips": 0,
+    "successful": true,
+    "tests": 42
+  },
+  "cleanup": {
+    "workflow_fixture_roots": [
+      "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-producer-recovery-6r25ecy2",
+      "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-producer-recovery-o3bsh3nf",
+      "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-producer-recovery-5u312n6w",
+      "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-producer-recovery-jt2x1oqr",
+      "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-producer-recovery-dewoe86t",
+      "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-producer-recovery-28lyvxwh",
+      "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-producer-recovery-slycldxd",
+      "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-producer-recovery-dp2l47ro",
+      "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-producer-recovery-ud_sjqie"
+    ],
+    "workflow_roots_removed": true,
+    "tracked_workflow_identities": 48,
+    "all_tracked_workflow_identities_gone": true,
+    "method": "Fixture-owned Popen handles and birth identities; tearDown closes/stops only owned resources. Final observed native states and exact paths retained in diagnostic log. Related fixture teardown reported no failures.",
+    "post_run_process_scan": "No process command matched producer-recovery/abandoned-accounting/producer-fault fixture paths except the scan command and rg itself.",
+    "browsers_or_browser_profiles_created": false
+  },
+  "original_failure_preserved": true,
+  "diagnostic_log_sha256": "532659544120f1e394fbc5ea66c86e45b08b7ab53a6a2aafad8e2ab213606440",
+  "limitations": [
+    "Hosted macOS/Python 3.14 native EPERM cause is not established; no claim that it is infrastructure-only or that native EPERM is repaired.",
+    "Python 3.14 was not found in PATH, standard Homebrew/framework locations, or the bundled runtime; no installation was attempted.",
+    "Focused local checks are deterministic test evidence. Parent must run consolidated full suite and required CI matrix for the final reviewed revision."
+  ],
+  "billing": {
+    "live_checks": 2,
+    "ordinary_usage_allowed": true,
+    "applicable_window_used_percent": 63,
+    "extra_credits_authorized": false,
+    "api_or_reset_used": false
+  },
+  "stopped_writing": true
+}

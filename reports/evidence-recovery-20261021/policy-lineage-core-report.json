@@ -1,0 +1,170 @@
+{
+  "base_head": "cc31e82",
+  "checks": [
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_evidence_setup.py -v",
+      "passed": 43,
+      "phase": "existing setup baseline",
+      "seconds": 1.818,
+      "tests": 43
+    },
+    {
+      "command": "python3 -B -m unittest test_evidence_quarantine test_evidence_quarantine_manager test_evidence_producer_manager test_evidence_accounting_recovery -q",
+      "cwd": "tests",
+      "passed": 73,
+      "phase": "existing quarantine/producer/accounting baseline",
+      "seconds": 13.639,
+      "tests": 73
+    },
+    {
+      "command": "python3 -B -m unittest test_evidence_manager test_evidence_manager_audit test_catalog_inventory -q",
+      "cwd": "tests",
+      "passed": 68,
+      "phase": "existing manager/catalog baseline",
+      "seconds": 25.044,
+      "tests": 68
+    },
+    {
+      "command": "python3 -B -m unittest test_evidence_accounting test_evidence_cli_audit test_evidence_quarantine_manager -q",
+      "cwd": "tests",
+      "passed": 49,
+      "phase": "existing accounting/CLI after historical native-policy view",
+      "seconds": 11.274,
+      "tests": 49
+    },
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest test_evidence_setup test_evidence_quarantine test_evidence_quarantine_manager test_evidence_producer_manager test_evidence_accounting_recovery test_evidence_manager test_evidence_manager_audit test_catalog_inventory -q",
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests",
+      "exit_code": 0,
+      "failed": 0,
+      "passed": 184,
+      "phase": "Final frozen existing focused selector",
+      "seconds": 43.679,
+      "skips": 0,
+      "tests": 184
+    }
+  ],
+  "code_frozen": true,
+  "durability": {
+    "catalog_fences": "Only explicit initialize_generation_authority permits one exact immediate-predecessor transition. Ordinary catalog mutation and _publish reject an uncommitted lineage head. Existing listing/stat/hash/get/readback and concurrency fences remain.",
+    "empty_catalog_edge": "Plain v1 first setup remains unchanged. A first lineage root requires an already existing independently read exact same local coordinator authority, sequence zero and exactly one validated transition. Lineage cannot create authority.",
+    "retry": "Exact remote successor retry is idempotent; stale local ancestor, sibling/fork and ordinary rollback reject. Existing pending selection survives publication/local-write errors.",
+    "segment_annotation": "Unique semantic-empty policy_transition digest annotation avoids repeated identical immutable index descriptors. Full policy remains in ordinary catalog root.",
+    "setup_order": "Capture coherent original raw bytes; checkpoint setup choice; recheck unchanged source before probe, before initialization and after remote publication. Publish/read back exact successor full-policy catalog root before local config/policy write."
+  },
+  "historical_accounting": {
+    "descriptor_format": "Existing native quarantine v1 unchanged. Its original canonical policy digest resolves through shared policy validation; current portable raw-file receipt hash remains current.",
+    "native_read": "Only validated quarantine current-state inspection passes a read-only SimpleNamespace of the existing connection and exact resolved historical policy into runtime.read. Live ledger.policy and all session bytes remain unchanged. Generic new quarantine/native unresolved policy gate is unchanged.",
+    "preserved": [
+      "full reservation and uncertainty floors",
+      "runs and all failed statuses",
+      "sessions and original raw record hashes",
+      "outputs and observations",
+      "gross counters and ordinals",
+      "original immutable descriptors and proof/resource checks",
+      "designated coordinator and cold-recovery restrictions"
+    ]
+  },
+  "independent_new_tests": {
+    "coverage": [
+      "full chain/limits-only/digest/raw/size/depth adversarial cases",
+      "setup remote readback and local-write crash retries",
+      "stale fork and exact successor publication",
+      "empty-catalog authority restriction",
+      "local source changes during probe and after publication",
+      "two transitions preserving exact original SQL rows and descriptors",
+      "fresh known output settlement and scoped v2 receipt",
+      "old receipt raw-file hash rejection by unchanged checker"
+    ],
+    "final_matching_frozen_source_run": {
+      "failed": 0,
+      "passed": 38,
+      "seconds": 5.138,
+      "skips": 0,
+      "source_and_test_hashes_unchanged_before_after": true,
+      "tests": 38
+    },
+    "last_reported_passed": 38,
+    "last_reported_seconds": 4.116,
+    "last_reported_tests": 38,
+    "owner": "engine_recovery_analysis",
+    "report": "reports/evidence-recovery-20261021/policy-lineage-test-report.json",
+    "report_sha256": "111fe4d0839df322979fdc2d04015d9b301dbb5be7c87ebba91bec3ccc93a168"
+  },
+  "initial_findings_preserved": [
+    {
+      "failed": 1,
+      "finding": "Explicit policy_lineage=None was treated as omission.",
+      "passed": 15,
+      "phase": "Independent first pure policy suite",
+      "resolution": "Candidate field-presence check now requires inherited field equality and rejects explicit null/replacement.",
+      "tests": 16
+    },
+    {
+      "finding": "runtime.read still compared unresolved stored original policy to the new current policy.",
+      "phase": "Actual native quarantine inspection review",
+      "resolution": "Validated exact historical-policy read-only view preserves original native row and all existing proof checks."
+    }
+  ],
+  "kind": "portable-policy-lineage-core-verification",
+  "limitations": [
+    "No real policy configure, private ledger, Drive or browser/provider operation performed.",
+    "Installed immutable v7 was not edited or reinstalled.",
+    "Root owns full required suite, three shell checks, independent source review, Git and installation.",
+    "No product QA acceptance or failed historical run repair claimed."
+  ],
+  "lineage": {
+    "base": "Original exact UTF-8 policy bytes retained once; raw SHA and normalized full-policy canonical SHA verified.",
+    "base_fields": [
+      "raw_utf8",
+      "raw_sha256",
+      "policy_sha256"
+    ],
+    "max_complete_serialized_policy_bytes": 1048576,
+    "max_steps": 16,
+    "optional_field": "policy_lineage",
+    "prefix": "Each deterministic limits-only step reconstructs the entire previous normalized policy including its exact history prefix. Subsequent raw identity uses the existing setup pretty/sorted JSON plus newline; appending rejects reformatted lineage-bearing source bytes. No timestamps, nested lineage snapshots, recursive raw snapshots, or terminal self-hash.",
+    "step_fields": [
+      "from_policy_sha256",
+      "from_raw_sha256",
+      "previous_sha256",
+      "policy",
+      "changes",
+      "digest"
+    ],
+    "unchanged_legacy": "No lineage field is added to ordinary v1 validation or no-op transitions.",
+    "validation": "Validate the complete chain and terminal effective policy before resolving any ancestor. Reject duplicate JSON fields, invalid UTF-8, malformed/foreign/truncated/reordered chains, non-limit differences, incomplete or bool/int-aliased diffs, explicit replacement/null inherited history and unknown ancestry.",
+    "version": 1
+  },
+  "public_interfaces": {
+    "append_policy_transition": "(previous_raw: bytes, candidate_effective: dict) -> validated full policy",
+    "resolve_historical_policy": "(currentpolicy: dict, canonicalSHA: str) -> exact normalized historical full policy"
+  },
+  "scope": "Engine correction only; no product acceptance claim.",
+  "sources": {
+    "scripts/evidence_setup.py": {
+      "bytes": 40351,
+      "sha256": "e855f016faeea293f6200b6bb9c39b961b4a77619794dc8bc9916ab80db15314"
+    },
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py": {
+      "bytes": 129431,
+      "sha256": "3c630e16d7d8c1663e30f11bf09fc71bf621b3c2dd779e1a2bea2a6be55fe037"
+    },
+    "skills/to-sdd-pipeline/scripts/evidence/policy.py": {
+      "bytes": 10892,
+      "sha256": "4a59143344bbe689a3792fe43be02965d1b79f3258169a25e0a2fa1578a4d02b"
+    },
+    "skills/to-sdd-pipeline/scripts/evidence/quarantine.py": {
+      "bytes": 14497,
+      "sha256": "60759c01fa8c0c4164c23c1306aa49bf7a90e7fc96a21e3dbe69159994d5dcd0"
+    }
+  },
+  "usage": {
+    "extra_credits_or_API_or_reset_used": false,
+    "included_only": true,
+    "ordinary_usage_allowed": true,
+    "used_percent": 69
+  },
+  "version": 1,
+  "writing_status": "All owned source and report writes stopped."
+}

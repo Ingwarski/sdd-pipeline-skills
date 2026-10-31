@@ -1,7 +1,7 @@
 """Single-coordinator immutable catalogs, resumable packs, preparation and retention."""
 from __future__ import annotations
 
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 import hashlib
@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import socket
 import sqlite3
 import stat
@@ -17,9 +18,9 @@ import threading
 import time
 import uuid
 
-from .archive import build_pack, verify_pack, capture
+from .archive import build_pack, verify_pack, capture, encoded_pack_bound
 from .io import EvidenceError, atomic_json, hash_file, read_json, safe_relative, _open_regular, _verify_stable, _is_link
-from .policy import validate_policy
+from .policy import validate_policy, resolve_historical_policy, LINEAGE_FIELD
 from .identity import same_reference, same_imported_original
 from . import process_identity
 
@@ -43,8 +44,13 @@ def timestamp(value):
 
 
 class Manager:
-    def __init__(self, transport, home, policy):
+    def __init__(self, transport, home, policy, *, project=None):
         self.transport, self.policy = transport, validate_policy(policy)
+        self.project = Path(project) if project is not None else None
+        if self.project is not None and (not self.project.is_absolute()
+                or self.project.resolve(strict=True) != self.project or self.project.is_symlink()
+                or not self.project.is_dir()):
+            raise EvidenceError("source payload classification requires a canonical project directory")
         self.home = Path(home).resolve()
         self.state = self.home / "projects" / self.policy["project_id"]
         self.cache = self.state / "cache"
@@ -63,8 +69,10 @@ class Manager:
         self._working_depth = 0
         self._working_reservation = None
         self._working_migration = False
+        self._catalog_working = None
         self._catalog_thread_lock = threading.RLock()
         self._catalog_lock_depth = 0
+        self._source_payload_scope = None
 
     def _coordinator_identity(self, identity):
         """Publish once; the OS releases initialization ownership after a crash."""
@@ -148,7 +156,16 @@ class Manager:
                 try:
                     yield
                 finally:
-                    self._catalog_lock_depth = 0
+                    try:
+                        self._audit_source_payloads()
+                    finally:
+                        self._source_payload_scope = None
+                        self._catalog_lock_depth = 0
+
+    def _audit_source_payloads(self):
+        """Check retained proofs before metadata-dependent commit boundaries."""
+        if self._source_payload_scope is not None:
+            self._source_payload_scope.audit()
 
     def _catalog_guard(self, timeout=600):
         return self._advisory_lock(self.state / ".catalog-lifecycle.lock", timeout)
@@ -322,32 +339,83 @@ class Manager:
                 action["verified"] = True
             return [action]
 
-    def _usage(self, *, include_ledger=True, include_checkpoints=True):
-        """Account all local capture/cache/staging/readback/restoration, without following links."""
-        count = 0
-        for directory, dirs, files in os.walk(self.state, followlinks=False):
+    def _usage(self, *, include_ledger=True, include_checkpoints=True, seen=None):
+        """Count distinct regular inode lengths across owned local state.
+
+        Hardlink aliases share one payload charge; independent copies do not.
+        This is neither logical generation accounting nor allocated disk blocks.
+        No source-view subtree, receipt or unregistered regular file is exempt.
+        """
+        checkpoint_root = self._checkpoint_root()
+        def excluded(path):
+            return (not include_ledger and (path.name.startswith("accounting.sqlite") or
+                (self.state / "accounting.sqlite.recovery") in path.parents) or
+                not include_checkpoints and checkpoint_root is not None and
+                (path == checkpoint_root or checkpoint_root in path.parents))
+        seen = set() if seen is None else seen
+        count = self._occupancy_bytes(self._workspace_records(self.state, excluded=excluded), seen=seen)
+        count += self._occupancy_bytes(self._transport_records(), seen=seen)
+        if include_checkpoints and checkpoint_root is not None and self.state not in checkpoint_root.parents and checkpoint_root != self.state:
+            count += self._occupancy_bytes(self._checkpoint_records(), seen=seen)
+        return count
+
+    @staticmethod
+    def _workspace_records(root, *, excluded=lambda path: False):
+        """Inventory regular paths without following links, including orphan views."""
+        root_info = root.lstat()
+        if _is_link(root_info) or not stat.S_ISDIR(root_info.st_mode):
+            raise EvidenceError("linked or non-directory evidence workspace: " + str(root))
+        records = []
+        def failed(error):
+            raise error
+        for directory, dirs, files in os.walk(root, followlinks=False, onerror=failed):
             for name in dirs + files:
                 path = Path(directory) / name
-                if not include_ledger and (path.name.startswith("accounting.sqlite") or (self.state / "accounting.sqlite.recovery") in path.parents):
-                    continue
-                checkpoint_root = self._checkpoint_root()
-                if not include_checkpoints and checkpoint_root is not None and (path == checkpoint_root or checkpoint_root in path.parents):
+                if excluded(path):
                     continue
                 try:
                     info = path.lstat()
                 except FileNotFoundError:
                     continue  # A managed sibling completed its reserved temporary work.
-                if stat.S_ISLNK(info.st_mode):
+                if _is_link(info):
                     raise EvidenceError("unregistered link in evidence workspace: " + str(path))
                 if stat.S_ISREG(info.st_mode):
-                    count += info.st_size
+                    records.append(path)
                 elif not stat.S_ISDIR(info.st_mode):
                     raise EvidenceError("special file in evidence workspace")
-        count += self._existing_bytes(self._transport_records())
-        checkpoint_root = self._checkpoint_root()
-        if include_checkpoints and checkpoint_root is not None and self.state not in checkpoint_root.parents and checkpoint_root != self.state:
-            count += self._existing_bytes(self._checkpoint_records())
-        return count
+        return records
+
+    @staticmethod
+    def _occupancy_bytes(paths, *, seen=None):
+        seen = set() if seen is None else seen
+        total = 0
+        for path in paths:
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                continue  # Its in-flight peak remains reserved separately.
+            if _is_link(info):
+                raise EvidenceError("unregistered link in evidence workspace: " + str(path))
+            if not stat.S_ISREG(info.st_mode):
+                raise EvidenceError("special file in evidence workspace")
+            identity = info.st_dev, info.st_ino
+            if identity not in seen:
+                seen.add(identity)
+                total += info.st_size
+        return total
+
+    def _cache_bytes(self, *, seen=None):
+        # Retained aliases remain cache occupancy even after objects/SHA is gone.
+        # Counting the entire safe tree conservatively includes receipt metadata.
+        return self._occupancy_bytes(self._workspace_records(self.cache), seen=seen)
+
+    def _local_occupancy(self):
+        """Attribute each owned inode once, including cross-bucket aliases."""
+        seen = set()
+        cache = self._cache_bytes(seen=seen)
+        working = self._usage(include_ledger=False, include_checkpoints=False, seen=seen)
+        checkpoints = self._occupancy_bytes(self._checkpoint_records(), seen=seen)
+        return cache, working, checkpoints
 
     @staticmethod
     def _existing_bytes(paths):
@@ -384,12 +452,15 @@ class Manager:
                     raise EvidenceError("transfer checkpoint directory contains an unsafe entry")
         return records
 
-    def _checkpoint_allocations(self, ledger):
+    def _checkpoint_allocations(self, ledger, *, actual_bytes=None):
         if self._checkpoint_root() is None:
             return
         records = self._checkpoint_records()
         metadata = [path for path in records if path.suffix == ".json"]
-        ledger.reconcile_local("transport-checkpoints", self._existing_bytes(records), "staging")
+        if actual_bytes is None:
+            actual_bytes = self._local_occupancy()[2]
+        ledger.reconcile_local("transport-checkpoints", actual_bytes, "staging")
+        self._audit_source_payloads()
         ledger.reconcile_metadata("transport-checkpoints", self._existing_bytes(metadata), len(metadata))
 
     @contextmanager
@@ -410,8 +481,9 @@ class Manager:
             finally:
                 records = self._checkpoint_records()
                 metadata = [path for path in records if path.suffix == ".json"]
+                self._audit_source_payloads()
                 result = ledger.finish_working(ident, local_key="transport-checkpoints",
-                    actual_bytes=self._existing_bytes(records), kind="staging", metadata_key="transport-checkpoints",
+                    actual_bytes=self._local_occupancy()[2], kind="staging", metadata_key="transport-checkpoints",
                     actual_metadata_bytes=self._existing_bytes(metadata), actual_metadata_files=len(metadata))
                 violations = [value for value in result["violations"] if not value.startswith("combined cache")]
                 if violations and not failed:
@@ -440,7 +512,44 @@ class Manager:
                     raise EvidenceError("host transport session contains an unsafe entry")
         return records
 
-    def _capacity(self, peak, *, migration=False):
+    def _verify_catalog_host_cleanup(self):
+        """Inspect the actual session even when occupancy is counted in this state."""
+        folder = getattr(self.transport, "host_session_path", None)
+        if folder is None:
+            return
+        from .transports import _directory
+        descriptor = None
+        problem = "catalog host request/materialization cleanup is incomplete"
+        try:
+            root = _directory(folder)
+            before = root.lstat()
+            if hasattr(os, "getuid") and before.st_uid != os.getuid():
+                raise EvidenceError(problem + ": foreign session owner")
+            if os.scandir in os.supports_fd:
+                descriptor = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+                opened = os.fstat(descriptor)
+                if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                    raise EvidenceError(problem + ": session changed")
+            with os.scandir(descriptor if descriptor is not None else root) as entries:
+                for count, entry in enumerate(entries, 1):
+                    if count > self.limits["metadata_stop_files"]:
+                        raise EvidenceError(problem + ": session inspection bound exceeded")
+                    if entry.name in ("request.json", "response.json") or entry.name.startswith("original-"):
+                        raise EvidenceError(problem + ": retained native control or original")
+                    info = entry.stat(follow_symlinks=False)
+                    if _is_link(info) or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                        raise EvidenceError(problem + ": unsafe session entry")
+            after = _directory(root).lstat()
+            fields = ("st_dev", "st_ino", "st_mtime_ns", "st_ctime_ns")
+            if any(getattr(before, field) != getattr(after, field) for field in fields):
+                raise EvidenceError(problem + ": session changed during inspection")
+        except OSError as error:
+            raise EvidenceError(problem + ": session cannot be inspected") from error
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+    def _capacity(self, peak, *, migration=False, discard_readbacks=True):
         local_limit = self.limits["migration_local_stop_bytes" if migration else "local_stop_bytes"]
         used, pending, external = self._usage(), 0, 0
         ledger_path = self.state / "accounting.sqlite"
@@ -452,18 +561,23 @@ class Manager:
                     pending += connection.execute("SELECT COALESCE(SUM(bytes),0) FROM working_reservations WHERE state='pending' AND id!=?", (self._working_reservation or "",)).fetchone()[0]
                 external = connection.execute("SELECT COALESCE(SUM(bytes),0) FROM local_usage WHERE kind IN ('capture','restore') AND key!='manager-working'").fetchone()[0]
         if used + external + pending + peak > local_limit:
+            if discard_readbacks and self._discard_readbacks():
+                return self._capacity(peak, migration=migration, discard_readbacks=False)
             raise EvidenceError("combined local working-space allowance exhausted")
         reserve = self.limits["free_space_reserve_bytes"]
         if shutil.disk_usage(self.state).free < pending + peak + reserve:
+            if discard_readbacks and self._discard_readbacks():
+                return self._capacity(peak, migration=migration, discard_readbacks=False)
             raise EvidenceError("measured staging/restoration peak plus preserved free-space reserve unavailable")
 
     def _local_records(self, ledger):
-        cache_bytes = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
+        cache_bytes, working_bytes, checkpoint_bytes = self._local_occupancy()
         ledger.reconcile_local("cache", cache_bytes, "cache")
-        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache_bytes), "staging")
+        ledger.reconcile_local("manager-working", working_bytes, "staging")
         records = self._metadata_records(include_checkpoints=False)
+        self._audit_source_payloads()
         ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
-        self._checkpoint_allocations(ledger)
+        self._checkpoint_allocations(ledger, actual_bytes=checkpoint_bytes)
 
     def _metadata_records(self, *, include_checkpoints=True):
         recovery = self.state / "accounting.sqlite.recovery"
@@ -474,12 +588,37 @@ class Manager:
                 p for p in self._transport_records() if p.suffix == ".json"]
         if include_checkpoints:
             records += [p for p in self._checkpoint_records() if p.suffix == ".json"]
+        candidates = [p for p in records if p.is_relative_to(self.cache / "source-views")]
+        if self.project is not None and candidates:
+            from .source_payloads import SourcePayloadScope
+            standalone = not self._catalog_lock_depth
+            scope = self._source_payload_scope
+            if scope is None:
+                scope = SourcePayloadScope(self.project, self.cache, self.policy)
+                if not standalone:
+                    self._source_payload_scope = scope
+            try:
+                payloads = scope.payload_paths(candidates)
+                if type(payloads) is not set or not payloads <= set(candidates):
+                    raise EvidenceError("source payload proof returned foreign metadata paths")
+                controls = scope.control_paths()
+                if type(controls) is not set or any(not isinstance(p, Path) or not p.is_absolute()
+                        or not (p.is_relative_to(self.project) or p.is_relative_to(self.cache)) for p in controls):
+                    raise EvidenceError("source payload proof returned foreign control paths")
+                if payloads & controls:
+                    raise EvidenceError("source payload proof cannot exempt a consumed control")
+                records = list(dict.fromkeys([p for p in records if p not in payloads] + sorted(controls)))
+            finally:
+                if standalone:
+                    scope.audit()
         return records
 
     @contextmanager
     def _working(self, peak, *, migration=False, metadata_bytes=0, metadata_files=0, cache_bytes=0,
                  additional_peak=False, capacity_path=None, transport_scope=False):
         with self.locked():
+            if self._catalog_working is not None:
+                raise EvidenceError("catalog working scope cannot cover an unleased working operation")
             with self._working_reserved(peak, migration=migration, metadata_bytes=metadata_bytes,
                 metadata_files=metadata_files, cache_bytes=cache_bytes, additional_peak=additional_peak,
                 capacity_path=capacity_path, transport_scope=transport_scope):
@@ -505,13 +644,21 @@ class Manager:
         if nested and not (metadata_bytes or metadata_files or cache_bytes or additional_peak):
             yield
             return
-        from .accounting import Accounting
+        from .accounting import Accounting, BudgetExceeded
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
             if not (nested and additional_peak):
                 self._local_records(ledger)
-            ident = ledger.reserve_working(peak if not nested or additional_peak else 0, migration=migration,
-                exclude_reservation=self._active_reservation, metadata_bytes=metadata_bytes,
-                metadata_files=metadata_files, cache_bytes=cache_bytes, capacity_path=capacity_path)
+            try:
+                ident = ledger.reserve_working(peak if not nested or additional_peak else 0, migration=migration,
+                    exclude_reservation=self._active_reservation, metadata_bytes=metadata_bytes,
+                    metadata_files=metadata_files, cache_bytes=cache_bytes, capacity_path=capacity_path)
+            except BudgetExceeded:
+                if not self._discard_readbacks():
+                    raise
+                self._local_records(ledger)
+                ident = ledger.reserve_working(peak if not nested or additional_peak else 0, migration=migration,
+                    exclude_reservation=self._active_reservation, metadata_bytes=metadata_bytes,
+                    metadata_files=metadata_files, cache_bytes=cache_bytes, capacity_path=capacity_path)
             if not nested:
                 self._working_reservation = ident
                 self._working_migration = migration
@@ -524,19 +671,23 @@ class Manager:
                 raise
             finally:
                 try:
-                    cache = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
+                    cache, working, checkpoints = self._local_occupancy()
                     records = self._metadata_records(include_checkpoints=False)
                     allocations = {"metadata_key": "local-journals-receipts", "actual_metadata_bytes": self._existing_bytes(p for p in records),
                         "actual_metadata_files": len(records)}
                     if nested and additional_peak and not (metadata_bytes or metadata_files):
                         allocations = {}  # The enclosing operation owns persistent control metadata.
                     if not nested:
-                        allocations.update(local_key="manager-working", actual_bytes=max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache),
+                        allocations.update(local_key="manager-working", actual_bytes=working,
                             kind="staging", cache_key="cache", actual_cache_bytes=cache)
+                        self._checkpoint_allocations(ledger, actual_bytes=checkpoints)
+                    self._audit_source_payloads()
                     result = ledger.finish_working(ident, **allocations)
                     violations = [v for v in result["violations"] if not
                         (not metadata_bytes and not metadata_files and v.startswith("combined metadata")) and not
                         (not cache_bytes and v.startswith("combined cache"))]
+                    if not failed:
+                        violations = self._settlement_readback_release(ledger, violations, migration=migration)
                     if violations and not failed:
                         raise EvidenceError("working resource settlement incomplete: " + "; ".join(violations))
                 finally:
@@ -545,8 +696,116 @@ class Manager:
                         self._working_reservation = None
                         self._working_migration = False
 
+    def _catalog_working_token(self, scope):
+        if (scope is not self._catalog_working or not scope or not scope["open"]
+                or scope["thread"] != threading.get_ident() or not self._catalog_lock_depth
+                or scope["policy"] != self.policy):
+            raise EvidenceError("catalog working scope is closed, foreign or changed")
+        return scope
+
+    @contextmanager
+    def _catalog_working_scope(self):
+        """One pending high-water hold for one fresh, independently validated catalog."""
+        if not self._catalog_lock_depth:
+            raise EvidenceError("catalog working scope requires catalog ownership")
+        if self._catalog_working is not None or self._working_depth or self._working_reservation is not None:
+            raise EvidenceError("catalog working scope cannot adopt an existing working operation")
+        from .accounting import Accounting, BudgetExceeded
+        overhead = getattr(self.transport, "working_overhead", None)
+        control = overhead(upload_bytes=0, download_bytes=0) if overhead else 0
+        if type(control) is not int or control < 0:
+            raise EvidenceError("transport control overhead must be nonnegative")
+        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._local_records(ledger)
+            session = getattr(self.transport, "host_session_path", None)
+            if session is not None and shutil.disk_usage(session).free < ledger._totals()["pending_local_bytes"] + control + self.limits["free_space_reserve_bytes"]:
+                raise EvidenceError("host transport control peak cannot preserve the configured free-space reserve")
+            try:
+                ident = ledger.reserve_working(control, metadata_bytes=control, metadata_files=3 if control else 0)
+            except BudgetExceeded:
+                if not self._discard_readbacks():
+                    raise
+                ident = ledger.reserve_working(control, metadata_bytes=control, metadata_files=3 if control else 0)
+            previous = self._working_reservation
+            scope = {"open": True, "thread": threading.get_ident(), "policy": deepcopy(self.policy),
+                "ledger": ledger, "id": ident, "control": control, "active": {}, "uncertain": False,
+                "bounds": {"bytes": control, "metadata_bytes": control, "metadata_files": 3 if control else 0, "cache_bytes": 0}}
+            self._catalog_working, self._working_reservation = scope, ident
+            failure = None
+            try:
+                yield scope
+            except BaseException as error:
+                failure = error
+                raise
+            finally:
+                try:
+                    if scope["active"] or scope["uncertain"]:
+                        raise EvidenceError("catalog working outcome is unknown; retained pending reservation " + ident)
+                    cache, working, checkpoints = self._local_occupancy()
+                    records = self._metadata_records(include_checkpoints=False)
+                    allocations = {"metadata_key": "local-journals-receipts", "actual_metadata_bytes": self._existing_bytes(records),
+                        "actual_metadata_files": len(records), "local_key": "manager-working", "actual_bytes": working,
+                        "kind": "staging", "cache_key": "cache", "actual_cache_bytes": cache}
+                    self._checkpoint_allocations(ledger, actual_bytes=checkpoints)
+                    self._audit_source_payloads()
+                    result = ledger.finish_working(ident, **allocations)
+                    violations = [v for v in result["violations"] if not
+                        (not control and v.startswith("combined metadata")) and not v.startswith("combined cache")]
+                    if failure is None:
+                        violations = self._settlement_readback_release(ledger, violations)
+                    if violations and failure is None:
+                        raise EvidenceError("working resource settlement incomplete: " + "; ".join(violations))
+                except BaseException as settlement:
+                    if failure is None:
+                        settlement.add_note("catalog working reservation: " + ident)
+                        raise
+                    failure.add_note("catalog working reservation " + ident + ": " + str(settlement))
+                finally:
+                    scope["open"] = False
+                    self._catalog_working = None
+                    self._working_reservation = previous
+
+    @contextmanager
+    def _catalog_working_lease(self, scope, byte_count, *, capacity_path=None):
+        scope = self._catalog_working_token(scope)
+        if type(byte_count) is not int or byte_count < 0:
+            raise EvidenceError("catalog working lease must be a nonnegative byte bound")
+        aggregate = scope["control"] + sum(scope["active"].values()) + byte_count
+        self._capacity(aggregate)
+        if capacity_path is not None:
+            pending = scope["ledger"]._totals()["pending_local_bytes"] - scope["bounds"]["bytes"]
+            if shutil.disk_usage(capacity_path).free < pending + aggregate + self.limits["free_space_reserve_bytes"]:
+                raise EvidenceError("host transport working peak cannot preserve the configured free-space reserve")
+        if aggregate > scope["bounds"]["bytes"]:
+            from .accounting import BudgetExceeded
+            try:
+                try:
+                    scope["bounds"] = scope["ledger"].grow_working(scope["id"], aggregate,
+                        metadata_bytes=scope["control"], metadata_files=3 if scope["control"] else 0,
+                        capacity_path=capacity_path)
+                except BudgetExceeded:
+                    if not self._discard_readbacks():
+                        raise
+                    scope["bounds"] = scope["ledger"].grow_working(scope["id"], aggregate,
+                        metadata_bytes=scope["control"], metadata_files=3 if scope["control"] else 0,
+                        capacity_path=capacity_path)
+            except BudgetExceeded:
+                raise  # Rejected before effects, with the previous hold intact.
+            except BaseException:
+                scope["uncertain"] = True  # COMMIT acknowledgement may have been lost.
+                raise
+        lease = object()
+        scope["active"][lease] = byte_count
+        try:
+            yield
+        finally:
+            if not scope["uncertain"]:
+                del scope["active"][lease]
+
     def _transport_call(self, method, *args, **kwargs):
         """Reserve durable transfer checkpoints separately from host queue peaks."""
+        if method == "put":
+            self._audit_source_payloads()
         if method == "put" and self._checkpoint_root() is not None:
             with self._checkpoint_working(Path(args[1]).stat().st_size):
                 return self._transport_host_call(method, *args, **kwargs)
@@ -554,6 +813,25 @@ class Manager:
 
     def _transport_host_call(self, method, *args, **kwargs):
         """Reserve private host queues and materialized originals outside this state."""
+        if self._catalog_working is not None:
+            scope = self._catalog_working_token(self._catalog_working)
+            if method not in ("inventory", "keys", "stat", "get"):
+                raise EvidenceError("catalog working scope permits only catalog read operations")
+            overhead = getattr(self.transport, "working_overhead", None)
+            peak = overhead(upload_bytes=0, download_bytes=args[2] if method == "get" else 0) if overhead else 0
+            if type(peak) is not int or peak < scope["control"]:
+                raise EvidenceError("transport control overhead must fit its working bound")
+            with self._catalog_working_lease(scope, peak - scope["control"],
+                    capacity_path=getattr(self.transport, "host_session_path", None)):
+                try:
+                    result = getattr(self.transport, method)(*args, **kwargs)
+                    self._verify_catalog_host_cleanup()
+                    return result
+                except BaseException:
+                    from .transports import LocalTransport
+                    if not isinstance(self.transport, LocalTransport):
+                        scope["uncertain"] = True
+                    raise
         overhead = getattr(self.transport, "working_overhead", None)
         if overhead is None:
             return getattr(self.transport, method)(*args, **kwargs)
@@ -587,32 +865,69 @@ class Manager:
         size = self._transport_call("stat", locator)["size"]
         if size > maximum:
             raise EvidenceError("remote metadata exceeds combined configured bound")
+        if self._catalog_working is not None:
+            scope = self._catalog_working_token(self._catalog_working)
+            with self._catalog_working_lease(scope, size):
+                temporary, failure = None, None
+                try:
+                    temporary = tempfile.TemporaryDirectory(dir=self.staging, prefix="index-")
+                    target = Path(temporary.name).resolve() / "data.json"
+                    self._transport_call("get", locator, target, size)
+                    return read_json(target, maximum), hash_file(target)
+                except BaseException as error:
+                    failure = error
+                    raise
+                finally:
+                    if temporary is not None:
+                        try:
+                            temporary.cleanup()
+                            if os.path.lexists(temporary.name):
+                                raise EvidenceError("catalog temporary materialization remains")
+                        except BaseException as cleanup:
+                            scope["uncertain"] = True
+                            if failure is None:
+                                raise
+                            failure.add_note("catalog temporary cleanup failed: " + str(cleanup))
         self._capacity(size)
         with self._working(size), tempfile.TemporaryDirectory(dir=self.staging, prefix="index-") as temp:
             target = Path(temp).resolve() / "data.json"
             self._transport_call("get", locator, target, size)
             return read_json(target, maximum), hash_file(target)
 
-    def _catalog(self, *, mutation=False, recover_policy=False):
+    def _catalog(self, *, mutation=False, recover_policy=False, allow_policy_transition=False):
         with self.locked():
-            return self._catalog_locked(mutation=mutation, recover_policy=recover_policy)
+            if self._catalog_working is not None:
+                raise EvidenceError("independent catalog cannot reenter an active catalog working scope")
+            if not (self._working_depth or self._working_reservation is not None or recover_policy or allow_policy_transition):
+                with self._catalog_working_scope():
+                    return self._catalog_locked(mutation=mutation, recover_policy=recover_policy, allow_policy_transition=allow_policy_transition)
+            return self._catalog_locked(mutation=mutation, recover_policy=recover_policy, allow_policy_transition=allow_policy_transition)
 
-    def _catalog_locked(self, *, mutation=False, recover_policy=False):
-        roots = self._transport_call("keys", self.prefix + "roots/")
-        authorities = self._transport_call("keys", self.prefix + "authority/")
+    def _catalog_inventory(self, prefix):
+        # Reuse only this fresh listing's object identity, never its sizes for
+        # admission. Older transports keep their existing string-key contract.
+        method = "inventory" if callable(getattr(self.transport, "inventory", None)) else "keys"
+        return self._transport_call(method, prefix)
+
+    def _catalog_locked(self, *, mutation=False, recover_policy=False, allow_policy_transition=False):
+        roots = self._catalog_inventory(self.prefix + "roots/")
+        authorities = self._catalog_inventory(self.prefix + "authority/")
         authority_bytes = sum(self._transport_call("stat", item)["size"] for item in authorities)
-        authority = self._generation_authority() if authorities else None
+        authority = self._generation_authority(authorities) if authorities else None
         if mutation and authority is not None and authority["coordinator"] != self.coordinator:
             raise EvidenceError("this client lacks designated coordinator authority; cold recovery is read-only")
         if len(roots) + len(authorities) > self.limits["metadata_stop_files"] or authority_bytes > self.limits["metadata_stop_bytes"]:
             raise EvidenceError("combined catalog object count exhausted")
         if not roots:
+            if mutation and LINEAGE_FIELD in self.policy and not allow_policy_transition:
+                raise EvidenceError("policy lineage is not committed; finish explicit evidence setup first")
             return {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"],
                     "sequence": 0, "coordinator": authority["coordinator"] if authority else self.coordinator, "segments": [], "refs": {}, "packs": {},
-                    "generation": {}, "generation_intents": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
+                    "generation": {}, "generation_intents": {}, "generation_quarantines": {}, "generation_quarantine_device_witnesses": {}, "generation_quarantine_device_bindings": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
         keys = sorted((x if isinstance(x, str) else x["key"]) for x in roots)
         latest = keys[-1]
-        root, (digest, size) = self._read_remote_json(latest, self.limits["metadata_stop_bytes"])
+        latest_locator = next(item for item in roots if (item if isinstance(item, str) else item["key"]) == latest)
+        root, (digest, size) = self._read_remote_json(latest_locator, self.limits["metadata_stop_bytes"])
         if latest != self.prefix + "roots/" + str(root.get("sequence", 0)).zfill(12) + "-" + digest + ".json":
             raise EvidenceError("catalog root identity/hash mismatch")
         if root.get("version") != 1 or root.get("project_id") != self.policy["project_id"] or root.get("store_id") != self.policy["store_id"]:
@@ -628,18 +943,44 @@ class Manager:
             self.policy, self.limits = recovered, recovered["limits"]
         if mutation and root.get("coordinator") != self.coordinator:
             raise EvidenceError("this clone has incomplete coordinator authority; cold recovery is read-only; explicitly transfer coordinator authority before mutation/pruning")
+        if mutation and (LINEAGE_FIELD in self.policy or isinstance(root.get("policy"), dict) and LINEAGE_FIELD in root["policy"]):
+            head = validate_policy(root.get("policy"))
+            if head != self.policy:
+                if not allow_policy_transition:
+                    raise EvidenceError("portable policy differs from committed lineage head; finish explicit evidence setup before mutation")
+                self._require_policy_successor(head)
+
         if not isinstance(root.get("segments"), list) or len(root["segments"]) > self.limits["metadata_stop_files"]:
             raise EvidenceError("invalid catalog segment closure")
-        total = authority_bytes
-        indexes = self._transport_call("keys", self.prefix + "indexes/")
-        index_keys = {(x if isinstance(x, str) else x["key"]) for x in indexes}
-        # Old roots count too: splitting or retaining checkpoints cannot evade metadata limits.
-        for key in keys:
-            total += int(self._transport_call("stat", key)["size"])
+        # All published roots are retained by this format; there is no root
+        # compaction authority. Verify their append-only ancestry so a later
+        # valid hash cannot erase an older witness by omitting its segment.
+        total, previous_key, previous_segments, sequence = authority_bytes, None, [], 0
+        for locator in sorted(roots, key=lambda item: item if isinstance(item, str) else item['key']):
+            key = locator if isinstance(locator, str) else locator['key']
+            historical, (root_sha, root_size) = ((root, (digest, size)) if key == latest
+                                                else self._read_remote_json(locator, self.limits['metadata_stop_bytes']))
+            total += root_size
+            if total > self.limits['metadata_stop_bytes']:
+                raise EvidenceError('catalog root ancestry exceeds metadata allowance')
+            if (not isinstance(historical, dict) or type(historical.get('sequence')) is not int
+                    or historical['sequence'] != sequence + 1 or historical.get('version') != 1
+                    or historical.get('project_id') != self.policy['project_id'] or historical.get('store_id') != self.policy['store_id']
+                    or key != self.prefix + 'roots/' + str(historical['sequence']).zfill(12) + '-' + root_sha + '.json'
+                    or historical.get('previous') != previous_key or not isinstance(historical.get('segments'), list)
+                    or len(historical['segments']) > self.limits['metadata_stop_files']
+                    or historical['segments'][:len(previous_segments)] != previous_segments):
+                raise EvidenceError('catalog root ancestry/fork or preserved segment prefix differs')
+            previous_key, previous_segments, sequence = key, historical['segments'], historical['sequence']
+        indexes = self._catalog_inventory(self.prefix + "indexes/")
+        index_locators = {(item if isinstance(item, str) else item["key"]): item for item in indexes}
+        index_keys = set(index_locators)
+        # Historical root bytes were independently verified above.
         for key in index_keys:
-            total += int(self._transport_call("stat", key)["size"])
+            total += int(self._transport_call("stat", index_locators[key])["size"])
         refs, packs, generation, pending_deletions, retired_refs, import_retention_decisions = {}, {}, {}, {}, {}, {}
-        generation_intents, reference_aliases = {}, {}
+        generation_intents, generation_quarantines, reference_aliases = {}, {}, {}
+        device_witnesses, device_bindings = {}, {}
         seen = set()
         for descriptor in root["segments"]:
             if descriptor["sha256"] in seen:
@@ -678,6 +1019,35 @@ class Manager:
                 if ident not in generation_intents:
                     raise EvidenceError("durable generation settlement lacks its original intent")
                 generation_intents[ident] = {**generation_intents[ident], "settled": True}
+            quarantine_records = data.get("generation_quarantines", {})
+            if not isinstance(quarantine_records, dict):
+                raise EvidenceError("invalid durable generation quarantine index")
+            for ident, value in quarantine_records.items():
+                self._validate_generation_quarantine(ident, value, generation_intents)
+                if ident in generation_quarantines and generation_quarantines[ident] != value:
+                    raise EvidenceError("immutable generation quarantine changed")
+                if any(other != ident and (prior["attempt_id"] == value["attempt_id"]
+                       or prior["intent_id"] == value["intent_id"])
+                       for other, prior in generation_quarantines.items()):
+                    raise EvidenceError("generation quarantine replays another binding")
+                generation_quarantines[ident] = value
+            device_records = data.get('generation_quarantine_device_witnesses', {})
+            if not isinstance(device_records, dict):
+                raise EvidenceError('invalid custody publication map')
+            from .quarantine_device import validate_quarantine_device_witness
+            for ident, value in device_records.items():
+                original = next((q for q in generation_quarantines.values() if q['digest'] == ident), None)
+                if original is None:
+                    raise EvidenceError('published custody witness lacks original quarantine')
+                validate_quarantine_device_witness(value, original, self.policy)
+                if ident in device_witnesses and device_witnesses[ident] != value:
+                    raise EvidenceError('immutable published custody witness changed')
+                if any(other != ident and any(prior[k] == value[k] for k in ('attempt_id', 'reservation_id', 'operation_id'))
+                       for other, prior in device_witnesses.items()):
+                    raise EvidenceError('published custody witness replays another binding')
+                device_witnesses[ident] = value
+                device_bindings.setdefault(ident, {'root_key': latest, 'sequence': root['sequence'],
+                    'segment_sha256': descriptor['sha256'], 'witness_digest': value['digest']})
             for ident, aliases in data.get("reference_aliases", {}).items():
                 if ident not in refs or not isinstance(aliases, list) or len(aliases) > 10000:
                     raise EvidenceError("imported reference aliases lack registered original identity")
@@ -732,10 +1102,14 @@ class Manager:
                 import_retention_decisions[ident] = decision
         if len(keys) + len(index_keys) + len(authorities) > self.limits["metadata_stop_files"] or total > self.limits["metadata_stop_bytes"]:
             raise EvidenceError("combined metadata allowance exhausted")
-        root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, generation_intents=generation_intents, reference_aliases=reference_aliases, pending_deletions=pending_deletions, retired_refs=retired_refs, import_retention_decisions=import_retention_decisions, root_key=latest,
+        for ident, value in generation_quarantines.items():
+            self._validate_generation_quarantine(ident, value, generation_intents)
+        root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, generation_intents=generation_intents, generation_quarantines=generation_quarantines, reference_aliases=reference_aliases, pending_deletions=pending_deletions, retired_refs=retired_refs, import_retention_decisions=import_retention_decisions, root_key=latest,
+                    generation_quarantine_device_witnesses=device_witnesses, generation_quarantine_device_bindings=device_bindings,
                     metadata_bytes=total, metadata_files=len(keys) + len(index_keys) + len(authorities))
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._audit_source_payloads()
             ledger.reconcile_metadata("remote-catalog", total, len(keys) + len(index_keys) + len(authorities))
         return root
 
@@ -751,26 +1125,51 @@ class Manager:
 
     def _reconcile_ledger(self, catalog, ledger):
         # Remote records are authoritative after cold recovery; local deletion never resets charges.
-        existing = {row[0] for row in ledger.connection.execute("SELECT identity FROM objects")}
+        existing = {row["identity"]: row for row in ledger.connection.execute("SELECT * FROM objects")}
         unique = self._retained_content(catalog["packs"])
         for digest, size in unique.items():
             ledger.record_object("content:" + digest, size, physical_count=0)
         for digest in catalog["packs"]:
             ledger.record_object("pack:" + digest, 0, physical_count=1)
         # Unknown-outcome/orphan transfers occupy the store even before root publication.
-        # Encoded size is a conservative allowance charge; it is not an original-byte claim.
+        # A compressed pack can be much smaller than its originals. Until a
+        # verified catalog supplies member sizes, retain the full permitted
+        # original-byte bound (or a larger observed encoded size). This is a
+        # conservative hold, not a claim that those originals were inspected.
+        original_bound = self.limits["archive_pack_stop_bytes"]
+        lineage = self.policy.get(LINEAGE_FIELD)
+        if catalog.get("unreconciled_packs") and lineage:
+            # A cold ledger must also preserve the larger bound under which an
+            # unknown pack might have been written before a limits reduction.
+            original_bound = max(original_bound,
+                validate_policy(json.loads(lineage["base"]["raw_utf8"]))["limits"]["archive_pack_stop_bytes"],
+                *(step["policy"]["limits"]["archive_pack_stop_bytes"] for step in lineage["steps"]))
+        holds = set()
         for ident, metadata in catalog.get("unreconciled_packs", {}).items():
+            # Preserve the pre-compression immutable encoded-byte record. A
+            # separate, versioned allowance hold can grow across policy changes;
+            # keep its high-water mark until the durable pack is reconciled.
+            prefix = "unreconciled-pack-hold:" + ident + ":"
+            held = max(0, original_bound - metadata["size"],
+                       max((row["bytes"] for key, row in existing.items() if key.startswith(prefix)), default=0))
+            if held:
+                hold = prefix + str(held)
+                ledger.record_object(hold, held, physical_count=0)
+                holds.add(hold)
             ledger.record_object("unreconciled-pack:" + ident, metadata["size"], physical_count=1)
-        active = {"content:" + k for k in unique} | {"pack:" + k for k in catalog["packs"]} | {"unreconciled-pack:" + k for k in catalog.get("unreconciled_packs", {})}
-        for ident in existing - active:
+        active = {"content:" + k for k in unique} | {"pack:" + k for k in catalog["packs"]} | {"unreconciled-pack:" + k for k in catalog.get("unreconciled_packs", {})} | holds
+        for ident in existing.keys() - active:
             ledger.remove_object(ident)
+        self._audit_source_payloads()
         ledger.reconcile_metadata("remote-catalog", catalog["metadata_bytes"], catalog["metadata_files"])
         records = self._metadata_records(include_checkpoints=False)
+        self._audit_source_payloads()
         ledger.reconcile_metadata("local-journals-receipts", self._existing_bytes(p for p in records), len(records))
-        self._checkpoint_allocations(ledger)
-        cache_bytes = self._existing_bytes(p for p in (self.cache / "objects").glob("*") if p.is_file())
+        cache_bytes, working_bytes, checkpoint_bytes = self._local_occupancy()
+        self._checkpoint_allocations(ledger, actual_bytes=checkpoint_bytes)
         ledger.reconcile_local("cache", cache_bytes, "cache")
-        ledger.reconcile_local("manager-working", max(0, self._usage(include_ledger=False, include_checkpoints=False) - cache_bytes), "staging")
+        ledger.reconcile_local("manager-working", working_bytes, "staging")
+        ledger.reconcile_quarantines(catalog.get("generation_quarantines", {}))
         ledger.reconcile_generation(catalog["generation"])
 
     @staticmethod
@@ -800,7 +1199,17 @@ class Manager:
                 raise EvidenceError("catalog independent readback corrupt")
         return {"locator": locator, "sha256": digest, "size": len(data)}
 
-    def _publish(self, catalog, segment):
+    def _publish(self, catalog, segment, *, allow_policy_transition=False):
+        head = catalog.get("policy")
+        if LINEAGE_FIELD in self.policy or isinstance(head, dict) and LINEAGE_FIELD in head:
+            current = validate_policy(self.policy)
+            if head is None:
+                if not allow_policy_transition or catalog["sequence"] != 0 or len(current[LINEAGE_FIELD]["steps"]) != 1:
+                    raise EvidenceError("uncommitted policy lineage requires explicit setup publication")
+            elif validate_policy(head) != current:
+                if not allow_policy_transition:
+                    raise EvidenceError("publication policy differs from committed lineage head")
+                self._require_policy_successor(validate_policy(head))
         segment_bytes = len(canonical(segment))
         segments = catalog["segments"] + [{"sha256": "0" * 64, "size": segment_bytes, "locator": {"object_id": "pending", "key": "pending", "size": segment_bytes}}]
         root = {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"], "policy": self.policy,
@@ -827,13 +1236,14 @@ class Manager:
             raise EvidenceError("exact combined catalog metadata allowance exhausted; verified index is recoverable")
         from .accounting import Accounting
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._audit_source_payloads()
             ledger.reconcile_metadata("remote-catalog", catalog["metadata_bytes"] + descriptor["size"], catalog["metadata_files"] + 1)
         self._put_json(self.prefix + "roots/" + str(root["sequence"]).zfill(12) + "-", root)
         return root
 
     def _pack(self, items, checkpoint):
         maximum = self.limits["archive_pack_stop_bytes"]
-        peak = (sum(i["size"] for i in items) + len(items) * 2048 + 65536) * 2 + local_json_size(checkpoint) * 2
+        peak = encoded_pack_bound(i["size"] for i in items) * 2 + local_json_size(checkpoint) * 2
         self._capacity(peak, migration=checkpoint["migration"])
         with self._working(peak, migration=checkpoint["migration"], metadata_bytes=local_json_size(checkpoint) * 2 + len(items) * 4096 + 65536, metadata_files=3), tempfile.TemporaryDirectory(dir=self.staging, prefix="pack-") as temp:
             temp = Path(temp).resolve()
@@ -851,7 +1261,104 @@ class Manager:
             checkpoint["packs"][pack["sha256"]] = verified
             checkpoint.pop("pending_pack", None)
             self._checkpoint(Path(checkpoint["path"]), checkpoint)
+            self._retain_readback(readback, verified, migration=checkpoint["migration"])
             return verified
+
+    def _retain_readback(self, path, pack, *, migration=False):
+        """Keep independently retrieved bytes only for this bounded archive call.
+
+        The ordinary preparation path still validates the published catalog and
+        emits complete cache receipts. A crash discards this optimisation: the
+        journal never treats a retained staging file as durable evidence.
+        """
+        retained = getattr(self, "_archive_readbacks", None)
+        if retained is None or pack["sha256"] in retained:
+            return
+        if sum(item["pack"]["size"] for item in retained.values()) + pack["size"] > self.limits["cache_stop_bytes"]:
+            return
+        # Preserve headroom for extraction, whole-original assembly and receipt
+        # publication; promotion is optional when this conservative peak cannot
+        # fit. Moving the readback itself adds no bytes to the pack's held peak.
+        try:
+            self._capacity(pack["original_bytes"] * 2 + local_json_size(pack) * 2 + 65536,
+                           migration=migration)
+        except EvidenceError:
+            return
+        destination = self._archive_readback_path / pack["sha256"]
+        path.replace(destination)
+        retained[pack["sha256"]] = {"pack": deepcopy(pack), "path": destination}
+
+    def _retained_readback(self, pack, *, reverify_durable):
+        if reverify_durable:
+            return None
+        retained = getattr(self, "_archive_readbacks", None) or {}
+        item = retained.get(pack["sha256"])
+        if item is None:
+            return None
+        if item["pack"] != pack:
+            raise EvidenceError("retained readback identity differs from published archive")
+        return item["path"]
+
+    def _discard_readbacks(self, *, preparation=False):
+        """Release only this call's optional staged copies, never durable bytes."""
+        if getattr(self, "_readback_preparation", False) and not preparation:
+            return False
+        retained = getattr(self, "_archive_readbacks", None)
+        if not retained:
+            return False
+        for item in retained.values():
+            item["path"].unlink()
+        retained.clear()
+        from .accounting import Accounting
+        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._local_records(ledger)
+        return True
+
+    def _settlement_readback_release(self, ledger, violations, *, migration=False):
+        # Nested settlement includes the remaining outer holds. Optional copies
+        # may be released to restore the combined allowance, but this never
+        # forgives an operation that exceeded its own reserved byte bound.
+        combined = "combined local working usage exceeds allowance"
+        if combined in violations and self._discard_readbacks():
+            totals = ledger.snapshot()["totals"]
+            limit = self.limits["migration_local_stop_bytes" if migration else "local_stop_bytes"]
+            if totals["local_bytes"] + totals["pending_local_bytes"] <= limit:
+                return [violation for violation in violations if violation != combined]
+        return violations
+
+    @contextmanager
+    def _preparation_working(self, ref, packs, *, reverify_durable, receipt_peak, cache_growth, metadata_files):
+        from .accounting import BudgetExceeded
+        # Retained bytes must not disappear after their path has been selected.
+        # Only this entry boundary may evict them and recompute the GET peak.
+        previous = getattr(self, "_readback_preparation", False)
+        self._readback_preparation = True
+        try:
+            with ExitStack() as stack:
+                while True:
+                    peak = ref["size"] + max(((0 if self._retained_readback(pack, reverify_durable=reverify_durable)
+                                              else pack["size"]) + pack["original_bytes"] for pack in packs
+                        if self._session_pack is None or pack["sha256"] != self._session_pack["sha256"]), default=0)
+                    try:
+                        self._capacity(peak + receipt_peak, discard_readbacks=False)
+                    except EvidenceError:
+                        if self._discard_readbacks(preparation=True):
+                            continue
+                        raise
+                    if self._cache_bytes() + cache_growth > self.limits["cache_stop_bytes"]:
+                        raise EvidenceError("bounded evidence cache full; explicitly evict replaceable cache bytes")
+                    try:
+                        stack.enter_context(self._working(peak + receipt_peak, metadata_bytes=receipt_peak,
+                            metadata_files=metadata_files, cache_bytes=cache_growth))
+                        break
+                    except BudgetExceeded:
+                        # The atomic reservation also includes transport control
+                        # overhead and concurrent holds absent from the estimate.
+                        if not self._discard_readbacks(preparation=True):
+                            raise
+                yield
+        finally:
+            self._readback_preparation = previous
 
     def _reference(self, item, locator):
         timestamp(item["sealed_at"])
@@ -879,7 +1386,7 @@ class Manager:
             nonlocal group, group_bytes
             if not group:
                 return
-            peak = group_bytes * 3 + len(group) * 4096 + 131072 + local_json_size(checkpoint) * 2
+            peak = group_bytes + encoded_pack_bound(entry["size"] for entry in group) * 2 + local_json_size(checkpoint) * 2
             self._capacity(peak, migration=checkpoint["migration"])
             with self._working(peak, migration=checkpoint["migration"]), tempfile.TemporaryDirectory(dir=self.staging, prefix="capture-batch-") as temp:
                 temp = Path(temp).resolve()
@@ -887,7 +1394,8 @@ class Manager:
                 for entry in group:
                     path = temp / entry["sha256"]
                     capture(entry["path"], path, entry["size"])
-                    captured.append({"path": path, "sha256": entry["sha256"], "size": entry["size"]})
+                    captured.append({"path": path, "sha256": entry["sha256"], "size": entry["size"],
+                        "original_path": entry.get("original_path", Path(entry["path"]).name)})
                 pack = self._pack(captured, checkpoint)
                 for item in pack["members"]:
                     locations[item["sha256"]] = {"object_id": pack["locator"]["object_id"], "key": pack["locator"]["key"],
@@ -913,14 +1421,26 @@ class Manager:
         return locations
 
     def archive(self, specification, *, migration=False, remove_local=False):
-        try:
-            return self._archive(specification, migration=migration, remove_local=remove_local)
-        finally:
-            ledger = getattr(self, "_archive_ledger", None)
-            if ledger is not None:
-                ledger.close()
-                del self._archive_ledger
-            self._active_reservation = None
+        with self.locked():
+            try:
+                with tempfile.TemporaryDirectory(dir=self.staging, prefix="archive-readbacks-") as temp:
+                    self._archive_readback_path = Path(temp).resolve()
+                    self._archive_readbacks = {}
+                    try:
+                        return self._archive(specification, migration=migration, remove_local=remove_local)
+                    finally:
+                        self._archive_readbacks.clear()
+                        del self._archive_readbacks, self._archive_readback_path
+            finally:
+                ledger = getattr(self, "_archive_ledger", None)
+                if ledger is not None:
+                    ledger.close()
+                    del self._archive_ledger
+                self._active_reservation = None
+                if (self.state / "accounting.sqlite").is_file():
+                    from .accounting import Accounting
+                    with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                        self._local_records(ledger)
 
     def _archive(self, specification, *, migration=False, remove_local=False):
         """Bounded batches, immutable packs. Copying never changes observation timestamps."""
@@ -971,6 +1491,7 @@ class Manager:
                 if len({x["provenance"]["unit_id"] for x in logical}) > 1 or len({x["provenance"]["run_id"] for x in logical}) > 1:
                     raise EvidenceError("one managed archive operation must belong to one stable run and unit")
             ledger = Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy)
+            ledger._publication_manager = (self, None, None)
             self._archive_ledger = ledger
             self._reconcile_ledger(catalog, ledger)
             if not specification.get("managed_output_id"):
@@ -1066,7 +1587,7 @@ class Manager:
                             offset, digest = 0, hashlib.sha256()
                             while offset < entry["size"] or (entry["size"] == 0 and not segments):
                                 length = min(target_size, entry["size"] - offset)
-                                peak = length * 3 + 139264 + local_json_size(checkpoint) * 2
+                                peak = length + encoded_pack_bound([length]) * 2 + 8192 + local_json_size(checkpoint) * 2
                                 self._capacity(peak, migration=migration)
                                 with self._working(peak, migration=migration), tempfile.TemporaryDirectory(dir=self.staging, prefix="capture-") as temp:
                                     part = Path(temp).resolve() / "part"
@@ -1083,7 +1604,8 @@ class Manager:
                                             count += len(block)
                                     ph = part_hash.hexdigest()
                                     matching = next((p for p in all_packs.values() if any(m["sha256"] == ph and m["size"] == count for m in p["members"])), None)
-                                    packed = matching or self._pack([{"path": part, "sha256": ph, "size": count}], checkpoint)
+                                    packed = matching or self._pack([{"path": part, "sha256": ph, "size": count,
+                                        "original_path": entry.get("original_path", source.name)}], checkpoint)
                                     all_packs[packed["sha256"]] = packed
                                     member = next(m["member"] for m in packed["members"] if m["sha256"] == ph)
                                     segments.append({"object_id": packed["locator"]["object_id"], "key": packed["locator"]["key"],
@@ -1151,7 +1673,7 @@ class Manager:
         if len(intent["entries"]) != len(refs):
             raise EvidenceError("deletion intent/reference association count mismatch")
         if not permanent:
-            self.prepare([ref for entry, ref in zip(intent["entries"], refs) if not entry["done"]])
+            self.prepare([ref for entry, ref in zip(intent["entries"], refs) if not entry["done"]], reverify_durable=True)
         for entry, ref in zip(intent["entries"], refs):
             if (entry["sha256"], entry["size"]) != (ref["sha256"], ref["size"]):
                 raise EvidenceError("deletion intent does not identify the verified original bytes")
@@ -1175,21 +1697,73 @@ class Manager:
             if journal.name.startswith("archive-"):
                 ledger.reconcile_local("source:" + journal.stem.removeprefix("archive-"), 0)
 
-    def prepare(self, refs, *, catalog=None):
-        """Reuse one verified shared pack within this invocation, then remove staging."""
-        self._session_pack = None
-        try:
-            with tempfile.TemporaryDirectory(dir=self.staging, prefix="verified-pack-") as temp:
-                self._session_path = Path(temp).resolve()
-                return self._prepare(refs, catalog=catalog)
-        finally:
-            self._preparing.clear()
-            self._session_pack = None
-            from .accounting import Accounting
-            with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-                self._local_records(ledger)
+    def prepare(self, refs, *, catalog=None, reverify_durable=False):
+        """Serialize cache mutation; reuse freshly verified objects without replacement.
 
-    def _prepare(self, refs, *, catalog=None):
+        Deletion callers explicitly retain independent durable payload readback.
+        Ordinary reuse still checks current catalog, closure and remote identity.
+        """
+        with self.locked():
+            self._session_pack = None
+            try:
+                with tempfile.TemporaryDirectory(dir=self.staging, prefix="verified-pack-") as temp:
+                    self._session_path = Path(temp).resolve()
+                    return self._prepare(refs, catalog=catalog, reverify_durable=reverify_durable)
+            finally:
+                self._preparing.clear()
+                self._session_pack = None
+                from .accounting import Accounting
+                with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                    self._local_records(ledger)
+
+    @staticmethod
+    def _cache_object_info(target):
+        try:
+            info = target.lstat()
+        except FileNotFoundError:
+            return None
+        if _is_link(info):
+            raise EvidenceError("linked cache object")
+        if not stat.S_ISREG(info.st_mode):
+            raise EvidenceError("special file in evidence cache object")
+        return info
+
+    def _missing_object_aliases(self, target):
+        # Source views retain a digest-named blob as well as their logical links.
+        # Even a malformed/unregistered digest-named file is retained, never
+        # interpreted as authority to rebuild or delete a source view.
+        return [path for path in self._workspace_records(self.cache)
+            if path != target and path.name == target.name]
+
+    def _prepared_cache_resolver(self, ref, supplied, catalog, *, reverify_durable):
+        from .resolver import EvidenceResolver, payload_references, JSON_LIMIT
+        target = self.cache / "objects" / ref["sha256"]
+        if ref["schema"] not in ("evidence-bytes-v1", "archive-attachment-v1"):
+            try:
+                if hash_file(target) != (ref["sha256"], ref["size"]):
+                    return None, "prepared original bytes hash/size mismatch"
+                nested = list(payload_references(read_json(target, min(JSON_LIMIT,
+                    self.limits["metadata_stop_bytes"])), ref["schema"]))
+            except ValueError as error:
+                return None, str(error)
+            for dependency in nested:
+                self._prepare([dependency], catalog=catalog, reverify_durable=reverify_durable)
+        try:
+            # A new resolver hashes current bytes and validates ordinary receipt,
+            # exact reference/bindings, verified archive and dependency closure.
+            resolver = EvidenceResolver(self.cache)
+            resolver.resolve(ref)
+            resolver.resolve(supplied)
+            return resolver, None
+        except ValueError as error:
+            return None, str(error)
+
+    @staticmethod
+    def _shared_rebuild_required(target, problem):
+        raise EvidenceError("cache object has retained source aliases; explicit source-view rebuild required before replacement: "
+            + str(target) + "; " + str(problem))
+
+    def _prepare(self, refs, *, catalog=None, reverify_durable=False):
         """Network and cache writes live here, never in the checker."""
         from .resolver import payload_references, JSON_LIMIT
         catalog = catalog if catalog is not None else self._catalog()
@@ -1214,7 +1788,7 @@ class Manager:
             if not matching:
                 raise EvidenceError("reference is missing/mismatched in authoritative durable catalog")
             for dependency in ref.get("dependencies", []):
-                self._prepare([dependency], catalog=catalog)
+                self._prepare([dependency], catalog=catalog, reverify_durable=reverify_durable)
             locator = ref["locator"]
             segments = locator.get("segments") or [{**locator, "offset": 0, "length": ref["size"], "sha256": ref["sha256"]}]
             packs = []
@@ -1223,19 +1797,44 @@ class Manager:
                 if pack is None or pack["locator"]["object_id"] != seg["object_id"] or pack["size"] != seg["pack_size"]:
                     raise EvidenceError("archive object identity closure mismatch")
                 packs.append(pack)
+            target = objects / ref["sha256"]
+            existing = self._cache_object_info(target)
+            reusable = None
+            if existing is not None:
+                reusable, problem = self._prepared_cache_resolver(ref, supplied, catalog,
+                    reverify_durable=reverify_durable)
+                current = self._cache_object_info(target)
+                if reusable is None and (current is not None and current.st_nlink > 1 or
+                        self._missing_object_aliases(target)):
+                    self._shared_rebuild_required(target, problem)
+            elif self._missing_object_aliases(target):
+                self._shared_rebuild_required(target, "canonical object is missing while digest-named aliases remain")
+            if reusable is not None and not reverify_durable:
+                for pack in packs:
+                    actual = self._transport_call("stat", pack["locator"])
+                    if (actual["object_id"], actual["size"]) != (pack["locator"]["object_id"], pack["size"]):
+                        raise EvidenceError("durable archive object identity/size changed before cache reuse")
+                self._capacity(0)
+                if self._cache_bytes() > self.limits["cache_stop_bytes"]:
+                    raise EvidenceError("bounded evidence cache full; explicitly evict replaceable cache bytes")
+                # Detect replacement/mutation during current-identity/capacity
+                # checks; never refresh an already accepted resolver baseline.
+                reusable.resolve(ref)
+                reusable.resolve(supplied)
+                self._preparing.remove(supplied["artifact_id"])
+                continue
             if self._session_pack is not None and any(pack["sha256"] != self._session_pack["sha256"] for pack in packs):
                 shutil.rmtree(self._session_path / "members")
                 self._session_pack = None
-            peak = ref["size"] + max((pack["size"] + pack["original_bytes"] for pack in packs
-                if self._session_pack is None or pack["sha256"] != self._session_pack["sha256"]), default=0)
-            self._capacity(peak)
-            cache_bytes = self._existing_bytes(p for p in objects.iterdir() if p.is_file())
-            if cache_bytes + (0 if (objects / ref["sha256"]).exists() else ref["size"]) > self.limits["cache_stop_bytes"]:
-                raise EvidenceError("bounded evidence cache full; explicitly evict replaceable cache bytes")
             proofs, offset = [], 0
-            receipt_peak = (local_json_size(ref) + local_json_size(aliases) + len(segments) * 1024 + 4096) * 2
-            with self._working(peak + receipt_peak, metadata_bytes=receipt_peak, metadata_files=0 if (receipts / (ref["artifact_id"] + ".json")).exists() else 1,
-                cache_bytes=0 if (objects / ref["sha256"]).exists() else ref["size"]), tempfile.TemporaryDirectory(dir=self.staging, prefix="prepare-") as temp:
+            receipt_peak = 0 if reusable is not None else (local_json_size(ref) + local_json_size(aliases) + len(segments) * 1024 + 4096) * 2
+            existing = self._cache_object_info(target)
+            if reusable is None and existing is not None and existing.st_nlink > 1:
+                self._shared_rebuild_required(target, "aliases appeared before preparation")
+            cache_growth = 0 if reusable is not None else max(0, ref["size"] - (existing.st_size if existing else 0)) + receipt_peak
+            with self._preparation_working(ref, packs, reverify_durable=reverify_durable, receipt_peak=receipt_peak,
+                metadata_files=0 if (receipts / (ref["artifact_id"] + ".json")).exists() else 1,
+                cache_growth=cache_growth), tempfile.TemporaryDirectory(dir=self.staging, prefix="prepare-") as temp:
                 temp = Path(temp).resolve()
                 whole = temp / "whole"
                 with whole.open("xb") as output:
@@ -1251,11 +1850,18 @@ class Manager:
                             if extracted.exists():
                                 shutil.rmtree(extracted)
                             self._session_pack = None
-                            self._transport_call("get", pack["locator"], archive, pack["size"])
-                            verified = verify_pack(archive, pack["sha256"], pack["size"], pack["members"], destination=extracted,
+                            retained = self._retained_readback(pack, reverify_durable=reverify_durable)
+                            if retained is not None:
+                                actual = self._transport_call("stat", pack["locator"])
+                                if (actual["object_id"], actual["size"]) != (pack["locator"]["object_id"], pack["size"]):
+                                    raise EvidenceError("durable archive identity changed after readback")
+                            else:
+                                self._transport_call("get", pack["locator"], archive, pack["size"])
+                            verified = verify_pack(retained or archive, pack["sha256"], pack["size"], pack["members"], destination=extracted,
                                 max_bytes=pack["original_bytes"], max_files=self.limits["migration_batch_stop_files"],
                                 max_decoder_memory_bytes=self.limits.get("archive_decoder_memory_bytes", 128 * 1024 * 1024))
-                            archive.unlink()
+                            if retained is None:
+                                archive.unlink()
                             self._session_pack = {"sha256": pack["sha256"], "verified": verified}
                         else:
                             verified = self._session_pack["verified"]
@@ -1276,18 +1882,26 @@ class Manager:
                         offset += member["size"]
                 if hash_file(whole) != (ref["sha256"], ref["size"]):
                     raise EvidenceError("reassembled original hash or length mismatch")
-                target = objects / ref["sha256"]
-                if target.is_symlink():
-                    raise EvidenceError("linked cache object")
-                whole.replace(target)
-                receipt = {**ref, "verified_archive": proofs}
-                if aliases:
-                    receipt["original_references"] = aliases
-                atomic_json(receipts / (ref["artifact_id"] + ".json"), receipt)
+                current = self._cache_object_info(target)
+                if reusable is not None:
+                    reusable.resolve(ref)
+                    reusable.resolve(supplied)
+                    # Independent durable readback succeeded; keep the verified
+                    # canonical inode and receipt, including all retained links.
+                else:
+                    if current is not None and current.st_nlink > 1:
+                        self._shared_rebuild_required(target, "aliases appeared during preparation")
+                    if current is None and self._missing_object_aliases(target):
+                        self._shared_rebuild_required(target, "canonical object disappeared while aliases remain")
+                    whole.replace(target)
+                    receipt = {**ref, "verified_archive": proofs}
+                    if aliases:
+                        receipt["original_references"] = aliases
+                    atomic_json(receipts / (ref["artifact_id"] + ".json"), receipt)
             if ref["schema"] not in ("evidence-bytes-v1", "archive-attachment-v1"):
                 value = read_json(target, min(JSON_LIMIT, self.limits["metadata_stop_bytes"]))
                 for nested in payload_references(value, ref["schema"]):
-                    self._prepare([nested], catalog=catalog)
+                    self._prepare([nested], catalog=catalog, reverify_durable=reverify_durable)
             self._preparing.remove(supplied["artifact_id"])
         return self.cache
 
@@ -1374,19 +1988,21 @@ class Manager:
                     actual += ref["size"]
                     restored.append(str(target))
             finally:
+                self._audit_source_payloads()
                 result = ledger.finish_working(reservation, local_key=key, actual_bytes=old_bytes + actual, kind="restore")
             if result["incomplete"]:
                 raise EvidenceError("restoration resource settlement incomplete: " + "; ".join(result["violations"]))
         return restored
 
-    def _generation_authority(self):
+    def _generation_authority(self, entries=None):
         key = self.prefix + "authority/coordinator.json"
-        entries = self._transport_call("keys", self.prefix + "authority/")
+        if entries is None:
+            entries = self._catalog_inventory(self.prefix + "authority/")
         if not entries:
             return None
         if len(entries) != 1 or (entries[0] if isinstance(entries[0], str) else entries[0]["key"]) != key:
             raise EvidenceError("ambiguous generation coordinator authority; reconciliation required")
-        value, _ = self._read_remote_json(key, 4096)
+        value, _ = self._read_remote_json(entries[0], 4096)
         if (not isinstance(value, dict) or value.get("version") != 1
                 or value.get("project_id") != self.policy["project_id"]
                 or value.get("store_id") != self.policy["store_id"]
@@ -1394,14 +2010,24 @@ class Manager:
             raise EvidenceError("invalid generation coordinator authority")
         return value
 
+    def _require_policy_successor(self, head):
+        lineage = self.policy.get(LINEAGE_FIELD)
+        if not lineage or lineage["steps"][-1]["from_policy_sha256"] != hashlib.sha256(canonical(head)).hexdigest():
+            raise EvidenceError("explicit policy transition requires the exact committed immediate predecessor")
+        if resolve_historical_policy(self.policy, hashlib.sha256(canonical(head)).hexdigest()) != head:
+            raise EvidenceError("policy transition predecessor differs from full committed policy")
+
     def initialize_generation_authority(self):
-        """Explicit setup selects one coordinator; another home cannot take it over."""
+        """Explicit setup commits a same-owner policy transition before local setup."""
         with self.locked():
-            catalog = self._catalog(mutation=True)
-            value = self._generation_authority()
+            catalog = self._catalog(mutation=True, allow_policy_transition=True)
+            value = self._generation_authority()  # Independent fresh authority read.
             expected = {"version": 1, "project_id": self.policy["project_id"],
                         "store_id": self.policy["store_id"], "coordinator": self.coordinator}
+            lineage = self.policy.get(LINEAGE_FIELD)
             if value is None:
+                if lineage:
+                    raise EvidenceError("policy lineage cannot create generation authority; original setup must remain provable")
                 data = canonical(expected)
                 with self._working(len(data) * 2, metadata_bytes=len(data), metadata_files=1), tempfile.TemporaryDirectory(dir=self.staging, prefix="authority-") as temp:
                     source, readback = Path(temp) / "claim.json", Path(temp) / "verified.json"
@@ -1413,6 +2039,20 @@ class Manager:
                 value = self._generation_authority()
             if value != expected:
                 raise EvidenceError("generation requires the designated coordinator and shared accounting home; cold recovery is read-only")
+            if lineage:
+                head = validate_policy(catalog["policy"]) if "policy" in catalog else None
+                if head is None:
+                    if catalog["sequence"] != 0 or len(lineage["steps"]) != 1:
+                        raise EvidenceError("first policy lineage requires one transition and existing exact authority")
+                elif head != self.policy:
+                    self._require_policy_successor(head)
+                if head != self.policy:
+                    # A unique policy-only segment avoids duplicate immutable index
+                    # descriptors while retaining ordinary publication fences/readback.
+                    self._publish(catalog, {"version": 1, "policy_transition": lineage["steps"][-1]["digest"]}, allow_policy_transition=True)
+                    verified = self._catalog(mutation=True)
+                    if validate_policy(verified.get("policy")) != self.policy:
+                        raise EvidenceError("policy transition independent catalog readback differs")
             return {"coordinator_authorized": True, "coordinator": self.coordinator,
                     "project_id": self.policy["project_id"]}
 
@@ -1428,10 +2068,181 @@ class Manager:
         from .accounting import Accounting
         from .producer import recover_producers
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            ledger._publication_manager = (self, None, None)
             return recover_producers(ledger, dry_run=dry_run)
 
-    def assert_generation_authority(self):
-        """Recover owned local attempts, then require designated generation authority."""
+    def _validate_generation_quarantine(self, ident, value, intents):
+        from .quarantine import validate_quarantine_descriptor
+        validate_quarantine_descriptor(value, policy=self.policy)
+        if ident != value["reservation_id"]:
+            raise EvidenceError("generation quarantine reservation index differs")
+        intent = intents.get(value["intent_id"])
+        if (intent is None or intent.get("settled")
+                or (intent["run_id"], intent["unit_id"]) != (value["run_id"], value["unit_id"])
+                or (intent["reserve_bytes"], intent["reserve_files"])
+                   != (value["reservation"]["bytes"], value["reservation"]["files"])):
+            raise EvidenceError("generation quarantine lacks its exact unresolved durable intent")
+
+    def _generation_readiness(self, catalog, ledger):
+        publication = self._publication_view(catalog)
+        readiness = ledger.generation_readiness(_publication=publication)
+        published = catalog.get("generation_quarantines", {})
+        local = {item["reservation_id"]: item for item in readiness["quarantines"]}
+        if local != published:
+            raise EvidenceError("generation quarantine publication or original local accounting is incomplete")
+        for ident, value in published.items():
+            self._validate_generation_quarantine(ident, value, catalog.get("generation_intents", {}))
+        return readiness
+
+    def _publication_view(self, catalog):
+        authority = self._generation_authority()
+        if (catalog.get('generation_quarantines') or catalog.get('generation_quarantine_device_witnesses')) and (
+                authority is None or authority['coordinator'] != self.coordinator or catalog['coordinator'] != self.coordinator):
+            raise EvidenceError('quarantine publication requires designated original coordinator')
+        return {'quarantines': catalog.get('generation_quarantines', {}),
+                'witnesses': catalog.get('generation_quarantine_device_witnesses', {}),
+                'bindings': catalog.get('generation_quarantine_device_bindings', {}), 'authority': authority}
+
+    @contextmanager
+    def _publication_budget(self, deadline=None):
+        """Bound the whole synchronous lock/catalog sequence, not each RPC alone."""
+        from .quarantine_device import PUBLICATION_TIMEOUT
+        end = min(time.monotonic() + PUBLICATION_TIMEOUT, deadline if deadline is not None else float('inf'))
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            raise EvidenceError('publication verification deadline expired')
+        if os.name != 'posix' or threading.current_thread() is not threading.main_thread():
+            raise EvidenceError('bounded quarantine publication requires POSIX main-thread execution')
+        prior_timer = signal.getitimer(signal.ITIMER_REAL)
+        if prior_timer != (0.0, 0.0):
+            raise EvidenceError('publication verification cannot replace an existing process alarm')
+        prior_handler = signal.getsignal(signal.SIGALRM)
+        def expired(*_):
+            raise EvidenceError('publication verification total deadline expired')
+        try:
+            signal.signal(signal.SIGALRM, expired)
+            signal.setitimer(signal.ITIMER_REAL, remaining)
+            yield end
+        finally:
+            try:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+            finally:
+                signal.signal(signal.SIGALRM, prior_handler)
+
+    def _producer_publication_coverage(self, ledger, intent_id=None, *, attempt_id=None, deadline=None):
+        if ledger.connection.in_transaction:
+            raise EvidenceError('publication check cannot run inside an accounting write transaction')
+        if ledger.path != self.state / 'accounting.sqlite' or ledger.policy != self.policy:
+            raise EvidenceError('publication coverage requires original accounting home/policy')
+        with self._publication_budget(deadline) as end, self.locked(timeout=max(0, end - time.monotonic())):
+            catalog = self._catalog(mutation=True)
+            if intent_id is not None:
+                intent = catalog.get('generation_intents', {}).get(intent_id)
+                if intent is None or intent.get('settled'):
+                    raise EvidenceError('publication coverage lacks exact unresolved generation intent')
+                if intent.get('owner_identity') != process_identity.identity():
+                    raise EvidenceError('publication coverage requires exact live intent owner')
+                if attempt_id is not None:
+                    from .producer_runtime import read
+                    record = read(ledger, attempt_id)
+                    if (record.get('intent_id') != intent_id or record['run_id'] != intent['run_id']
+                            or record['unit_id'] != intent['unit_id'] or record['coordinator'] != intent.get('owner_identity')):
+                        raise EvidenceError('publication coverage producer/intent/owner changed')
+                    reservation = ledger.connection.execute('SELECT run_id,bytes,files FROM reservations WHERE id=?', (record['reservation_id'],)).fetchone()
+                    if reservation is None or tuple(reservation) != (intent['run_id'], intent['reserve_bytes'], intent['reserve_files']):
+                        raise EvidenceError('publication coverage reservation/intent changed')
+            publication = self._publication_view(catalog)
+            readiness = ledger.generation_readiness(_publication=publication)
+            if not readiness['ready']:
+                raise EvidenceError('quarantine publication/native validation incomplete: ' + str(readiness['problem']))
+            publication.update(intent_id=intent_id, intent=catalog.get('generation_intents', {}).get(intent_id))
+            return publication
+
+    def revalidate_quarantine_device(self, attempt_id, assertion_ref, *, operation_id, dry_run=True):
+        """Explicit current-custody append; never repair or accept old generation."""
+        from .accounting import Accounting
+        from .quarantine import canonical
+        from .quarantine_device import verify_quarantine_device_current, read_assertion
+        if type(dry_run) is not bool:
+            raise EvidenceError('custody dry_run must be boolean')
+        with self.locked():
+            catalog = self._catalog(mutation=True)
+            publication = self._publication_view(catalog)
+            with Accounting(self.state / 'accounting.sqlite', self.policy['project_id'], self.policy) as ledger:
+                row = ledger.connection.execute('SELECT record FROM producer_quarantines WHERE attempt_id=?', (attempt_id,)).fetchone()
+                if row is None:
+                    raise EvidenceError('device revalidation requires existing original quarantine')
+                descriptor = json.loads(row[0])
+                if publication['quarantines'].get(descriptor['reservation_id']) != descriptor:
+                    raise EvidenceError('device revalidation original local/publication differs')
+                self._validate_generation_quarantine(descriptor['reservation_id'], descriptor, catalog['generation_intents'])
+                if descriptor['ledger_id'] != ledger._ledger_id:
+                    raise EvidenceError('device revalidation cannot adopt a recovered ledger')
+                witness = ledger.prepare_device_witness(descriptor, assertion_ref, operation_id, publication['authority'])
+                published = publication['witnesses'].get(descriptor['digest'])
+                local = ledger.device_witnesses(allow_orphan=operation_id).get(descriptor['digest'])
+                if published is not None and (published != witness or local != witness):
+                    raise EvidenceError('published custody witness has missing or conflicting local authority')
+                if not dry_run and published is None:
+                    # Includes durable assertion/witness/SQL-WAL, staging, index,
+                    # root history and readback peaks; actual occupancy is also
+                    # charged by the existing accounting/transport machinery.
+                    size = len(canonical(witness)) + Path(assertion_ref['path']).lstat().st_size
+                    peak = size * 12 + len(canonical(catalog)) * 3 + 262144
+                    with self._working(peak, metadata_bytes=peak, metadata_files=12):
+                        read_assertion(assertion_ref, descriptor, self.policy, frozen_witness=witness)
+                        verify_quarantine_device_current(ledger, descriptor, witness, coordinator_authority=publication['authority'])
+                        if local is None:
+                            ledger.append_device_witness(witness)
+                        verify_quarantine_device_current(ledger, descriptor, witness, coordinator_authority=publication['authority'])
+                        # Unknown outcomes are retried only after this method's
+                        # initial independent catalog reload, never blindly.
+                        self._publish(catalog, {'version': 1, 'generation_quarantine_device_witnesses': {descriptor['digest']: witness}})
+                        verified = self._catalog(mutation=True)
+                        if verified.get('generation_quarantine_device_witnesses', {}).get(descriptor['digest']) != witness:
+                            raise EvidenceError('custody publication independent readback differs')
+                    publication = self._publication_view(verified)
+                if not dry_run:
+                    if ledger.device_witnesses() != publication['witnesses']:
+                        raise EvidenceError('custody authoritative triple is incomplete')
+                    verify_quarantine_device_current(ledger, descriptor, witness, coordinator_authority=publication['authority'])
+                return {'action': 'revalidate-quarantine-device', 'dry_run': dry_run,
+                        'history_complete': False, 'historical_uncertainty': True, 'witness': witness}
+
+    def quarantine_producer(self, attempt_id, disposition_proof, *, dry_run=True):
+        """Preserve an unresolved gap and publish its immutable bounded disposition."""
+        from .accounting import Accounting
+        with self.locked():
+            catalog = self._catalog(mutation=True)
+            authority = self._generation_authority()
+            if authority is None or authority["coordinator"] != self.coordinator:
+                raise EvidenceError("producer quarantine requires the designated generation coordinator")
+            with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                self._reconcile_ledger(catalog, ledger)
+                descriptor = ledger.quarantine_producer(attempt_id, disposition_proof, dry_run=True)
+                ident = descriptor["reservation_id"]
+                self._validate_generation_quarantine(ident, descriptor, catalog.get("generation_intents", {}))
+                prior = catalog.get("generation_quarantines", {}).get(ident)
+                if prior is not None and prior != descriptor:
+                    raise EvidenceError("immutable generation quarantine changed")
+                if any(other != ident and (item["attempt_id"] == descriptor["attempt_id"]
+                       or item["intent_id"] == descriptor["intent_id"])
+                       for other, item in catalog.get("generation_quarantines", {}).items()):
+                    raise EvidenceError("generation quarantine replays another binding")
+                if not dry_run:
+                    descriptor = ledger.quarantine_producer(attempt_id, disposition_proof, dry_run=False)
+            if not dry_run and prior is None:
+                self._publish(catalog, {"version": 1, "generation_quarantines": {ident: descriptor}})
+                verified = self._catalog(mutation=True).get("generation_quarantines", {}).get(ident)
+                if verified != descriptor:
+                    raise EvidenceError("generation quarantine independent catalog readback differs")
+            return {"action": "quarantine-producer", "dry_run": dry_run,
+                    "history_complete": False, "historical_uncertainty": True,
+                    "descriptor": descriptor}
+
+    @contextmanager
+    def _generation_catalog(self):
+        """Yield fresh ready catalog under its lock; recover before acquiring it."""
         catalog = self._catalog(mutation=True)
         authority = self._generation_authority()
         if authority is None:
@@ -1444,25 +2255,40 @@ class Manager:
             raise EvidenceError("generation requires the designated coordinator and shared accounting home; cold recovery is read-only")
         recovery = self._recover_managed_producers(dry_run=False)
         if recovery["incomplete"]:
-            raise EvidenceError("managed producer recovery remains incomplete; retain its resources and reconcile before generation")
+            details = '; '.join(str(item['problem']) for item in recovery.get('actions', []) if item.get('problem'))
+            raise EvidenceError("managed producer recovery remains incomplete; retain its resources and reconcile before generation" + ('; ' + details if details else ''))
         for action in recovery["actions"]:
             intent = catalog.get("generation_intents", {}).get(action.get("intent_id"))
             if (intent and not intent.get("settled") and action["action"] in ("cleaned", "terminal")
                     and not action.get("incomplete") and self._generation_owner_state(intent) == "gone"):
                 self.finish_generation(action["intent_id"], reservation_id=action.get("reservation_id"))
-        catalog = self._catalog(mutation=True)
-        from .accounting import Accounting
-        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-            self._reconcile_ledger(catalog, ledger)
-            ledger.require_generation_ready()
-            for intent in catalog.get("generation_intents", {}).values():
-                if not intent.get("settled"):
-                    owner_state = self._generation_owner_state(intent)
-                    run = ledger.connection.execute("SELECT 1 FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
-                    pending = ledger.connection.execute("SELECT 1 FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()
-                    if (run is None or pending) and owner_state != "alive":
-                        raise EvidenceError("durable generation intent has unknown local accounting; reconcile before generation")
-        return {"coordinator_authorized": True, "coordinator": self.coordinator}
+        # Recovery may publish settlements. Always reload after it, then retain
+        # this lock through the caller's publication instead of loading again.
+        # Do not extend the lock across producer shutdown above.
+        with self.locked():
+            catalog = self._catalog(mutation=True)
+            from .accounting import Accounting
+            with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                self._reconcile_ledger(catalog, ledger)
+                readiness = self._generation_readiness(catalog, ledger)
+                if not readiness['ready']:
+                    raise EvidenceError('accounting recovery required: ' + str(readiness['problem']))
+                quarantined = {item["intent_id"] for item in readiness["quarantines"]}
+                for intent_id, intent in catalog.get("generation_intents", {}).items():
+                    if intent_id in quarantined:
+                        continue
+                    if not intent.get("settled"):
+                        owner_state = self._generation_owner_state(intent)
+                        run = ledger.connection.execute("SELECT 1 FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
+                        pending = ledger.connection.execute("SELECT 1 FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()
+                        if (run is None or pending) and owner_state != "alive":
+                            raise EvidenceError("durable generation intent has unknown local accounting; reconcile before generation")
+            yield catalog
+
+    def assert_generation_authority(self):
+        """Recover owned local attempts, then require designated generation authority."""
+        with self._generation_catalog():
+            return {"coordinator_authorized": True, "coordinator": self.coordinator}
 
     @staticmethod
     def _run_generation(run):
@@ -1472,16 +2298,16 @@ class Manager:
 
     def begin_generation(self, run_id, unit_id, reserve_bytes, reserve_files):
         """Record an incomplete durable intent before any managed producer starts."""
-        self.assert_generation_authority()
-        if (any(not isinstance(value, str) or not value for value in (run_id, unit_id))
-                or any(type(value) is not int or value < 0 for value in (reserve_bytes, reserve_files))):
-            raise EvidenceError("generation intent requires stable run/unit and nonnegative reservation bounds")
-        owner = process_identity.identity()
-        if owner is None:
-            raise EvidenceError("cannot establish the generation owner process identity")
-        intent = str(uuid.uuid4())
-        with self.locked():
-            catalog = self._catalog(mutation=True)
+        with self._generation_catalog() as catalog:
+            if (any(not isinstance(value, str) or not value for value in (run_id, unit_id))
+                    or any(type(value) is not int or value < 0 for value in (reserve_bytes, reserve_files))):
+                raise EvidenceError("generation intent requires stable run/unit and nonnegative reservation bounds")
+            owner = process_identity.identity()
+            if owner is None:
+                raise EvidenceError("cannot establish the generation owner process identity")
+            intent = str(uuid.uuid4())
+            if any(item["run_id"] == run_id for item in catalog.get("generation_quarantines", {}).values()):
+                raise EvidenceError("quarantined historical run cannot resume generation; use a fresh run identity")
             self._publish(catalog, {"version": 1, "generation_intents": {intent: {
                 "run_id": run_id, "unit_id": unit_id, "reserve_bytes": reserve_bytes, "reserve_files": reserve_files,
                 "owner_pid": os.getpid(), "owner_host": socket.gethostname(), "owner_identity": owner}}})
@@ -1495,7 +2321,13 @@ class Manager:
             intent = catalog.get("generation_intents", {}).get(intent_id)
             if intent is None:
                 raise EvidenceError("generation settlement requires its original durable intent")
+            if any(item["intent_id"] == intent_id or item["reservation_id"] == reservation_id
+                   for item in catalog.get("generation_quarantines", {}).values()):
+                raise EvidenceError("quarantined generation intent remains unresolved and cannot be settled")
             if intent.get("settled"):
+                with Accounting(self.state / 'accounting.sqlite', self.policy['project_id'], self.policy) as ledger:
+                    if not self._generation_readiness(catalog, ledger)['ready']:
+                        raise EvidenceError('settled intent publication readiness is incomplete')
                 return {"settled": True, "intent_id": intent_id}
             owner_state = self._generation_owner_state(intent)
             owns_intent = (intent.get("owner_identity") == process_identity.identity() if "owner_identity" in intent
@@ -1518,11 +2350,12 @@ class Manager:
                     raise EvidenceError("generation settlement reservation belongs to another producer intent")
                 reservation_id = exact_reservation
             with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-                snapshot = ledger.snapshot()
+                self._reconcile_ledger(catalog, ledger)
+                readiness = self._generation_readiness(catalog, ledger)
+                if not readiness['ready']:
+                    raise EvidenceError('accounting recovery required: ' + str(readiness['problem']))
                 run = ledger.connection.execute("SELECT * FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
                 pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()[0]
-                if not snapshot.get("accounting_complete", True):
-                    raise EvidenceError("generation accounting remains incomplete; durable intent retained for reconciliation")
                 if reservation_id is not None:
                     reservation = ledger.connection.execute("SELECT * FROM reservations WHERE id=?", (reservation_id,)).fetchone()
                     if reservation is None or reservation["run_id"] != intent["run_id"] or reservation["state"] == "pending":
@@ -1535,6 +2368,58 @@ class Manager:
             self._publish(catalog, {"version": 1, "generation": generation,
                                    "settled_generation_intents": [intent_id]})
             return {"settled": True, "pending_workers": bool(pending), "intent_id": intent_id}
+
+    @contextmanager
+    def accounting_receipt_snapshot(self, policy_sha256):
+        """Hold current publication authority through caller serialization/emission."""
+        from .accounting import Accounting
+        from .quarantine import _hash
+        if not _hash(policy_sha256):
+            raise EvidenceError('accounting receipt requires exact original policy byte hash')
+        with self.locked():
+            catalog = self._catalog()
+            with Accounting(self.state / 'accounting.sqlite', self.policy['project_id'], self.policy) as ledger:
+                self._reconcile_ledger(catalog, ledger)
+                runs = {}
+                for row in ledger.connection.execute('SELECT * FROM runs WHERE migration=0'):
+                    pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (row['id'],)).fetchone()[0]
+                    outputs = ledger.connection.execute('SELECT COUNT(*) FROM outputs WHERE run_id=? AND reconciled=0', (row['id'],)).fetchone()[0]
+                    runs[row['id']] = {'unit_id': row['unit_id'], 'status': 'complete' if row['status'] == 'complete' and not pending and not outputs else 'incomplete',
+                        'gross_generated_bytes': row['gross_bytes'], 'original_logical_files': row['gross_files'],
+                        'pending_reservations': pending, 'unreconciled_outputs': outputs}
+                for ref in catalog['refs'].values():
+                    if ref['retention'].get('imported') or ref['provenance'].get('accounting_mode') == 'imported-existing':
+                        runs.setdefault(ref['provenance']['run_id'], {'unit_id': ref['provenance']['unit_id'], 'status': 'complete', 'mode': 'imported-existing',
+                            'gross_generated_bytes': 0, 'original_logical_files': 0, 'pending_reservations': 0, 'unreconciled_outputs': 0})
+                snapshot = ledger.snapshot()
+                pending_intents = {k: v for k, v in catalog.get('generation_intents', {}).items() if not v.get('settled')}
+                complete = snapshot.get('accounting_complete', True) and not pending_intents
+                result = {'version': 1, 'project_id': self.policy['project_id'], 'runs': runs,
+                          'accounting_complete': complete, 'incomplete': not complete, 'totals_are_lower_bounds': not complete,
+                          'pending_generation_intents': pending_intents, 'policy_sha256': policy_sha256}
+                readiness = self._generation_readiness(catalog, ledger)
+                quarantines = readiness['quarantines']
+                if quarantines:
+                    quarantined_intents = {q['intent_id'] for q in quarantines}
+                    quarantined_runs = {q['run_id'] for q in quarantines}
+                    outstanding = any(k not in quarantined_runs and (v['pending_reservations'] or v['unreconciled_outputs']) for k, v in runs.items())
+                    outstanding = outstanding or any(runs[k]['pending_reservations'] != sum(q['run_id'] == k for q in quarantines) for k in quarantined_runs)
+                    ready = readiness['ready'] and set(pending_intents) == quarantined_intents and not outstanding
+                    result.update(version=2, kind='scoped-known-generation', accounting_complete=False, incomplete=True,
+                                  totals_are_lower_bounds=True, history_complete=False, generation_ready=ready, quarantines=quarantines,
+                                  selected_scope={'run_ids': sorted(k for k, v in runs.items() if v['status'] == 'complete'), 'complete': bool(ready)})
+                    witnesses = catalog.get('generation_quarantine_device_witnesses', {})
+                    if witnesses:
+                        from .quarantine_device import validate_device_custody_receipt
+                        if not ready:
+                            raise EvidenceError('custody receipt requires complete selected known scope')
+                        result.update(version=3, kind='scoped-known-generation-with-device-custody',
+                                      quarantine_device_witnesses=[witnesses[k] for k in sorted(witnesses)],
+                                      quarantine_device_catalog=catalog['generation_quarantine_device_bindings'])
+                        validate_device_custody_receipt(result, self.policy, quarantines)
+                elif catalog.get('generation_quarantine_device_witnesses'):
+                    raise EvidenceError('custody receipt publication/local readiness is incomplete')
+                yield result
 
     def status(self):
         catalog = self._catalog()
@@ -1607,6 +2492,7 @@ class Manager:
                     action = {"action": "reconcile-exited-working-reservation", "reservation_id": row["id"], "dry_run": dry_run}
                     if not dry_run:
                         self._local_records(ledger)
+                        self._audit_source_payloads()
                         ledger.finish_working(row["id"])
                         action["verified"] = True
                     actions.append(action)
@@ -1626,7 +2512,16 @@ class Manager:
         if (self.state / "pruning.json").exists():
             actions += self.cleanup(dry_run=dry_run, expire=False)
         catalog = self._catalog()
+        with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+            self._reconcile_ledger(catalog, ledger)
+            validated_quarantines = {item["intent_id"]: item
+                for item in self._generation_readiness(catalog, ledger)["quarantines"]}
         for ident, intent in catalog.get("generation_intents", {}).items():
+            if ident in validated_quarantines:
+                actions.append({"action": "generation-intent-quarantined", "intent_id": ident,
+                    "reservation_id": validated_quarantines[ident]["reservation_id"],
+                    "incomplete": False, "historical_uncertainty": True, "history_complete": False})
+                continue
             if intent.get("settled"):
                 continue
             own_catalog = catalog["coordinator"] == self.coordinator
@@ -1641,7 +2536,7 @@ class Manager:
                 action = {"action": "generation-intent-active", "intent_id": ident, "incomplete": False}
             if own_catalog and owner_state == "gone":
                 with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
-                    known = ledger.snapshot().get("accounting_complete", True)
+                    known = ledger.generation_readiness()["ready"]
                     pending = ledger.connection.execute("SELECT COUNT(*) FROM reservations WHERE run_id=? AND state='pending'", (intent["run_id"],)).fetchone()[0]
                 if known and (not pending or settled_attempt):
                     action = {"action": "reconcile-exited-generation-intent", "intent_id": ident, "dry_run": dry_run}
@@ -1652,6 +2547,66 @@ class Manager:
                     action["reason"] = "local accounting or producer reservations remain incomplete"
             actions.append(action)
         return actions
+
+    def _evict_cache(self, ref, *, dry_run):
+        """Never remove another link's canonical object or claim its bytes freed."""
+        target = self.cache / "objects" / ref["sha256"]
+        def retained(info):
+            return {"artifact_id": ref["artifact_id"], "action": "retain-cache-aliases", "dry_run": dry_run,
+                "retained_bytes": info.st_size, "freed_bytes": 0, "other_link_count": info.st_nlink - 1,
+                "remaining_cache_bytes": self._cache_bytes(),
+                "occupancy_scope": "distinct regular inode lengths under owned cache; not logical membership or allocated disk blocks",
+                "reason": "retained aliases require explicit source-view rebuild/removal before cache eviction; other link ownership is unknown"}
+        info = self._cache_object_info(target)
+        if info is None:
+            aliases = self._missing_object_aliases(target)
+            if aliases:
+                return {"artifact_id": ref["artifact_id"], "action": "retain-cache-aliases", "dry_run": dry_run,
+                    "canonical_missing": True, "retained_bytes": self._occupancy_bytes(aliases), "freed_bytes": 0,
+                    "remaining_cache_bytes": self._cache_bytes(),
+                    "occupancy_scope": "distinct regular inode lengths under owned cache; digest-named orphan paths conservatively retained",
+                    "reason": "canonical object is missing; retained digest-named aliases require explicit source-view rebuild"}
+            return None
+        if info.st_nlink > 1:
+            return retained(info)
+        released_bytes = 0
+        if not dry_run:
+            # Fresh ordinary reuse must not substitute for destructive cleanup's
+            # independent current durable original-byte readback.
+            self.prepare([ref], reverify_durable=True)
+            if hash_file(target) != (ref["sha256"], ref["size"]):
+                raise EvidenceError("cache changed before eviction")
+            path, descriptor, before = _open_regular(target)
+            try:
+                _verify_stable(path, descriptor, before)
+                if before.st_nlink > 1:
+                    return retained(before)
+                if os.name == "nt":
+                    # The Windows stable-read handle intentionally denies delete
+                    # sharing. Release it only after verification, then repeat
+                    # the regular-inode/link-count guard under manager ownership.
+                    os.close(descriptor)
+                    descriptor = None
+                    current = self._cache_object_info(path)
+                    if current is None or (current.st_dev, current.st_ino, current.st_size) != (before.st_dev, before.st_ino, before.st_size):
+                        raise EvidenceError("cache changed before eviction")
+                    if current.st_nlink > 1:
+                        return retained(current)
+                path.unlink()
+                if path.exists() or path.is_symlink():
+                    raise EvidenceError("cache deletion failed: " + str(path))
+                if descriptor is not None and os.fstat(descriptor).st_nlink:
+                    raise EvidenceError("cache alias appeared during eviction; retained bytes require explicit source-view rebuild")
+                released_bytes = before.st_size
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
+                from .accounting import Accounting
+                with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                    self._local_records(ledger)
+        return {"artifact_id": ref["artifact_id"], "action": "evict-cache", "dry_run": dry_run,
+            "freed_bytes": released_bytes, "remaining_cache_bytes": self._cache_bytes(),
+            "occupancy_scope": "distinct regular inode lengths under owned cache; not allocated disk blocks"}
 
     def cleanup(self, *, now=None, dry_run=True, expire=False, protected_refs=(), reference_snapshot_complete=False):
         now = now or datetime.now(timezone.utc)
@@ -1720,16 +2675,9 @@ class Manager:
                     retired.append(ref["artifact_id"])
                     results.append({"artifact_id": ref["artifact_id"], "action": "retire", "dry_run": dry_run})
                 else:
-                    path = self.cache / "objects" / ref["sha256"]
-                    if path.exists() or path.is_symlink():
-                        # Cache is replaceable only after independently reading the durable copy now.
-                        if not dry_run:
-                            self.prepare([ref])
-                            hash_file(path)
-                            path.unlink()
-                            if path.exists() or path.is_symlink():
-                                raise EvidenceError("cache deletion failed: " + str(path))
-                        results.append({"artifact_id": ref["artifact_id"], "action": "evict-cache", "dry_run": dry_run})
+                    action = self._evict_cache(ref, dry_run=dry_run)
+                    if action is not None:
+                        results.append(action)
             if retired and not dry_run:
                 remaining = {k: v for k, v in catalog["refs"].items() if k not in retired}
                 used_packs = {seg["pack_sha256"] for ref in remaining.values() for seg in (ref["locator"].get("segments") or [ref["locator"]])}
@@ -1774,14 +2722,13 @@ class Manager:
                     for ref in catalog["refs"].values():
                         if now - timestamp(ref["retention"]["sealed_at"]) < timedelta(days=self.policy["retention"]["local_days"]):
                             continue
-                        path = self.cache / "objects" / ref["sha256"]
-                        if path.exists() or path.is_symlink():
-                            self.prepare([ref])
-                            if hash_file(path) != (ref["sha256"], ref["size"]):
-                                raise EvidenceError("cache changed before final eviction")
-                            path.unlink()
-                            if path.exists() or path.is_symlink():
-                                raise EvidenceError("final cache eviction failed: " + str(path))
+                        action = self._evict_cache(ref, dry_run=False)
+                        if action is not None and not any(item.get("artifact_id") == action["artifact_id"] and
+                                item["action"] == action["action"] for item in results):
+                            results.append(action)
+                from .accounting import Accounting
+                with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
+                    self._local_records(ledger)
             return results
 
     def _resume_pruning(self, catalog, intent, journal, results):

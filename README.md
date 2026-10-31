@@ -131,7 +131,7 @@ The checker validates owner/dependency integrity, typed traceability, contained 
 python3 skills/to-sdd-pipeline/scripts/sdd_check.py --project /path/to/product --before development-plan
 ```
 
-Changes to claim-relevant sources, definitions, runtime or evidence require revalidation. Current records preserve immutable actual completion and assess its applicability against owner-reviewed inputs; a historical pass alone is insufficient. Migration preserves legacy history while requiring genuine current checks. Revalidation never supplies implementation permission; changed plans retain the fresh-prompt boundary except for verified [documentation corrections](skills/to-sdd-pipeline/references/authorization-corrections.md). [Completion and acceptance contract](skills/to-sdd-pipeline/references/completion-preservation.md).
+Relevant source, definition, runtime or evidence changes require revalidation. [Reviewed acceptance](skills/to-sdd-pipeline/references/reviewed-acceptance.md) preserves evidenced legacy or contextless checks; unknown, stale and fresh-only checks require execution. Review grants no implementation permission. Changed plans retain the fresh-prompt boundary except for verified [documentation corrections](skills/to-sdd-pipeline/references/authorization-corrections.md). [Completion contract](skills/to-sdd-pipeline/references/completion-preservation.md).
 
 Resolve scripts from the installed skill directory. Direct hosts can execute owner roles inline. External production runners must enforce checker results; this repository contains no production runner and cannot authenticate research or guarantee undeclared source completeness.
 

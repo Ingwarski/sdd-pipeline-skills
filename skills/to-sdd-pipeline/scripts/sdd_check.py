@@ -14,11 +14,15 @@ import stat
 import subprocess
 import sys
 from datetime import datetime
+from types import MappingProxyType
 from urllib.parse import unquote, urlsplit
 
 # Resource-local imports also work when a host loads this script through importlib.
 sys.dont_write_bytecode = True  # A validation-only CLI must not generate resource caches.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import check_inputs
+import verification_metrics as metrics
+from history_integrity import history_integrity_scope
 from evidence.io import hash_file, read_json as safe_read_json
 from evidence.resolver import EvidenceResolver, evidence_reference, _regular
 from evidence.policy import validate_policy
@@ -66,7 +70,9 @@ def unique_object(pairs):
 
 def read_json(path):
     path = Path(path)
-    return safe_read_json(path.parent.resolve() / path.name, 64 * 1024 * 1024)
+    metrics.count("json_parse_requests")
+    with metrics.phase("json_parsing"):
+        return safe_read_json(path.parent.resolve() / path.name, 64 * 1024 * 1024)
 
 
 def digest(data):
@@ -519,11 +525,20 @@ def section_bytes(path, heading):
 
 def section_from_bytes(data, heading):
     """The same exact section rules for a verified immutable archived source."""
+    _section_heading(heading)
+    return _indexed_section(_section_index(data), heading)
+
+
+def _section_heading(heading):
     if not isinstance(heading, str) or not re.match(r"^#{1,6} \S", heading):
         raise ValueError("fragment requires an exact Markdown heading, including #")
-    lines = data.splitlines(keepends=True)
-    headings, fence = [], None
-    for index, line in enumerate(lines):
+
+
+def _section_index(data):
+    """Private immutable byte extents; scan the entire source exactly once."""
+    headings, fence, offset = [], None, 0
+    for line in data.splitlines(keepends=True):
+        start, offset = offset, offset + len(line)
         text = line.decode("utf-8").rstrip("\r\n").lstrip("\ufeff")
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})", text)
         if marker:
@@ -535,18 +550,25 @@ def section_from_bytes(data, heading):
             continue
         match = re.match(r"^(#{1,6})[ \t]+", text) if fence is None else None
         if match:
-            headings.append((index, len(match[1]), text))
-    matches = [index for index, _, text in headings if text == heading]
+            headings.append((start, len(match[1]), text))
+    ends, stack = {}, []
+    for start, depth, _ in headings:
+        while stack and stack[-1][1] >= depth:
+            ends[stack.pop()[0]] = start
+        stack.append((start, depth))
+    extents = {}
+    for start, _, text in headings:
+        extents.setdefault(text, []).append((start, ends.get(start, len(data))))
+    return (bytes(data), MappingProxyType({text: tuple(values) for text, values in extents.items()}))
+
+
+def _indexed_section(index, heading):
+    data, extents = index
+    matches = extents.get(heading, ())
     if len(matches) != 1:
         raise ValueError("fragment heading must occur exactly once: " + heading)
-    start = matches[0]
-    level = len(heading.split(" ", 1)[0])
-    end = len(lines)
-    for index, depth, _ in headings:
-        if index > start and depth <= level:
-            end = index
-            break
-    return b"".join(lines[start:end])
+    start, end = matches[0]
+    return data[start:end]
 
 
 def timestamp(value):
@@ -601,6 +623,104 @@ def validate_contract(contract):
         for key in node["required_before"] + node["outputs"]:
             if key not in artifacts:
                 raise ValueError("unknown node artifact: " + key)
+
+
+def _cached_file_hash(path, cache, metric_kind="source", physical_cache=None):
+    """Hash once while retaining fresh regular-file checks on every use."""
+    path = Path(path)
+    metrics.count(metric_kind + "_hash_requests")
+    signature = _regular(path)
+    # Nonzero native inode identity permits sharing only actual hard-linked
+    # bytes. Unknown identities keep per-path reads; claimed hashes never key
+    # this cache. Every alias still joins the caller's mandatory path audit.
+    identity = signature[:2] if signature[1] > 0 else None
+    if path not in cache:
+        prior = physical_cache.get(identity) if physical_cache is not None and identity is not None else None
+        if prior is not None and cache.get(prior[0]) != (prior[1], prior[2]):
+            # Lost path registration also expires its physical memo; semantic
+            # callers may deliberately require full validation again.
+            del physical_cache[identity]
+            prior = None
+        if prior is not None:
+            original, saved, value = prior
+            if signature != saved or _regular(original) != saved:
+                raise ValueError("input changed during checker invocation: " + str(path))
+            cache[path] = (signature, value)
+            metrics.count(metric_kind + "_hash_cache_hits")
+        else:
+            with metrics.phase("source_hashing"):
+                cache[path] = (signature, hash_file(path)[0])
+            metrics.count(metric_kind + "_hash_bytes", signature[2])
+    else:
+        metrics.count(metric_kind + "_hash_cache_hits")
+    saved, value = cache[path]
+    if signature != saved or _regular(path) != saved:
+        raise ValueError("input changed during checker invocation: " + str(path))
+    if physical_cache is not None and identity is not None:
+        physical_cache.setdefault(identity, (path, saved, value))
+    return value
+
+
+class SnapshotFileHashes:
+    """Only historical snapshot hashes; scopes own their short lifetime."""
+    def __init__(self):
+        self.hashes = {}
+        self.physical_hashes = {}
+        self.depth = 0
+        self.history_results = []
+        self.legacy_files = {}
+        self.section_indexes = {}
+
+    def history_result(self, cache, key, remember=False):
+        # The semantic cache stays with its caller. Only a result validated in
+        # this hash lifetime may reuse the snapshot union already registered.
+        for known, keys in self.history_results:
+            if known is cache:
+                if remember:
+                    keys[key] = (cache[key], self._result_hash(cache[key]))
+                return (key in keys and key in cache and keys[key][0] is cache[key]
+                        and keys[key][1] == self._result_hash(cache[key]))
+        if remember:
+            self.history_results.append((cache, {key: (cache[key], self._result_hash(cache[key]))}))
+        return remember
+
+    @staticmethod
+    def _result_hash(value):
+        return digest(json.dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False).encode("utf-8"))
+
+    def file_hash(self, path):
+        return _cached_file_hash(path, self.hashes, "snapshot", self.physical_hashes)
+
+    def section(self, path, identity, heading):
+        _section_heading(heading)
+        path = Path(path)
+        # Every active indexed source joins the final union audit, including
+        # live canonical documents first encountered by a projection child.
+        checked_hash = self.file_hash if self.depth else lambda target: _cached_file_hash(target, {}, "snapshot")
+        if checked_hash(path) != identity:
+            raise ValueError("source fragment changed during checker invocation")
+        key = (path, identity)
+        index = self.section_indexes.get(key) if self.depth else None
+        if index is None:
+            metrics.count("section_index_builds")
+            data = path.read_bytes()
+            if digest(data) != identity or checked_hash(path) != identity:
+                raise ValueError("source fragment changed during checker invocation")
+            index = _section_index(data)
+            if self.depth:
+                self.section_indexes[key] = index
+        else:
+            metrics.count("section_index_cache_hits")
+        value = _indexed_section(index, heading)
+        if checked_hash(path) != identity:
+            raise ValueError("source fragment changed during checker invocation")
+        return value
+
+    def audit(self):
+        for path, (signature, _) in self.hashes.items():
+            metrics.count("path_checks")
+            if _regular(path) != signature:
+                raise ValueError("historical snapshot changed during checker invocation: " + str(path))
 
 
 class Checker:
@@ -665,6 +785,7 @@ class Checker:
             self.issue("product_scope", "product-idea", str(error))
 
     def path(self, relative, no_links=False, observation=False):
+        metrics.count("path_checks")
         if not isinstance(relative, str) or not relative or "\\" in relative:
             raise ValueError("use a nonempty repository-relative POSIX path")
         parsed = PurePosixPath(relative)
@@ -672,12 +793,12 @@ class Checker:
             raise ValueError("path escapes project: " + relative)
         if observation and hasattr(self, "_history_observation_overlay"):
             reference = self._history_observation_overlay.get(relative)
-            destination = reference["path"] if reference else self._history_observation_snapshot_root + "/" + relative
-            return history_api().physical(self.project, destination)
+            return history_api().source_view_path(self.project, self._history_observation_snapshot_root,
+                                                  self._history_observation_overlay, relative, getattr(self, "_history_source_archive", None))
         if hasattr(self, "_history_overlay"):
             reference = self._history_overlay.get(relative)
-            destination = reference["path"] if reference else self._history_snapshot_root + "/" + relative
-            return history_api().physical(self.project, destination)
+            return history_api().source_view_path(self.project, self._history_snapshot_root,
+                                                  self._history_overlay, relative, getattr(self, "_history_source_archive", None))
         resolved = (self.project / relative).resolve()
         if not resolved.is_relative_to(self.project):
             raise ValueError("link escapes project: " + relative)
@@ -703,19 +824,25 @@ class Checker:
     def file_hash(self, path):
         """Memoize stable regular files; any later mutation blocks this invocation."""
         path = Path(path)
-        signature = _regular(path)
-        if path not in self.hash_cache:
-            self.hash_cache[path] = (signature, hash_file(path)[0])
-        saved, value = self.hash_cache[path]
-        if signature != saved or _regular(path) != saved:
-            raise ValueError("input changed during checker invocation: " + str(path))
-        return value
+        prepared = history_api().source_view_hash(path, getattr(self, "_history_source_archive", None))
+        if prepared is not None:
+            return prepared
+        owner = getattr(self, "_history_hash_owner", None)
+        if owner is not None and owner.depth and path in owner.hashes:
+            return owner.file_hash(path)
+        return _cached_file_hash(path, self.hash_cache)
+
+    def history_hash_scope(self):
+        return history_api().snapshot_hash_scope(getattr(self, "_history_hash_owner", None), audit=True)
 
     def document(self, path):
         path = Path(path)
         signature = _regular(path)
         if path not in self.json_cache:
             self.json_cache[path] = (signature, read_json(path))
+            metrics.count("json_parse_bytes", signature[2])
+        else:
+            metrics.count("json_cache_hits")
         saved, value = self.json_cache[path]
         if signature != saved or _regular(path) != saved:
             raise ValueError("document changed during checker invocation: " + str(path))
@@ -725,17 +852,54 @@ class Checker:
         path = self.path(relative, no_links=True)
         identity = self.file_hash(path)
         key = (path, heading)
-        if key not in self.section_cache:
+        owner = getattr(self, "_history_hash_owner", None)
+        if owner is not None and owner.depth:
+            indexed = owner.section(path, identity, heading)
+            if key not in self.section_cache:
+                self.section_cache[key] = (identity, indexed)
+        elif key not in self.section_cache:
             self.section_cache[key] = (identity, section_bytes(path, heading))
         saved, value = self.section_cache[key]
         if saved != identity or self.file_hash(path) != identity:
             raise ValueError("source fragment changed during checker invocation")
         return value
 
+    def reviewed_evidence_view(self, record, check=None):
+        """Use an accepted original only for its exact immutable reference."""
+        views = getattr(self, "_reviewed_evidence_views", {})
+        history = getattr(self, "_unit_history", None)
+        if not views or history is None or not isinstance(record, dict):
+            return None
+        h = history_api()
+        view = views.get(h.sha(h.encoded(record)))
+        if view is None or view["checker"] is self:
+            return None
+        original = view["check"]
+        if not h.reviewed_observation(original, history.reviewed_checks):
+            return None  # Dependency closure may have removed this observation.
+        if check is not None and not h.reviewed_observation(check, {original["check_id"]: original}):
+            return None
+        return view["checker"]
+
+    def reviewed_evidence_accounting(self, original):
+        """Original byte custody does not replace current managed accounting."""
+        for identity in sorted(original.evidence_resolver.visited):
+            reference = original.evidence_resolver.references[identity]
+            original.evidence_resolver.resolve(reference)
+            self.evidence_resolver.resolve(reference)
+            self.evidence_accounting(reference)
+
     def evidence_snapshot(self, record, target, code="invalid_evidence", bindings=None):
         try:
             ref = evidence_reference(record)
             if ref is None:
+                original = self.reviewed_evidence_view(record)
+                if original is not None:
+                    if not original.evidence_snapshot(record, target, code, bindings):
+                        self.issue(code, target, "reviewed original evidence failed snapshot validation")
+                        return False
+                    self.reviewed_evidence_accounting(original)
+                    return True
                 if not isinstance(record, dict):
                     raise ValueError("evidence record must be an object")
                 if not self.snapshot(record.get("path"), record.get("content_hash"), target, code):
@@ -780,21 +944,27 @@ class Checker:
         self.accounting_reference_id = accounting_ref.get("artifact_id") if accounting_ref is not None else None
         if accounting_ref is not None:
             receipt = self.evidence_resolver.json(accounting_ref)
-        if not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] != 1:
+        if not isinstance(receipt, dict) or type(receipt.get("version")) is not int or receipt["version"] not in (1, 2, 3):
             raise ValueError("unsupported evidence accounting version")
         for flag in ("accounting_complete", "incomplete"):
             if flag in receipt and type(receipt[flag]) is not bool:
                 raise ValueError("invalid evidence accounting completeness flag: " + flag)
-        if receipt.get("accounting_complete") is False or receipt.get("incomplete") is True:
+        scoped = receipt["version"] in (2, 3)
+        if not scoped and (receipt.get("accounting_complete") is False or receipt.get("incomplete") is True):
             raise ValueError("evidence accounting is incomplete; reconcile missing durable accounting history")
         if receipt.get("project_id") != policy["project_id"] or not hash_matches(receipt.get("policy_sha256"), self.file_hash(policy_path)):
             raise ValueError("evidence accounting belongs to another project or policy")
         runs = receipt.get("runs")
         if not isinstance(runs, dict):
             raise ValueError("evidence accounting run index required")
+        scope = None
+        if scoped:
+            scope = self.scoped_evidence_accounting(receipt, policy, runs)
         def reconciled(original_run, original_unit):
             if not isinstance(original_run, str) or not original_run or not isinstance(original_unit, str) or not original_unit:
                 raise ValueError("original stable run/unit accounting identities required")
+            if scope is not None and original_run not in scope:
+                raise ValueError("required evidence is outside the complete current accounting scope")
             observed = runs.get(original_run)
             if not isinstance(observed, dict) or observed.get("unit_id") != original_unit or observed.get("status") != "complete":
                 raise ValueError("missing/incomplete accounting for original run/unit")
@@ -828,7 +998,94 @@ class Checker:
         elif run_id is not None or unit_id is not None:
             reconciled(run_id, unit_id)
 
+    @staticmethod
+    def scoped_evidence_accounting(receipt, policy, runs):
+        """Validate declared known-run scope without concealing historical gaps.
+
+        This checker does not inspect or repair a live ledger. The storage owner
+        must establish disposition and readiness before issuing this receipt.
+        Required evidence still passes every original per-run binding check.
+        """
+        from evidence.quarantine import validate_quarantine_descriptor
+        flags = {"accounting_complete": False, "incomplete": True,
+                 "totals_are_lower_bounds": True, "history_complete": False,
+                 "generation_ready": True}
+        if receipt.get("version") == 3:
+            from evidence.quarantine_device import validate_device_custody_receipt
+            validate_device_custody_receipt(receipt, policy, receipt.get("quarantines", []))
+        expected_kind = "scoped-known-generation-with-device-custody" if receipt.get("version") == 3 else "scoped-known-generation"
+        if receipt.get("kind") != expected_kind or any(
+                type(receipt.get(key)) is not bool or receipt[key] is not value
+                for key, value in flags.items()):
+            raise ValueError("scoped accounting must disclose incomplete historical accounting")
+        quarantines = receipt.get("quarantines")
+        if not isinstance(quarantines, list) or not quarantines:
+            raise ValueError("scoped accounting requires preserved quarantine descriptors")
+        isolated = {}
+        reservations = set()
+        for descriptor in quarantines:
+            validate_quarantine_descriptor(descriptor, policy)
+            ident = descriptor["intent_id"]
+            if (ident in isolated or descriptor["reservation_id"] in reservations
+                    or not isinstance(ident, str) or not ident):
+                raise ValueError("duplicate or missing scoped quarantine identity")
+            reservations.add(descriptor["reservation_id"])
+            isolated[ident] = descriptor
+            row = runs.get(descriptor["run_id"])
+            if (not isinstance(row, dict) or row.get("unit_id") != descriptor["unit_id"]
+                    or row.get("status") != "incomplete"
+                    or type(row.get("pending_reservations")) is not int
+                    or row["pending_reservations"] < 1
+                    or type(row.get("gross_generated_bytes")) is not int
+                    or row["gross_generated_bytes"] < descriptor["run"]["gross_bytes"]
+                    or type(row.get("original_logical_files")) is not int
+                    or row["original_logical_files"] < descriptor["run"]["gross_files"]):
+                raise ValueError("quarantined run must remain incomplete with its full pending hold")
+        pending = receipt.get("pending_generation_intents")
+        if not isinstance(pending, dict) or set(pending) != set(isolated):
+            raise ValueError("scoped accounting has unisolated pending generation intents")
+        for ident, intent in pending.items():
+            gap = isolated[ident]
+            if (not isinstance(intent, dict) or intent.get("settled")
+                    or intent.get("run_id") != gap["run_id"]
+                    or intent.get("unit_id") != gap["unit_id"]
+                    or intent.get("reserve_bytes") != gap["reservation"]["bytes"]
+                    or intent.get("reserve_files") != gap["reservation"]["files"]):
+                raise ValueError("quarantined generation intent changed or was settled")
+        selected = receipt.get("selected_scope")
+        if (not isinstance(selected, dict) or selected.get("complete") is not True
+                or not isinstance(selected.get("run_ids"), list)
+                or any(not isinstance(item, str) or not item for item in selected["run_ids"])
+                or len(set(selected["run_ids"])) != len(selected["run_ids"])):
+            raise ValueError("complete current accounting scope requires unique run identities")
+        scope = set(selected["run_ids"])
+        complete_runs = {ident for ident, row in runs.items()
+                         if isinstance(row, dict) and row.get("status") == "complete"}
+        if scope != complete_runs or scope.intersection(gap["run_id"] for gap in quarantines):
+            raise ValueError("current accounting scope differs from complete known runs")
+        quarantined_runs = {gap["run_id"] for gap in quarantines}
+        if len({gap["ledger_id"] for gap in quarantines}) != 1:
+            raise ValueError("scoped quarantines must retain one authoritative original ledger")
+        for ident, row in runs.items():
+            if not isinstance(ident, str) or not ident or not isinstance(row, dict):
+                raise ValueError("invalid scoped accounting run identity")
+            for field in ("gross_generated_bytes", "original_logical_files",
+                          "pending_reservations", "unreconciled_outputs"):
+                if type(row.get(field)) is not int or row[field] < 0:
+                    raise ValueError("invalid scoped accounting run amount: " + field)
+            if ident not in quarantined_runs and (row["pending_reservations"] or row["unreconciled_outputs"]):
+                raise ValueError("scoped accounting has unisolated outstanding reservations or outputs")
+            if ident in quarantined_runs and row["pending_reservations"] != sum(
+                    gap["run_id"] == ident for gap in quarantines):
+                raise ValueError("scoped accounting pending hold count differs from preserved quarantines")
+        return scope
+
     def evidence_json(self, record):
+        original = self.reviewed_evidence_view(record)
+        if original is not None and evidence_reference(record) is None:
+            value = original.evidence_json(record)
+            self.reviewed_evidence_accounting(original)
+            return value
         ref = evidence_reference(record)
         value = self.evidence_resolver.json(ref) if ref is not None else self.evidence_resolver.json_file(
             self.path(record["path"], no_links=True), record.get("schema", "evidence-json-v1"))
@@ -845,6 +1102,11 @@ class Checker:
 
     def evidence_bytes(self, record):
         """Read verified original bytes without assigning a new execution context."""
+        original = self.reviewed_evidence_view(record)
+        if original is not None and evidence_reference(record) is None:
+            data = original.evidence_bytes(record)
+            self.reviewed_evidence_accounting(original)
+            return data
         ref = evidence_reference(record)
         path = self.evidence_resolver.resolve(ref) if ref is not None else self.path(record["path"], no_links=True)
         before = self.file_hash(path)
@@ -888,6 +1150,11 @@ class Checker:
         reference = entry.get("source_inventory_ref")
         if reference is None:
             return inline, entry.get("consumed_source_fragments", {})
+        original = self.reviewed_evidence_view(reference, entry)
+        if original is not None:
+            value = original.source_inventory(entry, key)
+            self.reviewed_evidence_accounting(original)
+            return value
         ref = evidence_reference(reference)
         if ref is None or ref.get("schema") != "source-inventory-v1":
             raise ValueError("shared source inventory reference schema required")
@@ -1593,7 +1860,14 @@ class Checker:
                     evaluated = {}
                 if check.get("phase") in ("implementation", "both") and not evaluated:
                     self.issue("missing_evaluated_revision", "qa-checklist", key)
-                if hasattr(self, "_unit_history") and key in self._unit_history.checks:
+                reviewed = (hasattr(self, "_unit_history")
+                            and history_api().reviewed_observation(check, self._unit_history.reviewed_checks))
+                if reviewed:
+                    # The reviewed resolver compares the complete current input
+                    # mapping. Old whole-document hashes remain original facts,
+                    # not an additional current-applicability policy.
+                    evaluated = {}
+                elif hasattr(self, "_unit_history") and key in self._unit_history.checks:
                     canonical = {spec["path"] for spec in self.specs.values()}
                     evaluated = {path: value for path, value in evaluated.items() if path not in canonical}
                     # Original complete doc hashes were checked in the archived run.
@@ -1607,7 +1881,7 @@ class Checker:
                         remaining[path] = value
                     evaluated = remaining
                 try:
-                    inherited = hasattr(self, "_unit_history") and key in self._unit_history.checks
+                    inherited = reviewed or (hasattr(self, "_unit_history") and key in self._unit_history.checks)
                     review = None if inherited else validate_revalidation(self, check=check)
                     current = review["current_source_hashes"] if review is not None else evaluated
                     self.sources({"source_hashes": current}, "qa-checklist")
@@ -1970,7 +2244,7 @@ class Checker:
                     {key: current_scope[key] for key in ("profile", "capabilities")} if current_scope is not None else None), "original manifest product scope mismatch")
                 if self.ui:
                     require(all(original["active_baseline"].get(key) == self.manifest["active_baseline"].get(key) for key in ("baseline_id", "prototype_tree_hash", "visual_target_hash")), "original manifest frozen baseline mismatch")
-                supported_original = (original.get("checker_contract_version"), original.get("unit_contract_version")) in ((1, 1), (2, 2))
+                supported_original = (original.get("checker_contract_version"), original.get("unit_contract_version")) in ((1, 1), (2, 2), (3, 3), (4, 4))
                 require(supported_original and all(type(original.get(k)) is int for k in ("checker_contract_version", "unit_contract_version")) and self.correction_json_equal(original["unit_plan"], unit_plan), "original manifest unit contract changed")
                 original_verification = original["verification"]
                 original_qa = {check["check_id"]: check["acceptance"] for check in original_verification["checks"]
@@ -2049,7 +2323,7 @@ class Checker:
 
     def units(self, action=None, unit_id=None, release=False):
         """Validate planning separately from recorded runs and requested transitions."""
-        if type(self.manifest.get("unit_contract_version")) is not int or self.manifest["unit_contract_version"] not in (1, 2):
+        if type(self.manifest.get("unit_contract_version")) is not int or self.manifest["unit_contract_version"] not in (1, 2, 3, 4):
             self.issue("migration_required", "development-plan", "owner-reviewed supported unit contract records required; do not infer completed units")
             return
         try:
@@ -2097,6 +2371,7 @@ class Checker:
         qa_ref = self.manifest["verification"]["acceptance_ref"]
         require(qa_ref["path"] == "docs/qa-checklist.md", "acceptance definitions belong to QA")
         self.canonical_json("docs/qa-checklist.md", qa_ref["heading"], qa_contract)
+        source_sets = check_inputs.source_sets(self)
         edges = {key: set() for key in unit_ids}
         check_edges = {}
         for key, unit in units.items():
@@ -2141,9 +2416,10 @@ class Checker:
                 require(other in units, prerequisite + ": unknown acceptance owner")
                 if other != owner:
                     edges[owner].add(other)
-            ids(qa["required_source_paths"], key + " evidence source paths", True)
-            for path in qa["required_source_paths"]:
-                self.path(path)
+            check_inputs.required_paths(self, checks[key], source_sets)
+            check_inputs.fine_grained(checks[key])
+            require(qa.get("reuse_policy", "fresh") in ("fresh", "deterministic_isolated"), key + ": unsupported reuse policy")
+            require(check_inputs.enabled(self.manifest) or not any(field in qa for field in ("dependency_review", "reuse_policy", "source_set_ids")), key + ": per-check policy requires checker/unit contract 3")
         # No required product clause/state may disappear into mere contribution coverage.
         covered = {obligation for key, record in acceptance.items() if qa_contract[key]["required"] and qa_contract[key]["level"] in ("integration", "release") for obligation in record["obligation_ids"]}
         require(obligations <= covered, "required obligation lacks full integration/release acceptance ownership; component contribution is insufficient")
@@ -2168,6 +2444,12 @@ class Checker:
 
         runs = self.manifest.get("unit_runs", {})
         require(isinstance(runs, dict) and set(runs) <= unit_ids, "unknown unit run")
+        history = getattr(self, "_unit_history", None)
+        reviewed_checks = getattr(history, "reviewed_checks", {})
+        reviewed_units = getattr(history, "reviewed_units", {})
+        acceptance_reviews = getattr(history, "reviews", {})
+        reviewed_original_runs = getattr(history, "reviewed_original_runs", set())
+        require(set(reviewed_units) <= unit_ids, "reviewed acceptance names an unknown unit")
         exceptions = self.manifest.get("unit_sequence_exceptions", [])
         require(isinstance(exceptions, list), "sequence exceptions must be receipts")
         plan_hash = self.artifacts["development-plan"]["content_hash"]
@@ -2202,6 +2484,19 @@ class Checker:
                 return
             seen.add(check_id)
             check, record, qa = checks[check_id], acceptance[check_id], qa_contract[check_id]
+            if history_api().reviewed_observation(check, reviewed_checks):
+                accepted_at = timestamp(acceptance_reviews[record["owner_unit"]]["recorded_at"])
+                require(timestamp(check.get("executed_at")) <= accepted_at <= finished,
+                        check_id + ": reviewed acceptance postdates dependent execution")
+                require(check.get("execution_status") == "passed" and check.get("definition_status") == "prepared",
+                        check_id + ": reviewed check is not passed")
+                require(check.get("executor") and check.get("evidence"), check_id + ": missing reviewed execution evidence")
+                require(not blocking(check.get("findings", [])), check_id + ": unresolved blocking finding")
+                if qa["evidence_mode"] == "real_consumers":
+                    require(check.get("execution_mode") == "real_consumers"
+                            and any(self.evidence_kind(item) == "integration" for item in check["evidence"]),
+                            check_id + ": reviewed checks still require real-consumer integration evidence")
+                return  # Current inputs and prerequisite applicability share the history resolver.
             if hasattr(self, "_unit_history") and check_id in self._unit_history.checks:
                 require(timestamp(check.get("executed_at")) <= finished, check_id + ": inherited evidence postdates dependent execution")
                 require(record["owner_unit"] in self._unit_history.preserved, check_id + ": historical acceptance has no applicable completed owner")
@@ -2210,12 +2505,14 @@ class Checker:
             require(check.get("execution_status") == "passed" and check.get("definition_status") == "prepared", check_id + ": required acceptance is not passed")
             require(review is not None or check.get("evaluated_plan_hash") == plan_hash, check_id + ": evidence belongs to another plan")
             executed = timestamp(check.get("executed_at"))
-            require(started <= executed <= finished, check_id + ": evidence outside current unit run")
+            reused = hasattr(self, "_unit_history") and check_id in self._unit_history.reused
+            require((reused or started <= executed) and executed <= finished, check_id + ": evidence outside current unit run")
             require(check.get("executor") and check.get("evidence"), check_id + ": missing executed evidence")
             require(not blocking(check.get("findings", [])), check_id + ": unresolved blocking finding")
-            paths = set(qa["required_source_paths"])
-            for dep in {record["owner_unit"]} | edges[record["owner_unit"]]:
-                paths.update(units[dep]["implementation_paths"])
+            paths = check_inputs.required_paths(self, check, source_sets)
+            if not (check_inputs.enabled(self.manifest) and check_inputs.fine_grained(check)):
+                for dep in {record["owner_unit"]} | edges[record["owner_unit"]]:
+                    paths.update(units[dep]["implementation_paths"])
             hashes, _ = self.source_inventory(check, "evaluated_source_hashes")
             require(isinstance(hashes, dict) and paths <= set(hashes), check_id + ": evidence does not cover required implementation/consumer paths")
             for path, value in hashes.items():
@@ -2236,6 +2533,11 @@ class Checker:
                 require(check.get("execution_mode") == "real_consumers" and any(self.evidence_kind(x) == "integration" for x in check["evidence"]), check_id + ": mocks/fixtures cannot replace real-consumer integration evidence")
             for prerequisite in check_edges[check_id]:
                 prior_owner = acceptance[prerequisite]["owner_unit"]
+                if history_api().reviewed_observation(checks[prerequisite], reviewed_checks):
+                    # A review accepts existing observations now; it does not
+                    # manufacture completion/start times for their original run.
+                    passed(prerequisite, executed, executed, seen)
+                    continue
                 prior_run = runs.get(prior_owner, {})
                 prior_review = reviews.get(prior_owner)
                 current_acceptance = review["reviewed_at"] if review is not None else executed
@@ -2253,8 +2555,23 @@ class Checker:
                 if allocation["owner_unit"] == key:
                     require(not blocking(checks[check_id].get("findings", [])), check_id + ": unresolved blocking finding")
 
-        for key, run in runs.items():
+        acceptance_runs = {**{key: {"status": "pending"} for key in reviewed_units}, **runs}
+        for key, run in acceptance_runs.items():
             require(run.get("status") in ("pending", "running", "blocked", "completed"), key + ": invalid unit status")
+            if key in reviewed_units:
+                clear_unit_findings(key, run)
+                accepted_at = timestamp(reviewed_units[key]["recorded_at"])
+                require(accepted_at <= now, key + ": reviewed acceptance is in the future")
+                for check_id in units[key]["required_check_ids"]:
+                    require(history_api().reviewed_observation(checks[check_id], reviewed_checks),
+                            check_id + ": reviewed unit lacks required accepted original check")
+                    passed(check_id, accepted_at, accepted_at)
+                completed[key] = accepted_at
+                continue  # The original run status and timestamps remain historical facts.
+            if key in reviewed_original_runs:
+                # A source-bound historical run can remain visible with only
+                # partial current acceptance. It is not a current execution.
+                continue
             if run["status"] == "pending":
                 require(not run.get("started_at") and not run.get("completed_at"), key + ": pending run cannot claim execution")
                 continue
@@ -2293,7 +2610,8 @@ class Checker:
                     continue
                 require(prior not in edges[key] and any(target == key and prior in skipped and received <= at for target, skipped, received in waivers), key + ": prior unit " + prior + " incomplete at start without explicit exception")
         for key, run in runs.items():
-            if run["status"] != "pending" and not (hasattr(self, "_unit_history") and key in self._unit_history.preserved):
+            if (run["status"] != "pending" and key not in reviewed_units and key not in reviewed_original_runs
+                    and not (hasattr(self, "_unit_history") and key in self._unit_history.preserved)):
                 can_start(key, timestamp(run["started_at"]), original=key in reviews)
         eligible, run_blockers = [], []
         for key in order:
@@ -2310,30 +2628,67 @@ class Checker:
                 pass
         self._unit_progress_state.update(
             accepted_unit_ids=[key for key in order if key in completed],
-            eligible_unit_ids=eligible, run_blockers=run_blockers)
+            eligible_unit_ids=eligible, run_blockers=run_blockers,
+            reviewed_acceptance={key: {field: copy.deepcopy(review[field])
+                                      for field in ("reviewed_at", "recorded_at", "review_ref", "current_applicability") if field in review}
+                                 for key, review in reviewed_units.items() if key in completed})
         if action:
             require(unit_id in units, "unknown boundary unit")
             run = runs.get(unit_id, {"status": "pending"})
             if action == "start":
-                require(run["status"] != "completed", unit_id + ": already complete")
+                require(run["status"] != "completed" and unit_id not in completed, unit_id + ": already complete")
                 can_start(unit_id, now)
             elif action == "complete":
-                if "evidence_storage" in self.manifest:
-                    self.evidence_accounting(run_id=run.get("run_id"), unit_id=unit_id)
-                require(run["status"] in ("running", "completed"), unit_id + ": unit must be running before completion")
-                clear_unit_findings(unit_id, run)
-                for check_id in units[unit_id]["required_check_ids"]:
-                    passed(check_id, timestamp(run.get("started_at")), now)
+                if unit_id in reviewed_units:
+                    require(unit_id in completed, unit_id + ": reviewed acceptance is incomplete")
+                else:
+                    require(unit_id not in reviewed_original_runs,
+                            unit_id + ": original reviewed run lacks complete current acceptance; capture fresh execution for remaining checks")
+                    if "evidence_storage" in self.manifest:
+                        self.evidence_accounting(run_id=run.get("run_id"), unit_id=unit_id)
+                    require(run["status"] in ("running", "completed"), unit_id + ": unit must be running before completion")
+                    clear_unit_findings(unit_id, run)
+                    for check_id in units[unit_id]["required_check_ids"]:
+                        passed(check_id, timestamp(run.get("started_at")), now)
         if release:
             require(set(completed) == unit_ids, "release requires every unit, including integration, completed")
 
     def run(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
+        with history_integrity_scope(self._source_manifest, force_full=audit or node == "release") as integrity, metrics.phase("historical_gate" if hasattr(self, "_history_stack") else "root_gate"):
+            report = self._run_scoped(node, after, audit, unit_action, unit_id, require_current=require_current, projections=projections)
+            if integrity.is_root and "history_integrity" in self._source_manifest:
+                report["history_integrity"] = integrity.report()
+            return report
+
+    def _run_scoped(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
+        report = None
+        try:
+            with history_api()._checker_run_hash_scope(self) as owner:
+                self._history_hash_owner = owner
+                for record in getattr(self, "_history_snapshot_records", ()):
+                    history_api().validate_files(self.project, record, hash_owner=owner)
+                report = self._run_invocation(node, after, audit, unit_action, unit_id,
+                                              require_current=require_current, projections=projections)
+        except (ValueError, OSError) as error:
+            if report is None:
+                raise
+            self.issue("changing_input", "manifest", str(error))
+            report["result"] = "blocked"
+            if "implementation_progress" in report:
+                report["implementation_progress"] = implementation_progress(self, unit_id, unit_action)
+        return report
+
+    def _run_invocation(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
         # Resolution is a per-invocation view. Reuse the caller's actual source
         # manifest rather than treating a previous expanded history view as input.
         self.manifest = self._source_manifest
         self.artifacts = self.manifest.get("artifacts", {})
         if hasattr(self, "_unit_history"):
             del self._unit_history
+        # An empty review index may disappear between calls. No review cache
+        # may retain mutable observations merely because resolution is skipped.
+        for attribute in ("_reviewed_evidence_views", "_reviewed_counterevidence"):
+            self.__dict__.pop(attribute, None)
         if hasattr(self, "_unit_progress_state"):
             del self._unit_progress_state
         if not hasattr(self, "_history_stack"):
@@ -2347,10 +2702,18 @@ class Checker:
         self.checked, self.affected = set(), set()
         self.security_requirements = {}
         self.evidence_resolver = EvidenceResolver(self.evidence_resolver.cache)
+        policy = None
+        try:
+            policy = history_api().PreparedResolverPolicy(self.project, self._source_manifest, path_resolver=self.path)
+            policy.apply(self.evidence_resolver)
+        except (ValueError, OSError) as error:
+            self.issue("evidence_storage", "manifest", str(error))
         self._invocation_active = True
         try:
             report = self._run(node, after, audit, unit_action, unit_id, require_current=require_current, projections=projections)
             try:
+                if policy is not None:
+                    policy.audit()
                 for cache in (self.hash_cache, self.json_cache, self.evidence_resolver.hashes, self.evidence_resolver.documents):
                     for path, (signature, _) in cache.items():
                         if _regular(path) != signature:
@@ -2374,15 +2737,19 @@ class Checker:
         checker_version, unit_version = self.manifest.get("checker_contract_version"), self.manifest.get("unit_contract_version")
         if require_current:
             versions = (checker_version, unit_version)
-            if all(type(value) is int for value in versions) and versions == (2, 2):
+            if all(type(value) is int for value in versions) and versions in ((2, 2), (3, 3), (4, 4)):
                 pass
             elif all(value is None or type(value) is int and value == 1 for value in versions):
                 self.issue("migration_required", "manifest", "resume with the latest tested workflow: preserve existing work and approvals, migrate legacy records, and reverify before continuing")
             else:
-                self.issue("unsupported_contract_version", "manifest", "checker and unit contracts must both be version 2; reconcile mixed, malformed or unsupported versions without rewriting history")
+                self.issue("unsupported_contract_version", "manifest", "checker and unit contracts must match at version 2, 3 or 4; reconcile mixed, malformed or unsupported versions without rewriting history")
+        if (checker_version, unit_version) != (4, 4) and "reviewed_acceptance" in self.manifest:
+            self.issue("unsupported_contract_version", "manifest", "reviewed acceptance requires checker/unit contract 4")
+        if not check_inputs.enabled(self.manifest) and any("seal_ref" in check or "reused_from" in check for check in self.manifest.get("verification", {}).get("checks", [])):
+            self.issue("unsupported_contract_version", "manifest", "sealed reuse requires checker/unit contract 3")
         if checker_version == 1 and history_api().contains_v2_fields(self.manifest):
             self.issue("migration_required", "manifest", "v2 history fields require verified checker/unit contract version 2 migration")
-        if checker_version == 2 and unit_version == 2:
+        if (checker_version, unit_version) in ((2, 2), (3, 3), (4, 4)):
             self.manifest = copy.deepcopy(self.manifest)
             self.artifacts = self.manifest.get("artifacts", {})
             self._unit_history = history_api().HistoryView(self)
@@ -2395,7 +2762,8 @@ class Checker:
         if unit_action is not None and (unit_action not in ("start", "complete") or node != "implementation" or audit or after or not unit_id):
             self.issue("unit_boundary", "implementation", "unit transitions require implementation node, start/complete action and unit ID")
         self.product_scope()
-        if type(checker_version) is not int or checker_version not in (1, 2) or (checker_version == 2) != (unit_version == 2):
+        legacy_early_read = not require_current and checker_version == 1 and unit_version is None
+        if type(checker_version) is not int or checker_version not in (1, 2, 3, 4) or (checker_version != unit_version and not legacy_early_read):
             self.issue("migration_required", "manifest", "retain existing documents/history; add verified metadata using manifest-contract.md")
         language = self.manifest.get("language", {})
         if not language.get("working_language") or language.get("artifact_language") != language.get("working_language"):
@@ -2436,10 +2804,17 @@ class Checker:
             self.units(unit_action, unit_id, release=spec.get("release_required", False) or self.manifest.get("verification", {}).get("release_readiness") == "passed")
         if projections and not hasattr(self, "_history_snapshot_root") and not hasattr(self, "_history_capturing"):
             validate_intake_progress(self)
-            validate_ready_projection(self, require_current=require_current)
+            validate_ready_projection(self, require_current=require_current, current_node=node, after=after, audit=audit, unit_action=unit_action)
         result = "blocked" if self.issues else "passed"
         if self.issues and all(item["code"] == "migration_required" for item in self.issues):
             result = "migration_required"
+        history_report = None
+        if hasattr(self, "_unit_history"):
+            history_report = {"units": self._unit_history.units}
+            if self._unit_history.reviews:
+                import reviewed_acceptance
+                history_report["reviews"] = {key: reviewed_acceptance.diagnostic(review)
+                                             for key, review in self._unit_history.reviews.items()}
         return {"result": result, "node": node, "mode": "audit" if audit else "after" if after else "before",
                 "unit_action": unit_action, "unit_id": unit_id,
                 "skipped_artifacts": sorted(self.skipped),
@@ -2447,7 +2822,7 @@ class Checker:
                 "issues": self.issues, "warnings": sorted(set(self.warnings)),
                 **({"implementation_progress": implementation_progress(self, unit_id, unit_action)}
                    if "development-plan" in self.checked else {}),
-                **({"unit_history": {"units": self._unit_history.units}, "execution_authority": history_api().current_authority(self)} if hasattr(self, "_unit_history") else {}),
+                **({"unit_history": history_report, "execution_authority": history_api().current_authority(self)} if history_report is not None else {}),
                 "limits": "Checks declared metadata, file integrity, stages and evidence references; not semantic quality, research authenticity or runner enforcement."}
 
 
@@ -2465,6 +2840,7 @@ def main():
     group.add_argument("--hash-render", metavar="RECORD", help="hash a candidate/baseline JSON record and its declared render resources")
     group.add_argument("--snapshot", metavar="NODE", help="emit unvalidated owner/source metadata without writing files or claiming review")
     parser.add_argument("--evidence-cache", type=Path, help="read-only prepared evidence cache outside the project; manager performs preparation")
+    parser.add_argument("--performance", action="store_true", help="include bounded diagnostic timing/counters; no acceptance claim")
     parser.add_argument("--heading", help="with --hash: exact Markdown heading for a fragment")
     parser.add_argument("--worked-unit", metavar="UNIT_ID", help="with --progress: identify the unit just worked on without inferring it from order")
     parser.add_argument("--consume", action="append", default=[], metavar="PATH[#HEADING]", help="with --snapshot: consumed full file or exact heading; repeat for every consumed section, including shared definitions")
@@ -2508,23 +2884,29 @@ def main():
             print(json.dumps(checker.source_proposal(node, args.consume, args.unused), ensure_ascii=True, indent=2))
             return 0
         if args.progress:
-            checker = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache)
-            report = workflow_progress(checker, worked_unit=args.worked_unit, require_current=True)
-            validate_intake_progress(checker)
-            validate_ready_projection(checker, derived=report["progress"], require_current=True)
-            report["issues"].extend(issue for issue in checker.issues if issue not in report["issues"])
-            if report["issues"]:
-                report["result"] = ("migration_required" if all(item["code"] == "migration_required" for item in report["issues"])
-                                    else "blocked")
+            with metrics.collect(enabled=args.performance) as measurement, history_api().snapshot_hash_scope():
+                checker = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache)
+                report = workflow_progress(checker, worked_unit=args.worked_unit, require_current=True)
+                validate_intake_progress(checker)
+                validate_ready_projection(checker, derived=report["progress"], require_current=True)
+                report["issues"].extend(issue for issue in checker.issues if issue not in report["issues"])
+                if report["issues"]:
+                    report["result"] = ("migration_required" if all(item["code"] == "migration_required" for item in report["issues"])
+                                        else "blocked")
+                if _regular(manifest_path) != manifest_signature:
+                    raise ValueError("manifest changed during checker invocation")
+                report["toolchain"] = toolchain_identity()
+            if args.performance:
+                report["performance"] = measurement.snapshot()
+            print(json.dumps(report, ensure_ascii=True, indent=2))
+            return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
+        with metrics.collect(enabled=args.performance) as measurement, history_api().snapshot_hash_scope():
+            report = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit, require_current=True)
             if _regular(manifest_path) != manifest_signature:
                 raise ValueError("manifest changed during checker invocation")
             report["toolchain"] = toolchain_identity()
-            print(json.dumps(report, ensure_ascii=True, indent=2))
-            return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
-        report = Checker(args.project, manifest, contract, evidence_cache=args.evidence_cache).run(node, bool(args.after), args.audit, unit_action, args.start_unit or args.complete_unit, require_current=True)
-        if _regular(manifest_path) != manifest_signature:
-            raise ValueError("manifest changed during checker invocation")
-        report["toolchain"] = toolchain_identity()
+        if args.performance:
+            report["performance"] = measurement.snapshot()
         print(json.dumps(report, ensure_ascii=True, indent=2))
         return 0 if report["result"] == "passed" else 2 if report["result"] == "migration_required" else 1
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:

@@ -141,6 +141,59 @@ class HostTests(unittest.TestCase):
         self.assertEqual([], transport.keys("project/"))
         self.assertEqual({"session.json", "owner.json"}, {p.name for p in self.session.iterdir()})
 
+    def assert_native_failure_retains_pair(self, result):
+        adapter = ConnectedHostAdapter(self.session, timeout_seconds=2)
+        self.adapters.append(adapter)
+        captured = {}
+        original_read = read_json
+
+        def capture_read(path, maximum):
+            value = original_read(path, maximum)
+            if Path(path) == self.session / "response.json":
+                captured["request"] = (self.session / "request.json").read_bytes()
+                captured["response"] = Path(path).read_bytes()
+            return value
+
+        with patch.object(self.native, "call", return_value=(result, None)) as native_call, \
+             patch("evidence.connected_host.read_json", side_effect=capture_read):
+            with self.assertRaises(EvidenceError) as failure:
+                adapter._native("list_folder", {})
+            self.assertNotIn("private-fixture-detail", str(failure.exception))
+            for name in ("request", "response"):
+                path = self.session / (name + ".json")
+                self.assertEqual(captured[name], path.read_bytes())
+                if os.name != "nt":
+                    self.assertEqual(0o600, path.stat().st_mode & 0o777)
+            self.assertEqual(1, native_call.call_count)
+            with self.assertRaisesRegex(EvidenceError, "unresolved request"):
+                adapter._native("list_folder", {})
+            self.assertEqual(1, native_call.call_count)
+            self.assertIsNone(next_request(self.session))
+            for name in ("request", "response"):
+                self.assertEqual(captured[name], (self.session / (name + ".json")).read_bytes())
+
+    def test_mcp_error_retains_exact_pair_and_blocks_new_request(self):
+        self.assert_native_failure_retains_pair({"isError": True, "content": [
+            {"type": "text", "text": "private-fixture-detail"}]})
+
+    def test_structured_error_retains_exact_pair_and_blocks_new_request(self):
+        self.assert_native_failure_retains_pair({"structuredContent": {"error": "private-fixture-detail"}})
+
+    def test_malformed_envelope_retains_exact_pair_and_blocks_new_request(self):
+        self.assert_native_failure_retains_pair({"content": [{"type": "text", "text": "not JSON"}]})
+
+    def test_success_clears_pair_and_reuses_session(self):
+        adapter = ConnectedHostAdapter(self.session, timeout_seconds=2)
+        self.adapters.append(adapter)
+        with patch.object(self.native, "call", return_value=({"structuredContent": {"ok": True}}, None)) as native_call:
+            self.assertEqual({"ok": True}, adapter._native("list_folder", {}))
+            self.assertFalse((self.session / "request.json").exists())
+            self.assertFalse((self.session / "response.json").exists())
+            self.assertEqual({"ok": True}, adapter._native("list_folder", {}))
+            self.assertEqual(2, native_call.call_count)
+            self.assertFalse((self.session / "request.json").exists())
+            self.assertFalse((self.session / "response.json").exists())
+
     def test_binary_folder_lookup_filters_exact_keys_and_rejects_duplicates(self):
         transport = self.transport()
         locator = transport.put("packs/first", self.source())
@@ -200,7 +253,22 @@ class HostTests(unittest.TestCase):
     def test_interrupted_upload_is_recovered_without_second_upload(self):
         transport = self.transport()
         self.native.upload_error_after_write = True
-        locator = transport.put("packs/once", self.source())
+        source = self.source()
+        with self.assertRaisesRegex(EvidenceError, "unresolved request"):
+            transport.put("packs/once", source)
+        self.assertTrue((self.session / "request.json").exists())
+        self.assertTrue((self.session / "response.json").exists())
+        self.assertTrue(transport._checkpoint("packs/once").exists())
+        self.stop.set()
+        self.thread.join(timeout=5)
+        self.assertFalse(self.thread.is_alive())
+        self.adapters[-1].close()
+        close_session(self.session, cancel=True)
+        self.session = start_session(self.root)
+        self.stop.clear()
+        self.thread = threading.Thread(target=self.service, name="test-native-drive-host")
+        self.thread.start()
+        locator = self.transport().put("packs/once", source)
         self.assertEqual("object-1", locator["object_id"])
         self.assertEqual(1, sum(call["tool"] == "upload_file" for call in self.native.calls))
 

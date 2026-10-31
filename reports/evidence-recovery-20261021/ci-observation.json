@@ -1,0 +1,313 @@
+{
+  "version": 1,
+  "kind": "read-only-exact-revision-ci-observation",
+  "observed_at": "2026-10-21T15:34:30.456510+00:00",
+  "source_revision": "f4b779ba1c787bc6ddd4094942e1e128fd19e917",
+  "run_id": 39600909878,
+  "run_url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39600909878",
+  "workflow": "SDD and installer validation",
+  "event": "push",
+  "status": "completed",
+  "conclusion": "failure",
+  "jobs": [
+    {
+      "name": "windows (3.14)",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "databaseId": 119224852054,
+      "startedAt": "2026-10-21T12:36:12Z",
+      "completedAt": "2026-10-21T12:58:48Z",
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39600909878/job/119224852054",
+      "failed_steps": [],
+      "skipped_steps": [
+        "Test symbolic-link and junction installer",
+        "Test retirement cleanup",
+        "Test safe updater",
+        "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
+      ],
+      "in_progress_steps": []
+    },
+    {
+      "name": "unix (ubuntu-latest, 3.12)",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "databaseId": 119224852319,
+      "startedAt": "2026-10-21T12:36:12Z",
+      "completedAt": "2026-10-21T12:42:43Z",
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39600909878/job/119224852319",
+      "failed_steps": [],
+      "skipped_steps": [
+        "Test symlink installer",
+        "Test retirement cleanup",
+        "Test safe updater",
+        "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
+      ],
+      "in_progress_steps": []
+    },
+    {
+      "name": "unix (ubuntu-latest, 3.14)",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "databaseId": 119224852355,
+      "startedAt": "2026-10-21T12:36:12Z",
+      "completedAt": "2026-10-21T12:42:14Z",
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39600909878/job/119224852355",
+      "failed_steps": [],
+      "skipped_steps": [],
+      "in_progress_steps": []
+    },
+    {
+      "name": "content",
+      "status": "completed",
+      "conclusion": "success",
+      "databaseId": 119224852369,
+      "startedAt": "2026-10-21T12:36:12Z",
+      "completedAt": "2026-10-21T12:36:23Z",
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39600909878/job/119224852369",
+      "failed_steps": [],
+      "skipped_steps": [],
+      "in_progress_steps": []
+    },
+    {
+      "name": "unix (macos-latest, 3.12)",
+      "status": "completed",
+      "conclusion": "failure",
+      "databaseId": 119224852502,
+      "startedAt": "2026-10-21T12:36:12Z",
+      "completedAt": "2026-10-21T12:41:45Z",
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39600909878/job/119224852502",
+      "failed_steps": [
+        "Test stage checker and installer input contract"
+      ],
+      "skipped_steps": [
+        "Test symlink installer",
+        "Test retirement cleanup",
+        "Test safe updater",
+        "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
+      ],
+      "in_progress_steps": []
+    },
+    {
+      "name": "unix (macos-latest, 3.14)",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "databaseId": 119224852519,
+      "startedAt": "2026-10-21T12:36:13Z",
+      "completedAt": "2026-10-21T12:42:47Z",
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39600909878/job/119224852519",
+      "failed_steps": [],
+      "skipped_steps": [
+        "Test symlink installer",
+        "Test retirement cleanup",
+        "Test safe updater",
+        "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
+      ],
+      "in_progress_steps": []
+    },
+    {
+      "name": "windows (3.12)",
+      "status": "completed",
+      "conclusion": "failure",
+      "databaseId": 119224853041,
+      "startedAt": "2026-10-21T12:36:12Z",
+      "completedAt": "2026-10-21T12:58:07Z",
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39600909878/job/119224853041",
+      "failed_steps": [
+        "Test stage checker and installer input contract"
+      ],
+      "skipped_steps": [
+        "Test symbolic-link and junction installer",
+        "Test retirement cleanup",
+        "Test safe updater",
+        "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
+      ],
+      "in_progress_steps": []
+    },
+    {
+      "name": "publish-tested-channel",
+      "status": "completed",
+      "conclusion": "skipped",
+      "databaseId": 119235376622,
+      "startedAt": "2026-10-21T12:58:49Z",
+      "completedAt": "2026-10-21T12:58:48Z",
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39600909878/job/119235376622",
+      "failed_steps": [],
+      "skipped_steps": [],
+      "in_progress_steps": []
+    }
+  ],
+  "spending": {
+    "live_usage_checked": true,
+    "used_percent": 58,
+    "ordinary_usage_allowed": true,
+    "extra_or_api_or_reset_used": false
+  },
+  "source_assessment": {
+    "refs": [
+      "https://github.com/Ingwarski/sdd-pipeline-skills/blob/f4b779ba1c787bc6ddd4094942e1e128fd19e917/skills/to-sdd-pipeline/scripts/evidence/producer.py#L432",
+      "https://github.com/Ingwarski/sdd-pipeline-skills/blob/f4b779ba1c787bc6ddd4094942e1e128fd19e917/skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py#L228",
+      "https://github.com/Ingwarski/sdd-pipeline-skills/blob/f4b779ba1c787bc6ddd4094942e1e128fd19e917/tests/test_evidence_producer_recovery.py#L334",
+      "https://github.com/Ingwarski/sdd-pipeline-skills/blob/f4b779ba1c787bc6ddd4094942e1e128fd19e917/.github/workflows/installers.yml#L32"
+    ],
+    "confirmed": "Fallback entered cleanup far enough to set the native record stopping, but did not durably record the retained floor/incomplete run. recover_producers catches cleanup/accounting exceptions and returns an action problem; run_producer guardian-loss error logs only the aggregate incomplete boolean, losing the useful cause.",
+    "inference": "An exception before successful record_uncertain, or a failure of that transaction before a durable checkpoint, explains stopping plus active/zero-charged run. The exact exception is not available. _group_exists catches ProcessLookupError only; a permission error from its gone-anchor branch could escape cleanup, but that is a hypothesis rather than a verified macOS cause.",
+    "minimal_fix_proposal": [
+      "For a verified lost guardian, durably preserve the observed floor and incomplete run before fallible resource cleanup; retain full reservation and conservative unknown history.",
+      "Persist recovery_problem on a recovery exception and include sanitized returned action problems in the guardian-loss error. Preserve strong structural accounting causes; do not signal unknown groups or manufacture terminal status.",
+      "Add a deterministic injected-cleanup-exception regression asserting held capacity, charged observed floor, incomplete history/run and retained cause; verify later applied recovery reaches terminal only after exact helper/group exit.",
+      "Revisit the CI test expectation only after the exact underlying cleanup state is observable. A stopping result is legitimate when exit/disposition remains uncertain; do not weaken the terminal requirement without proving that exception class."
+    ],
+    "release_state": "Exact run completed FAILURE: content passed; macOS3.12 and Windows3.12 regression jobs failed; Ubuntu3.12/3.14, macOS3.14 and Windows3.14 cancelled; tested-channel publication skipped. No platform-wide release acceptance established.",
+    "authorization_boundary": "No source edits, local tests, Git operations, installed source changes, live ledger access, old archive access, private proof access, browser activity, subagents or release mutations performed."
+  },
+  "tool_limitations": [
+    "gh run view --log-failed refused while overall workflow was in progress; read-only GitHub job-log API succeeded for the completed failed job.",
+    "Matrix cancellations are recorded as cancellations, without inferring an independent platform defect."
+  ],
+  "failures": [
+    {
+      "job_id": 119224852502,
+      "platform": "macos-latest",
+      "python": "3.12",
+      "step": "Test stage checker and installer input contract",
+      "suite_tests": 960,
+      "failures": 1,
+      "skipped_tests": 13,
+      "elapsed_seconds": 324.514,
+      "test": "test_evidence_producer_recovery.ProducerRecoveryWorkflowTests.test_lost_guardian_with_surviving_coordinator_keeps_uncertain_hold",
+      "assertion_line": 355,
+      "expected_status": "terminal",
+      "actual_status": "stopping",
+      "log_sha256": "c25e871ead39123278ad247823d87b823ca710ccf402b64d1c96f52179cd765a",
+      "selected_original_log_lines": [
+        "2026-10-21T12:41:41.0198240Z FAIL: test_lost_guardian_with_surviving_coordinator_keeps_uncertain_hold (test_evidence_producer_recovery.ProducerRecoveryWorkflowTests.test_lost_guardian_with_surviving_coordinator_keeps_uncertain_hold)",
+        "2026-10-21T12:41:41.0208150Z   File \"/Users/runner/work/sdd-pipeline-skills/sdd-pipeline-skills/tests/test_evidence_producer_recovery.py\", line 355, in test_lost_guardian_with_surviving_coordinator_keeps_uncertain_hold",
+        "2026-10-21T12:41:41.0209160Z     self.assertEqual(self._record()[\"status\"], \"terminal\", diagnostic)",
+        "2026-10-21T12:41:41.0209520Z AssertionError: 'stopping' != 'terminal'",
+        "2026-10-21T12:41:41.0249010Z Ran 960 tests in 324.514s",
+        "2026-10-21T12:41:41.0249370Z FAILED (failures=1, skipped=13)",
+        "2026-10-21T12:41:41.0418110Z ##[error]Process completed with exit code 1."
+      ],
+      "diagnostic_facts": {
+        "producer_run_status": "active",
+        "gross_generated_bytes": 0,
+        "accounting_complete": true,
+        "pending_generated_bytes": 65536,
+        "native_record_observed_bytes": 230,
+        "native_record_observed_files": 3,
+        "recovery_owner": null,
+        "coordinator_raised": "producer guardian stopped without a terminal result; recovery incomplete=True",
+        "underlying_exception_text_retained_in_job_log": false
+      }
+    },
+    {
+      "job_id": 119224853041,
+      "platform": "windows-latest",
+      "python": "3.12",
+      "step": "Test stage checker and installer input contract",
+      "suite_tests": 960,
+      "failures": 1,
+      "skipped_tests": 15,
+      "elapsed_seconds": 1292.748,
+      "test": "test_evidence_quarantine.QuarantineTests.test_replaced_output_root_cannot_claim_complete_final_observation",
+      "assertion_line": 407,
+      "expected_final_observation_complete": false,
+      "actual_final_observation_complete": true,
+      "log_sha256": "a6256eb1b51dd23fb9745bfd664ef7376825601231cce6ea29ed30475e9d0e81",
+      "selected_original_log_lines": [
+        "2026-10-21T12:58:03.6621708Z FAIL: test_replaced_output_root_cannot_claim_complete_final_observation (test_evidence_quarantine.QuarantineTests.test_replaced_output_root_cannot_claim_complete_final_observation)",
+        "2026-10-21T12:58:03.6630745Z   File \"D:\\a\\sdd-pipeline-skills\\sdd-pipeline-skills\\tests\\test_evidence_quarantine.py\", line 407, in test_replaced_output_root_cannot_claim_complete_final_observation",
+        "2026-10-21T12:58:03.6631597Z     self.assertFalse(result[\"final_observation_complete\"], result)",
+        "2026-10-21T12:58:03.6640706Z Ran 960 tests in 1292.748s",
+        "2026-10-21T12:58:03.6641000Z FAILED (failures=1, skipped=15)",
+        "2026-10-21T12:58:03.8020304Z ##[error]Process completed with exit code 1."
+      ],
+      "diagnostic_facts": {
+        "producer_exit_code": 1,
+        "producer_problem": "producer exited with code 1",
+        "cleanup_problem": null,
+        "final_observation_complete": true,
+        "final_observation_problem": null,
+        "gross_bytes": 502,
+        "gross_files": 1,
+        "only_observation": "producer.log",
+        "only_observation_size": 502,
+        "managed_run_status": "incomplete",
+        "accounting_settlement_incomplete": false
+      },
+      "confirmed": "The fixture producer exited with failure and produced a502-byte log; no cleanup/identity error was reported, so the expected physical root replacement was not established. The test source performs rename while running with cwd equal to that directory. A failed producer can still have a truthful complete final inventory.",
+      "inference": "Windows current-directory/open-handle rename restrictions likely prevented the setup transition. The payload traceback bytes were not included in CI assertion diagnostics, so no exact Windows errno is claimed.",
+      "minimal_fix_proposal": [
+        "Keep production identity/final-proof semantics unchanged.",
+        "Make the producer harmless, then inject real output-directory rename/replacement from the coordinator after exact writer exit and log closure, for example in a patched cleanup_directories callback.",
+        "Assert replacement actually occurred and the directory identity changed before checking final_observation_complete=false. This preserves the guard coverage on supported platforms without requiring the payload to rename its own working directory.",
+        "Retain a separate platform-appropriate producer failure case if needed; do not treat complete final accounting of a nonzero-exit producer as execution acceptance."
+      ],
+      "source_ref": "https://github.com/Ingwarski/sdd-pipeline-skills/blob/f4b779ba1c787bc6ddd4094942e1e128fd19e917/tests/test_evidence_quarantine.py#L403"
+    }
+  ],
+  "result": "CI failures preserved above; authorized minimal followup implemented and focused local validation passed. Source frozen for root consolidated validation and new CI.",
+  "authorized_followup": {
+    "frozen_at": "2026-10-21T15:39:12.504992+00:00",
+    "base_revision": "f4b779ba1c787bc6ddd4094942e1e128fd19e917",
+    "changed_paths": [
+      "skills/to-sdd-pipeline/scripts/evidence/producer.py",
+      "tests/test_evidence_producer_recovery.py",
+      "tests/test_evidence_quarantine.py",
+      "tests/test_evidence_abandoned_accounting.py"
+    ],
+    "source_sha256": {
+      "skills/to-sdd-pipeline/scripts/evidence/producer.py": "fff451fb6db873f34864af472d001dd4f0d32d3ef19915e6ef0da6271e3a7e73",
+      "tests/test_evidence_producer_recovery.py": "13bb040d1b29ec9f314fed3c462a51c3297391c0ea79758078fb6c74bf60eee9",
+      "tests/test_evidence_quarantine.py": "21a74a07c2e80b3609b054faac2b1f9a53444c32db72736cc22578666735f180",
+      "tests/test_evidence_abandoned_accounting.py": "6dabfb4de497b79a5cc631353c61ecbdbd992ef66665e90fa0e1cf54e043bf9d"
+    },
+    "runtime": "Existing canonical Python3.12.14 with runtime directory prepended to PATH",
+    "implementation": [
+      "For a verified gone guardian with the exact recovery claim held, record the saved observed floor and incomplete run before fallible helper/resource cleanup. Keep the complete original pending reservation.",
+      "Persist bounded current recovery_problem and a first_recovery_failure observation with its original timestamp; successful later cleanup may clear only the current problem. Original session bindings, result and observed counts remain unchanged.",
+      "Guardian-loss error includes a bounded target-specific actual recovery action/problem. It excludes unrelated sessions and never dumps session policy, command or configuration.",
+      "Windows replacement fixture now uses a harmless producer and physically renames/replaces the output directory in its owned coordinator after exact helper exit and log closure. It asserts changed inode/device identity and preserved original bytes before asserting incomplete final observation.",
+      "Preserved the existing native guardian-loss terminal assertion; added an assertion for the informative recovery-action diagnostic. No stopping-as-terminal acceptance or guessed cleanup success."
+    ],
+    "tests": [
+      {
+        "command": "PATH=RUNTIME_BIN:$PATH python3 -B -m unittest discover -s tests -p 'test_evidence_abandoned_accounting.py' -v",
+        "tests": 3,
+        "result": "PASS",
+        "seconds": 0.162
+      },
+      {
+        "command": "PATH=RUNTIME_BIN:$PATH python3 -B -m unittest discover -s tests -p 'test_evidence_producer*.py' -q",
+        "tests": 44,
+        "result": "PASS",
+        "seconds": 13.624
+      },
+      {
+        "command": "PATH=RUNTIME_BIN:$PATH python3 -B -m unittest discover -s tests -p 'test_evidence_quarantine*.py' -q",
+        "tests": 38,
+        "result": "PASS",
+        "seconds": 7.382
+      },
+      {
+        "command": "Twenty repetitions of test_lost_guardian_with_surviving_coordinator_keeps_uncertain_hold using its real native fixture and unchanged terminal assertion",
+        "tests": 20,
+        "result": "PASS",
+        "seconds": 7.826
+      }
+    ],
+    "fault_injection_evidence": [
+      "The throwing-cleanup callback opens an independent Accounting connection and verifies floor230B/3files plus incomplete history/run were committed BEFORE the injected permission error.",
+      "Two repeated cleanup exceptions preserve the full65536B/20-file hold, charge floor only once, leave unrelated real sentinel alive and preserve all original observation bytes and session identity/binding fields.",
+      "Later real cleanup reaches terminal while the reservation remains pending and history incomplete; first failure problem/time remain byte-equivalent to their initial recorded values.",
+      "Healthy abandoned cleanup reaches terminal without refunding the unknown hold.",
+      "The bounded diagnostic contains the target cleanup cause, excludes an unrelated action and stays below8192 encoded bytes even for oversized Unicode error text."
+    ],
+    "not_established": [
+      "The original macOS CI cleanup exception still cannot be reconstructed from f4b logs; its cause was not retained. No local repeat exposed another underlying problem after the change.",
+      "The revised Windows fixture passed locally on macOS; actual Windows qualification requires the next root-owned CI run.",
+      "Full regression suite, maintenance shell tests, commit/push, personal installation update and renewed cross-platform CI are root-owned and remain outstanding for this followup."
+    ],
+    "boundaries": "No accounting.py, producer_runtime.py, API, manager, CLI, checker, Git, installed snapshot, live ledger, browser, network or archive modifications performed. The only new runtime work was isolated local tests and their task-owned Python helpers."
+  }
+}

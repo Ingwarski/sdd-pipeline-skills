@@ -1,0 +1,84 @@
+{
+  "purpose": "Required isolated maintenance shell verification for frozen Checker history memo change",
+  "repository": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+  "source_revision": "86ee776 (parent-supplied baseline)",
+  "runtime": {
+    "python_path_prefix": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin",
+    "python_version": "Python 3.12.14"
+  },
+  "frozen_source_files": {
+    "expected_sha256": {
+      "skills/to-sdd-pipeline/scripts/sdd_history.py": "0c0ae2804eda1d28e01c0e3c81181e549b7044512fd7f45782c2f09481b1b3e7",
+      "skills/to-sdd-pipeline/scripts/sdd_check.py": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f",
+      "tests/test_history_file_cache.py": "c50ce2053ac545333d3a22d4f3c24738fd274d42e4c538b785843bbcec98e0b5"
+    },
+    "before_sha256": {
+      "skills/to-sdd-pipeline/scripts/sdd_history.py": "0c0ae2804eda1d28e01c0e3c81181e549b7044512fd7f45782c2f09481b1b3e7",
+      "skills/to-sdd-pipeline/scripts/sdd_check.py": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f",
+      "tests/test_history_file_cache.py": "c50ce2053ac545333d3a22d4f3c24738fd274d42e4c538b785843bbcec98e0b5"
+    },
+    "after_sha256": {
+      "skills/to-sdd-pipeline/scripts/sdd_history.py": "0c0ae2804eda1d28e01c0e3c81181e549b7044512fd7f45782c2f09481b1b3e7",
+      "skills/to-sdd-pipeline/scripts/sdd_check.py": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f",
+      "tests/test_history_file_cache.py": "c50ce2053ac545333d3a22d4f3c24738fd274d42e4c538b785843bbcec98e0b5"
+    },
+    "matched_expected_before": true,
+    "unchanged_during_suites": true
+  },
+  "suites": [
+    {
+      "suite": "install",
+      "command": [
+        "bash",
+        "tests/test-install.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 3.287,
+      "log": "reports/evidence-recovery-20261021/checker-legacy-memo-shell-install.log",
+      "log_bytes": 5499,
+      "private_temp_parent": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-checker-legacy-memo-install-4rc4kvqi",
+      "remaining_children_before_parent_removal": [],
+      "private_parent_removed_after_empty_check": true,
+      "verified_absent": true,
+      "final_log_line": "Unix installer tests passed."
+    },
+    {
+      "suite": "retirement",
+      "command": [
+        "bash",
+        "tests/test-retirement.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 6.848,
+      "log": "reports/evidence-recovery-20261021/checker-legacy-memo-shell-retirement.log",
+      "log_bytes": 153,
+      "private_temp_parent": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-checker-legacy-memo-retirement-ruzdw08u",
+      "remaining_children_before_parent_removal": [],
+      "private_parent_removed_after_empty_check": true,
+      "verified_absent": true,
+      "final_log_line": "Permanent retirement tests passed: copies, edits, broken links, receipts, former backups, failure, source/project roots, no link traversal, idempotence."
+    },
+    {
+      "suite": "update",
+      "command": [
+        "bash",
+        "tests/test-update.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 7.088,
+      "log": "reports/evidence-recovery-20261021/checker-legacy-memo-shell-update.log",
+      "log_bytes": 168,
+      "private_temp_parent": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-checker-legacy-memo-update-68rsk1ro",
+      "remaining_children_before_parent_removal": [],
+      "private_parent_removed_after_empty_check": true,
+      "verified_absent": true,
+      "final_log_line": "Updater tests passed: stable default, missing stable, explicit main, no downgrade, fresh installer, flags, dirty tree, branch, origin, old URL, ahead/diverged history."
+    }
+  ],
+  "all_three_passed": true,
+  "limits": [
+    "These isolated shell suites do not constitute the concurrent full Python suite or product/runtime acceptance.",
+    "Update test uses its disposable local bare Git fixture; no live network was used.",
+    "No personal install, production Git state, browser, Drive, private ledger, or source changes were performed."
+  ]
+}

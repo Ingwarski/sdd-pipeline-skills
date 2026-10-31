@@ -1,0 +1,2412 @@
+"""SDK-owned, bounded Darwin observations. This registry grants no signal rights.
+
+Only the inherited-FD observer invokes native queries and appends witnesses.
+Sampling can miss short-lived intermediaries; missing evidence stays incomplete.
+These cooperative observations are neither a kernel signature nor an OS sandbox.
+"""
+from __future__ import annotations
+
+import copy
+import ctypes
+import errno
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import stat
+import sys
+import subprocess
+import tempfile
+import select
+import math
+import time
+import uuid
+import threading
+from collections import deque
+
+from . import darwin_observation as native, process_identity
+from .io import EvidenceError
+
+CAPABILITY = 'darwin-sdk-observed-writers-v1'
+MAX_ROOTS, MAX_NODES, MAX_OBSERVATIONS, MAX_PENDING = 8, 128, 384, 128
+MAX_SESSIONS = 16
+DEFAULT_RUNTIME_FILES = 10000
+MAX_REQUEST = 16384
+SESSION_LIMIT = 768 * 1024
+METADATA_ATTEMPTS = 5
+METADATA_BACKOFF = (.002, .010, .025, .050)
+METADATA_DEADLINE = .250
+AUTHORITY = {'class': 'observe_only_no_signal', 'signal': False, 'group': False, 'adoption': False}
+SOURCE_FILES = ('observed_writers.py', 'observed_writer_worker.py', 'darwin_observation.py', 'producer_runtime.py')
+WARNINGS = ('Sampled discovery can miss fast forks or intermediary execs; missing chains block association.',
+            'Observed genealogy grants no signaling, filesystem confinement, or complete write measurement.')
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False, separators=(',', ':'))
+
+
+def sources():
+    return {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest() for name in SOURCE_FILES}
+
+
+def _valid_sources(value):
+    return (type(value) is dict and set(value) == set(SOURCE_FILES)
+            and all(type(digest) is str and len(digest) == 64 and all(c in '0123456789abcdef' for c in digest)
+                    for digest in value.values()))
+
+
+def _validate_binding_shape(binding):
+    keys = {'id', 'row', 'coordinator', 'run_id', 'unit_id', 'attempt_id'}
+    row_keys = {'id', 'bytes', 'migration', 'metadata_bytes', 'metadata_files', 'cache_bytes',
+                'owner_pid', 'owner_host', 'state', 'created'}
+    if (type(binding) is not dict or set(binding) != keys or type(binding['row']) is not dict
+            or set(binding['row']) != row_keys or not process_identity.valid_identity(binding['coordinator'])
+            or binding['coordinator']['platform'] != 'darwin'
+            or any(type(binding[k]) is not str or not 0 < len(binding[k]) <= 256 for k in ('id', 'run_id', 'unit_id', 'attempt_id'))):
+        raise EvidenceError('invalid exact observer working-reservation binding')
+    row = binding['row']
+    birth = binding['coordinator']['created']
+    if (row['id'] != binding['id'] or row['state'] != 'pending' or row['owner_pid'] != binding['coordinator']['pid']
+            or row['owner_host'] != binding['coordinator']['host'] or type(row['bytes']) is not int or row['bytes'] <= 0
+            or type(row['migration']) is not int or row['migration'] not in (0, 1)
+            or any(type(row[k]) is not int or row[k] < 0 for k in ('metadata_bytes', 'metadata_files', 'cache_bytes'))
+            or type(row['created']) not in (int, float) or not math.isfinite(row['created'])
+            or row['created'] < birth['seconds'] + birth['microseconds'] / 1e6):
+        raise EvidenceError('invalid working hold owner/birth/state/amount')
+    return binding
+
+
+def validate_registry(record, *, active_sources=True):
+    history = record.get('observation_history', [])
+    if type(history) is not list or len(history) + 1 > MAX_SESSIONS:
+        raise EvidenceError('observer cumulative session bound exceeded')
+    sessions, identifiers = [], set()
+    for archived in history:
+        if (type(archived) is not dict or set(archived) != {'sha256', 'session'}
+                or archived['sha256'] != hashlib.sha256(canonical(archived['session']).encode()).hexdigest()):
+            raise EvidenceError('immutable closed observer history digest changed')
+        session = validate_session(archived['session'])
+        if session['state'] != 'closed':
+            raise EvidenceError('only CLOSED observer sessions may enter immutable history')
+        sessions.append(session)
+    current = record.get('observation_session')
+    sessions.append(validate_session(current, current_sources=active_sources and type(current) is dict and current.get('state') in ('arming', 'observing', 'closing')))
+    for session in sessions:
+        key = session.get('session_id', canonical(session['observer']))
+        if key in identifiers:
+            raise EvidenceError('replayed observer session identity')
+        identifiers.add(key)
+        binding = session.get('working_binding')
+        if (session['membership']['attempt_id'] != record['attempt_id']
+                or binding and (any(binding[k] != record[k] for k in ('run_id', 'unit_id', 'attempt_id'))
+                                or binding['coordinator'] != record['coordinator'])):
+            raise EvidenceError('observer working hold changed native producer run binding')
+    return sessions
+
+
+def working_binding(ledger, record, reservation_id=None, *, session=None, require_active=True):
+    if session is not None:
+        binding = _validate_binding_shape(session['working_binding'])
+        reservation_id = binding['id']
+        if any(binding[k] != record[k] for k in ('run_id', 'unit_id', 'attempt_id')) or binding['coordinator'] != record['coordinator']:
+            raise EvidenceError('working reservation producer/coordinator binding changed')
+    if type(reservation_id) is not str or not 0 < len(reservation_id) <= 256:
+        raise EvidenceError('explicit working reservation id required')
+    row = ledger.connection.execute('SELECT * FROM working_reservations WHERE id=?', (reservation_id,)).fetchone()
+    if row is None:
+        raise EvidenceError('working reservation unknown')
+    row = dict(row)
+    if session is None:
+        binding = dict(id=reservation_id, row=row, coordinator=copy.deepcopy(record['coordinator']),
+                       run_id=record['run_id'], unit_id=record['unit_id'], attempt_id=record['attempt_id'])
+        _validate_binding_shape(binding)
+    if any(row[key] != binding['row'][key] for key in row if key != 'state'):
+        raise EvidenceError('working reservation original row identity changed')
+    if require_active:
+        coordinator = binding['coordinator']
+        if (row['state'] != 'pending' or process_identity.state(coordinator) != 'alive'
+                or process_identity.identity(coordinator['pid']) != coordinator):
+            raise EvidenceError('working reservation requires exact live coordinator and pending hold')
+    elif row['state'] not in ('pending', 'settled', 'cancelled'):
+        raise EvidenceError('closed working hold has unsupported disposition')
+    return copy.deepcopy(binding)
+
+
+def _ensure_hold_unshared(ledger, attempt, reservation_id):
+    from .producer_runtime import MAX_RECORD
+    for other in ledger.connection.execute('SELECT id,record FROM producer_sessions'):
+        if other[0] == attempt:
+            continue
+        if type(other[1]) is not str or len(other[1].encode()) > MAX_RECORD:
+            raise EvidenceError('other producer registry exceeds bounded claim scan')
+        prior = json.loads(other[1])
+        if prior.get('version') == 2:
+            for existing in validate_registry(prior, active_sources=False):
+                if existing.get('working_binding', {}).get('id') == reservation_id and existing['state'] != 'closed':
+                    raise EvidenceError('working reservation already bound to another active attempt')
+
+
+def semantic(snapshot):
+    return {key: value for key, value in snapshot.items() if key != 'observed'}
+
+
+def _remaining(deadline):
+    value = deadline - time.monotonic()
+    if value <= 0:
+        raise EvidenceError('observer operation deadline expired')
+    return value
+
+
+def exact_chain_sequences(session, root, leaf_sequence):
+    """Root-to-leaf references to ACTUAL retained matching exec versions."""
+    if type(leaf_sequence) is not int or not 1 <= leaf_sequence <= len(session['observations']):
+        raise EvidenceError('invalid exact lineage leaf sequence')
+    chain, sequence, seen = [], leaf_sequence, set()
+    for _ in range(MAX_NODES):
+        node = session['observations'][sequence - 1]['snapshot']
+        if node['unique_id'] in seen:
+            raise EvidenceError('exact retained lineage cycle')
+        seen.add(node['unique_id']); chain.append(sequence)
+        if node['unique_id'] == root:
+            return list(reversed(chain))
+        candidates = [item for item in session['observations']
+                      if item['snapshot']['unique_id'] == node['original_parent_unique_id']
+                      and item['snapshot']['idversion'] == node['original_parent_idversion']]
+        if not candidates:
+            raise EvidenceError('exact predecessor native observation was never retained')
+        parent = candidates[-1]
+        if (_birth(parent['snapshot']) > _birth(node)
+                or any(parent['snapshot'][k] != node[k] for k in ('uid', 'boot_uuid'))):
+            raise EvidenceError('exact retained lineage birth/UID/boot mismatch')
+        sequence = parent['sequence']
+    raise EvidenceError('exact retained lineage depth bound exceeded')
+
+
+def _exec_pair(before, after):
+    """Genuine kernel epochs only; never asserts an unobserved executable path."""
+    immutable = ('identity', 'unique_id', 'boot_uuid', 'uid', 'original_parent_unique_id', 'original_parent_idversion')
+    return (native.valid_snapshot(before) and native.valid_snapshot(after)
+            and before['status'] == after['status'] == 'alive'
+            and all(before[key] == after[key] for key in immutable)
+            and after['idversion'] > before['idversion']
+            and all(int(after['observed'][key]) > int(before['observed'][key]) for key in ('monotonic_ns', 'wall_time_ns')))
+
+
+def _valid_exec_resolution(session, transition, resolution):
+    if type(resolution) is dict and type(resolution.get('version')) is int and resolution['version'] == 3:
+        return _valid_exec_resolution3(session, transition, resolution)
+    if (type(resolution) is not dict or set(resolution) != {'version', 'observation_sequence', 'root'}
+            or type(resolution['version']) is not int or resolution['version'] != 1 or type(resolution['observation_sequence']) is not int
+            or not 1 <= resolution['observation_sequence'] <= len(session['observations'])
+            or resolution['root'] not in session['roots']):
+        return False
+    item = session['observations'][resolution['observation_sequence'] - 1]
+    node, before, after = item['snapshot'], transition['before'], transition['after']
+    immutable = ('identity', 'unique_id', 'boot_uuid', 'uid', 'original_parent_unique_id', 'original_parent_idversion')
+    if (node['status'] != 'alive' or any(node[key] != before[key] for key in immutable)
+            or node['idversion'] < after['idversion'] or node['idversion'] <= before['idversion']
+            or node['idversion'] == after['idversion'] and node['executable_uuid'] != after['executable_uuid']
+            or any(int(node['observed'][key]) <= int(after['observed'][key]) for key in ('monotonic_ns', 'wall_time_ns'))):
+        return False
+    if node['unique_id'] in session['roots']:
+        root = session['roots'][node['unique_id']]
+        if (resolution['root'] != node['unique_id'] or 'target_executable' not in root
+                or item['executable'] != root['target_executable']['path']):
+            return False  # Roots still need actual declared target and wrapper proofs.
+    else:
+        writer = session['writers'].get(node['unique_id'])
+        if writer is None or writer['root'] != resolution['root'] or writer['identity'] != node['identity']:
+            return False
+    try:
+        exact_chain_sequences(session, resolution['root'], resolution['observation_sequence'])
+    except EvidenceError:
+        return False
+    return True
+
+
+def _same_native_key(left, right):
+    return (native.valid_snapshot(left) and native.valid_snapshot(right) and all(left[field] == right[field]
+            for field in ('identity', 'unique_id', 'boot_uuid', 'uid', 'original_parent_unique_id', 'original_parent_idversion')))
+
+
+def _native_order(left, right):
+    return all(int(right['observed'][key]) > int(left['observed'][key]) for key in ('monotonic_ns', 'wall_time_ns'))
+
+
+def _reparent_pair(before, after, pid):
+    """A completed helper capture may select the genuine post-reparent read."""
+    return (native.valid_snapshot(before) and native.valid_snapshot(after)
+            and before['identity']['pid'] == after['identity']['pid'] == pid
+            and before['status'] == after['status'] == 'alive'
+            and before['current_ppid'] > 1 and after['current_ppid'] == 1 and _native_order(before, after)
+            and {key: value for key, value in semantic(before).items() if key != 'current_ppid'}
+                == {key: value for key, value in semantic(after).items() if key != 'current_ppid'})
+
+
+def _valid_path_query(query, pid):
+    return (type(query) is dict and set(query) == {'version', 'api', 'stage', 'pid', 'returned_size', 'errno', 'buffer_size', 'outcome', 'monotonic_ns'}
+            and type(query['version']) is int and query['version'] == 1 and query['api'] == 'libproc.proc_pidpath'
+            and query['stage'] in ('query', 'decode', 'result') and type(query['pid']) is int and query['pid'] == pid
+            and type(query['returned_size']) is int and -2**31 <= query['returned_size'] < 2**31
+            and type(query['errno']) is int and 0 <= query['errno'] < 2**31 and query['buffer_size'] == 4096
+            and query['outcome'] in ('unavailable', 'error', 'malformed')
+            and type(query['monotonic_ns']) is str and 0 < len(query['monotonic_ns']) <= 20 and query['monotonic_ns'].isascii()
+            and query['monotonic_ns'].isdecimal() and 0 < int(query['monotonic_ns']) < 2**64)
+
+
+def _helper_full(session, sequence, raw):
+    if type(sequence) is not int or not 1 <= sequence <= len(session['observations']):
+        return None
+    item = session['observations'][sequence - 1]
+    node = item['snapshot']
+    if not _same_native_key(node, raw) or node['status'] != 'alive' or node['unique_id'] in session['roots']:
+        return None  # This optional metadata lane can NEVER admit a root.
+    writer = session['writers'].get(node['unique_id'])
+    if writer is None or writer['identity'] != node['identity']:
+        return None
+    try:
+        exact_chain_sequences(session, writer['root'], sequence)
+    except EvidenceError:
+        return None
+    return item, writer['root']
+
+
+def _valid_helper_qualification(session, diagnostic, qualification):
+    if diagnostic.get('version') == 3:
+        return _valid_metadata3_qualification(session, diagnostic, qualification)
+    fields = {'version', 'mode', 'root', 'before_observation_sequence', 'after_observation_sequence'}
+    if (type(qualification) is not dict or set(qualification) != fields
+            or type(qualification['version']) is not int or qualification['version'] != 1
+            or qualification['root'] not in session['roots']):
+        return False
+    raw = diagnostic['raw']
+    prior = _helper_full(session, qualification['before_observation_sequence'], raw)
+    later = _helper_full(session, qualification['after_observation_sequence'], raw)
+    if prior is not None and prior[1] != qualification['root'] or later is not None and later[1] != qualification['root']:
+        return False
+    if diagnostic['subtype'] == 'mixed_image_boundary':
+        if qualification['mode'] != 'mixed_image_bracket' or prior is None or later is None:
+            return False
+        before, after = prior[0]['snapshot'], later[0]['snapshot']
+        follow = diagnostic['followup']
+        return (diagnostic['path_query'] is None and before['status'] == raw['status'] == after['status'] == 'alive'
+                and _native_order(before, raw) and _native_order(raw, after)
+                and before['idversion'] < after['idversion'] == raw['idversion']
+                and raw['executable_uuid'] == before['executable_uuid'] != after['executable_uuid']
+                and follow['outcome'] == 'snapshot' and _same_native_key(raw, follow['snapshot'])
+                and follow['snapshot']['status'] == 'alive' and _native_order(raw, follow['snapshot'])
+                and _native_order(follow['snapshot'], after)
+                and follow['snapshot']['idversion'] == after['idversion']
+                and follow['snapshot']['executable_uuid'] == after['executable_uuid'])
+    query, follow = diagnostic['path_query'], diagnostic['followup']
+    # Narrow positive policy: only an actual ESRCH return from proc_pidpath can
+    # be bounded as an exit/transient metadata race. Permission, malformed,
+    # unsupported and unknown0 results remain blocking even after later absence.
+    if not (raw['status'] == 'alive' and _valid_path_query(query, raw['identity']['pid']) and query['stage'] == 'query'
+            and query['returned_size'] == 0 and query['errno'] == errno.ESRCH and query['outcome'] == 'unavailable'
+            and int(query['monotonic_ns']) >= int(raw['observed']['monotonic_ns'])):
+        return False
+    def same_epoch(item):
+        return item is not None and item[0]['snapshot']['idversion'] == raw['idversion'] and item[0]['snapshot']['executable_uuid'] == raw['executable_uuid']
+    if follow['outcome'] == 'snapshot':
+        post = follow['snapshot']
+        if (not _same_native_key(raw, post) or post['idversion'] != raw['idversion']
+                or post['executable_uuid'] != raw['executable_uuid'] or not _native_order(raw, post)
+                or int(post['observed']['monotonic_ns']) <= int(query['monotonic_ns'])):
+            return False
+    elif follow['outcome'] != 'numeric_esrch':
+        return False  # Unknown/denied/unsupported native followup is not evidence.
+    if qualification['mode'] == 'known_epoch_exit_gap':
+        return (same_epoch(prior) and qualification['after_observation_sequence'] is None
+                and _native_order(prior[0]['snapshot'], raw)
+                and (follow['outcome'] == 'numeric_esrch' or follow['snapshot']['status'] == 'zombie'))
+    if qualification['mode'] == 'bounded_same_epoch_gap':
+        return (same_epoch(later) and qualification['before_observation_sequence'] is None
+                and _native_order(raw, later[0]['snapshot'])
+                and int(later[0]['snapshot']['observed']['monotonic_ns']) > int(query['monotonic_ns'])
+                and follow['outcome'] == 'snapshot' and follow['snapshot']['status'] == 'alive')
+    return False
+
+
+def _metadata_root(session, raw):
+    return raw['unique_id'] in session['roots'] or any(root['pid'] == raw['identity']['pid'] for root in session['roots'].values())
+
+
+def _metadata_path(value):
+    return type(value) is str and value.startswith('/') and '\x00' not in value and 0 < len(value) < 4096
+
+
+def _initial_image_pair(before, after):
+    return (native.valid_snapshot(before) and native.valid_snapshot(after)
+            and before['status'] == after['status'] == 'alive' and _native_order(before, after)
+            and before['executable_uuid'] != after['executable_uuid']
+            and {key: value for key, value in semantic(before).items() if key != 'executable_uuid'}
+                == {key: value for key, value in semantic(after).items() if key != 'executable_uuid'})
+
+
+def _metadata3_capture_valid(diagnostic):
+    raw, follow, capture = diagnostic['raw'], diagnostic['followup'], diagnostic['capture']
+    if (type(capture) is not dict or type(capture.get('version')) is not int or capture['version'] != 1
+            or follow['outcome'] != 'snapshot' or not native.valid_snapshot(follow['snapshot'])):
+        return False
+    post = follow['snapshot']
+    if diagnostic['subtype'] == 'known_full_epoch_state_gap':
+        query = diagnostic['path_query']
+        return (set(capture) == {'version', 'failed_path'} and capture['failed_path'] in ('p1', 'p2')
+                and _valid_path_query(query, raw['identity']['pid']) and query['stage'] == 'query'
+                and query['returned_size'] == 0 and query['errno'] == errno.ESRCH and query['outcome'] == 'unavailable'
+                and raw['status'] == post['status'] == 'alive' and semantic(raw) == semantic(post)
+                and _native_order(raw, post)
+                and int(raw['observed']['monotonic_ns']) < int(query['monotonic_ns']) < int(post['observed']['monotonic_ns']))
+    if diagnostic['subtype'] != 'helper_initial_image_gap' or diagnostic['path_query'] is not None:
+        return False
+    if set(capture) != {'version', 'p1', 'p2'} or type(capture['p1']) is not dict or capture['p2'] != {'outcome': 'not_called'}:
+        return False
+    first = capture['p1']
+    return (set(first) == {'outcome', 'executable', 'monotonic_ns'} and first['outcome'] == 'success'
+            and _metadata_path(first['executable']) and type(first['monotonic_ns']) is str
+            and 0 < len(first['monotonic_ns']) <= 20 and first['monotonic_ns'].isascii() and first['monotonic_ns'].isdecimal()
+            and _initial_image_pair(raw, post)
+            and int(raw['observed']['monotonic_ns']) < int(first['monotonic_ns']) < int(post['observed']['monotonic_ns']))
+
+
+def _lifetime_fulls(session, raw):
+    return [item for item in session['observations'] if item['snapshot']['identity'] == raw['identity']
+            and item['snapshot']['unique_id'] == raw['unique_id']]
+
+
+def _full_capture_binding(observation, capture_sequence):
+    return dict(capture_sequence=capture_sequence, full_sha256=hashlib.sha256(canonical(dict(
+        observation=observation, capture_sequence=capture_sequence)).encode()).hexdigest())
+
+
+def _valid_full_captures(session):
+    """Private event provenance, never a kernel authentication mechanism."""
+    collector = session['native_sampler']
+    mapping = collector.get('full_capture_sequences')
+    observations = session['observations']
+    if (type(mapping) is not dict or len(mapping) > MAX_OBSERVATIONS or type(observations) is not list
+            or any(type(item) is not dict or set(item) != {'sequence', 'snapshot', 'executable'}
+                   or type(item['sequence']) is not int or item['sequence'] != index
+                   or not native.valid_snapshot(item['snapshot']) for index, item in enumerate(observations, 1))):
+        return False
+    initial = set()
+    for key, root in session['roots'].items():
+        if type(root) is not dict:
+            return False
+        sequence = root.get('observation_sequence')
+        if type(sequence) is not int or not 1 <= sequence <= len(session['observations']) or sequence in initial:
+            return False
+        item = session['observations'][sequence - 1]
+        if item['snapshot']['unique_id'] != key or item['snapshot']['identity'] != root.get('identity'):
+            return False
+        initial.add(sequence)
+    expected = {str(item['sequence']) for item in session['observations'] if item['sequence'] not in initial}
+    if set(mapping) != expected:
+        return False
+    occupied = set()
+    for entries, key in ((collector['helper_diagnostics'], 'capture_sequence'),
+                         (collector['exec_transitions'], 'capture_sequence'),
+                         (collector['statuses'].values(), 'capture_sequence'), (collector['unresolved'], 'sequence')):
+        for entry in entries:
+            if (type(entry) is not dict or type(entry.get(key)) is not int
+                    or not 1 <= entry[key] <= collector['durable_sequence'] or entry[key] in occupied):
+                return False
+            occupied.add(entry[key])
+    previous = 0
+    for item in session['observations']:
+        if item['sequence'] in initial:
+            continue  # Only the exact manual registration FULL lacks an event.
+        entry = mapping[str(item['sequence'])]
+        if (type(entry) is not dict or set(entry) != {'capture_sequence', 'full_sha256'}
+                or type(entry['capture_sequence']) is not int
+                or not previous < entry['capture_sequence'] <= collector['durable_sequence']
+                or entry['capture_sequence'] in occupied
+                or entry != _full_capture_binding(item, entry['capture_sequence'])):
+            return False
+        previous = entry['capture_sequence']
+    return True
+
+
+def _valid_metadata3_qualification(session, diagnostic, qualification):
+    fields = {'version', 'mode', 'root', 'before_observation_sequence', 'after_observation_sequence', 'full_capture_reference'}
+    if (session.get('native_sampler', {}).get('version') != 3 or _metadata_root(session, diagnostic['raw'])
+            or type(qualification) is not dict or set(qualification) != fields
+            or type(qualification['version']) is not int or qualification['version'] != 3
+            or qualification['mode'] != diagnostic['subtype'] or qualification['root'] not in session['roots']
+            or type(qualification['full_capture_reference']) is not dict
+            or set(qualification['full_capture_reference']) != {'capture_sequence', 'full_sha256'}
+            or type(qualification['full_capture_reference']['capture_sequence']) is not int
+            or type(qualification['full_capture_reference']['full_sha256']) is not str
+            or not _metadata3_capture_valid(diagnostic) or not _valid_full_captures(session)):
+        return False
+    raw, post = diagnostic['raw'], diagnostic['followup']['snapshot']
+    fulls = _lifetime_fulls(session, raw)
+    mapping = session['native_sampler']['full_capture_sequences']
+    capture = diagnostic['capture_sequence']
+    if diagnostic['subtype'] == 'known_full_epoch_state_gap':
+        prior = [item for item in fulls if mapping[str(item['sequence'])]['capture_sequence'] < capture]
+        if (not prior or type(qualification['before_observation_sequence']) is not int
+                or qualification['before_observation_sequence'] <= 0 or qualification['after_observation_sequence'] is not None):
+            return False
+        item = max(prior, key=lambda item: mapping[str(item['sequence'])]['capture_sequence'])
+        if (qualification['before_observation_sequence'] != item['sequence']
+                or qualification['full_capture_reference'] != mapping[str(item['sequence'])]):
+            return False
+        witness = _helper_full(session, item['sequence'], raw)
+        return (witness is not None and witness[1] == qualification['root'] and item['snapshot']['status'] == 'alive'
+                and _native_order(item['snapshot'], raw)
+                and {key: value for key, value in semantic(item['snapshot']).items() if key not in ('current_ppid', 'pgid')}
+                    == {key: value for key, value in semantic(raw).items() if key not in ('current_ppid', 'pgid')})
+    if (not fulls or qualification['before_observation_sequence'] is not None
+            or type(qualification['after_observation_sequence']) is not int or qualification['after_observation_sequence'] <= 0):
+        return False
+    first = min(fulls, key=lambda item: mapping[str(item['sequence'])]['capture_sequence'])
+    witness = _helper_full(session, first['sequence'], raw)
+    return (qualification['after_observation_sequence'] == first['sequence']
+            and qualification['full_capture_reference'] == mapping[str(first['sequence'])]
+            and mapping[str(first['sequence'])]['capture_sequence'] > capture and witness is not None
+            and witness[1] == qualification['root'] and semantic(first['snapshot']) == semantic(post)
+            and _native_order(post, first['snapshot']))
+
+
+def _exec_raw_digest(transition):
+    return hashlib.sha256(canonical({key: value for key, value in transition.items() if key != 'resolution'}).encode()).hexdigest()
+
+
+def _valid_exec_resolution3(session, transition, resolution):
+    collector = session.get('native_sampler', {})
+    fields = {'version', 'kind', 'observation_sequence', 'root', 'full_capture_reference', 'transition_sha256'}
+    if (type(collector.get('version')) is not int or collector['version'] != 3
+            or type(resolution) is not dict or set(resolution) != fields
+            or type(resolution['version']) is not int or resolution['version'] != 3
+            or resolution['kind'] != 'initial_helper_post_transition_full'
+            or type(resolution['observation_sequence']) is not int
+            or not 1 <= resolution['observation_sequence'] <= len(session['observations'])
+            or type(resolution['root']) is not str or resolution['root'] not in session['roots']
+            or type(transition) is not dict or set(transition) != {'version', 'kind', 'capture_sequence', 'path_status', 'before', 'after', 'resolution'}
+            or type(transition['version']) is not int or transition['version'] != 1
+            or transition['kind'] != 'kernel_lineage_exec_transition' or transition['path_status'] != 'unobserved_during_exec'
+            or type(transition['capture_sequence']) is not int or not 1 <= transition['capture_sequence'] <= collector['durable_sequence']
+            or not _exec_pair(transition['before'], transition['after']) or _metadata_root(session, transition['before'])
+            or not _valid_full_captures(session)):
+        return False
+    reference = resolution['full_capture_reference']
+    if (type(reference) is not dict or set(reference) != {'capture_sequence', 'full_sha256'}
+            or type(reference['capture_sequence']) is not int or reference['capture_sequence'] <= 0
+            or any(type(value) is not str or len(value) != 64 or any(c not in '0123456789abcdef' for c in value)
+                   for value in (reference['full_sha256'], resolution['transition_sha256']))
+            or resolution['transition_sha256'] != _exec_raw_digest(transition)):
+        return False
+    fulls = _lifetime_fulls(session, transition['before'])
+    if not fulls:
+        return False
+    mapping = collector['full_capture_sequences']
+    first = min(fulls, key=lambda item: mapping[str(item['sequence'])]['capture_sequence'])
+    node, after = first['snapshot'], transition['after']
+    witness = _helper_full(session, first['sequence'], transition['before'])
+    return (resolution['observation_sequence'] == first['sequence'] and reference == mapping[str(first['sequence'])]
+            and reference['capture_sequence'] > transition['capture_sequence']
+            and witness is not None and witness[1] == resolution['root']
+            and node['status'] == after['status'] == 'alive' and _native_order(after, node)
+            and node['executable_uuid'] != after['executable_uuid']
+            and {key: value for key, value in semantic(node).items() if key != 'executable_uuid'}
+                == {key: value for key, value in semantic(after).items() if key != 'executable_uuid'})
+
+
+def _helper_raw_digest(diagnostic):
+    # Byte-integrity binding only, never a native signature or source authority.
+    return hashlib.sha256(canonical({key: value for key, value in diagnostic.items() if key != 'qualification'}).encode()).hexdigest()
+
+
+def _helper_binding(diagnostic):
+    if diagnostic.get('version') != 3:
+        return _helper_raw_digest(diagnostic)
+    return dict(version=1, raw_sha256=_helper_raw_digest(diagnostic), qualification_sha256=hashlib.sha256(
+        canonical(diagnostic['qualification']).encode()).hexdigest())
+
+
+def _metadata_capture_digest(session):
+    collector = session['native_sampler']
+    payload = dict(full_capture_sequences=collector['full_capture_sequences'],
+                   helper_diagnostic_bindings=collector['helper_diagnostic_bindings'])
+    bindings = {str(item['capture_sequence']): dict(version=1, transition_sha256=_exec_raw_digest(item),
+                resolution_sha256=hashlib.sha256(canonical(item['resolution']).encode()).hexdigest())
+                for item in collector['exec_transitions'] if type(item['resolution']) is dict
+                and type(item['resolution'].get('version')) is int and item['resolution']['version'] == 3}
+    if bindings:
+        payload['exec_resolution3_bindings'] = bindings
+    return hashlib.sha256(canonical(payload).encode()).hexdigest()
+
+
+def _valid_sampler_shape(collector):
+    if type(collector) is not dict or type(collector.get('version')) is not int:
+        return False
+    base = {'version', 'state', 'roots', 'durable_sequence', 'stopped_sequence', 'unresolved', 'statuses'}
+    if collector['version'] == 1:
+        return set(collector) in (base, base | {'exec_transitions'})
+    if collector['version'] == 2:
+        return set(collector) == base | {'exec_transitions', 'helper_diagnostics', 'helper_diagnostic_bindings'}
+    if collector['version'] == 3:
+        return set(collector) == base | {'exec_transitions', 'helper_diagnostics', 'helper_diagnostic_bindings', 'full_capture_sequences'}
+    return False
+
+
+def _unresolved_helpers(session):
+    return any(item['qualification'] is None for item in session.get('native_sampler', {}).get('helper_diagnostics', ()))
+
+
+def _unresolved_exec(session):
+    return any(item['resolution'] is None for item in session.get('native_sampler', {}).get('exec_transitions', ()))
+
+
+def _birth(snapshot):
+    created = snapshot['identity']['created']
+    return created['seconds'], created['microseconds']
+
+
+def _validate_target(value):
+    keys = {'path', 'sha256', 'size', 'identity', 'mtime_ns', 'ctime_ns', 'scope'}
+    path_type = PurePosixPath if type(value) is dict and value.get('version') == 2 else Path
+    if (type(value) is not dict or set(value) not in (keys, keys | {'version', 'observation_scope'}) or type(value['path']) is not str
+            or not path_type(value['path']).is_absolute() or '..' in path_type(value['path']).parts
+            or type(value['scope']) is not str or not path_type(value['path']).is_relative_to(value['scope'])
+            or path_type(value['scope']) == path_type('/') or type(value['sha256']) is not str
+            or len(value['sha256']) != 64 or any(c not in '0123456789abcdef' for c in value['sha256'])
+            or type(value['size']) is not int or not 0 < value['size'] <= 512 * 1024 * 1024
+            or type(value['identity']) is not list or len(value['identity']) != 2
+            or any(type(n) is not int or n < 0 for n in value['identity'])
+            or any(type(value[k]) is not int or value[k] < 0 for k in ('mtime_ns', 'ctime_ns'))):
+        raise EvidenceError('invalid declared target executable source identity')
+    if 'version' in value:
+        pin = value['observation_scope']
+        app = next((parent for parent in PurePosixPath(value['path']).parents if parent.name.endswith('.app')), None)
+        if (type(value['version']) is not int or value['version'] != 2 or app is None
+                or not _scope_lexical(value['path']) or not _scope_lexical(value['scope'])
+                or value['scope'] != str(app.parent) or type(pin) is not dict
+                or set(pin) != {'path', 'identity', 'uid'} or pin['path'] != value['scope']
+                or type(pin['identity']) is not list or len(pin['identity']) != 2
+                or any(type(n) is not int or n < 0 for n in pin['identity'])
+                or type(pin['uid']) is not int or pin['uid'] < 0):
+            raise EvidenceError('invalid version2 observation scope identity')
+    return value
+
+
+def _scope_lexical(path):
+    return (type(path) is str and 0 < len(path) <= 4096 and '\x00' not in path
+            and PurePosixPath(path).is_absolute() and not path.startswith('//')
+            and not any(part in ('.', '..') for part in path.split('/')) and str(PurePosixPath(path)) == path)
+
+
+def _scope_pin(path):
+    """Source-backed candidate directory only; never a working-root grant."""
+    if not _scope_lexical(path):
+        raise EvidenceError('observation scope needs an exact bounded canonical directory')
+    scope = Path(path)
+    home, user_temp = Path.home().resolve(), Path(tempfile.gettempdir()).resolve()
+    blocked = {Path('/'), home, user_temp, Path('/tmp'), Path('/private/tmp'), Path('/var/tmp'), Path('/private/var/tmp')}
+    if scope in blocked or home.is_relative_to(scope) or user_temp.is_relative_to(scope):
+        raise EvidenceError('observation scope is a global/home/temp discovery root')
+    if not hasattr(os, 'O_DIRECTORY') or not hasattr(os, 'O_NOFOLLOW'):
+        raise EvidenceError('observation scope nofollow directory queries unsupported')
+    if scope.resolve(strict=True) != scope:
+        raise EvidenceError('observation scope resolves through an alias')
+    def identity(info):
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022):
+            raise EvidenceError('observation scope is not a private-owner non-shared directory')
+        return dict(path=path, identity=[info.st_dev, info.st_ino], uid=info.st_uid)
+    before = identity(scope.lstat())
+    fd = os.open(scope, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        opened = identity(os.fstat(fd))
+        if opened != before or identity(scope.lstat()) != opened or scope.resolve(strict=True) != scope:
+            raise EvidenceError('observation scope directory changed during source query')
+    finally:
+        os.close(fd)
+    return opened
+
+
+def target_descriptor(request):
+    """Hash the actual declared executable; this is not a kernel lineage witness.
+
+    The nearest lexical .app directory (or executable parent) is solely a
+    conservative candidate classifier. Matching its path NEVER grants ownership.
+    """
+    expected_hash, observation_scope = None, None
+    if type(request) is dict and set(request) in ({'path', 'sha256'}, {'path', 'sha256', 'observation_scope'}):
+        path, expected_hash = request['path'], request['sha256']
+        if 'observation_scope' in request:
+            observation_scope = request['observation_scope']
+            app = next((parent for parent in Path(path).parents if parent.name.endswith('.app')), None) if type(path) is str else None
+            if (app is None or not _scope_lexical(path) or not _scope_lexical(observation_scope) or observation_scope != str(app.parent)
+                    or type(expected_hash) is not str or len(expected_hash) != 64 or any(c not in '0123456789abcdef' for c in expected_hash)):
+                raise EvidenceError('observation scope must be the immediate parent of actual nearest app')
+    elif type(request) is str:
+        path = request
+    else:
+        raise EvidenceError('expected target executable must be path or path/sha256 declaration')
+    if type(path) is not str or not Path(path).is_absolute() or '..' in Path(path).parts:
+        raise EvidenceError('target executable requires an absolute canonical path')
+    path = Path(path)
+    if path.resolve(strict=True) != path:
+        raise EvidenceError('target executable path must resolve without aliases')
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or not before.st_mode & 0o111 or not 0 < before.st_size <= 512 * 1024 * 1024:
+            raise EvidenceError('target must be a bounded regular executable')
+        digest, count, deadline = hashlib.sha256(), 0, time.monotonic() + 5
+        while True:
+            if time.monotonic() >= deadline:
+                raise EvidenceError('target executable hash deadline expired')
+            data = os.read(descriptor, 1024 * 1024)
+            if not data:
+                break
+            count += len(data)
+            if count > before.st_size:
+                raise EvidenceError('target executable grew during source hashing')
+            digest.update(data)
+        after = os.fstat(descriptor)
+        fields = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        if fields(before) != fields(after) or fields(after) != fields(path.lstat()) or count != before.st_size:
+            raise EvidenceError('target executable source changed during hashing')
+    finally:
+        os.close(descriptor)
+    sha = digest.hexdigest()
+    if expected_hash is not None and expected_hash != sha:
+        raise EvidenceError('declared target executable hash mismatch')
+    scope = next((parent for parent in path.parents if parent.name.endswith('.app')), path.parent)
+    value = dict(path=str(path), sha256=sha, size=count, identity=[before.st_dev, before.st_ino],
+                 mtime_ns=before.st_mtime_ns, ctime_ns=before.st_ctime_ns, scope=str(scope))
+    if observation_scope is not None:
+        value.update(version=2, scope=observation_scope, observation_scope=_scope_pin(observation_scope))
+    return _validate_target(value)
+
+
+def verify_target(target):
+    _validate_target(target)
+    info = Path(target['path']).lstat()
+    if (not stat.S_ISREG(info.st_mode) or [info.st_dev, info.st_ino] != target['identity']
+            or info.st_size != target['size'] or info.st_mtime_ns != target['mtime_ns']
+            or info.st_ctime_ns != target['ctime_ns']):
+        raise EvidenceError('declared target executable bytes/identity changed')
+    if 'observation_scope' in target and _scope_pin(target['scope']) != target['observation_scope']:
+        raise EvidenceError('observation scope source identity changed')
+
+
+def _verify_observation_scopes(session):
+    for root in session['roots'].values():
+        target = root.get('target_executable')
+        if target is not None and 'observation_scope' in target:
+            verify_target(target)
+
+
+def _pid(pid):
+    if type(pid) is not int or not 0 < pid < 2**31:
+        raise EvidenceError('observer request needs a positive numeric PID')
+    return pid
+
+
+def validate_session(value, *, current_sources=False):
+    fields = {'version', 'capability', 'state', 'observer', 'owner', 'membership', 'source_sha256',
+              'roots', 'observations', 'writers', 'pending', 'working_roots', 'errors', 'lost_history',
+              'sequence', 'closure', 'warnings', 'observer_snapshot', 'owner_snapshot',
+              'owner_executable', 'observer_executable', 'observer_python_version', 'ipc_paths'}
+    optional_fields = {'working_binding', 'runtime_file_limit', 'session_id', 'cleanup_barrier', 'excluded_candidates', 'native_sampler'}
+    if (type(value) is not dict or not fields <= set(value) <= fields | optional_fields
+            or bool({'working_binding', 'runtime_file_limit', 'session_id'} & set(value)) and not {'working_binding', 'runtime_file_limit', 'session_id'} <= set(value) or type(value['version']) is not int or value['version'] != 1
+            or value['capability'] != CAPABILITY or value['state'] not in ('arming', 'observing', 'closing', 'closed', 'failed')
+            or not process_identity.valid_identity(value['observer']) or not process_identity.valid_identity(value['owner'])
+            or type(value['lost_history']) is not bool or type(value['sequence']) is not int or value['sequence'] < 0
+            or value['warnings'] != list(WARNINGS) or not _valid_sources(value['source_sha256'])
+            or current_sources and value['source_sha256'] != sources()):
+        raise EvidenceError('invalid observed-writer session/source binding')
+    collector = value.get('native_sampler')
+    if 'native_sampler' in value and collector is None:
+        raise EvidenceError('native sampler obligation cannot be null')
+    if collector is not None:
+        if (not _valid_sampler_shape(collector)
+                or collector['state'] not in ('arming', 'running', 'stopped', 'failed')
+                or type(collector['roots']) is not list or collector['roots'] != sorted(value['roots'])
+                or type(collector['durable_sequence']) is not int or not 0 <= collector['durable_sequence'] <= 4096
+                or type(collector['statuses']) is not dict or len(collector['statuses']) > MAX_NODES
+                or type(collector['unresolved']) is not list or len(collector['unresolved']) > MAX_PENDING
+                or collector['state'] == 'stopped' and (type(collector['stopped_sequence']) is not int or collector['stopped_sequence'] != collector['durable_sequence'])
+                or collector['state'] != 'stopped' and collector['stopped_sequence'] is not None):
+            raise EvidenceError('invalid bounded native sampler state')
+        for event in collector['unresolved']:
+            if (type(event) is not dict or set(event) != {'sequence', 'pid', 'reason', 'snapshot'}
+                    or type(event['sequence']) is not int or not 1 <= event['sequence'] <= collector['durable_sequence']
+                    or type(event['pid']) is not int or not 0 < event['pid'] < 2**31
+                    or type(event['reason']) is not str or not 0 < len(event['reason']) <= 256
+                    or event['snapshot'] is not None and not native.valid_snapshot(event['snapshot'])):
+                raise EvidenceError('invalid unresolved native capture obligation')
+        for key, status in collector['statuses'].items():
+            if (type(status) is not dict or set(status) != {'capture_sequence', 'snapshot', 'predecessor_observation_sequence'}
+                    or type(status['capture_sequence']) is not int or not 1 <= status['capture_sequence'] <= collector['durable_sequence']
+                    or not native.valid_snapshot(status['snapshot']) or status['snapshot']['status'] != 'zombie'
+                    or status['snapshot']['unique_id'] != key
+                    or type(status['predecessor_observation_sequence']) is not int
+                    or not 1 <= status['predecessor_observation_sequence'] <= len(value['observations'])):
+                raise EvidenceError('invalid retained native zombie status')
+            predecessor = value['observations'][status['predecessor_observation_sequence'] - 1]['snapshot']
+            if any(predecessor[field] != status['snapshot'][field] for field in
+                   ('identity', 'unique_id', 'idversion', 'executable_uuid', 'boot_uuid', 'uid')):
+                raise EvidenceError('zombie status lacks exact genuine executable predecessor')
+        transitions = collector.get('exec_transitions', [])
+        if type(transitions) is not list or len(transitions) > MAX_PENDING:
+            raise EvidenceError('typed exec transition bound exceeded')
+        seen_transitions = set()
+        for transition in transitions:
+            if (type(transition) is not dict or set(transition) != {'version', 'kind', 'capture_sequence', 'path_status', 'before', 'after', 'resolution'}
+                    or type(transition['version']) is not int or transition['version'] != 1 or transition['kind'] != 'kernel_lineage_exec_transition'
+                    or transition['path_status'] != 'unobserved_during_exec'
+                    or type(transition['capture_sequence']) is not int
+                    or not 1 <= transition['capture_sequence'] <= collector['durable_sequence']
+                    or transition['capture_sequence'] in seen_transitions
+                    or not _exec_pair(transition['before'], transition['after'])):
+                raise EvidenceError('invalid typed kernel-only exec transition')
+            seen_transitions.add(transition['capture_sequence'])
+            key = 'exec:' + str(transition['capture_sequence'])
+            if transition['resolution'] is None:
+                if key not in value['pending'] or value['pending'][key]['pid'] != transition['before']['identity']['pid']:
+                    raise EvidenceError('unqualified exec transition lost its pending obligation')
+            elif key in value['pending'] or not _valid_exec_resolution(value, transition, transition['resolution']):
+                raise EvidenceError('invalid qualified exec transition resolution')
+        diagnostics = collector.get('helper_diagnostics', [])
+        if (type(diagnostics) is not list or len(diagnostics) + len(transitions) + len(collector['unresolved']) > MAX_PENDING):
+            raise EvidenceError('aggregate native diagnostic bound exceeded')
+        bindings = collector.get('helper_diagnostic_bindings', {})
+        if type(bindings) is not dict or len(bindings) > MAX_PENDING:
+            raise EvidenceError('invalid helper raw-receipt integrity bindings')
+        seen_diagnostics = set()
+        for diagnostic in diagnostics:
+            required = {'version', 'kind', 'capture_sequence', 'subtype', 'pid', 'raw', 'path_status', 'image_status', 'path_query', 'followup', 'qualification'}
+            new_metadata = type(diagnostic) is dict and diagnostic.get('version') == 3
+            if new_metadata:
+                required.add('capture')
+            if (type(diagnostic) is not dict or set(diagnostic) != required
+                    or type(diagnostic['version']) is not int or diagnostic['version'] not in (1, 3)
+                    or new_metadata and collector['version'] != 3
+                    or diagnostic['kind'] != 'helper_native_metadata_gap'
+                    or diagnostic['subtype'] not in (('known_full_epoch_state_gap', 'helper_initial_image_gap') if new_metadata
+                                                     else ('mixed_image_boundary', 'known_epoch_path_gap'))
+                    or type(diagnostic['capture_sequence']) is not int
+                    or not 1 <= diagnostic['capture_sequence'] <= collector['durable_sequence']
+                    or diagnostic['capture_sequence'] in seen_diagnostics
+                    or not native.valid_snapshot(diagnostic['raw']) or diagnostic['pid'] != diagnostic['raw']['identity']['pid']
+                    or diagnostic['path_status'] != 'unobserved' or diagnostic['image_status'] != 'nonqualifying'):
+                raise EvidenceError('invalid nonqualifying helper image/status diagnostic')
+            seen_diagnostics.add(diagnostic['capture_sequence'])
+            binding = bindings.get(str(diagnostic['capture_sequence']))
+            if new_metadata and (type(binding) is not dict
+                    or set(binding) != {'version', 'raw_sha256', 'qualification_sha256'}
+                    or type(binding['version']) is not int or binding['version'] != 1
+                    or any(type(binding[key]) is not str or len(binding[key]) != 64
+                           or any(c not in '0123456789abcdef' for c in binding[key])
+                           for key in ('raw_sha256', 'qualification_sha256'))):
+                raise EvidenceError('invalid typed helper diagnostic integrity binding')
+            if binding != _helper_binding(diagnostic):
+                raise EvidenceError('helper raw diagnostic bytes were changed or removed')
+            follow = diagnostic['followup']
+            if (type(follow) is not dict or set(follow) != {'outcome', 'snapshot', 'problem'}
+                    or follow['outcome'] not in ('snapshot', 'numeric_esrch', 'unavailable')
+                    or follow['outcome'] == 'snapshot' and not native.valid_snapshot(follow['snapshot'])
+                    or follow['outcome'] != 'snapshot' and follow['snapshot'] is not None
+                    or follow['outcome'] != 'unavailable' and follow['problem'] is not None
+                    or follow['outcome'] == 'unavailable' and (type(follow['problem']) is not str or not 0 < len(follow['problem']) <= 512)
+                    or diagnostic['subtype'] == 'mixed_image_boundary' and diagnostic['path_query'] is not None
+                    or diagnostic['subtype'] == 'known_epoch_path_gap' and not _valid_path_query(diagnostic['path_query'], diagnostic['pid'])
+                    or new_metadata and not _metadata3_capture_valid(diagnostic)):
+                raise EvidenceError('invalid structured helper metadata query/followup')
+            key = 'helper-meta:' + str(diagnostic['capture_sequence'])
+            if diagnostic['qualification'] is None:
+                if key not in value['pending'] or value['pending'][key]['pid'] != diagnostic['pid']:
+                    raise EvidenceError('helper diagnostic lost blocking pending obligation')
+            elif key in value['pending'] or not _valid_helper_qualification(value, diagnostic, diagnostic['qualification']):
+                raise EvidenceError('invalid helper diagnostic full-witness qualification')
+        if set(bindings) != {str(sequence) for sequence in seen_diagnostics}:
+            raise EvidenceError('helper raw diagnostic receipt was removed')
+        if collector['version'] == 3 and not _valid_full_captures(value):
+            raise EvidenceError('invalid complete FULL/private capture event binding')
+        if value['state'] == 'closed' and (collector['state'] != 'stopped' or collector['unresolved'] or _unresolved_exec(value) or _unresolved_helpers(value)):
+            raise EvidenceError('closed observer lacks joined/drained native sampler')
+    if 'working_binding' in value:
+        _validate_binding_shape(value['working_binding'])
+        if (type(value['session_id']) is not str or len(value['session_id']) != 36
+                or type(value['runtime_file_limit']) is not int or not 1 <= value['runtime_file_limit'] <= 50000):
+            raise EvidenceError('invalid bounded observer session/runtime file limit')
+    if (not native.valid_snapshot(value['observer_snapshot']) or not native.valid_snapshot(value['owner_snapshot'])
+            or value['observer_snapshot']['identity'] != value['observer']
+            or value['owner_snapshot']['identity'] != value['owner']
+            or value['observer_snapshot']['original_parent_unique_id'] != value['owner_snapshot']['unique_id']
+            or value['observer_snapshot']['original_parent_idversion'] != value['owner_snapshot']['idversion']
+            or value['observer_snapshot']['current_ppid'] != value['owner']['pid']
+            or type(value['owner_executable']) is not str or not value['owner_executable'].startswith('/')
+            or Path(value['owner_executable']).name.lower() not in ('node', 'nodejs')
+            or type(value['observer_executable']) is not str or not value['observer_executable'].startswith('/')
+            or type(value['observer_python_version']) is not str or len(value['observer_python_version']) > 256):
+        raise EvidenceError('invalid authenticated observer native source identities')
+    for key, limit in (('roots', MAX_ROOTS), ('writers', MAX_NODES), ('pending', MAX_PENDING), ('working_roots', 16), ('ipc_paths', 128)):
+        if type(value[key]) is not dict or len(value[key]) > limit:
+            raise EvidenceError('invalid observed-writer bounded map: ' + key)
+    if (type(value['observations']) is not list or len(value['observations']) > MAX_OBSERVATIONS
+            or type(value['errors']) is not list or len(value['errors']) > 16
+            or any(type(item) is not str or len(item) > 512 for item in value['errors'])
+            or len(canonical(value).encode()) > SESSION_LIMIT):
+        raise EvidenceError('observed-writer metadata bound exceeded')
+    membership = value['membership']
+    if (type(membership) is not dict or set(membership) != {'version', 'attempt_id', 'owner', 'anchor', 'group_id', 'session_id'}
+            or membership['owner'] != value['owner'] or membership['version'] != 1
+            or not process_identity.valid_identity(membership['anchor'])
+            or membership['group_id'] != membership['anchor']['pid'] or membership['session_id'] != membership['group_id']):
+        raise EvidenceError('invalid observed-writer managed membership binding')
+    for sequence, item in enumerate(value['observations'], 1):
+        if (type(item) is not dict or set(item) != {'sequence', 'snapshot', 'executable'} or item['sequence'] != sequence
+                or not native.valid_snapshot(item['snapshot']) or type(item['executable']) is not str
+                or not item['executable'].startswith('/') or len(item['executable']) > 4096):
+            raise EvidenceError('invalid immutable native observation')
+    if value['sequence'] != len(value['observations']):
+        raise EvidenceError('native observer sequence changed')
+    for key, item in value['roots'].items():
+        if (type(item) is not dict or set(item) not in ({'pid', 'identity', 'unique_id', 'observation_sequence', 'writable_root_refs'},
+                                      {'pid', 'identity', 'unique_id', 'observation_sequence', 'writable_root_refs', 'target_executable'})
+                or key != item['unique_id'] or not process_identity.valid_identity(item['identity'])
+                or item['pid'] != item['identity']['pid'] or type(item['observation_sequence']) is not int
+                or not 1 <= item['observation_sequence'] <= value['sequence']
+                or type(item['writable_root_refs']) is not list or not item['writable_root_refs']
+                or any(ref not in value['working_roots'] for ref in item['writable_root_refs'])):
+            raise EvidenceError('invalid observation root binding')
+        if 'target_executable' in item:
+            _validate_target(item['target_executable'])
+        witness = value['observations'][item['observation_sequence'] - 1]['snapshot']
+        if (witness['identity'] != item['identity'] or witness['unique_id'] != key
+                or witness['original_parent_unique_id'] != value['owner_snapshot']['unique_id']
+                or witness['original_parent_idversion'] != value['owner_snapshot']['idversion']
+                or witness['current_ppid'] != value['owner']['pid']
+                or any(witness[k] != value['owner_snapshot'][k] for k in ('uid', 'boot_uuid', 'pgid'))):
+            raise EvidenceError('observation root witness/owner changed')
+    for key, item in value['writers'].items():
+        if (type(item) is not dict or set(item) not in ({'authority', 'root', 'identity', 'unique_id', 'observation_sequence'},
+                                      {'authority', 'root', 'identity', 'unique_id', 'observation_sequence', 'lineage_observation_sequences'})
+                or item['authority'] != AUTHORITY or key != item['unique_id'] or item['root'] not in value['roots']
+                or not process_identity.valid_identity(item['identity'])
+                or type(item['observation_sequence']) is not int or not 1 <= item['observation_sequence'] <= value['sequence']):
+            raise EvidenceError('invalid no-signal external writer row')
+        witness = value['observations'][item['observation_sequence'] - 1]['snapshot']
+        if witness['identity'] != item['identity'] or witness['unique_id'] != key:
+            raise EvidenceError('external writer witness changed')
+        exact = exact_chain_sequences(value, item['root'], item['observation_sequence'])
+        if 'lineage_observation_sequences' in item and item['lineage_observation_sequences'] != exact:
+            raise EvidenceError('writer exact predecessor observation references changed')
+    for key, item in value['pending'].items():
+        if (type(key) is not str or type(item) is not dict or set(item) != {'pid', 'reason'}
+                or type(item['pid']) is not int or not 0 < item['pid'] < 2**31
+                or type(item['reason']) is not str or len(item['reason']) > 256):
+            raise EvidenceError('invalid pending observation obligation')
+    for key, item in value['working_roots'].items():
+        if (type(item) is not dict or set(item) != {'ref', 'path', 'identity', 'parent', 'parent_identity', 'uid', 'mode', 'purpose', 'budget_bytes'}
+                or item['ref'] != key or not isinstance(item['identity'], list) or len(item['identity']) != 2
+                or not isinstance(item['parent_identity'], list) or len(item['parent_identity']) != 2
+                or any(type(n) is not int or n < 0 for n in item['identity'] + item['parent_identity'])
+                or type(item['uid']) is not int or item['mode'] != 0o700
+                or type(item['budget_bytes']) is not int or item['budget_bytes'] < 1
+                or type(item['purpose']) is not str or not 0 < len(item['purpose']) <= 128
+                or type(item['path']) is not str or type(item['parent']) is not str
+                or Path(item['path']).parent != Path(item['parent']) or not Path(item['path']).name.startswith('sdd-observed-')):
+            raise EvidenceError('invalid SDK-created working-root reference')
+    for path, item in value['ipc_paths'].items():
+        if (type(item) is not dict or set(item) != {'identity', 'kind', 'target', 'root_ref'}
+                or item['root_ref'] not in value['working_roots'] or item['kind'] not in ('socket', 'symlink')
+                or type(item['identity']) is not list or len(item['identity']) != 2
+                or any(type(n) is not int or n < 0 for n in item['identity'])
+                or type(path) is not str or not Path(path).is_relative_to(value['working_roots'][item['root_ref']]['path'])
+                or item['kind'] == 'socket' and item['target'] is not None
+                or item['kind'] == 'symlink' and (type(item['target']) is not str or len(item['target']) > 4096)):
+            raise EvidenceError('invalid separate observed IPC path')
+    exclusions = value.get('excluded_candidates', {})
+    if type(exclusions) is not dict or len(exclusions) > 128:
+        raise EvidenceError('excluded candidate receipt bound exceeded')
+    for key, excluded in exclusions.items():
+        if (type(excluded) is not dict or set(excluded) != {'chain', 'executable', 'ancestor_executable', 'roots'}
+                or type(excluded['chain']) is not list or not 1 <= len(excluded['chain']) <= 32
+                or any(not native.valid_snapshot(node) for node in excluded['chain'])
+                or excluded['chain'][0]['unique_id'] != key or type(excluded['executable']) is not str
+                or not excluded['executable'].startswith('/') or type(excluded['ancestor_executable']) is not str
+                or not excluded['ancestor_executable'].startswith('/') or type(excluded['roots']) is not list
+                or not excluded['roots'] or any(root not in value['roots'] or 'target_executable' not in value['roots'][root] for root in excluded['roots'])):
+            raise EvidenceError('invalid non-task ancestry exclusion')
+        if any(not Path(excluded['executable']).is_relative_to(value['roots'][root]['target_executable']['scope'])
+               or not Path(excluded['ancestor_executable']).is_relative_to(value['roots'][root]['target_executable']['scope'])
+               for root in excluded['roots']):
+            raise EvidenceError('excluded app receipt does not match declared target scope')
+        chain = excluded['chain']
+        for child, parent in zip(chain, chain[1:]):
+            if (child['original_parent_unique_id'] != parent['unique_id']
+                    or child['original_parent_idversion'] != parent['idversion']
+                    or _birth(parent) > _birth(child)
+                    or any(child[k] != parent[k] for k in ('uid', 'boot_uuid'))
+                    or any(child['identity'][k] != parent['identity'][k] for k in ('host', 'platform'))):
+                raise EvidenceError('excluded candidate lacks full original-parent version chain')
+        oldest = min(_birth(value['observations'][value['roots'][root]['observation_sequence'] - 1]['snapshot'])
+                     for root in excluded['roots'])
+        protected = [value['owner'], value['observer'], value['membership']['anchor']]
+        if 'working_binding' in value:
+            protected.append(value['working_binding']['coordinator'])
+        protected += [root['identity'] for root in value['roots'].values()]
+        protected += [writer['identity'] for writer in value['writers'].values()]
+        if _birth(chain[-1]) >= oldest or any(node['identity'] in protected for node in chain):
+            raise EvidenceError('excluded candidate reaches a protected or non-older ancestor')
+    barrier = value.get('cleanup_barrier')
+    if barrier is not None:
+        barrier_keys = {'valid', 'sequence', 'root_refs', 'numeric_absent', 'roots_no_handles', 'closed'}
+        if collector is not None and collector['version'] == 3:
+            barrier_keys.add('metadata_capture_sha256')
+        if (type(barrier) is not dict or set(barrier) != barrier_keys
+                or type(barrier['valid']) is not bool or type(barrier['sequence']) is not int
+                or not 0 <= barrier['sequence'] <= value['sequence']
+                or barrier['root_refs'] != sorted(value['working_roots'])
+                or barrier['numeric_absent'] is not True or barrier['roots_no_handles'] is not True
+                or barrier['closed'] is not False or value['state'] not in ('closing', 'closed', 'failed')
+                or barrier['valid'] and (barrier['sequence'] != value['sequence'] or value['pending'] or value['errors'] or value['lost_history'])
+                or value['state'] == 'closed' and not barrier['valid']):
+            raise EvidenceError('invalid pre-cleanup barrier; it is never a completion receipt')
+        if collector is not None and collector['version'] == 3:
+            digest = barrier['metadata_capture_sha256']
+            if (type(digest) is not str or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest)
+                    or barrier['valid'] and digest != _metadata_capture_digest(value)):
+                raise EvidenceError('pre-cleanup FULL/diagnostic capture integrity binding changed')
+    if value['state'] == 'closed' and (value['lost_history'] or value['errors'] or value['pending']
+                                      or not value['roots'] or value['closure'] is None):
+        raise EvidenceError('closed observer retains unresolved obligations')
+    closure_keys = {'sequence', 'numeric_absent', 'roots_no_handles'}
+    if collector is not None and collector['version'] == 2:
+        closure_keys.add('helper_diagnostics_sha256')
+    if collector is not None and collector['version'] == 3:
+        closure_keys.add('metadata_capture_sha256')
+    if value['closure'] is not None and (type(value['closure']) is not dict
+            or set(value['closure']) != closure_keys
+            or value['closure']['sequence'] != value['sequence'] or value['closure']['numeric_absent'] is not True
+            or value['closure']['roots_no_handles'] is not True):
+        raise EvidenceError('invalid observer closure barrier')
+    if value['closure'] is not None and collector is not None and collector['version'] == 2:
+        if value['closure']['helper_diagnostics_sha256'] != hashlib.sha256(canonical(collector['helper_diagnostic_bindings']).encode()).hexdigest():
+            raise EvidenceError('closed helper diagnostic integrity binding changed')
+    if (value['closure'] is not None and collector is not None and collector['version'] == 3
+            and value['closure']['metadata_capture_sha256'] != _metadata_capture_digest(value)):
+        raise EvidenceError('closed FULL/diagnostic capture integrity binding changed')
+    # Rebuild only from immutable SDK witnesses. A writer row cannot bypass a
+    # missing original-parent version merely by naming an existing root.
+    for root, item in value['roots'].items():
+        graph = native.LineageGraph(MAX_NODES, max_updates=4096)
+        first = value['observations'][item['observation_sequence'] - 1]['snapshot']
+        graph.add_root(first, expected_identity=item['identity'], expected_unique_id=root)
+        for observation in value['observations'][item['observation_sequence']:]:
+            graph.ingest(observation['snapshot'])
+        for writer in value['writers'].values():
+            if writer['root'] == root and graph.lineage(writer['unique_id']) is None:
+                raise EvidenceError('writer has no complete immutable original-parent version chain')
+    return value
+
+
+class _PathQueryError(EvidenceError):
+    def __init__(self, message, receipt):
+        super().__init__(message)
+        self.receipt = copy.deepcopy(receipt)
+
+
+def executable_path(pid):
+    _pid(pid)
+    library = native._library()
+    function = library.proc_pidpath
+    function.argtypes, function.restype = (ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32), ctypes.c_int
+    buffer = ctypes.create_string_buffer(4096)
+    ctypes.set_errno(0)
+    count = function(pid, buffer, len(buffer))
+    error = ctypes.get_errno()  # MUST immediately follow the actual native call.
+    receipt = dict(version=1, api='libproc.proc_pidpath', stage='query', pid=pid,
+                   returned_size=count, errno=error, buffer_size=4096,
+                   outcome='unavailable' if count == 0 else 'error',
+                   monotonic_ns=str(time.monotonic_ns()))
+    if count <= 0 or count >= len(buffer) or error:
+        raise _PathQueryError('native executable observation unavailable', receipt)
+    try:
+        result = buffer.value.decode('utf-8', 'strict')
+    except UnicodeError as exc:
+        receipt.update(stage='decode', outcome='malformed')
+        raise _PathQueryError('invalid native executable path encoding', receipt) from exc
+    if not result.startswith('/') or '\0' in result or len(buffer.value) != count:
+        receipt.update(stage='result', outcome='malformed')
+        raise _PathQueryError('invalid native executable path', receipt)
+    return result
+
+
+def child_pids(pid):
+    """Public libproc.h proc_listchildpids, bounded to known native parents."""
+    _pid(pid)
+    function = native._library().proc_listchildpids
+    function.argtypes, function.restype = (ctypes.c_int, ctypes.c_void_p, ctypes.c_int), ctypes.c_int
+    buffer = (ctypes.c_int * (MAX_NODES + 1))()
+    ctypes.set_errno(0)
+    count = function(pid, buffer, ctypes.sizeof(buffer))
+    # Unlike proc_listpids (bytes), Apple's proc_listchildpids wrapper divides
+    # the native byte return by sizeof(int), returning a PID COUNT.
+    if count < 0 or ctypes.get_errno() or count >= len(buffer):
+        raise EvidenceError('native child enumeration failed or exceeded bound')
+    return tuple(sorted(set(child for child in buffer[:count] if child > 0)))
+
+
+def candidate_pids():
+    """Bounded native UID-filtered enumeration; no PS adoption or group claims."""
+    function = native._library().proc_listpids
+    function.argtypes, function.restype = (ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_int), ctypes.c_int
+    capacity = 4096
+    buffer = (ctypes.c_int * (capacity + 1))()
+    ctypes.set_errno(0)
+    count = function(4, os.geteuid(), buffer, ctypes.sizeof(buffer))  # PROC_UID_ONLY
+    if count < 0 or ctypes.get_errno() or count % ctypes.sizeof(ctypes.c_int) or count >= ctypes.sizeof(buffer):
+        raise EvidenceError('native candidate enumeration failed or exceeded bound')
+    return tuple(sorted(set(pid for pid in buffer[:count // ctypes.sizeof(ctypes.c_int)] if pid > 0)))
+
+
+def _resource_current(item):
+    from .producer_runtime import directory_identity
+    path, parent = Path(item['path']), Path(item['parent'])
+    if parent != Path(tempfile.gettempdir()).resolve() or path.parent != parent:
+        raise EvidenceError('working root is outside actual OS temporary directory')
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_uid != os.geteuid()
+            or stat.S_IMODE(info.st_mode) != 0o700 or info.st_dev != parent.stat().st_dev
+            or directory_identity(path) != item['identity'] or directory_identity(parent) != item['parent_identity']):
+        raise EvidenceError('SDK working-root identity/owner/mode/mount changed')
+
+
+def _bounded_usage(path, *, deadline, max_entries=4096, ipc=None):
+    """Read names and metadata only, with directory FDs and no link traversal."""
+    root = Path(path)
+    flags = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0)
+    total, count = 0, 0
+    base = root.lstat()
+    def visit(fd, depth, directory):
+        nonlocal total, count
+        if depth > 32:
+            raise EvidenceError('working-root directory depth bound exceeded')
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                if time.monotonic() >= deadline:
+                    raise EvidenceError('working-root capacity sampling deadline expired')
+                count += 1
+                if count > max_entries:
+                    raise EvidenceError('working-root entry bound exceeded')
+                info = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
+                if info.st_uid != os.geteuid() or info.st_dev != base.st_dev:
+                    raise EvidenceError('working-root foreign owner or mount crossing')
+                if stat.S_ISDIR(info.st_mode):
+                    child = os.open(entry.name, flags, dir_fd=fd)
+                    try:
+                        opened = os.fstat(child)
+                        if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+                            raise EvidenceError('working-root directory changed during observation')
+                        visit(child, depth + 1, directory / entry.name)
+                    finally:
+                        os.close(child)
+                elif stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or stat.S_ISSOCK(info.st_mode):
+                    # Count link bytes without following their targets. This is a
+                    # capacity sample, never evidence of write isolation.
+                    total += info.st_size
+                    if ipc is not None and (stat.S_ISLNK(info.st_mode) or stat.S_ISSOCK(info.st_mode)):
+                        ipc[str(directory / entry.name)] = dict(identity=[info.st_dev, info.st_ino],
+                            kind='symlink' if stat.S_ISLNK(info.st_mode) else 'socket',
+                            target=os.readlink(entry.name, dir_fd=fd) if stat.S_ISLNK(info.st_mode) else None)
+                else:
+                    raise EvidenceError('unsupported working-root file type')
+    descriptor = os.open(root, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (base.st_dev, base.st_ino):
+            raise EvidenceError('working-root identity changed before capacity sample')
+        visit(descriptor, 0, root)
+    finally:
+        os.close(descriptor)
+    return total, count
+
+
+def _no_handles(item, timeout, *, allow_absent=False, require_empty=True):
+    path = Path(item['path'])
+    if allow_absent and not path.exists() and not path.is_symlink():
+        # Exact SDK-created path was removed after the browser exit. A missing
+        # numeric path cannot be an open directory namespace; parent substitution
+        # and linked paths remain blockers. The original inode is never reused.
+        from .producer_runtime import directory_identity
+        if directory_identity(Path(item['parent'])) != item['parent_identity']:
+            raise EvidenceError('working-root parent changed after removal')
+        return
+    _resource_current(item)
+    try:
+        result = _bounded_lsof(item['path'], timeout)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise EvidenceError('working-root handle query failed') from exc
+    if result[0] != 1 or result[1].strip() or result[2].strip():
+        raise EvidenceError('working-root handles absent cannot be verified')
+    _resource_current(item)
+    if require_empty and any(path.iterdir()):
+        raise EvidenceError('working-root payload must be cleaned before closure/settlement')
+
+
+def _bounded_lsof(path, timeout):
+    deadline = time.monotonic() + timeout
+    process = subprocess.Popen(['/usr/sbin/lsof', '-nP', '-t', '+D', path], stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    chunks = {process.stdout.fileno(): bytearray(), process.stderr.fileno(): bytearray()}
+    opened = set(chunks)
+    try:
+        for fd in opened:
+            os.set_blocking(fd, False)
+        while opened:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise EvidenceError('working-root handle query deadline expired')
+            ready, _, _ = select.select(list(opened), [], [], min(.05, remaining))
+            for fd in ready:
+                data = os.read(fd, MAX_REQUEST + 1)
+                if not data:
+                    opened.remove(fd)
+                else:
+                    chunks[fd].extend(data)
+                    if sum(map(len, chunks.values())) > MAX_REQUEST:
+                        raise EvidenceError('working-root handle query exceeds byte bound')
+        process.wait(timeout=max(.001, deadline - time.monotonic()))
+        return process.returncode, bytes(chunks[process.stdout.fileno()]), bytes(chunks[process.stderr.fileno()])
+    finally:
+        if process.poll() is None:
+            process.kill()  # Only this directly created query child, never a writer.
+            process.wait(timeout=1)
+        process.stdout.close(); process.stderr.close()
+
+
+def _session_disposition(session, record, *, ledger, timeout=3, allow_removed=True, require_active_hold=False):
+    """Read-only fresh terminal barrier, also used by recovery and quarantine."""
+    validate_session(session)
+    problems = []
+    try:
+        _verify_observation_scopes(session)
+    except (EvidenceError, OSError) as exc:
+        problems.append('observation scope disposition: ' + str(exc)[:256])
+    if 'working_binding' in session:
+        try:
+            if ledger is None:
+                raise EvidenceError('observer working disposition needs original accounting view')
+            working_binding(ledger, record, session=session, require_active=require_active_hold or session['state'] != 'closed')
+        except (EvidenceError, OSError) as exc:
+            problems.append('working hold disposition: ' + str(exc))
+    if session['state'] != 'closed' or session['lost_history'] or session['errors'] or session['pending']:
+        problems.append('observed-writer history/closure is incomplete: ' + session['state'])
+    deadline = time.monotonic() + timeout
+    targets = {item['pid']: item['identity'] for item in session['roots'].values()}
+    targets.update({item['identity']['pid']: item['identity'] for item in session['writers'].values()})
+    # Never send these PIDs to terminate/killpg. Numeric ESRCH is stricter than
+    # saved birth gone: a reused PID or unreaped zombie remains a blocker.
+    for pid, identity in targets.items():
+        try:
+            if time.monotonic() >= deadline:
+                raise EvidenceError('external disposition deadline expired')
+            current = native.read_snapshot(pid, include_zombie=True)
+            if current is not None:
+                problems.append('observed writer numeric PID still present: ' + str(pid))
+        except (EvidenceError, OSError) as exc:
+            problems.append('external observation unavailable: ' + str(exc)[:256])
+    for item in session['working_roots'].values():
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise EvidenceError('working-root disposition deadline expired')
+            _no_handles(item, remaining, allow_absent=allow_removed and session['state'] == 'closed' and session['closure'] is not None)
+        except (EvidenceError, OSError) as exc:
+            problems.append('working-root disposition: ' + str(exc)[:256])
+    return problems
+
+
+def disposition_problems(record, *, ledger=None, timeout=3, allow_removed=True, require_active_hold=False):
+    """All immutable prior sessions and the current session remain obligations."""
+    if record.get('version') == 1:
+        return []
+    sessions = validate_registry(record, active_sources=False)
+    deadline, problems = time.monotonic() + timeout, []
+    for index, session in enumerate(sessions):
+        problems += _session_disposition(session, record, ledger=ledger,
+            timeout=max(.001, deadline - time.monotonic()),
+            allow_removed=allow_removed or index < len(sessions) - 1,
+            require_active_hold=require_active_hold and index == len(sessions) - 1)
+    return problems
+
+
+def lose_history(ledger, attempt, reason):
+    from .producer_runtime import update
+    def change(record):
+        if record['version'] == 1:
+            return
+        session = record['observation_session']
+        if session['state'] == 'closed':
+            return
+        session['state'], session['lost_history'] = 'failed', True
+        if session.get('native_sampler') is not None:
+            session['native_sampler'].update(state='failed', stopped_sequence=None)
+        if session.get('cleanup_barrier') is not None:
+            session['cleanup_barrier']['valid'] = False
+        message = str(reason)[:512]
+        if message not in session['errors'] and len(session['errors']) < 16:
+            session['errors'].append(message)
+    return update(ledger, attempt, change)
+
+
+class _NativeSampler:
+    """Private readonly collector; no SQL, source hashing, UID census or signals.
+
+    Capture is single-threaded per PID, so predecessor exec versions cannot be
+    reordered by a concurrent main-thread native query. Only the main thread
+    authenticates/commits these in-process receipts. A100us wait is a target,
+    never a scheduler or fast-fork capture guarantee.
+    """
+    def __init__(self, *, interval=.0001, max_events=256, max_bytes=262144, helper_metadata_version=2):
+        if type(helper_metadata_version) is not int or helper_metadata_version not in (2, 3):
+            raise EvidenceError('helper metadata version must be2 or3')
+        if (type(interval) not in (int, float) or not 0 <= interval <= .01
+                or type(max_events) is not int or not 1 <= max_events <= 256
+                or type(max_bytes) is not int or not 1 <= max_bytes <= 262144):
+            raise EvidenceError('invalid native collector bounds')
+        self.interval, self.max_events, self.max_bytes = interval, max_events, max_bytes
+        self._condition = threading.Condition()
+        self._events, self._bytes, self._sequence = deque(), 0, 0
+        self._requests, self._armed, self._known, self._last = deque(), set(), {}, {}
+        self._roots, self._seed, self._error = {}, None, None
+        self._complete = {}
+        self._helper_metadata_version = helper_metadata_version
+        self._metadata_seen, self._metadata_budgets = set(), {}
+        self._fence_request = self._fence_done = self._fence_sequence = 0
+        self._stop = self._finished = False
+        self._thread = threading.Thread(target=self._run, name='sdd-native-observation', daemon=True)
+        self._thread.start()
+
+    def _check_locked(self):
+        if self._error:
+            raise EvidenceError('native collector lost history: ' + self._error)
+        if self._finished and not self._stop:
+            raise EvidenceError('native collector stopped unexpectedly')
+        if not self._thread.is_alive() and not self._finished:
+            raise EvidenceError('native collector thread is not alive')
+
+    def check(self):
+        with self._condition:
+            self._check_locked()
+
+    def _wait(self, predicate, timeout):
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while not predicate():
+                self._check_locked()
+                remaining = _remaining(deadline)
+                self._condition.wait(min(.01, remaining))
+            self._check_locked()
+            return self._sequence
+
+    def add_root(self, snapshot, timeout=3):
+        if not native.valid_snapshot(snapshot) or snapshot['status'] != 'alive':
+            raise EvidenceError('collector root requires SDK native live snapshot')
+        key = snapshot['unique_id']
+        with self._condition:
+            self._check_locked()
+            if self._stop or key in self._roots or len(self._roots) >= MAX_ROOTS:
+                raise EvidenceError('collector root replay/capacity/stopping')
+            self._roots[key] = copy.deepcopy(snapshot)
+            self._requests.append(('root', snapshot['identity']['pid'], copy.deepcopy(snapshot)))
+            self._condition.notify_all()
+        return self._wait(lambda: key in self._armed, timeout)
+
+    def has_pid(self, pid):
+        with self._condition:
+            return pid in self._known
+
+    def observe_pid(self, pid, timeout=3, *, force_full=False):
+        _pid(pid)
+        with self._condition:
+            self._check_locked()
+            if self._stop or len(self._requests) >= MAX_PENDING:
+                raise EvidenceError('collector request bound/stopping')
+            ticket = threading.Event()
+            ticket.capture_sequence = None
+            self._requests.append(('image' if force_full else 'pid', pid, ticket))
+            self._condition.notify_all()
+        watermark = self._wait(ticket.is_set, timeout)
+        return (watermark, ticket.snapshot, ticket.capture_sequence) if force_full else (watermark, ticket.snapshot)
+
+    def fence(self, timeout=3):
+        with self._condition:
+            self._check_locked()
+            if self._stop:
+                raise EvidenceError('collector fence requested after stop')
+            self._fence_request += 1
+            ticket = self._fence_request
+            self._condition.notify_all()
+        self._wait(lambda: self._fence_done >= ticket, timeout)
+        with self._condition:
+            return self._fence_sequence
+
+    def take(self, maximum=16, *, through=None):
+        with self._condition:
+            self._check_locked()
+            result = []
+            while self._events and len(result) < maximum and (through is None or self._events[0][0]['sequence'] <= through):
+                event, size = self._events.popleft()
+                self._bytes -= size; result.append(event)
+            return result
+
+    def stop(self, timeout=3):
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            self._stop = True
+            self._condition.notify_all()
+        self._thread.join(_remaining(deadline))
+        if self._thread.is_alive():
+            raise EvidenceError('native collector join deadline expired')
+        with self._condition:
+            self._check_locked()
+            if not self._finished:
+                raise EvidenceError('native collector final cycle missing')
+            return self._sequence
+
+    def _emit(self, kind, pid, *, snapshot=None, executable=None, reason=None, successor=None, diagnostic=None, force_full=False):
+        # Raw receipts remain local SDK data; there is no caller witness JSON API.
+        event = dict(kind=kind, pid=pid, snapshot=snapshot, executable=executable, reason=reason, successor=successor, diagnostic=diagnostic)
+        if force_full:
+            event['force_full'] = True
+        with self._condition:
+            event['sequence'] = self._sequence + 1
+            size = len(canonical(event).encode())
+            if (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes
+                    or self._sequence >= 4096):
+                raise EvidenceError('native collector queue/update bound exceeded')
+            self._sequence += 1; event['sequence'] = self._sequence
+            self._events.append((event, size)); self._bytes += size
+            self._condition.notify_all()
+            return event['sequence']
+
+    def _metadata3(self):
+        return getattr(self, '_helper_metadata_version', 2) == 3
+
+    def _metadata_helper_locked(self, pid, snapshot):
+        return snapshot['unique_id'] not in self._roots and not any(root['identity']['pid'] == pid for root in self._roots.values())
+
+    @staticmethod
+    def _metadata_signature(snapshot):
+        return hashlib.sha256(canonical(semantic(snapshot)).encode()).hexdigest()
+
+    @staticmethod
+    def _metadata_fingerprint(value):
+        def stable(item):
+            if type(item) is dict:
+                return {key: stable(part) for key, part in item.items() if key not in ('observed', 'monotonic_ns')}
+            if type(item) is list:
+                return [stable(part) for part in item]
+            return item
+        return hashlib.sha256(canonical(stable(value)).encode()).hexdigest()
+
+    def _publish_metadata(self, pid, snapshot, payload):
+        if not self._metadata3():
+            self._emit('helper_metadata', pid, snapshot=snapshot, diagnostic=payload)
+            return True
+        fingerprint = self._metadata_fingerprint(dict(pid=pid, raw=snapshot, payload=payload))
+        with self._condition:
+            if payload.get('version') == 3 and not self._metadata_helper_locked(pid, snapshot):
+                return False
+            if fingerprint in self._metadata_seen:
+                return True
+            if len(self._metadata_seen) >= MAX_PENDING:
+                raise EvidenceError('native metadata semantic signature bound exceeded')
+            self._emit('helper_metadata', pid, snapshot=snapshot, diagnostic=payload)
+            self._metadata_seen.add(fingerprint)
+        return True
+
+    def _publish_retry_failure(self, pid, snapshot, reason, retry):
+        if not self._metadata3() or retry is not True:
+            self._emit('pending', pid, snapshot=snapshot, reason=reason)
+            return
+        fingerprint = self._metadata_fingerprint(dict(kind='pending', pid=pid, raw=snapshot, reason=reason))
+        if fingerprint not in self._metadata_seen:
+            if len(self._metadata_seen) >= MAX_PENDING:
+                raise EvidenceError('native metadata semantic signature bound exceeded')
+            self._emit('pending', pid, snapshot=snapshot, reason=reason)
+            self._metadata_seen.add(fingerprint)
+
+    def _plan_metadata_retry(self, pid, snapshot, *, raw=None):
+        if not self._metadata3():
+            return
+        with self._condition:
+            if not self._metadata_helper_locked(pid, snapshot):
+                return
+        keys = {self._metadata_signature(snapshot)}
+        if raw is not None:
+            keys.add(self._metadata_signature(raw))
+        states = [self._metadata_budgets[key] for key in keys if key in self._metadata_budgets]
+        if states:
+            state = states[0]
+            state.update(attempts=max(item['attempts'] for item in states), deadline=min(item['deadline'] for item in states),
+                         next=max(item['next'] for item in states), done=any(item['done'] for item in states))
+        else:
+            now = time.monotonic()
+            state = dict(attempts=1, next=now + METADATA_BACKOFF[0], deadline=now + METADATA_DEADLINE, done=False)
+        if len(set(self._metadata_budgets) | keys) > MAX_PENDING:
+            raise EvidenceError('metadata retry signature bound exceeded')
+        for key in keys:
+            self._metadata_budgets[key] = state
+
+    def _metadata_retry_gate(self, pid, snapshot, expected, force_ticket):
+        if not self._metadata3() or expected is not None or force_ticket is not None:
+            return None
+        with self._condition:
+            if not self._metadata_helper_locked(pid, snapshot):
+                return None
+        key = self._metadata_signature(snapshot)
+        state = self._metadata_budgets.get(key)
+        if state is None or state['done']:
+            return None
+        now = time.monotonic()
+        if state['attempts'] >= METADATA_ATTEMPTS or now >= state['deadline'] or now < state['next']:
+            return False
+        state['attempts'] += 1
+        state['next'] = now + METADATA_BACKOFF[min(state['attempts'] - 1, len(METADATA_BACKOFF) - 1)]
+        return True
+
+    def _metadata_full(self, pid, snapshot):
+        if self._metadata3():
+            state = self._metadata_budgets.get(self._metadata_signature(snapshot))
+            if state is not None:
+                state['done'] = True
+
+    def _collect(self, pid, *, required=False, expected=None, force_ticket=None):
+        snapshot = native.read_snapshot(pid, include_zombie=True)
+        prior = self._known.get(pid)
+        if snapshot is None:
+            if prior is not None:
+                if self._last.get(pid) is not None:
+                    self._emit('absent', pid); self._last[pid] = None
+            elif required and pid not in self._last:
+                self._emit('pending', pid, reason='listed/requested PID disappeared before native birth capture')
+                self._last[pid] = None
+            return None
+        if not native.valid_snapshot(snapshot):
+            raise EvidenceError('collector received invalid native receipt')
+        if expected is not None and (snapshot['identity'] != expected['identity'] or snapshot['unique_id'] != expected['unique_id']):
+            raise EvidenceError('collector root live native token changed')
+        if prior is not None and (snapshot['identity'] != prior['identity'] or snapshot['unique_id'] != prior['unique_id']):
+            raise EvidenceError('collector numeric PID reused')
+        if self._seed is None:
+            self._seed = snapshot
+        if (any(snapshot[k] != self._seed[k] for k in ('uid', 'boot_uuid'))
+                or any(snapshot['identity'][k] != self._seed['identity'][k] for k in ('host', 'platform'))):
+            raise EvidenceError('collector native host/boot/UID mismatch')
+        if prior is None:
+            if len(self._known) >= MAX_NODES:
+                raise EvidenceError('collector native node bound exceeded')
+            with self._condition:
+                self._known[pid] = copy.deepcopy(snapshot)
+        current = semantic(snapshot)
+        retry = self._metadata_retry_gate(pid, snapshot, expected, force_ticket)
+        if retry is False or self._last.get(pid) == current and force_ticket is None and retry is not True:
+            return snapshot
+        previous = self._complete.get(pid)
+        if snapshot['status'] == 'zombie' and previous is not None and all(
+                snapshot[field] == previous[field] for field in ('identity', 'unique_id', 'idversion', 'executable_uuid')):
+            # Preserve the genuine status separately. Never invent a current
+            # executable path for a zombie; its actual prior version is retained.
+            self._emit('status', pid, snapshot=snapshot)
+            self._last[pid] = current
+            return snapshot
+        completed_reparent = False
+        failed_path, first_path_time = 'p1', None
+        try:
+            exe = executable_path(pid)
+            if self._metadata3():
+                first_path_time = str(time.monotonic_ns())
+            confirmed = native.read_snapshot(pid, include_zombie=True)
+            if _exec_pair(snapshot, confirmed):
+                self._emit('exec_transition', pid, snapshot=snapshot, successor=confirmed)
+                self._last[pid] = current
+                return snapshot
+            if (self._metadata3() and expected is None and force_ticket is None and previous is None
+                    and _metadata_path(exe) and _initial_image_pair(snapshot, confirmed)):
+                payload = dict(version=3, subtype='helper_initial_image_gap', path_query=None,
+                    followup=dict(outcome='snapshot', snapshot=confirmed, problem=None),
+                    capture=dict(version=1, p1=dict(outcome='success', executable=exe, monotonic_ns=first_path_time), p2=dict(outcome='not_called')))
+                if self._publish_metadata(pid, snapshot, payload):
+                    self._last[pid] = current
+                    self._plan_metadata_retry(pid, confirmed, raw=snapshot)
+                    return snapshot
+                raise EvidenceError('initial image gap conflicts with registered root')
+            if (previous is not None and _same_native_key(previous, snapshot) and _same_native_key(snapshot, confirmed)
+                    and previous['idversion'] < snapshot['idversion'] == confirmed['idversion']
+                    and previous['executable_uuid'] == snapshot['executable_uuid'] != confirmed['executable_uuid']):
+                self._emit('helper_metadata', pid, snapshot=snapshot, diagnostic=dict(
+                    subtype='mixed_image_boundary', path_query=None,
+                    followup=dict(outcome='snapshot', snapshot=confirmed, problem=None)))
+                self._last[pid] = current
+                return snapshot
+            if confirmed is None:
+                raise EvidenceError('native executable/birth changed during fast capture')
+            if semantic(confirmed) != current:
+                if (expected is not None or force_ticket is not None
+                        or not _reparent_pair(snapshot, confirmed, pid)):
+                    raise EvidenceError('native executable/birth changed during fast capture')
+                failed_path = 'p2'
+                second_exe = executable_path(pid)
+                if (type(exe) is not str or not exe.startswith('/') or '\x00' in exe or len(exe) >= 4096
+                        or type(second_exe) is not str or second_exe != exe):
+                    raise EvidenceError('native executable/birth changed during fast capture')
+                completed_reparent = True
+            else:
+                failed_path = 'p2'
+                if executable_path(pid) != exe:
+                    raise EvidenceError('native executable/birth changed during fast capture')
+        except _PathQueryError as exc:
+            try:
+                post = native.read_snapshot(pid, include_zombie=True)
+                followup = dict(outcome='numeric_esrch' if post is None else 'snapshot', snapshot=post, problem=None)
+            except (EvidenceError, OSError) as error:
+                followup = dict(outcome='unavailable', snapshot=None, problem=(str(error) or type(error).__name__)[:512])
+            payload = dict(subtype='known_epoch_path_gap', path_query=exc.receipt, followup=followup)
+            stable_gap = (self._metadata3() and expected is None and force_ticket is None
+                and exc.receipt['stage'] == 'query' and exc.receipt['errno'] == errno.ESRCH and exc.receipt['returned_size'] == 0
+                and followup['outcome'] == 'snapshot' and native.valid_snapshot(followup['snapshot'])
+                and snapshot['status'] == followup['snapshot']['status'] == 'alive'
+                and semantic(snapshot) == semantic(followup['snapshot']) and _native_order(snapshot, followup['snapshot']))
+            known_state = (stable_gap and previous is not None and previous['status'] == 'alive' and _native_order(previous, snapshot)
+                and {key: value for key, value in semantic(previous).items() if key not in ('current_ppid', 'pgid')}
+                    == {key: value for key, value in current.items() if key not in ('current_ppid', 'pgid')})
+            if known_state:
+                payload.update(version=3, subtype='known_full_epoch_state_gap', capture=dict(version=1, failed_path=failed_path))
+            if not self._publish_metadata(pid, snapshot, payload):
+                self._emit('pending', pid, snapshot=snapshot, reason='metadata gap conflicts with registered root')
+            elif stable_gap and not known_state:
+                self._plan_metadata_retry(pid, followup['snapshot'])
+            self._last[pid] = current
+            return snapshot
+        except (EvidenceError, OSError) as exc:
+            self._publish_retry_failure(pid, snapshot, ('incomplete native/executable capture: ' + str(exc))[:256], retry)
+            self._last[pid] = current
+            return snapshot
+        if completed_reparent:
+            # add_root uses this same reentrant condition. Registration cannot
+            # cross the final helper-only check and its successful FULL enqueue.
+            with self._condition:
+                if (snapshot['unique_id'] not in self._roots
+                        and not any(root['identity']['pid'] == pid for root in self._roots.values())):
+                    snapshot, current = confirmed, semantic(confirmed)  # Untouched actual endpoint, never a stitched receipt.
+                    self._emit('snapshot', pid, snapshot=snapshot, executable=exe, force_full=False)
+                    self._complete[pid], self._last[pid] = snapshot, current
+                    self._metadata_full(pid, snapshot)
+                    return snapshot
+            self._emit('pending', pid, snapshot=snapshot, reason='reparent capture conflicts with registered root')
+            self._last[pid] = current
+            return snapshot
+        sequence = self._emit('snapshot', pid, snapshot=snapshot, executable=exe, force_full=force_ticket is not None)
+        if force_ticket is not None:
+            force_ticket.capture_sequence = sequence
+        self._complete[pid] = snapshot
+        self._last[pid] = current
+        self._metadata_full(pid, snapshot)
+        return snapshot
+
+    def _cycle(self):
+        with self._condition:
+            requests = list(self._requests); self._requests.clear()
+            fence = self._fence_request
+            roots = list(self._roots.values())
+        armed, acknowledged = [], []
+        for kind, pid, value in requests:
+            if kind == 'root':
+                if self._collect(pid, required=True, expected=value) is None:
+                    raise EvidenceError('collector root gone before ready fence')
+                armed.append(value['unique_id'])
+            else:
+                value.snapshot = self._collect(pid, required=True, force_ticket=value if kind == 'image' else None)
+                acknowledged.append(value)
+        # Native-only BFS is never blocked by SQLite, graph rebuilding or UID census.
+        queue, scanned = [root['identity']['pid'] for root in roots], set()
+        with self._condition:
+            queue += list(self._known)
+        while queue:
+            pid = queue.pop(0)
+            if pid in scanned:
+                continue
+            if len(scanned) >= MAX_NODES:
+                raise EvidenceError('collector BFS bound exceeded')
+            scanned.add(pid)
+            if self._collect(pid) is None:
+                continue
+            for child in child_pids(pid):
+                self._collect(child, required=True)
+                if child not in scanned:
+                    queue.append(child)
+        with self._condition:
+            self._armed.update(armed)
+            for event in acknowledged:
+                event.set()
+            self._fence_done, self._fence_sequence = fence, self._sequence
+            self._condition.notify_all()
+
+    def _run(self):
+        try:
+            while True:
+                self._cycle()
+                with self._condition:
+                    if self._stop:
+                        break
+                    self._condition.wait(self.interval if self._roots or self._requests else .01)
+        except BaseException as exc:
+            with self._condition:
+                self._error = (str(exc) or type(exc).__name__)[:512]
+                self._condition.notify_all()
+        finally:
+            with self._condition:
+                self._finished = True
+                self._condition.notify_all()
+
+
+class Observer:
+    """Internal worker only. No public interface accepts native witness JSON."""
+    def __init__(self, ledger, attempt, owner_pid, working_reservation_id, *, runtime_file_limit=DEFAULT_RUNTIME_FILES, helper_metadata_version=2):
+        if type(helper_metadata_version) is not int or helper_metadata_version not in (2, 3):
+            raise EvidenceError('helper metadata version must be2 or3')
+        self._helper_metadata_version = helper_metadata_version
+        from .producer_runtime import managed_group_identity, read, update
+        self.ledger, self.attempt, self.owner_pid = ledger, attempt, _pid(owner_pid)
+        if os.getppid() != owner_pid:
+            raise EvidenceError('observer is not a direct child of owner Node')
+        membership = managed_group_identity(owner_pid)
+        mine, owner = native.read_snapshot(os.getpid()), native.read_snapshot(owner_pid)
+        if (mine is None or owner is None or mine['identity'] != process_identity.identity()
+                or owner['identity'] != membership['owner'] or mine['current_ppid'] != owner_pid
+                or mine['original_parent_unique_id'] != owner['unique_id']
+                or mine['original_parent_idversion'] != owner['idversion']
+                or mine['pgid'] != membership['group_id'] or owner['pgid'] != membership['group_id']
+                or any(mine[k] != owner[k] for k in ('uid', 'boot_uuid'))
+                or os.getsid(0) != membership['session_id'] or os.getsid(owner_pid) != membership['session_id']):
+            raise EvidenceError('observer native parent/birth/group/session mismatch')
+        owner_executable, observer_executable = executable_path(owner_pid), executable_path(os.getpid())
+        if Path(owner_executable).name.lower() not in ('node', 'nodejs'):
+            raise EvidenceError('observer owner executable is not Node')
+        self.owner_snapshot, self.graphs, self.latest = owner, {}, {}
+        self.last_census = 0.0
+        record = read(ledger, attempt)
+        if (type(runtime_file_limit) is not int or not 1 <= runtime_file_limit <= min(50000, ledger.policy['limits']['unit_stop_files'])):
+            raise EvidenceError('runtime file limit exceeds bounded policy unit allowance')
+        binding = working_binding(ledger, record, working_reservation_id)
+        _ensure_hold_unshared(ledger, attempt, working_reservation_id)
+        if record['version'] == 2:
+            prior_sessions = validate_registry(record)
+            if any(session['state'] != 'closed' for session in prior_sessions):
+                raise EvidenceError('observation sessions cannot be replayed/adopted before prior closure')
+            problems = disposition_problems(record, ledger=ledger)
+            if problems or native.read_snapshot(prior_sessions[-1]['observer']['pid']) is not None:
+                raise EvidenceError('previous observer closure/disposition not currently verified')
+            if len(prior_sessions) >= MAX_SESSIONS:
+                raise EvidenceError('observer cumulative session bound exceeded')
+        initial = dict(version=1, capability=CAPABILITY, state='arming', observer=mine['identity'],
+                       owner=owner['identity'], membership=membership, source_sha256=sources(), roots={}, observations=[],
+                       writers={}, pending={}, working_roots={}, errors=[], lost_history=False, sequence=0,
+                       closure=None, warnings=list(WARNINGS), observer_snapshot=mine, owner_snapshot=owner,
+                       owner_executable=owner_executable, observer_executable=observer_executable,
+                       observer_python_version=sys.version[:256], ipc_paths={}, working_binding=binding,
+                       runtime_file_limit=runtime_file_limit, session_id=str(uuid.uuid4()),
+                       cleanup_barrier=None, excluded_candidates={},
+                       native_sampler=dict(version=helper_metadata_version, state='arming', roots=[], durable_sequence=0, stopped_sequence=None, unresolved=[], statuses={}, exec_transitions=[], helper_diagnostics=[], helper_diagnostic_bindings={}))
+        if helper_metadata_version == 3:
+            initial['native_sampler']['full_capture_sequences'] = {}
+        validate_session(initial, current_sources=True)
+        def arm(current):
+            stable = ('version', 'run_id', 'unit_id', 'reservation_id', 'coordinator', 'guardian',
+                      'output_id', 'output_dir', 'output_identity', 'policy', 'observation_session', 'observation_history')
+            if current['status'] != 'running' or any(current.get(key) != record.get(key) for key in stable):
+                raise EvidenceError('observation sessions cannot be replayed/adopted')
+            # Recheck the exact pending row and competing claims inside the same
+            # serialized SQLite transaction that installs this observation session.
+            if working_binding(ledger, current, working_reservation_id) != binding:
+                raise EvidenceError('working reservation changed before observer arming')
+            _ensure_hold_unshared(ledger, attempt, working_reservation_id)
+            if current['version'] == 2:
+                prior = current['observation_session']
+                current.setdefault('observation_history', []).append(dict(
+                    sha256=hashlib.sha256(canonical(prior).encode()).hexdigest(), session=copy.deepcopy(prior)))
+            current['version'], current['observation_session'] = 2, initial
+            validate_registry(current)
+        update(ledger, attempt, arm)
+        self.value = read(ledger, attempt)['observation_session']
+        self._batching, self._drain_lost = False, False
+        self._sampler_stopped_for_close = False
+        self._sampler = _NativeSampler(helper_metadata_version=helper_metadata_version)
+
+    @staticmethod
+    def _mutate(current, change):
+        prior = copy.deepcopy(current) if (current.get('cleanup_barrier') or {}).get('valid') else None
+        change(current)
+        if prior is not None and (any(current[key] != prior[key] for key in
+                ('roots', 'writers', 'pending', 'observations', 'working_roots', 'excluded_candidates'))
+                or current.get('native_sampler', {}).get('version') == 3
+                   and _metadata_capture_digest(current) != _metadata_capture_digest(prior)
+                or current['errors'] or current['lost_history']):
+            current['cleanup_barrier']['valid'] = False
+            current['state'] = 'failed'
+            message = 'new native candidate or failure invalidated pre-cleanup barrier'
+            if message not in current['errors'] and len(current['errors']) < 16:
+                current['errors'].append(message)
+
+    def _commit(self, change):
+        if self._batching:
+            self._mutate(self.value, change)
+            return
+        from .producer_runtime import update
+        def apply(record):
+            current = record.get('observation_session')
+            if current != self.value or current['observer'] != process_identity.identity():
+                raise EvidenceError('observer history changed or ownership lost')
+            self._mutate(current, change)
+            validate_session(current, current_sources=True)
+        value = update(self.ledger, self.attempt, apply)
+        self.value = value['observation_session']
+
+    def fail(self, reason, *, lost=False):
+        message = str(reason)[:512]
+        def change(session):
+            session['state'], session['lost_history'] = 'failed', session['lost_history'] or lost
+            if session.get('native_sampler') is not None:
+                session['native_sampler'].update(state='failed', stopped_sequence=None)
+            if message not in session['errors'] and len(session['errors']) < 16:
+                session['errors'].append(message)
+        self._commit(change)
+
+    def _active(self, *, allow_closing=False):
+        from .producer_runtime import managed_group_identity
+        if self._drain_lost:
+            raise EvidenceError('native capture drain lost unflushed history')
+        self._sampler.check()
+        if self._sampler_stopped_for_close and not allow_closing:
+            raise EvidenceError('native collector already stopped for final closure')
+        if (self.value['state'] not in (('arming', 'observing', 'closing') if allow_closing else ('arming', 'observing')) or os.getppid() != self.owner_pid
+                or managed_group_identity(self.owner_pid) != self.value['membership']):
+            raise EvidenceError('observer active managed ownership changed')
+        if self.value['source_sha256'] != sources():
+            raise EvidenceError('active observer source bytes changed')
+        if self.value['native_sampler']['version'] != self._helper_metadata_version:
+            raise EvidenceError('active observer metadata policy changed')
+        from .producer_runtime import read
+        working_binding(self.ledger, read(self.ledger, self.attempt), session=self.value)
+        owner = native.read_snapshot(self.owner_pid)
+        if owner is None or semantic(owner) != semantic(self.owner_snapshot):
+            raise EvidenceError('owner Node native identity/executable changed')
+
+    def allocate(self, purpose, budget_bytes):
+        self._active()
+        if (type(purpose) is not str or not 0 < len(purpose) <= 128 or type(budget_bytes) is not int
+                or not 1 <= budget_bytes <= self.ledger.policy['limits']['local_stop_bytes']
+                or len(self.value['working_roots']) >= 16):
+            raise EvidenceError('invalid observed working-root allocation/budget')
+        from .producer_runtime import directory_identity, read
+        record = read(self.ledger, self.attempt)
+        binding = working_binding(self.ledger, record, session=self.value)
+        if budget_bytes + sum(item['budget_bytes'] for item in self.value['working_roots'].values()) > binding['row']['bytes']:
+            raise EvidenceError('working-root allocations exceed original held local allowance')
+        parent = Path(tempfile.gettempdir()).resolve()
+        path = Path(tempfile.mkdtemp(prefix='sdd-observed-', dir=parent))
+        path.chmod(0o700)
+        ref = str(uuid.uuid4())
+        item = dict(ref=ref, path=str(path), identity=directory_identity(path), parent=str(parent),
+                    parent_identity=directory_identity(parent), uid=os.geteuid(), mode=0o700,
+                    purpose=purpose, budget_bytes=budget_bytes)
+        try:
+            _resource_current(item)
+            self._commit(lambda s: s['working_roots'].update({ref: item}))
+        except BaseException:
+            path.rmdir()  # Empty, just created here. Never removes caller data.
+            raise
+        return copy.deepcopy(item)
+
+    def _append(self, session, snapshot, executable):
+        if len(session['observations']) >= MAX_OBSERVATIONS:
+            raise EvidenceError('immutable native observation bound exceeded')
+        session['sequence'] += 1
+        session['observations'].append(dict(sequence=session['sequence'], snapshot=snapshot, executable=executable))
+        return session['sequence']
+
+    def register_root(self, pid, expected_identity, expected_executable, refs, expected_target_executable=None):
+        self._active()
+        _pid(pid)
+        if (not process_identity.valid_identity(expected_identity) or expected_identity['pid'] != pid
+                or type(expected_executable) is not str or not expected_executable.startswith('/')
+                or type(refs) is not list or not refs or len(refs) > 16 or len(set(refs)) != len(refs)
+                or any(ref not in self.value['working_roots'] for ref in refs)
+                or any(set(refs).intersection(root['writable_root_refs']) for root in self.value['roots'].values())
+                or len(self.value['roots']) >= MAX_ROOTS):
+            raise EvidenceError('invalid root identity/executable/working-root request')
+        pending = 'root:' + str(pid)
+        self._commit(lambda s: s['pending'].update({pending: dict(pid=pid, reason='root registration not durably acknowledged')}))
+        snapshot = native.read_snapshot(pid)
+        owner = native.read_snapshot(self.owner_pid)
+        if (snapshot is None or owner is None or semantic(owner) != semantic(self.owner_snapshot)
+                or snapshot['identity'] != expected_identity or snapshot['status'] != 'alive'
+                or snapshot['current_ppid'] != self.owner_pid or snapshot['original_parent_unique_id'] != owner['unique_id']
+                or snapshot['original_parent_idversion'] != owner['idversion']
+                or any(snapshot[k] != owner[k] for k in ('uid', 'boot_uuid', 'pgid'))
+                or os.getsid(pid) != self.value['membership']['session_id'] or executable_path(pid) != expected_executable):
+            raise EvidenceError('root native direct-parent/birth/executable/group proof failed')
+        confirmed = native.read_snapshot(pid)
+        if confirmed is None or semantic(confirmed) != semantic(snapshot):
+            raise EvidenceError('root changed during native executable proof')
+        for ref in refs:
+            _resource_current(self.value['working_roots'][ref])
+        target = target_descriptor(expected_target_executable) if expected_target_executable is not None else None
+        graph = native.LineageGraph(MAX_NODES, max_updates=4096)
+        graph.add_root(snapshot, expected_identity=expected_identity, expected_unique_id=snapshot['unique_id'])
+        key = snapshot['unique_id']
+        if key in self.graphs:
+            raise EvidenceError('root registration cannot be replayed')
+        ready_watermark = self._sampler.add_root(snapshot)
+        self._active()
+        def commit(session):
+            sequence = self._append(session, snapshot, expected_executable)
+            session['roots'][key] = dict(pid=pid, identity=expected_identity, unique_id=key,
+                                        observation_sequence=sequence, writable_root_refs=refs)
+            if target is not None:
+                session['roots'][key]['target_executable'] = target
+            session['pending'].pop(pending)
+            session['state'] = 'observing'
+            session['native_sampler'].update(state='running', roots=sorted(session['roots']))
+        self._commit(commit)  # ACK is permitted only after this transaction commits.
+        self.graphs[key], self.latest[key] = graph, semantic(snapshot)
+        self._drain_native(through=ready_watermark)
+        try:
+            self._active()
+            _verify_observation_scopes(self.value)
+            if (self.value['native_sampler']['durable_sequence'] < ready_watermark
+                    or self.value['pending'] or self.value['errors'] or self.value['lost_history']
+                    or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value) or _unresolved_helpers(self.value)):
+                raise EvidenceError('root readiness has pending/errors/lost/unresolved native evidence')
+            current_root = native.read_snapshot(pid)
+            if (current_root is None or current_root['status'] != 'alive'
+                    or any(current_root[field] != snapshot[field] for field in
+                           ('identity', 'unique_id', 'uid', 'boot_uuid', 'original_parent_unique_id',
+                            'original_parent_idversion', 'pgid', 'idversion', 'executable_uuid'))
+                    or current_root['current_ppid'] != self.owner_pid
+                    or os.getsid(pid) != self.value['membership']['session_id']
+                    or executable_path(pid) != expected_executable):
+                raise EvidenceError('held root wrapper changed before clean ACK')
+        except (EvidenceError, OSError) as exc:
+            self.fail('root ACK refused: ' + str(exc), lost=True)
+            raise EvidenceError('root ACK refused: ' + str(exc)) from exc
+        reply = dict(root=key, sequence=self.value['sequence'], durable=True)
+        if self._helper_metadata_version == 3:
+            reply['metadata_version'] = 3
+        return reply
+
+    def _potential_candidate(self, snapshot):
+        targets = [(key, root, root['target_executable']) for key, root in self.value['roots'].items()
+                   if 'target_executable' in root]
+        if not targets:
+            return False
+        oldest_any = min(_birth(self.value['observations'][root['observation_sequence'] - 1]['snapshot'])
+                         for _, root, _ in targets)
+        if _birth(snapshot) < oldest_any:
+            return False  # A process born before every task root cannot descend from one.
+        exe = executable_path(snapshot['identity']['pid'])
+        matching = [key for key, root, target in targets if Path(exe).is_relative_to(target['scope'])]
+        if not matching:
+            return False
+        confirmed = native.read_snapshot(snapshot['identity']['pid'])
+        if confirmed is None or semantic(confirmed) != semantic(snapshot) or executable_path(snapshot['identity']['pid']) != exe:
+            raise EvidenceError('potential target-app candidate changed during fresh executable observation')
+        oldest = min(_birth(self.value['observations'][self.value['roots'][key]['observation_sequence'] - 1]['snapshot'])
+                     for key in matching)
+        if _birth(snapshot) < oldest:
+            return False
+        if snapshot['unique_id'] in self.value.get('excluded_candidates', {}):
+            return False
+        # Exact fresh original-parent edges to an older unrelated app process
+        # exclude concurrent normal-app helpers. A missing/reparented/exec-changed
+        # intermediary cannot be guessed from its PID or current parent metadata.
+        protected = [self.value['owner'], self.value['observer'], self.value['membership']['anchor']]
+        if 'working_binding' in self.value:
+            protected.append(self.value['working_binding']['coordinator'])
+        protected += [root['identity'] for root in self.value['roots'].values()]
+        protected += [writer['identity'] for writer in self.value['writers'].values()]
+        chain, current, seen = [snapshot], snapshot, {snapshot['unique_id']}
+        for _ in range(31):
+            try:
+                parent = native.read_snapshot(current['current_ppid'])
+                if (parent is None or parent['unique_id'] != current['original_parent_unique_id']
+                        or parent['idversion'] != current['original_parent_idversion']
+                        or parent['unique_id'] in seen or parent['identity'] in protected
+                        or any(parent[k] != snapshot[k] for k in ('uid', 'boot_uuid'))
+                        or _birth(parent) > _birth(current)):
+                    break
+                seen.add(parent['unique_id']); chain.append(parent)
+                if _birth(parent) < oldest:
+                    parent_exe = executable_path(parent['identity']['pid'])
+                    if not any(Path(parent_exe).is_relative_to(self.value['roots'][key]['target_executable']['scope']) for key in matching):
+                        break
+                    confirmed_parent = native.read_snapshot(parent['identity']['pid'])
+                    if confirmed_parent is None or semantic(confirmed_parent) != semantic(parent):
+                        break
+                    excluded = dict(chain=chain, executable=exe, ancestor_executable=parent_exe, roots=matching)
+                    self._commit(lambda s: s.setdefault('excluded_candidates', {}).update({snapshot['unique_id']: excluded}))
+                    return False
+                current = parent
+            except (EvidenceError, OSError):
+                break
+        return True
+
+    def _ingest_capture(self, snapshot, exe, *, force_full=False, capture_sequence=None):
+        if not native.valid_snapshot(snapshot) or type(exe) is not str or not exe.startswith('/'):
+            raise EvidenceError('invalid protected native collector receipt')
+        pid, unique = snapshot['identity']['pid'], snapshot['unique_id']
+        key = 'pid:' + str(pid)
+        matches = list(self.graphs)
+        recovering_gap = any(item['qualification'] is None and item['subtype'] == 'known_epoch_path_gap'
+            and _same_native_key(item['raw'], snapshot) and item['path_query']['errno'] == errno.ESRCH
+            and item['path_query']['stage'] == 'query' and item['path_query']['returned_size'] == 0
+            and item['followup']['outcome'] == 'snapshot' and item['followup']['snapshot']['status'] == 'alive'
+            for item in self.value['native_sampler'].get('helper_diagnostics', ()))
+        if self.latest.get(unique) == semantic(snapshot) and not recovering_gap and not force_full:
+            return any(graph.lineage(unique) is not None for graph in self.graphs.values())
+        if unique in self.value['roots'] and 'target_executable' in self.value['roots'][unique]:
+            target = self.value['roots'][unique]['target_executable']
+            if exe == target['path']:
+                verify_target(target)
+        resolved = []
+        for root in matches:
+            if self.graphs[root].ingest(snapshot) is not None:
+                resolved.append(root)
+        if len(resolved) > 1:
+            raise EvidenceError('ambiguous native observation root')
+        def commit(session):
+            sequence = self._append(session, snapshot, exe)
+            if session['native_sampler']['version'] == 3:
+                if (type(capture_sequence) is not int
+                        or not 1 <= capture_sequence <= session['native_sampler']['durable_sequence']):
+                    raise EvidenceError('FULL lacks its actual durable private capture event')
+                session['native_sampler']['full_capture_sequences'][str(sequence)] = _full_capture_binding(
+                    session['observations'][-1], capture_sequence)
+            if resolved:
+                session['pending'].pop(key, None)
+                if unique not in session['roots']:
+                    session['writers'][unique] = dict(authority=dict(AUTHORITY), root=resolved[0],
+                        identity=snapshot['identity'], unique_id=unique, observation_sequence=sequence,
+                        lineage_observation_sequences=exact_chain_sequences(session, resolved[0], sequence))
+            else:
+                session['pending'][key] = dict(pid=pid, reason='full original-parent unique-ID/version chain missing')
+            # A newly seen intermediary can complete an older immutable chain.
+            for root, graph in self.graphs.items():
+                for prior in reversed(session['observations']):
+                    node = prior['snapshot']
+                    if node['unique_id'] in session['roots'] or node['unique_id'] in session['writers']:
+                        continue
+                    if graph.lineage(node['unique_id']) is not None:
+                        session['writers'][node['unique_id']] = dict(authority=dict(AUTHORITY), root=root,
+                            identity=node['identity'], unique_id=node['unique_id'], observation_sequence=prior['sequence'],
+                            lineage_observation_sequences=exact_chain_sequences(session, root, prior['sequence']))
+                        session['pending'].pop('pid:' + str(node['identity']['pid']), None)
+            # Full parent refreshes can select a newer receipt for the same
+            # native exec epoch. Refresh current projections, never witnesses.
+            for writer in session['writers'].values():
+                writer['lineage_observation_sequences'] = exact_chain_sequences(
+                    session, writer['root'], writer['observation_sequence'])
+        self._commit(commit)
+        self.latest[unique] = semantic(snapshot)
+        return bool(resolved)
+
+    def _resolve_exec_transitions(self):
+        transitions = self.value['native_sampler'].get('exec_transitions', ())
+        for transition in transitions:
+            if transition['resolution'] is not None:
+                continue
+            for item in self.value['observations']:
+                node = item['snapshot']
+                if node['unique_id'] in self.value['roots']:
+                    root = node['unique_id']
+                else:
+                    writer = self.value['writers'].get(node['unique_id'])
+                    if writer is None:
+                        continue
+                    root = writer['root']
+                resolution = dict(version=1, observation_sequence=item['sequence'], root=root)
+                if (not _valid_exec_resolution(self.value, transition, resolution)
+                        and self.value['native_sampler']['version'] == 3
+                        and node['unique_id'] == transition['before']['unique_id']):
+                    resolution = dict(version=3, kind='initial_helper_post_transition_full',
+                        observation_sequence=item['sequence'], root=root,
+                        full_capture_reference=copy.deepcopy(self.value['native_sampler']['full_capture_sequences'].get(str(item['sequence']))),
+                        transition_sha256=_exec_raw_digest(transition))
+                if _valid_exec_resolution(self.value, transition, resolution):
+                    sequence = transition['capture_sequence']
+                    def resolve(session):
+                        target = next(entry for entry in session['native_sampler']['exec_transitions'] if entry['capture_sequence'] == sequence)
+                        target['resolution'] = resolution
+                        session['pending'].pop('exec:' + str(sequence), None)
+                    self._commit(resolve)
+                    break
+
+    def _resolve_helper_diagnostics(self):
+        for diagnostic in self.value['native_sampler'].get('helper_diagnostics', ()):
+            if diagnostic['qualification'] is not None:
+                continue
+            raw = diagnostic['raw']
+            refs = [item['sequence'] for item in self.value['observations'] if _helper_full(self.value, item['sequence'], raw) is not None]
+            if diagnostic.get('version') == 3:
+                candidates = [dict(version=3, mode=diagnostic['subtype'], root=_helper_full(self.value, ref, raw)[1],
+                    before_observation_sequence=ref if diagnostic['subtype'] == 'known_full_epoch_state_gap' else None,
+                    after_observation_sequence=ref if diagnostic['subtype'] == 'helper_initial_image_gap' else None,
+                    full_capture_reference=copy.deepcopy(self.value['native_sampler']['full_capture_sequences'][str(ref)])) for ref in refs]
+            elif diagnostic['subtype'] == 'mixed_image_boundary':
+                candidates = (dict(version=1, mode='mixed_image_bracket', root=_helper_full(self.value, before, raw)[1],
+                                   before_observation_sequence=before, after_observation_sequence=after)
+                              for before in refs for after in refs)
+            else:
+                candidates = [dict(version=1, mode='known_epoch_exit_gap', root=_helper_full(self.value, ref, raw)[1],
+                                   before_observation_sequence=ref, after_observation_sequence=None) for ref in refs]
+                candidates += [dict(version=1, mode='bounded_same_epoch_gap', root=_helper_full(self.value, ref, raw)[1],
+                                    before_observation_sequence=None, after_observation_sequence=ref) for ref in refs]
+            for qualification in candidates:
+                if _valid_helper_qualification(self.value, diagnostic, qualification):
+                    sequence = diagnostic['capture_sequence']
+                    def qualify(session):
+                        target = next(item for item in session['native_sampler']['helper_diagnostics'] if item['capture_sequence'] == sequence)
+                        target['qualification'] = qualification
+                        if target['version'] == 3:
+                            session['native_sampler']['helper_diagnostic_bindings'][str(sequence)] = _helper_binding(target)
+                        session['pending'].pop('helper-meta:' + str(sequence), None)
+                    self._commit(qualify)
+                    break
+
+    def _drain_native(self, *, through=None):
+        self._sampler.check()
+        if self.value['source_sha256'] != sources():
+            raise EvidenceError('collector drain current source bytes changed')
+        while True:
+            events = self._sampler.take(16, through=through)
+            if not events:
+                break
+            original = self.value
+            staged = copy.deepcopy(original)
+            self.value, self._batching = staged, True
+            try:
+                for event in events:
+                    expected = staged['native_sampler']['durable_sequence'] + 1
+                    if event['sequence'] != expected:
+                        raise EvidenceError('native capture sequence gap/lost history')
+                    if staged['native_sampler']['version'] == 3:
+                        # This remains private staged state until the FULL, its
+                        # actual event binding and the whole batch commit agree.
+                        staged['native_sampler']['durable_sequence'] = event['sequence']
+                    if event['kind'] == 'snapshot':
+                        self._ingest_capture(event['snapshot'], event['executable'], force_full=event.get('force_full') is True,
+                                             capture_sequence=event['sequence'])
+                    elif event['kind'] == 'exec_transition':
+                        if not _exec_pair(event['snapshot'], event['successor']):
+                            raise EvidenceError('invalid private forward-exec witness')
+                        def transition(session):
+                            session['native_sampler']['exec_transitions'].append(dict(
+                                version=1, kind='kernel_lineage_exec_transition', capture_sequence=event['sequence'],
+                                path_status='unobserved_during_exec', before=event['snapshot'], after=event['successor'], resolution=None))
+                            session['pending']['exec:' + str(event['sequence'])] = dict(
+                                pid=event['pid'], reason='unobserved executable during exec; awaiting qualified complete writer')
+                        self._commit(transition)
+                    elif event['kind'] == 'helper_metadata':
+                        payload = event['diagnostic']
+                        def helper_metadata(session):
+                            session['native_sampler']['helper_diagnostics'].append(dict(
+                                version=payload.get('version', 1), kind='helper_native_metadata_gap', capture_sequence=event['sequence'],
+                                subtype=payload['subtype'], pid=event['pid'], raw=event['snapshot'],
+                                path_status='unobserved', image_status='nonqualifying', path_query=payload['path_query'],
+                                followup=payload['followup'], qualification=None))
+                            diagnostic = session['native_sampler']['helper_diagnostics'][-1]
+                            if payload.get('version') == 3:
+                                diagnostic['capture'] = payload['capture']
+                            session['native_sampler']['helper_diagnostic_bindings'][str(event['sequence'])] = _helper_binding(diagnostic)
+                            session['pending']['helper-meta:' + str(event['sequence'])] = dict(
+                                pid=event['pid'], reason='helper image/status metadata gap awaiting positive full-witness qualification')
+                        self._commit(helper_metadata)
+                    elif event['kind'] == 'status':
+                        snapshot = event['snapshot']
+                        matches = [item for item in staged['observations'] if all(
+                            item['snapshot'][field] == snapshot[field] for field in
+                            ('identity', 'unique_id', 'idversion', 'executable_uuid', 'boot_uuid', 'uid'))]
+                        if not matches:
+                            raise EvidenceError('native zombie status lost its genuine executable predecessor')
+                        staged['native_sampler']['statuses'][snapshot['unique_id']] = dict(
+                            capture_sequence=event['sequence'], snapshot=snapshot, predecessor_observation_sequence=matches[-1]['sequence'])
+                    elif event['kind'] == 'pending':
+                        pid, reason = event['pid'], event['reason']
+                        def pending(session):
+                            session['pending']['pid:' + str(pid)] = dict(pid=pid, reason=reason)
+                            session['native_sampler']['unresolved'].append(dict(sequence=event['sequence'], pid=pid,
+                                                                             reason=reason, snapshot=event['snapshot']))
+                        self._commit(pending)
+                    elif event['kind'] != 'absent':
+                        raise EvidenceError('unknown private native capture event')
+                    staged['native_sampler']['durable_sequence'] = event['sequence']
+                    self._resolve_exec_transitions()
+                    self._resolve_helper_diagnostics()
+                validate_session(staged, current_sources=True)
+                self.value, self._batching = original, False
+                self._commit(lambda session: (session.clear(), session.update(staged)))
+            except BaseException as exc:
+                self.value, self._batching, self._drain_lost = original, False, True
+                raise EvidenceError('native capture drain lost unflushed history: ' + str(exc)) from exc
+            time.sleep(0)  # Local cooperative yield; no global scheduler changes.
+        if through is not None and self.value['native_sampler']['durable_sequence'] < through:
+            self._drain_lost = True
+            raise EvidenceError('native capture readiness/fence has unflushed tail')
+
+    def _native_fence(self, deadline):
+        watermark = self._sampler.fence(_remaining(deadline))
+        self._drain_native(through=watermark)
+        return watermark
+
+    def shutdown_sampler(self, timeout=3):
+        """Join task-owned collector even after failed IPC; never grants closure."""
+        return self._sampler.stop(timeout)
+
+    def observe(self, pid, *, required=True):
+        _pid(pid)
+        self._drain_native()
+        if self._sampler_stopped_for_close:
+            snapshot = native.read_snapshot(pid)
+            if snapshot is not None and (required or self._potential_candidate(snapshot)):
+                self._commit(lambda session: session['pending'].update({'pid:' + str(pid): dict(pid=pid, reason='new process after final collector stop')}))
+                raise EvidenceError('new native candidate after final collector stop')
+            return False
+        if not required:
+            if self._sampler.has_pid(pid):
+                return True
+            snapshot = native.read_snapshot(pid)
+            if snapshot is None:
+                return False
+            if (not any(graph.lineage(snapshot['original_parent_unique_id']) is not None for graph in self.graphs.values())
+                    and not self._potential_candidate(snapshot)):
+                return False
+        watermark, snapshot = self._sampler.observe_pid(pid)
+        self._drain_native(through=watermark)
+        if snapshot is None:
+            return False
+        return any(graph.lineage(snapshot['unique_id']) is not None for graph in self.graphs.values())
+
+    def observe_image(self, pid):
+        self._active()
+        _pid(pid)
+        roots = [(key, root) for key, root in self.value['roots'].items() if root['pid'] == pid]
+        if self.value['state'] != 'observing' or len(roots) != 1:
+            raise EvidenceError('image observation requires an already registered root in observing phase')
+        key, root = roots[0]
+        target = root.get('target_executable')
+        if target is not None:
+            verify_target(target)
+        self._drain_native()
+        previous = self.value['sequence']
+        watermark, snapshot, capture = self._sampler.observe_pid(pid, force_full=True)
+        self._drain_native(through=watermark)
+        self._active()
+        if target is not None:
+            verify_target(target)
+        associated = snapshot is not None and self.graphs[key].lineage(snapshot['unique_id']) is not None
+        result = dict(associated=associated, image=None)
+        anchor = self.value['observations'][root['observation_sequence'] - 1]['snapshot']
+        if (capture is None or snapshot is None or snapshot['status'] != 'alive'
+                or not _same_native_key(anchor, snapshot) or not associated
+                or self.value['native_sampler']['durable_sequence'] < capture):
+            return result
+        matches = [item for item in self.value['observations'] if item['sequence'] > previous and item['snapshot'] == snapshot]
+        if len(matches) != 1:
+            raise EvidenceError('forced root image lacks its fresh durable full observation')
+        item = matches[0]
+        result['image'] = dict(version=1, session_id=self.value['session_id'], root=key,
+                              observation_sequence=item['sequence'], capture_sequence=capture,
+                              identity=snapshot['identity'], unique_id=snapshot['unique_id'],
+                              boot_uuid=snapshot['boot_uuid'], uid=snapshot['uid'], status='alive',
+                              idversion=snapshot['idversion'], executable_uuid=snapshot['executable_uuid'],
+                              executable=item['executable'], target_sha256=target['sha256'] if target else None,
+                              target_match=target is not None and item['executable'] == target['path'])
+        if len(canonical(dict(ok=True, result=result)).encode()) + 1 > MAX_REQUEST:
+            raise EvidenceError('forced root image reply exceeds bounded control frame')
+        return result
+
+    def sample(self, *, force_census=False, deadline=None):
+        if deadline is not None:
+            _remaining(deadline)
+        self._active(allow_closing=True)
+        if deadline is not None:
+            _remaining(deadline)
+        if not self.graphs:
+            return
+        self._drain_native()
+        if force_census or time.monotonic() - self.last_census >= .25:
+            _verify_observation_scopes(self.value)
+            if self.value.get('cleanup_barrier') is None and self.value['state'] != 'closing':
+                self.check_working_capacity(deadline=deadline)
+            try:
+                for index, pid in enumerate(candidate_pids()):
+                    if index % 8 == 0:
+                        self._drain_native()
+                        time.sleep(0)
+                    if deadline is not None:
+                        _remaining(deadline)
+                    self.observe(pid, required=False)
+            finally:
+                _verify_observation_scopes(self.value)
+            self.last_census = time.monotonic()
+        self._drain_native()
+        if self.value['state'] == 'failed':
+            raise EvidenceError('post-barrier native sampling invalidated cleanup readiness')
+
+    def check_working_capacity(self, *, deadline=None):
+        if self.value['state'] == 'closing' or self.value.get('cleanup_barrier') is not None:
+            return  # Caller owns guarded content deletion after prepare ACK.
+        from .producer_runtime import read
+        record = read(self.ledger, self.attempt)
+        binding = working_binding(self.ledger, record, session=self.value)
+        deadline = min(time.monotonic() + .25, deadline) if deadline is not None else time.monotonic() + .25
+        total_bytes, total_files = 0, 0
+        seen_ipc = {}
+        for ref, item in self.value['working_roots'].items():
+            _resource_current(item)
+            current_ipc = {}
+            size, count = _bounded_usage(item['path'], deadline=deadline, max_entries=self.value['runtime_file_limit'], ipc=current_ipc)
+            for path, ipc in current_ipc.items():
+                ipc['root_ref'] = ref
+                if ipc['kind'] == 'symlink':
+                    target = Path(os.path.normpath(os.path.join(str(Path(path).parent), ipc['target'])))
+                    if not any(target.is_relative_to(root['path']) for root in self.value['working_roots'].values()):
+                        raise EvidenceError('IPC symlink target has no declared SDK working-root reference')
+                if path in self.value['ipc_paths'] and self.value['ipc_paths'][path] != ipc:
+                    raise EvidenceError('observed IPC path identity changed')
+                seen_ipc[path] = ipc
+            if size > item['budget_bytes']:
+                raise EvidenceError('SDK working root exceeded declared byte budget')
+            total_bytes += size; total_files += count
+        if total_bytes > binding['row']['bytes'] or total_files > self.value['runtime_file_limit']:
+            raise EvidenceError('runtime working roots exceeded separate held capacity/file limit')
+        additions = {path: item for path, item in seen_ipc.items() if path not in self.value['ipc_paths']}
+        if additions:
+            self._commit(lambda s: s['ipc_paths'].update(additions))
+
+    def _cleanup_checks(self, timeout, *, require_empty):
+        from .producer_runtime import read
+        record = read(self.ledger, self.attempt)
+        working_binding(self.ledger, record, session=self.value)
+        _verify_observation_scopes(self.value)
+        if (not self.value['roots'] or self.value['pending'] or self.value['errors'] or self.value['lost_history']
+                or self.value['native_sampler']['unresolved'] or _unresolved_exec(self.value) or _unresolved_helpers(self.value)
+                or self.value['state'] not in ('observing', 'closing')):
+            raise EvidenceError('cleanup preparation retains pending/errors/lost history')
+        deadline = time.monotonic() + timeout
+        # Prior CLOSED sessions retain their independent immutable obligations.
+        if record.get('observation_history'):
+            prior = copy.deepcopy(record)
+            archived = prior['observation_history'].pop()
+            prior['observation_session'] = archived['session']
+            problems = disposition_problems(prior, ledger=self.ledger, timeout=max(.001, deadline - time.monotonic()))
+            if problems:
+                raise EvidenceError('prior observer disposition incomplete: ' + '; '.join(problems))
+        targets = {root['pid']: root['identity'] for root in self.value['roots'].values()}
+        targets.update({writer['identity']['pid']: writer['identity'] for writer in self.value['writers'].values()})
+        for pid, identity in targets.items():
+            if time.monotonic() >= deadline:
+                raise EvidenceError('cleanup native disposition deadline expired')
+            if native.read_snapshot(pid, include_zombie=True) is not None:
+                raise EvidenceError('cleanup requires exact birth gone and numeric ESRCH: ' + str(pid))
+        for item in self.value['working_roots'].values():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise EvidenceError('cleanup root/handle deadline expired')
+            _resource_current(item)
+            _no_handles(item, remaining, allow_absent=False, require_empty=require_empty)
+            _resource_current(item)
+        _verify_observation_scopes(self.value)
+
+    def prepare_cleanup(self, timeout):
+        if type(timeout) not in (int, float) or not 0 < timeout <= 30:
+            raise EvidenceError('cleanup preparation timeout must be bounded by 30 seconds')
+        deadline = time.monotonic() + timeout
+        self._active()
+        self.sample(force_census=True, deadline=deadline)
+        self._native_fence(deadline)
+        self._cleanup_checks(_remaining(deadline), require_empty=False)
+        # A second forced census immediately precedes the durable barrier. It
+        # cannot turn a pending candidate into an empty successful registry.
+        self.sample(force_census=True, deadline=deadline)
+        self._native_fence(deadline)
+        self._cleanup_checks(_remaining(deadline), require_empty=False)
+        barrier = dict(valid=True, sequence=self.value['sequence'], root_refs=sorted(self.value['working_roots']),
+                       numeric_absent=True, roots_no_handles=True, closed=False)
+        if self.value['native_sampler']['version'] == 3:
+            barrier['metadata_capture_sha256'] = _metadata_capture_digest(self.value)
+        self._commit(lambda s: s.update(state='closing', cleanup_barrier=barrier))
+        return dict(ready=True, root_refs=barrier['root_refs'], sequence=barrier['sequence'], closed=False)
+
+    def close(self, timeout):
+        if type(timeout) not in (int, float) or not 0 < timeout <= 30:
+            raise EvidenceError('observer closure timeout must be bounded by 30 seconds')
+        deadline = time.monotonic() + timeout
+        self._active(allow_closing=True)
+        first_problem = None
+        while True:
+            try:
+                self.sample(force_census=True, deadline=deadline)
+                self._cleanup_checks(_remaining(deadline), require_empty=True)
+                # Re-observe current processes once more after handle/root checks.
+                self.sample(force_census=True, deadline=deadline)
+                self._cleanup_checks(_remaining(deadline), require_empty=True)
+                self._native_fence(deadline)
+                self._cleanup_checks(_remaining(deadline), require_empty=True)
+                stopped = self._sampler.stop(_remaining(deadline))
+                self._drain_native(through=stopped)
+                self._sampler_stopped_for_close = True
+                self._commit(lambda session: session['native_sampler'].update(state='stopped', stopped_sequence=stopped))
+                self.sample(force_census=True, deadline=deadline)
+                self._cleanup_checks(_remaining(deadline), require_empty=True)
+                closure = dict(sequence=self.value['sequence'], numeric_absent=True, roots_no_handles=True)
+                if self.value['native_sampler']['version'] == 3:
+                    closure['metadata_capture_sha256'] = _metadata_capture_digest(self.value)
+                else:
+                    closure['helper_diagnostics_sha256'] = hashlib.sha256(canonical(
+                        self.value['native_sampler']['helper_diagnostic_bindings']).encode()).hexdigest()
+                self._commit(lambda s: s.update(state='closed', closure=closure))
+                return dict(closed=True, durable=True, sequence=self.value['sequence'])
+            except (EvidenceError, OSError) as exc:
+                first_problem = first_problem or str(exc)
+                if self.value['state'] == 'failed' or self._sampler_stopped_for_close or time.monotonic() >= deadline:
+                    raise EvidenceError('observer closure incomplete: ' + first_problem[:1024]) from exc
+                time.sleep(min(.05, max(.001, deadline - time.monotonic())))
+
+    def request(self, value):
+        """Strict commands deliberately have no kernel witness/snapshot argument."""
+        if type(value) is not dict or type(value.get('command')) is not str or len(canonical(value)) > MAX_REQUEST:
+            raise EvidenceError('invalid bounded observer command')
+        command = value['command']
+        fields = {'allocate_root': {'command', 'purpose', 'budget_bytes'},
+                  'register_root': {'command', 'pid', 'expected_identity', 'expected_executable', 'writable_root_refs'},
+                  'observe_pid': {'command', 'pid'}, 'close': {'command', 'timeout'},
+                  'prepare_cleanup': {'command', 'timeout'}}
+        if command not in fields or (set(value) != fields[command] and not
+                (command == 'register_root' and set(value) == fields[command] | {'expected_target_executable'}) and not
+                (command == 'observe_pid' and set(value) == fields[command] | {'include_image'} and value['include_image'] is True)):
+            raise EvidenceError('unknown observer command or caller-submitted witness')
+        if command == 'allocate_root':
+            return self.allocate(value['purpose'], value['budget_bytes'])
+        if command == 'register_root':
+            return self.register_root(value['pid'], value['expected_identity'], value['expected_executable'], value['writable_root_refs'], value.get('expected_target_executable'))
+        if command == 'observe_pid':
+            self._active()
+            if value.get('include_image') is True:
+                return self.observe_image(value['pid'])
+            return dict(associated=self.observe(value['pid']))
+        if command == 'prepare_cleanup':
+            return self.prepare_cleanup(value['timeout'])
+        return self.close(value['timeout'])

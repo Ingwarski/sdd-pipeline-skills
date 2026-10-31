@@ -1,0 +1,105 @@
+{
+  "attributed_writer_evidence": {
+    "core": "Core report records 43 existing setup tests passed, zero skips. Not independently rerun.",
+    "retained_failures": "Writer report preserves initial negative-control import failure, corrected exact-prior-writer two expected assertion failures, and separate observed old second-transition serialization rejection. No old result relabeled as a pass.",
+    "root": "Three isolated shell fixture commands recorded return_code=0. Full Python suite log had no final summary at inspection, so no independent full-suite pass claim.",
+    "test": "Test report records 40 lineage-family tests passed (38 retained plus 2 added), zero skips. Not independently rerun."
+  },
+  "authority": {
+    "requested_profile": "gpt-6.1-sol/high inherited; effective settings not independently verified",
+    "usage": "Live get_usage_limits: ordinaryUsageAllowed=true, applicable included window 70% used. No extra credits/API/reset/subagents used.",
+    "writes": "Only this new report; all reviewed sources read-only. Previously assigned live report already complete and writing stopped; no ledger reopened."
+  },
+  "baseline": "6c1fec3",
+  "cleanup": {
+    "report_only_write": true,
+    "resources": "Only isolated existing unittest TemporaryDirectory fixtures; their cleanup handlers ran. No task browser/process/profile or persistent fixture created."
+  },
+  "created_at": "2026-10-22T01:18:12.349686+00:00",
+  "findings": [],
+  "independent_actual_checks": [
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor",
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests",
+      "result": {
+        "errors": 0,
+        "failures": 0,
+        "passed": 2,
+        "seconds": 0.447,
+        "skipped": 0,
+        "tests": 2
+      }
+    },
+    {
+      "command": "Python 3.12 -B inline isolated negative control: import test fixture; remove sole newline keyword from current source in memory; require exact prior SHA e855f016...; compile only prior _write AST; patch setup._write; run the same two new tests; assert testsRun=2, failures=2, errors=0.",
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+      "result": {
+        "errors": 0,
+        "expected_failures_observed": 2,
+        "probe_exit_code": 0,
+        "skipped": 0,
+        "source_files_modified": false,
+        "tests": 2
+      }
+    },
+    {
+      "command": "SHA256 current source/test/policy and read-only inspection of writer/core reports; final hash verification before exclusive report create.",
+      "result": "Expected frozen hashes matched."
+    }
+  ],
+  "inspection_errors_and_boundary_disclosure": [
+    "Opening inspection mistakenly used read-only git diff/status although this task said no Git. No Git mutation occurred; parent informed immediately and no further Git commands used.",
+    "One supplemental read used nonexistent scripts/evidence/policy.py and failed before subsequent reads. Correct path skills/to-sdd-pipeline/scripts/evidence/policy.py then read and hashed; no source/test mutation."
+  ],
+  "kind": "independent-policy-lineage-newline-review",
+  "limitations": [
+    "Tests executed on macOS Python 3.12.14 with real text newline translation simulation. Native Windows CI, including relevant supported Python versions, remains separate required qualification.",
+    "Already-lineage-bearing files previously emitted with CRLF are not silently migrated; unchanged exact supported-serialization validation still fails closed. Original pre-lineage CRLF anchors are supported and preserved.",
+    "No private or installed ledger opened, no provider/browser/network/install action, no actual SDK operation and no runtime/product QA acceptance. No full-suite duplication.",
+    "Review does not change accounting, historical failures, policy bounds, descriptor binding, current raw policy receipt hashes, or user acceptance criteria."
+  ],
+  "ownership_released": true,
+  "resolved_defect": {
+    "correction": "Explicit newline=\"\\n\" makes the existing UTF-8 indent=2/sort_keys/trailing-LF writer match policy._setup_bytes on every supported text host. Reverting this sole keyword in memory reproduced the exact prior complete-source hash. Atomic replacement and fsync/error handling unchanged.",
+    "prior_source_sha256": "e855f016faeea293f6200b6bb9c39b961b4a77619794dc8bc9916ab80db15314",
+    "problem": "Default text newline translation emitted CRLF on Windows, whereas later lineage reconstruction requires the exact LF setup representation. A second supported transition could fail closed despite a valid first transition.",
+    "source": "scripts/evidence_setup.py:82"
+  },
+  "result": "No unresolved material finding in the bounded newline correction. Source and tests remained at frozen hashes on final check.",
+  "scope": [
+    "scripts/evidence_setup.py::_write",
+    "tests/test_evidence_setup_policy_lineage.py new newline regressions",
+    "skills/to-sdd-pipeline/scripts/evidence/policy.py::_setup_bytes"
+  ],
+  "semantic_checks": [
+    {
+      "path": "skills/to-sdd-pipeline/scripts/evidence/policy.py:72",
+      "result": "Serializer contract is json.dumps(indent=2, sort_keys=True) plus one LF encoded UTF-8; fixed writer matches this representation."
+    },
+    {
+      "path": "tests/test_evidence_setup_policy_lineage.py:105",
+      "result": "Windows-default shim changes only omitted text newline defaults to CRLF using real TextIOWrapper behavior; explicit newline and binary streams preserve their ordinary behavior."
+    },
+    {
+      "path": "tests/test_evidence_setup_policy_lineage.py:116",
+      "result": "New plain setup checked by exact complete serialized bytes and absence of physical CRLF; no lineage is manufactured for a new policy."
+    },
+    {
+      "path": "tests/test_evidence_setup_policy_lineage.py:128",
+      "result": "Original pre-lineage CRLF raw bytes and raw hash remain exact in the base, two supported transitions emit canonical LF bytes, full first policy remains resolvable, and original quarantine descriptor bytes/validation remain unchanged."
+    },
+    {
+      "path": "tests/test_evidence_setup_policy_lineage.py:116",
+      "result": "Two added regression methods exercise separate fresh-setup and historical-anchor transitions. No imported TestCase duplication; extra helper only supplies newline simulation. Both fail against exact prior writer, so tests detect behavior rather than mirror source keywords."
+    }
+  ],
+  "source_sha256": {
+    "reports/evidence-recovery-20261021/policy-lineage-newline-core-report.json": "474af4328f8e9549b291e024b9d29528b7e5759eb9a47f7660723cdcf9eb52ac",
+    "reports/evidence-recovery-20261021/policy-lineage-newline-test-report.json": "f9a11238f868a5802be6f22a376bb37a95e05e305fa3854f4b03bf3b3d4ea9a7",
+    "scripts/evidence_setup.py": "f11266bb5564185de5471dc69f1e466cb49c9474f200d5008d3dbfba5e0a5540",
+    "skills/to-sdd-pipeline/scripts/evidence/policy.py": "4a59143344bbe689a3792fe43be02965d1b79f3258169a25e0a2fa1578a4d02b",
+    "tests/test_evidence_setup_policy_lineage.py": "e9bfed3cc43b018e071a590aed4b57605570e6eb9563a3fe533c7642886fd419"
+  },
+  "version": 1,
+  "writing_stopped": true
+}

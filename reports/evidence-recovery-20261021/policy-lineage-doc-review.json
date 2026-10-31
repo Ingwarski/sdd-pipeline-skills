@@ -1,0 +1,47 @@
+{
+  "report_type": "policy_lineage_documentation_review",
+  "review_scope": "Bounded source-backed documentation contract for limits-only portable policy lineage.",
+  "files_reviewed": [
+    "AGENTS.md",
+    "docs/maintenance.md",
+    "docs/specification-quality.md",
+    "docs/evidence-storage.md",
+    "skills/to-sdd-pipeline/references/evidence-storage-contract.md",
+    "skills/to-sdd-pipeline/scripts/evidence/policy.py",
+    "scripts/evidence_setup.py",
+    "skills/to-sdd-pipeline/scripts/evidence/quarantine.py"
+  ],
+  "changed_files": [
+    "docs/evidence-storage.md"
+  ],
+  "documentation_change": "Added a concise limits-only policy lineage compatibility section near setup/reconfiguration guidance. It distinguishes current limits from historical policy bindings, states original raw policy anchoring and exact full-policy transition checks, bounded lineage, setup/readback ordering and exact retry behavior, and the fail-closed serializer constraint. No test matrix or product-specific QA claim was added.",
+  "source_evidence_observed": [
+    {
+      "path": "skills/to-sdd-pipeline/scripts/evidence/policy.py",
+      "lines": "59-61, 101-105, 108-158, 166-204",
+      "observation": "Source defines optional policy_lineage validation, bounded 16-step/1 MiB history, original raw/effective hashes, exact full normalized policy reconstruction, limits-only transition diffs, and append behavior."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/evidence/quarantine.py",
+      "lines": "93-101, 194-209",
+      "observation": "Quarantine records retain policy_sha256; validation resolves that digest against the supplied current policy lineage."
+    },
+    {
+      "path": "scripts/evidence_setup.py",
+      "lines": "204-224, 407-438",
+      "observation": "Setup establishes project authority before writing the local policy. At the inspected snapshot, configure normalized the candidate via validate_policy at line 415; an append_policy_transition call was not yet visible in this configure path."
+    }
+  ],
+  "limitations": [
+    "This was a documentation-only assignment. No tests, setup operation, coordinator write/readback, or runtime verification was performed.",
+    "The new documentation states the settled interface contract pending source integration/review. The inspected setup call path did not yet show lineage transition integration; the source owner must verify it before treating the documented flow as implemented.",
+    "The requested docs/maintenance/specquality path does not exist in this checkout; the corresponding docs/maintenance.md and docs/specification-quality.md were read."
+  ],
+  "verification": {
+    "json_parse": "not_applicable_to_document",
+    "tests_run": false,
+    "source_changed": false,
+    "document_sha256": "2d860de2662626b8a5ca939c173d7c559f76e3612b031b5b969cd845d247726f"
+  },
+  "writing_stopped": true
+}

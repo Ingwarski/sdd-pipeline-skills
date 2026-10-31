@@ -1,0 +1,35 @@
+{
+  "actual_commands": [
+    {
+      "command": [
+        "bash",
+        "tests/test-install.sh"
+      ],
+      "started_at": "2026-10-22T01:47:18.493393+00:00",
+      "finished_at": "2026-10-22T01:47:20.636139+00:00",
+      "return_code": 0,
+      "log_sha256": "04bac94683b2fe4c6c5b343bde62bd5957af8092a06944c5ddce957878d9ef06"
+    },
+    {
+      "command": [
+        "bash",
+        "tests/test-retirement.sh"
+      ],
+      "started_at": "2026-10-22T01:47:20.636482+00:00",
+      "finished_at": "2026-10-22T01:47:25.067134+00:00",
+      "return_code": 0,
+      "log_sha256": "c841765532d9af1aa8dc16a5c5654ea5f7478f1f860851ab8185fca815307686"
+    },
+    {
+      "command": [
+        "bash",
+        "tests/test-update.sh"
+      ],
+      "started_at": "2026-10-22T01:47:25.067249+00:00",
+      "finished_at": "2026-10-22T01:47:29.154994+00:00",
+      "return_code": 0,
+      "log_sha256": "c9718987eb2d41efddf73bc6fd9bddf92708f5c2b67c84a27395c3d9b31f38f3"
+    }
+  ],
+  "scope": "Isolated temporary installer fixtures on frozen03a2/ce1f source"
+}

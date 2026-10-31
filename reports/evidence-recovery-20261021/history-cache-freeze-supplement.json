@@ -1,0 +1,20 @@
+{
+  "kind": "authored-source-freeze-supplement-preserves-original-guard-failure",
+  "at": "2026-10-21T17:47:05.979707+00:00",
+  "original_wrapper_exit": 2,
+  "original_all_files_guard": false,
+  "actual_unittest_exit": 0,
+  "actual_counts": [
+    [
+      "1023",
+      "524.701"
+    ]
+  ],
+  "changed_files": [
+    "skills/to-sdd-pipeline/scripts/__pycache__/sdd_check.cpython-312.pyc"
+  ],
+  "classification": "Generated ignored CPython bytecode changed; no authored source/test changed",
+  "changed_pyc_structurally_equals_compilation_of_current_frozen_source": true,
+  "authored_files_unchanged": true,
+  "scope_limits": "Original report/log retained. This supplement does not alter the recorded failed all-file guard or claim product acceptance. No bytecode executed by this inspection."
+}

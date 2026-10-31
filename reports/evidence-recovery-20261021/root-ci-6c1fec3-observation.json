@@ -1,0 +1,634 @@
+{
+  "at": "2026-10-22T01:05:32.699326+00:00",
+  "command": [
+    "gh",
+    "run",
+    "view",
+    "39701866802",
+    "--repo",
+    "Ingwarski/sdd-pipeline-skills",
+    "--json",
+    "headSha,status,conclusion,jobs,url"
+  ],
+  "actual_result": {
+    "conclusion": "",
+    "headSha": "6c1fec38a4d1353837b7147b18302b9afda8baf4",
+    "jobs": [
+      {
+        "completedAt": "2026-10-22T00:48:19Z",
+        "conclusion": "success",
+        "databaseId": 119572749064,
+        "name": "content",
+        "startedAt": "2026-10-22T00:48:08Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-22T00:48:10Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-22T00:48:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:11Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 2,
+            "startedAt": "2026-10-22T00:48:10Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:11Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 3,
+            "startedAt": "2026-10-22T00:48:11Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:14Z",
+            "conclusion": "success",
+            "name": "Install test-only content tools",
+            "number": 4,
+            "startedAt": "2026-10-22T00:48:11Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:14Z",
+            "conclusion": "success",
+            "name": "Validate ownership, resources and skill YAML",
+            "number": 5,
+            "startedAt": "2026-10-22T00:48:14Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:16Z",
+            "conclusion": "success",
+            "name": "Compare full instruction loads, including references and retries",
+            "number": 6,
+            "startedAt": "2026-10-22T00:48:14Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:16Z",
+            "conclusion": "success",
+            "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 11,
+            "startedAt": "2026-10-22T00:48:16Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:16Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 12,
+            "startedAt": "2026-10-22T00:48:16Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:16Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 13,
+            "startedAt": "2026-10-22T00:48:16Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39701866802/job/119572749064"
+      },
+      {
+        "completedAt": "0001-01-01T00:00:00Z",
+        "conclusion": "",
+        "databaseId": 119572749321,
+        "name": "windows (3.12)",
+        "startedAt": "2026-10-22T00:48:08Z",
+        "status": "in_progress",
+        "steps": [
+          {
+            "completedAt": "2026-10-22T00:48:10Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-22T00:48:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:17Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 2,
+            "startedAt": "2026-10-22T00:48:10Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:17Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 3,
+            "startedAt": "2026-10-22T00:48:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Test stage checker and installer input contract",
+            "number": 4,
+            "startedAt": "2026-10-22T00:48:17Z",
+            "status": "in_progress"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Test symbolic-link and junction installer",
+            "number": 5,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Test retirement cleanup",
+            "number": 6,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Test safe updater",
+            "number": 7,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 13,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 14,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          }
+        ],
+        "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39701866802/job/119572749321"
+      },
+      {
+        "completedAt": "2026-10-22T00:54:25Z",
+        "conclusion": "success",
+        "databaseId": 119572749420,
+        "name": "unix (macos-latest, 3.14)",
+        "startedAt": "2026-10-22T00:48:08Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-22T00:48:09Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-22T00:48:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:12Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 2,
+            "startedAt": "2026-10-22T00:48:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:12Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 3,
+            "startedAt": "2026-10-22T00:48:12Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:54:12Z",
+            "conclusion": "success",
+            "name": "Test stage checker and installer input contract",
+            "number": 4,
+            "startedAt": "2026-10-22T00:48:12Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:54:14Z",
+            "conclusion": "success",
+            "name": "Test symlink installer",
+            "number": 5,
+            "startedAt": "2026-10-22T00:54:12Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:54:18Z",
+            "conclusion": "success",
+            "name": "Test retirement cleanup",
+            "number": 6,
+            "startedAt": "2026-10-22T00:54:14Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:54:21Z",
+            "conclusion": "success",
+            "name": "Test safe updater",
+            "number": 7,
+            "startedAt": "2026-10-22T00:54:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:54:21Z",
+            "conclusion": "success",
+            "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 13,
+            "startedAt": "2026-10-22T00:54:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:54:22Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 14,
+            "startedAt": "2026-10-22T00:54:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:54:23Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 15,
+            "startedAt": "2026-10-22T00:54:22Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39701866802/job/119572749420"
+      },
+      {
+        "completedAt": "2026-10-22T00:56:09Z",
+        "conclusion": "success",
+        "databaseId": 119572749490,
+        "name": "unix (macos-latest, 3.12)",
+        "startedAt": "2026-10-22T00:48:09Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-22T00:48:11Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-22T00:48:10Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:13Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 2,
+            "startedAt": "2026-10-22T00:48:11Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:13Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 3,
+            "startedAt": "2026-10-22T00:48:13Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:55:52Z",
+            "conclusion": "success",
+            "name": "Test stage checker and installer input contract",
+            "number": 4,
+            "startedAt": "2026-10-22T00:48:13Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:55:55Z",
+            "conclusion": "success",
+            "name": "Test symlink installer",
+            "number": 5,
+            "startedAt": "2026-10-22T00:55:52Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:00Z",
+            "conclusion": "success",
+            "name": "Test retirement cleanup",
+            "number": 6,
+            "startedAt": "2026-10-22T00:55:55Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:05Z",
+            "conclusion": "success",
+            "name": "Test safe updater",
+            "number": 7,
+            "startedAt": "2026-10-22T00:56:00Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:05Z",
+            "conclusion": "success",
+            "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 13,
+            "startedAt": "2026-10-22T00:56:05Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:05Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 14,
+            "startedAt": "2026-10-22T00:56:05Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:07Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 15,
+            "startedAt": "2026-10-22T00:56:05Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39701866802/job/119572749490"
+      },
+      {
+        "completedAt": "2026-10-22T00:53:20Z",
+        "conclusion": "success",
+        "databaseId": 119572749556,
+        "name": "unix (ubuntu-latest, 3.14)",
+        "startedAt": "2026-10-22T00:48:08Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-22T00:48:09Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-22T00:48:08Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:10Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 2,
+            "startedAt": "2026-10-22T00:48:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:10Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 3,
+            "startedAt": "2026-10-22T00:48:10Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:53:11Z",
+            "conclusion": "success",
+            "name": "Test stage checker and installer input contract",
+            "number": 4,
+            "startedAt": "2026-10-22T00:48:10Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:53:13Z",
+            "conclusion": "success",
+            "name": "Test symlink installer",
+            "number": 5,
+            "startedAt": "2026-10-22T00:53:11Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:53:15Z",
+            "conclusion": "success",
+            "name": "Test retirement cleanup",
+            "number": 6,
+            "startedAt": "2026-10-22T00:53:13Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:53:17Z",
+            "conclusion": "success",
+            "name": "Test safe updater",
+            "number": 7,
+            "startedAt": "2026-10-22T00:53:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:53:17Z",
+            "conclusion": "success",
+            "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 13,
+            "startedAt": "2026-10-22T00:53:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:53:17Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 14,
+            "startedAt": "2026-10-22T00:53:17Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:53:17Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 15,
+            "startedAt": "2026-10-22T00:53:17Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39701866802/job/119572749556"
+      },
+      {
+        "completedAt": "0001-01-01T00:00:00Z",
+        "conclusion": "",
+        "databaseId": 119572749579,
+        "name": "windows (3.14)",
+        "startedAt": "2026-10-22T00:48:08Z",
+        "status": "in_progress",
+        "steps": [
+          {
+            "completedAt": "2026-10-22T00:48:10Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-22T00:48:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:16Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 2,
+            "startedAt": "2026-10-22T00:48:10Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:16Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 3,
+            "startedAt": "2026-10-22T00:48:16Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Test stage checker and installer input contract",
+            "number": 4,
+            "startedAt": "2026-10-22T00:48:16Z",
+            "status": "in_progress"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Test symbolic-link and junction installer",
+            "number": 5,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Test retirement cleanup",
+            "number": 6,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Test safe updater",
+            "number": 7,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 13,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 14,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          }
+        ],
+        "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39701866802/job/119572749579"
+      },
+      {
+        "completedAt": "2026-10-22T00:57:02Z",
+        "conclusion": "success",
+        "databaseId": 119572749596,
+        "name": "unix (ubuntu-latest, 3.12)",
+        "startedAt": "2026-10-22T00:48:08Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-22T00:48:10Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-22T00:48:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:11Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 2,
+            "startedAt": "2026-10-22T00:48:10Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:48:11Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 3,
+            "startedAt": "2026-10-22T00:48:11Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:51Z",
+            "conclusion": "success",
+            "name": "Test stage checker and installer input contract",
+            "number": 4,
+            "startedAt": "2026-10-22T00:48:11Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:53Z",
+            "conclusion": "success",
+            "name": "Test symlink installer",
+            "number": 5,
+            "startedAt": "2026-10-22T00:56:51Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:57Z",
+            "conclusion": "success",
+            "name": "Test retirement cleanup",
+            "number": 6,
+            "startedAt": "2026-10-22T00:56:53Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:59Z",
+            "conclusion": "success",
+            "name": "Test safe updater",
+            "number": 7,
+            "startedAt": "2026-10-22T00:56:57Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:59Z",
+            "conclusion": "success",
+            "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "number": 13,
+            "startedAt": "2026-10-22T00:56:59Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:59Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "number": 14,
+            "startedAt": "2026-10-22T00:56:59Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-22T00:56:59Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 15,
+            "startedAt": "2026-10-22T00:56:59Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39701866802/job/119572749596"
+      }
+    ],
+    "status": "in_progress",
+    "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39701866802"
+  }
+}

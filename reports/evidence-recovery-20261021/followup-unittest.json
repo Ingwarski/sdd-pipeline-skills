@@ -1,0 +1,19 @@
+{
+  "command": [
+    "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-p",
+    "test_*.py",
+    "-v"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 328.907,
+  "source_hashes_unchanged": true,
+  "log": "followup-unittest.log",
+  "product_acceptance": false
+}

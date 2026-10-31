@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "kind": "invocation-history-snapshot-hash-design",
+  "status": "implemented_with_reviewed_readonly_phase_refinement",
+  "source_baseline": "909483c",
+  "scope": [
+    "skills/to-sdd-pipeline/scripts/sdd_check.py",
+    "skills/to-sdd-pipeline/scripts/sdd_history.py",
+    "skills/to-sdd-pipeline/scripts/progress.py",
+    "tests/test_history_file_cache.py"
+  ],
+  "cache_contract": {
+    "reused_data": "SHA256 and stable signature of regular historical snapshot files only; never validation results, reference JSON, source inventories, evidence receipts, or semantic history decisions",
+    "signature": [
+      "st_dev",
+      "st_ino",
+      "st_size",
+      "st_mtime_ns",
+      "st_ctime_ns"
+    ],
+    "first_read": "Use existing stable streaming hash_file with no-follow descriptor/open and before/after metadata verification; retain pre-read signature and verify again after reading.",
+    "every_reuse": "Repeat logical path no-link checks, exact snapshot_root/logical membership and physical snapshot path no-link checks, fresh regular-file signature checks, and caller-specific expected hash comparison. Checker snapshot reads reuse only paths already registered by validate_files.",
+    "final_audit": "Fresh regular-file/no-linked-parent signature audit of the complete union at every Checker/progress boundary and outer read-only phase exit, including exceptions, semantic cache hits and child-only files. Tiny nested helpers retain fresh per-use stats and defer full-union audit to their enclosing boundary."
+  },
+  "lifetime": {
+    "owner": "Dedicated SnapshotFileHashes object, separate from _history_cache and _history_stack. Checker.file_hash keeps its existing ordinary-file cache; only registered snapshot paths delegate to this owner.",
+    "root_checker_run": "Enter a fresh history snapshot hash scope unless called inside an already active invocation. Leave scope and audit in finally. A later run on the same Checker creates a fresh owner and performs new physical reads. Historical checkers retain copied original context/completion snapshot records and revalidate all files at every run entry, so an inactive owner never leaves an unused historical file unaudited.",
+    "history_entrypoints": "Standalone validate_context, validate_completion, validate_attempt, validate_transition, historical_checker, HistoryView.resolve, validate_files own fresh read-only scopes; nested callers share their active dedicated owner via ContextVar. Writing capture/assess/stage/activate/adopt helpers and CLI dispatch have no spanning owner; each validation before/after a known write phase gets a new owner. capture_continuation explicitly shares one read-only preflight scope across its initial attempt and every prior-attempt check; this closes before capture_context is called. This preserves linear semantic reuse without crossing a hard-link write boundary.",
+    "progress": "workflow_progress opens/reuses a bounded scope; each probe explicitly receives its active owner. Both standalone progress and checker-triggered ready projections audit the full shared snapshot union.",
+    "module_aliases": "Explicit owner transfer into historical/progress child checkers preserves the same bounded lifetime even when history and checker are imported through separate importlib aliases.",
+    "inactive_owner": "Owners are active only while scopes are entered. Retained checker attributes cannot revive an ended owner. Outermost exit clears cached hashes after auditing."
+  },
+  "semantic_invariants": [
+    "Preserve _history_cache reset and _history_stack cycle behavior exactly.",
+    "No expected-hash memoization: two references to the same bytes with different expected hashes are separately checked.",
+    "No archive, manifest, failed result, authority, or receipt changes.",
+    "No cross-invocation or persistent trust.",
+    "Mutation, replacement, linked path, missing file, bad membership, or changed metadata blocks the affected result."
+  ],
+  "targeted_verification": [
+    "single streaming physical read across root, historical child and ready projection",
+    "different expected hash rejected despite cached bytes",
+    "mutation during first read, between uses, child exit and outer exit rejected",
+    "fresh second run, standalone history call and CLI never trust an earlier owner",
+    "symlink, same-size replacement, missing file, membership changes and error-path final audit fail closed",
+    "existing targeted checker/history/progress regressions"
+  ],
+  "limits": "Synthetic local fixtures only. No old archive payloads, product, private ledger, provider, browser, network, Git, installation, or product QA claims.",
+  "initial_design_refinement": {
+    "counterexample": "A writing capture phase adds hard links to an already hashed blob inode, legitimately changing the ctime of existing snapshot paths. The initial whole-writing-command scope therefore rejected three actual capture fixture paths in the first targeted run.",
+    "review_decision": "Root confirmed strict identity/mtime/ctime checks stay unchanged. End and audit each read-only validation phase before writes; after writes require a fresh owner and full physical hash.",
+    "no_longer_implemented": "No owner spans history CLI dispatch or capture/assess/stage/activate/adopt writing helpers. No full-union scan at every tiny nested helper exit; outer phases and Checker/progress boundaries do audit the union.",
+    "existing_regression": "The first phase split made each prior-ref loop iteration a fresh phase, producing [18,39,63,90] checker calls and failing the unchanged linear-growth regression. A single bounded preflight scope around the whole read-only loop restores the intended operation cache; the unchanged regression passes."
+  },
+  "semantic_cache_eligibility": {
+    "registry_location": "dedicated active hash owner; cleared at outer exit",
+    "guards": [
+      "strong reference to actual caller semantic cache object",
+      "exact result key",
+      "strong reference and identity equality for current cached result object",
+      "SHA256 of canonical JSON result content; recompute on every eligibility hit"
+    ],
+    "fresh_owner": "empty eligibility registry forces full dependency revalidation even when caller retains semantic results or historical checker _history_stack",
+    "unchanged": "Existing semantic cache contents, stack/cycle checks, and normal top-level reset condition remain intact. No semantic cache is shared with progress children."
+  }
+}

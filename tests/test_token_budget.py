@@ -44,6 +44,7 @@ class BudgetTests(unittest.TestCase):
             ("approved_decision_correction", True, "to-development-plan", measure.SHARED + "authorization-corrections.md"),
             ("evidence_storage_consumers", ["to-sdd-pipeline"], "to-sdd-pipeline", measure.SHARED + "evidence-storage-contract.md"),
             ("evidence_storage_consumers", ["to-sdd-pipeline"], "to-sdd-pipeline", measure.SHARED + "browser-evidence-workflow.md"),
+            ("completion_preservation", True, "to-sdd-pipeline", measure.SHARED + "reviewed-acceptance.md"),
         )
         for flag, value, skill, path in cases:
             with self.subTest(flag=flag, skill=skill):

@@ -1,0 +1,265 @@
+{
+  "review_kind": "independent read-only semantic review with pure in-memory synthetic probes",
+  "created_at": "2026-10-21T12:11:39.153971+00:00",
+  "source_revision": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b",
+  "branch": "codex/fix-evidence-recovery",
+  "scope": [
+    "skills/to-sdd-pipeline/scripts/sdd_check.py",
+    "tests/test_evidence_scoped_checker.py",
+    "docs/evidence-storage.md",
+    "skills/to-sdd-pipeline/references/evidence-storage-contract.md"
+  ],
+  "source_sha256": {
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": "cb6e53fa54a68bd6c547d8e043f1cc81bfc4ea7d78cca6eea7a7fa27c3ef4a67",
+    "tests/test_evidence_scoped_checker.py": "6fd51c5a374ecc460a298160bde1b3a7881f170ad02a730cacbb6ee18fc816b8",
+    "docs/evidence-storage.md": "50b2b00975857ff4dddffe211151a94f27da1c2a9d0581f26f9bd11d29f0d805",
+    "skills/to-sdd-pipeline/references/evidence-storage-contract.md": "2e230456b14f54c6f519704ca2fdbdc55794e75f8e3b7f02dffee0645429e101"
+  },
+  "instructions_read": [
+    "/Users/ingwar/.codex/AGENTS.md",
+    "AGENTS.md",
+    "docs/maintenance.md",
+    "docs/specification-quality.md"
+  ],
+  "interface_read_only": [
+    "skills/to-sdd-pipeline/scripts/evidence/quarantine.py",
+    "skills/to-sdd-pipeline/scripts/evidence/accounting.py",
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py",
+    "tests/test_evidence_checker.py"
+  ],
+  "usage": {
+    "live_checks": 3,
+    "included_used_percent_before": 57,
+    "included_used_percent_after": 57,
+    "ordinary_usage_allowed": true,
+    "extra_credits_or_api_or_reset_authorized": false,
+    "none_requested_or_used_knowingly": true
+  },
+  "semantics_reviewed": [
+    "v2 preserves global accounting incomplete and lower-bound disclosure; generation_ready is distinct from historical completeness",
+    "v1 explicitly incomplete receipts remain rejected",
+    "quarantined original run, floor, ordinal, reservation and intent remain preserved",
+    "required managed references and their prepared dependencies must resolve to complete selected runs with original run/unit bindings",
+    "checker remains read-only and does not inspect mutable ledger or authenticate operator assertions",
+    "docs preserve cold-ledger-loss blocker, numeric limits, QA, DoD and separate implementation permission"
+  ],
+  "resolved_during_review": [
+    {
+      "priority": 2,
+      "title": "Validate every selected accounting row, including unconsumed runs",
+      "path": "skills/to-sdd-pipeline/scripts/sdd_check.py",
+      "current_lines": [
+        898,
+        907
+      ],
+      "before": "Pure probe accepted an extra selected status-complete run with pending_reservations=1 and unreconciled_outputs=1.",
+      "after": "Root added strict nonnegative integer amount validation and rejects outstanding reservations or outputs outside quarantined runs. Repeated whole evidence_accounting pure probes reject malformed selected amounts, selected pending work and unisolated incomplete pending work."
+    },
+    {
+      "priority": 2,
+      "title": "Preserve original run charges above uncertain-output floor",
+      "path": "skills/to-sdd-pipeline/scripts/sdd_check.py",
+      "current_lines": [
+        871,
+        874
+      ],
+      "after": "Current comparison uses immutable descriptor.run gross bytes/files; pure probe lowering receipt row below those charges rejected. Earlier initial source compared only uncertain output floor; change was already present before first executed floor probe."
+    },
+    {
+      "id": "SCOPED-COUNT-01",
+      "priority": 2,
+      "title": "Count distinct preserved holds when multiple quarantines belong to one run",
+      "path": "skills/to-sdd-pipeline/scripts/sdd_check.py",
+      "lines": [
+        869,
+        870
+      ],
+      "body": "For two valid quarantine descriptors with distinct attempt/reservation/output/intent IDs on the same failed run, the checker accepts runs[failed].pending_reservations=1. Each descriptor independently checks only >=1, although the receipt itself preserves two distinct pending reservation IDs. This understates the declared run pending count. Both full reservation values remain in descriptors, so this probe does not establish a numeric-budget or product-acceptance bypass.",
+      "reproduction": "Clone the scoped fixture descriptor; assign unique attempt_id, reservation_id, output_id and intent_id; update nested reservation/uncertain/proof IDs; recompute digest; add its matching pending intent. Leave failed-run pending_reservations at 1. scoped_evidence_accounting returns the fresh selected scope.",
+      "expected": "Reject a reported pending count smaller than the number of distinct preserved reservations for that run; add a regression with two descriptors.",
+      "status": "fixed by root and independently rechecked",
+      "current_lines": [
+        910,
+        912
+      ],
+      "after": "Exact pending count must equal distinct quarantined reservation count for its failed run. Underreported and overreported counts reject; correct count accepts. Mixed original ledger IDs reject at lines 899-900."
+    }
+  ],
+  "findings": [],
+  "verification": {
+    "python": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "mode": "-B with PYTHONPATH=tests:skills/to-sdd-pipeline/scripts; stdin harness; no filesystem fixture setup or temporary files",
+    "whole_accounting_probe_source_sha256": "cb6e53fa54a68bd6c547d8e043f1cc81bfc4ea7d78cca6eea7a7fa27c3ef4a67",
+    "source_unchanged_during_whole_accounting_probe": true,
+    "outcomes": [
+      {
+        "case": "baseline",
+        "actual": "accepted",
+        "expected": "accepted"
+      },
+      {
+        "case": "selected-complete-pending",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "scoped accounting has unisolated outstanding reservations or outputs"
+      },
+      {
+        "case": "selected-malformed-amount",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "invalid scoped accounting run amount: gross_generated_bytes"
+      },
+      {
+        "case": "unisolated-incomplete-pending",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "scoped accounting has unisolated outstanding reservations or outputs"
+      },
+      {
+        "case": "settled-incomplete-history",
+        "actual": "accepted",
+        "expected": "accepted"
+      },
+      {
+        "case": "failed-required-run",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "required evidence is outside the complete current accounting scope"
+      },
+      {
+        "case": "incomplete-v1",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "evidence accounting is incomplete; reconcile missing durable accounting history"
+      },
+      {
+        "case": "lower-original-run-floor",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "quarantined run must remain incomplete with its full pending hold"
+      },
+      {
+        "case": "false-generation-ready",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "scoped accounting must disclose incomplete historical accounting"
+      },
+      {
+        "case": "two-holds-underreported",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "scoped accounting pending hold count differs from preserved quarantines"
+      },
+      {
+        "case": "two-holds-correct-count",
+        "actual": "accepted",
+        "expected": "accepted"
+      },
+      {
+        "case": "two-holds-overreported",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "scoped accounting pending hold count differs from preserved quarantines"
+      },
+      {
+        "case": "two-holds-different-ledgers",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "scoped quarantines must retain one authoritative original ledger"
+      },
+      {
+        "case": "quarantined-dependency",
+        "actual": "rejected",
+        "expected": "rejected",
+        "error": "required evidence is outside the complete current accounting scope"
+      }
+    ],
+    "not_run": [
+      "full unittest suite",
+      "selected unittest fixture suite",
+      "installer/update/retirement checks",
+      "live ledger operations",
+      "live transport",
+      "browser or product/runtime acceptance",
+      "cross-platform CI"
+    ],
+    "limitations": [
+      "In-memory declarative probes establish checker behavior only. Core accounting/quarantine/manager are actively owned elsewhere and were read only for interfaces; final core semantic review remains root responsibility. Source modifications by root during review require final exact-revision verification."
+    ],
+    "previous_outcomes": [
+      {
+        "case": "baseline fresh v2 known complete scope",
+        "actual": "accepted",
+        "expected": "accepted"
+      },
+      {
+        "case": "unconsumed selected complete run with pending reservation and output",
+        "actual": "rejected",
+        "expected": "rejected"
+      },
+      {
+        "case": "unconsumed selected complete run with bool gross amount",
+        "actual": "rejected",
+        "expected": "rejected"
+      },
+      {
+        "case": "unisolated incomplete run with pending reservation and output",
+        "actual": "rejected",
+        "expected": "rejected"
+      },
+      {
+        "case": "excluded historical incomplete run with zero outstanding work",
+        "actual": "accepted",
+        "expected": "accepted"
+      },
+      {
+        "case": "quarantined failed run required by caller",
+        "actual": "rejected",
+        "expected": "rejected"
+      },
+      {
+        "case": "v1 explicit incomplete receipt",
+        "actual": "rejected",
+        "expected": "rejected"
+      },
+      {
+        "case": "receipt floor below original descriptor.run charges",
+        "actual": "rejected",
+        "expected": "rejected"
+      },
+      {
+        "case": "generation_ready false",
+        "actual": "rejected",
+        "expected": "rejected"
+      },
+      {
+        "case": "two quarantined reservations with reported run pending count one",
+        "actual": "accepted",
+        "expected": "rejected"
+      }
+    ],
+    "all_final_probe_expectations_met": true
+  },
+  "remaining_blockers": [
+    "No remaining confirmed blocker in reviewed checker/docs scope. Full integration and exact-revision regression verification remain with root; this report is not product acceptance."
+  ],
+  "writes": [
+    "reports/evidence-recovery-20261021/scoped-review.json"
+  ],
+  "resources_created": [],
+  "network_browser_liveledger_git_mutations": "none",
+  "memory_context": {
+    "file": "MEMORY.md",
+    "lines": [
+      567,
+      576
+    ],
+    "rollout_id": "01a127d9-8209-7280-9a41-c264f06b124f",
+    "use": "Prior evidence-boundary and bundled Python guidance; all operative facts independently checked against current sources."
+  },
+  "updated_at": "2026-10-21T12:12:56.358155+00:00",
+  "followup_interface_read": {
+    "file": "skills/to-sdd-pipeline/scripts/evidence_store.py",
+    "scope": "Read-only scoped accounting receipt issuance; root now checks exact quarantined pending counts and disallows other outstanding rows. Actual CLI/ledger issuance not executed by reviewer."
+  }
+}

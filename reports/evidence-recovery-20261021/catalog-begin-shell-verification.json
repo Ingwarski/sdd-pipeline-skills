@@ -1,0 +1,84 @@
+{
+  "purpose": "Required isolated maintenance shell suites after catalog begin changes",
+  "repository": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+  "source_revision": "3f38fc8 (source snapshot identified by parent)",
+  "runtime": {
+    "python_path_prefix": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin",
+    "python_version": "Python 3.12.14"
+  },
+  "frozen_files": {
+    "expected_sha256_prefixes": {
+      "skills/to-sdd-pipeline/scripts/evidence/manager.py": "f088932abf55334e7955e23ddbf58d4e7f0f482ace7707de15ec3e38b52de425",
+      "tests/test_evidence_producer_manager.py": "773656e3780daf71d78ea8de098af7308ed02326ef13b6cc7c8659eced837001"
+    },
+    "before_sha256": {
+      "skills/to-sdd-pipeline/scripts/evidence/manager.py": "f088932abf55334e7955e23ddbf58d4e7f0f482ace7707de15ec3e38b52de425",
+      "tests/test_evidence_producer_manager.py": "773656e3780daf71d78ea8de098af7308ed02326ef13b6cc7c8659eced837001"
+    },
+    "after_sha256": {
+      "skills/to-sdd-pipeline/scripts/evidence/manager.py": "f088932abf55334e7955e23ddbf58d4e7f0f482ace7707de15ec3e38b52de425",
+      "tests/test_evidence_producer_manager.py": "773656e3780daf71d78ea8de098af7308ed02326ef13b6cc7c8659eced837001"
+    },
+    "matched_expected_before": true,
+    "matched_before_after": true
+  },
+  "suites": [
+    {
+      "suite": "install",
+      "command": [
+        "bash",
+        "tests/test-install.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 2.856,
+      "log": "reports/evidence-recovery-20261021/catalog-begin-shell-install.log",
+      "log_bytes": 5475,
+      "resolved_system_tmpdir": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T",
+      "private_temp_parent": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-catalog-begin-install-lvbyca3_",
+      "remaining_task_temp_children_before_parent_removal": [],
+      "private_parent_removed_after_empty_check": true,
+      "private_parent_verified_absent": true,
+      "final_log_line": "Unix installer tests passed."
+    },
+    {
+      "suite": "retirement",
+      "command": [
+        "bash",
+        "tests/test-retirement.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 5.641,
+      "log": "reports/evidence-recovery-20261021/catalog-begin-shell-retirement.log",
+      "log_bytes": 153,
+      "resolved_system_tmpdir": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T",
+      "private_temp_parent": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-catalog-begin-retirement-1xb7xtwa",
+      "remaining_task_temp_children_before_parent_removal": [],
+      "private_parent_removed_after_empty_check": true,
+      "private_parent_verified_absent": true,
+      "final_log_line": "Permanent retirement tests passed: copies, edits, broken links, receipts, former backups, failure, source/project roots, no link traversal, idempotence."
+    },
+    {
+      "suite": "update",
+      "command": [
+        "bash",
+        "tests/test-update.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 5.181,
+      "log": "reports/evidence-recovery-20261021/catalog-begin-shell-update.log",
+      "log_bytes": 168,
+      "resolved_system_tmpdir": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T",
+      "private_temp_parent": "/private/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-catalog-begin-update-7iq8r4jc",
+      "remaining_task_temp_children_before_parent_removal": [],
+      "private_parent_removed_after_empty_check": true,
+      "private_parent_verified_absent": true,
+      "final_log_line": "Updater tests passed: stable default, missing stable, explicit main, no downgrade, fresh installer, flags, dirty tree, branch, origin, old URL, ahead/diverged history."
+    }
+  ],
+  "all_three_passed": true,
+  "scope_limits": [
+    "These are local isolated shell-suite results, not product/runtime acceptance or cross-platform CI evidence.",
+    "The updater suite is configured to use its disposable local bare Git remote; no live network/provider is used.",
+    "No actual personal installation roots, production Git state, Drive, private ledger, browser, source, or dependency installation were touched."
+  ]
+}

@@ -1,0 +1,168 @@
+{
+  "source_revision": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b",
+  "branch": "codex/fix-evidence-recovery",
+  "authorization": "User2026-10-21: Fix recovery engine, preserve failed runs/accounting, test/install, address journal/test bloat, resume units; commit/push; no merge",
+  "active_product_unit": "UNIT-EXP-00 prerequisite before06",
+  "root_ownership": [
+    "checker.py and checker regression tests, contracts/docs, operational allocation, Git/install/live ledger/runtime integration"
+  ],
+  "workers": [
+    {
+      "name": "recovery_analysis",
+      "model": "gpt-6.1-sol",
+      "reasoning": "high",
+      "justification": "Persistent accounting and failure recovery safety",
+      "write": "reports/evidence-recovery-20261021/recovery-analysis.json",
+      "runtime": "none",
+      "deliverable": "Source-backed safe recovery contract, distinguish real retained proof from unknown gross; no implementation until interfaces settled"
+    },
+    {
+      "name": "bloat_analysis",
+      "model": "gpt-6-luna",
+      "reasoning": "high",
+      "justification": "Bounded source and data-size tracing",
+      "write": "reports/evidence-recovery-20261021/bloat-analysis.json",
+      "runtime": "none",
+      "deliverable": "Measured/source-backed redundant writes, test output/history amplification with acceptance-preserving fixes"
+    },
+    {
+      "name": "unit00_readiness",
+      "model": "gpt-6.1-sol",
+      "reasoning": "medium",
+      "justification": "Prepared harness dependency integration",
+      "write": "reports/evidence-recovery-20261021/unit00-readiness.json",
+      "runtime": "none",
+      "deliverable": "Exact ready inputs/QA00 requirements and bounded current harness assembly plan; no product execution or next-unit work"
+    }
+  ],
+  "interfaces": "v2 scoped-known-generation receipt; immutable quarantine preserves historical incompleteness, full floors and pending holds; readiness distinct from historical completeness; unrelated structural loss still blocks.",
+  "spending": "Included only; latest58percentused; no extras/API/reset",
+  "returned_worker_settings": "requested, host not independently exposes",
+  "queue": [
+    "Research/review recovery semantics",
+    "Implement and regression-test accepted engine contract",
+    "Validate full suites/install tested branch without merge",
+    "Recover live state through supported command; preserve all originals",
+    "Assemble/test bounded UNIT00 harness and actual QA/DoD; continue orderedunits"
+  ],
+  "implementation_ownership": {
+    "engine_recovery_analysis": [
+      "evidence/accounting.py",
+      "evidence/producer.py",
+      "evidence/quarantine.py",
+      "tests/test_evidence_quarantine.py"
+    ],
+    "recovery_manager_integration": [
+      "evidence/manager.py",
+      "evidence_store.py",
+      "tests/test_evidence_quarantine_manager.py"
+    ],
+    "unit00_harness_readiness": [
+      "HappyPro unit-00/current-20261021-retry3/**"
+    ],
+    "test_bloat_analysis": [
+      "bloat-analysis.json",
+      "test-footprint.json"
+    ]
+  },
+  "baseline": {
+    "tests": 913,
+    "seconds": 285.636,
+    "failures": 8,
+    "skips": 11,
+    "cause": "installer subprocess PATH did not include available Python3.12 runtime; rerun with correct PATH required"
+  },
+  "additional_workers": [
+    {
+      "name": "recovery_manager_integration",
+      "profile": "gpt-6.1-sol/high requested",
+      "write": [
+        "evidence/manager.py",
+        "evidence_store.py",
+        "tests/test_evidence_quarantine_manager.py",
+        "own report"
+      ],
+      "state": "released; integrated and independently reviewed"
+    },
+    {
+      "name": "scoped_receipt_review",
+      "profile": "gpt-6.1-sol/high requested",
+      "write": [
+        "scoped-review.json",
+        "engine-review.json"
+      ],
+      "state": "released; findings fixed and rechecked"
+    }
+  ],
+  "verification": {
+    "source": "consolidated-source-hashes.json",
+    "unittest": "960 run,949 passed,11 platform/test-only dependency skips;276.321s",
+    "shell": "install/retirement/update passed",
+    "engine_source_frozen": true,
+    "included_allowance_latest_used_percent": 57,
+    "extra_credits_API_or_reset_used": false,
+    "product_acceptance": false,
+    "followup": {
+      "unit_tests": 985,
+      "passed": 974,
+      "skipped": 11,
+      "elapsed_seconds": 328.907,
+      "source_hashes_unchanged": true,
+      "maintenance_shells": "all3passed",
+      "independent_reviews": [
+        "ci-followup-review.json",
+        "group-review.json",
+        "continuation-review.json"
+      ],
+      "cross_platform_ci": "not_run_for_followup_commit_yet",
+      "product_acceptance": false
+    }
+  },
+  "phase": "Followup engine local985tests/11skips, shells and independent reviews passed; commit/push for platform CI then supported frozen install; UNIT00 not completed",
+  "updated_at": "2026-10-21T16:01:58.452715+00:00",
+  "phase_history": [
+    {
+      "phase": "Engine local regression/review complete; prepare tested topic commit/push, CI content check, then supported repair install and actual recovery",
+      "at": "2026-10-21T12:25:05.741794+00:00"
+    },
+    {
+      "phase": "Follow-up to actual CI findings and native-group browser ownership prerequisite; product00 remains unfinished",
+      "at": "2026-10-21T15:46:09.157708+00:00"
+    }
+  ],
+  "active_write_ownership": {
+    "root": [
+      "allocation.json",
+      "Git/install/CI/actual runtime/live-ledger integration",
+      "retry3 inventories/history/root controllers excluding worker files"
+    ],
+    "engine_recovery_analysis": [
+      "producer_runtime.py",
+      "NEW test_evidence_managed_group_identity.py",
+      "NEW group-inspection.json"
+    ],
+    "unit00_harness_readiness": [
+      "retry3/media/browser-resources.mjs",
+      "NEW retry3/media/browser-resources.test.mjs",
+      "NEW retry3/root-browser-identity.py",
+      "retry3/root-runtime-producer.py",
+      "retry3/root-runtime-cleanup.py",
+      "retry3/root-helpers.test.py",
+      "NEW adapter report/model"
+    ],
+    "scoped_receipt_review": [
+      "NEW ci-followup-review.json"
+    ],
+    "recovery_manager_integration": [
+      "NEW live-resume-command-review.json"
+    ]
+  },
+  "frozen_pending_verification": [
+    "producer.py",
+    "test_evidence_abandoned_accounting.py",
+    "test_evidence_producer_recovery.py",
+    "test_evidence_quarantine.py",
+    "ci-observation.json"
+  ],
+  "shared_resources": "No live browser/SQL/provider/ledger execution by workers. Root sole live integration writer. New SDK interface settled before dependent bridge. No old-archive download/retest."
+}

@@ -1,0 +1,23 @@
+{
+  "started_at": "2026-10-22T01:22:29.318630+00:00",
+  "finished_at": "2026-10-22T01:29:23.515109+00:00",
+  "command": [
+    "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-p",
+    "test_*.py",
+    "-v"
+  ],
+  "environment": {
+    "path_prefix": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin",
+    "PYTHONDONTWRITEBYTECODE": "1"
+  },
+  "return_code": 0,
+  "log_sha256": "2f8ffd25973a61df60a142e5eea8d8d8268818a6effb3b31b5a8b753014c2959",
+  "scope": "Complete unchanged frozen newline regression suite with supported Python selected for installer subprocesses; initial eight PATH-related failures retained separately"
+}

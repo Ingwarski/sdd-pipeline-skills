@@ -1,0 +1,53 @@
+{
+  "base_head": "6c1fec3",
+  "boundaries": "No live configure, private ledger, provider, browser, resources, Git, install or installed snapshot mutation.",
+  "change": {
+    "after": "NamedTemporaryFile(mode=\"w\", encoding=\"utf-8\", newline=\"\\n\", ...)",
+    "before": "NamedTemporaryFile(mode=\"w\", encoding=\"utf-8\", ...)",
+    "function": "_write",
+    "reason": "CPython text output with newline=None translates LF to the platform line separator. policy._setup_bytes requires deterministic LF. Explicit newline=\"\\n\" disables output translation, so supported setup serialization matches lineage raw-prefix reconstruction on every platform.",
+    "unchanged": [
+      "original pre-lineage raw CRLF bytes are retained exactly in lineage base",
+      "policy and manager validation and lineage digest rules",
+      "existing history records, failed statuses, reservation/floors and receipt hashes",
+      "fsync, atomic replace, UTF-8 and JSON serialization",
+      "installed immutable v8 and all actual runtime state"
+    ]
+  },
+  "independent_regression_owner": "engine_recovery_analysis owns test_evidence_setup_policy_lineage.py and its separate report. Source hash handed off before regression run.",
+  "kind": "portable-policy-lineage-newline-core-verification",
+  "required_followup": "Root owns full required suite and actual Windows Python3.12/3.14 CI; macOS success does not establish Windows execution. No claim that earlier lineage-bearing CRLF files are newly validated or migrated.",
+  "scope": "One source-owned newline portability correction only.",
+  "source": {
+    "after_sha256": "f11266bb5564185de5471dc69f1e466cb49c9474f200d5008d3dbfba5e0a5540",
+    "before_sha256": "e855f016faeea293f6200b6bb9c39b961b4a77619794dc8bc9916ab80db15314",
+    "bytes": 40365,
+    "path": "scripts/evidence_setup.py"
+  },
+  "source_semantics_verification": {
+    "evidence": "Local CPython io.TextIOWrapper.__doc__ documents newline=None output translation to os.linesep and no translation for newline=\"\" or newline=\"\\n\"; inspect.signature(tempfile.NamedTemporaryFile) confirms newline=None default.",
+    "platform": "Darwin",
+    "runtime": "3.12.14",
+    "windows_execution": false
+  },
+  "tests": [
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest discover -s tests -p test_evidence_setup.py -q",
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+      "exit_code": 0,
+      "failed": 0,
+      "passed": 43,
+      "seconds": 1.66,
+      "skips": 0,
+      "tests": 43
+    }
+  ],
+  "usage": {
+    "extra_credits_API_or_reset_used": false,
+    "included_only": true,
+    "ordinary_usage_allowed": true,
+    "used_percent": 69
+  },
+  "version": 1,
+  "writing_status": "All owned source and report writes stopped."
+}

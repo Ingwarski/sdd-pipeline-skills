@@ -1,0 +1,165 @@
+{
+  "attributed_checks_not_independently_rerun": {
+    "core_writer": "Final frozen adjacent selector133passed/0skips in20.564s, per frozen core report.",
+    "performance": "Baseline profiled native gate887.557s with7152 section_from_bytes calls and291.281 cumulative parser seconds, per separate performance report. Cumulative timings overlap. No actual speedup of this patch independently measured or inferred from synthetic timing.",
+    "root": "Parent reports three isolated shell fixture checks passed and full consolidated suite session91974 still running. No full-suite result asserted by this report.",
+    "test_writer": "Final17passed/0skips in0.051s per report; reviewer independently ran seven selected tests, not the full17."
+  },
+  "authority": {
+    "exclusive_write": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/markdown-section-index-independent-review.json",
+    "instructions_read": [
+      "/Users/ingwar/.codex/AGENTS.md",
+      "AGENTS.md",
+      "docs/maintenance.md",
+      "docs/specification-quality.md"
+    ],
+    "requested_profile": "gpt-6.1-sol/high inherited; effective settings not independently verified",
+    "usage": "Live included allowance checked at 70% used, ordinaryUsageAllowed=true. No extra credits, separately billed API, reset or workers used."
+  },
+  "baseline": "5651687",
+  "cleanup": {
+    "browser_or_helper_resources_created": false,
+    "sole_report_write": true,
+    "temporary_fixture_cleanup_verified": true
+  },
+  "contribution_reports": {
+    "markdown-section-index-core-report.json": {
+      "bytes": 5351,
+      "sha256": "794ba35834275b9de5cb6da15ad364ea09a5a3cd19bc03839e6facf3656e553d"
+    },
+    "markdown-section-index-test-report.json": {
+      "bytes": 10051,
+      "sha256": "0255bf5bd05a157130f6720eae4597cd14480b40d5d2641dcfe2904290388462"
+    },
+    "native-checker-performance-analysis.json": {
+      "bytes": 6139,
+      "sha256": "6143fda5672e5aee0264466e48cd238e86431855517eb7c6d527ad0808ada1f4"
+    }
+  },
+  "created_at": "2026-10-22T01:51:16.112160+00:00",
+  "findings": [],
+  "frozen_sources": {
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": {
+      "bytes": 176512,
+      "sha256": "03a2a74cc01073b898e223732ff263a7b1d7be9470c49ad292622d63bb0f8f46"
+    },
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": {
+      "bytes": 125003,
+      "sha256": "ce1f8c45173bf0e2fec6790f04ff0c0d8af9c3de7b84b892232379aa58718c94"
+    },
+    "tests/test_markdown_section_index.py": {
+      "bytes": 13846,
+      "sha256": "9fc654e4a7baefe7e2b5564b715022b8c9ee951a76a04c6d1bf54442ccc8e54b"
+    }
+  },
+  "independent_actual_checks": [
+    {
+      "baseline_source_sha256": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f",
+      "command": "Python3.12 -B inline deterministic differential/adversarial harness, exact prior function compiled from verified5651687 source AST; no test/source file written.",
+      "comparison": "Exact returned type/bytes or exception type/message, including invalid heading/UTF-8 order. Generated fences/BOM/CRLF/CR/vertical separators/duplicate headings plus explicit bytearray cases.",
+      "comparisons": 6004,
+      "generated_documents": 600,
+      "isolated_adversarial_checks": [
+        "active_parse_once_for_multiple_headings",
+        "same_sha_different_physical_paths_separate",
+        "wrong_identity_cache_hit_denied",
+        "both_files_registered_in_end_union",
+        "nested_owner_reused_then_cleared",
+        "outside_scope_fresh_no_retention",
+        "same_size_restored_mtime_mutation_denied_at_final_audit_and_cleared",
+        "read_identity_mismatch_denied_without_index_retention",
+        "checker_repeated_no_links_guard_and_final_audit_reject_symlink_on_hit"
+      ],
+      "mismatches": 0,
+      "probe_exit_code": 0,
+      "random_seed": 251022,
+      "temporary_fixtures_removed": true
+    },
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_markdown_section_index.ParserEquivalenceTests.test_oracle_is_exact_verified_5651687_function test_markdown_section_index.ParserEquivalenceTests.test_differential_bytes_extents_fences_duplicates_heading_errors_and_utf8 test_markdown_section_index.AuditedSectionIndexTests.test_nested_checker_reuses_owner_but_new_top_level_run_is_fresh test_markdown_section_index.AuditedSectionIndexTests.test_checker_repeated_heading_still_checks_file_and_parent_links test_markdown_section_index.AuditedSectionIndexTests.test_mutation_after_initial_read_before_registration_is_rejected test_markdown_section_index.AuditedSectionIndexTests.test_child_only_indexed_source_mutation_is_caught_by_outer_union_audit test_markdown_section_index.AuditedSectionIndexTests.test_exception_exit_audits_and_clears_index_without_reviving_owner",
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests",
+      "result": {
+        "errors": 0,
+        "exit_code": 0,
+        "failed": 0,
+        "passed": 7,
+        "seconds": 0.02,
+        "skips": 0,
+        "tests": 7
+      }
+    },
+    {
+      "command": "SHA256 frozen sources/tests before and after focused work; AST comparison of test oracle against original git-show source.",
+      "result": "All frozen hashes matched; exact oracle match."
+    }
+  ],
+  "kind": "independent-markdown-section-index-review",
+  "limitations": [
+    "Root-owned full consolidated regression suite, supported-platform CI, install and actual native performance rerun remain separate pending verification.",
+    "All reviewer exercises used macOS Python3.12.14, exact baseline parser, in-memory code and isolated temporary files. Native Windows behavior is not established.",
+    "No live/installed ledger, SDK accounting, provider, browser, network, installer, private credentials or actual product checker action accessed. No UNIT00 product QA/DoD or release acceptance claim.",
+    "No source/test modification, quota increase, requirement deletion, original-history rewrite or acceptance relaxation occurred."
+  ],
+  "ownership_released": true,
+  "preserved_failures": [
+    {
+      "cause": "Harness supplied unresolved macOS /var temporary alias; existing no-link guard correctly rejected it.",
+      "completed_before_failure": "6004 parser comparisons completed without mismatch, then first temporary-file owner.section failed before cache test completion.",
+      "correction": "Resolved TemporaryDirectory physical path with Path(d).resolve(); repeated entire parser/case harness successfully, exit0. Source guards unchanged. Original failed run is not represented as a pass.",
+      "exception": "evidence.io.EvidenceError: linked or non-directory parent: /var",
+      "exit_code": 1,
+      "owner": "independent reviewer",
+      "phase": "Initial inline differential/cache harness",
+      "traceback_chain": "inline line32 -> SnapshotFileHashes.section670 -> file_hash662 -> _cached_file_hash626 -> evidence.resolver._regular55 -> evidence.io._parents71"
+    },
+    {
+      "correction": "Symlink availability tested before source registration; replacement retained until audit; immediate access rejection and final audit rejection asserted separately; restoration after audit. Final frozen seven-case reviewer selector includes this corrected regression.",
+      "inspected": true,
+      "original_full_output_ref": "reports/evidence-recovery-20261021/markdown-section-index-test-report.json#initial_run.output",
+      "original_report_sha256": "0255bf5bd05a157130f6720eae4597cd14480b40d5d2641dcfe2904290388462",
+      "owner": "test writer",
+      "phase": "Initial seventeen-test selector",
+      "result": "16passed,1fixtureerror,0skips; source audit correctly rejected changed inode metadata after rename/restore."
+    }
+  ],
+  "result": "No unresolved material source or test finding in the frozen bounded change.",
+  "semantic_checks": [
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_check.py:532",
+      "result": "Stack computes next equal/higher heading byte offset; all full-source lines retain identical UTF-8 decode, BOM removal for recognition, CR/LF handling, fence and heading regex behavior. Slice preserves original BOM/CRLF/UTF-8/no-final-newline bytes. Duplicates retain multiple extents and fail exact uniqueness check."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_check.py:557",
+      "result": "Cached data is immutable bytes, extents a read-only MappingProxyType of tuples. Original bytearray generic input still returns detached bytes. Preliminary mutable-slice concern is absent in final frozen source."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_check.py:664",
+      "result": "Every indexed use validates requested heading, calls owner.file_hash and compares caller identity before key lookup. First full bytes read must hash to supplied SHA and survive post-read hash/signature check. Post-lookup identity check retained. Cache keyed by actual path returned from Checker.path plus verified SHA; distinct physical files are separately registered even with identical content."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_check.py:810",
+      "result": "Each Checker.section call still resolves path(no_links=True), computes pre-hash, checks saved per-heading identity and computes post-hash. Active owner.section runs even when local per-heading entry already exists. No omitted current path or hash check."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_history.py:63",
+      "result": "Section indexes share existing ContextVar owner lifetime. Final/exception audits still run before depth-zero clear; nested boundaries retain owner while top-level exit clears indexes and hashes. Sources used only by child projections join final audit union."
+    },
+    {
+      "path": "skills/to-sdd-pipeline/scripts/sdd_check.py:669",
+      "result": "Depth-zero direct owner.section uses fresh temporary hash checks, never reads or retains owner.section_indexes. Generic section_from_bytes always builds a fresh pure index."
+    },
+    {
+      "path": "tests/test_markdown_section_index.py:13",
+      "result": "Embedded oracle independently verified byte-for-byte against exact5651687 section_from_bytes function plus its trailing newline, not merely its declared self-hash. New seventeen methods cover distinct parser, sharing, identity, mutation and audit boundaries; no full-suite replacement or imported TestCase duplication."
+    }
+  ],
+  "source_diff_review": {
+    "baseline_checker_sha256": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f",
+    "method": "Read-only git show5651687 for exact original source; Python AST/difflib inspection. No Git mutation.",
+    "sdd_check_changes": "MappingProxyType import; extracted identical heading predicate; full-source immutable byte-extent index and exact lookup; active-owner section index method and storage; Checker.section routed through owner while preserving all existing per-use path/file/per-heading checks.",
+    "sdd_history_changes": "Exactly owner.section_indexes.clear() at existing depth-zero cleanup.",
+    "unchanged_contracts": "Generic JSON loading, topology/containment helpers, historical reference and semantic checks, checker audit lease, run/transition/capture/stage/activation logic, evidence/accounting, policy, acceptance and authority remain unchanged."
+  },
+  "version": 1,
+  "writing_stopped": true
+}

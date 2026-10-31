@@ -25,7 +25,7 @@ sys.dont_write_bytecode = True
 SCRIPT_ROOT = Path(__file__).resolve().parent
 ENGINE_ROOT = SCRIPT_ROOT.parent / "skills/to-sdd-pipeline/scripts"
 sys.path.insert(0, str(ENGINE_ROOT))
-from evidence.policy import load_defaults, validate_policy
+from evidence.policy import load_defaults, validate_policy, append_policy_transition, LINEAGE_FIELD
 from evidence.io import EvidenceError
 
 
@@ -55,9 +55,31 @@ def _read(path):
         raise SetupError("malformed setup file: " + str(path)) from exc
 
 
+def _portable_source(path):
+    # Reuse existing path/read bounds, then parse the exact bytes which lineage
+    # will retain. Never mix a prior semantic read with a different raw snapshot.
+    _read(path)
+    with path.open("rb") as stream:
+        raw = stream.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
+        raise SetupError("setup file exceeds 1 MiB: " + str(path))
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise SetupError("duplicate setup field: " + key)
+            result[key] = value
+        return result
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+    except (json.JSONDecodeError, UnicodeError) as error:
+        raise SetupError("malformed setup file: " + str(path)) from error
+    return validate_policy(value), raw
+
+
 def _write(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=".setup-", delete=False) as stream:
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n", dir=path.parent, prefix=".setup-", delete=False) as stream:
         temporary = Path(stream.name)
         try:
             os.chmod(temporary, 0o600)
@@ -201,7 +223,7 @@ def _probe(config, project=None, *, host_session=None):
         return receipt
 
 
-def _initialize_authority(config, policy, project, *, host_session=None):
+def _initialize_authority(config, policy, project, *, host_session=None, timeout_seconds=600):
     """Claim durable generation authority before exposing a project as configured."""
     home = evidence_home(config["evidence_home"])
     home.mkdir(parents=True, exist_ok=True)
@@ -214,7 +236,10 @@ def _initialize_authority(config, policy, project, *, host_session=None):
                    "--project", str(Path(project).resolve()), "--config", str(candidate), "--policy", str(candidate_policy)]
         if host_session is not None:
             command += ["--host-session", str(host_session)]
-        result = subprocess.run(command, capture_output=True, text=True, timeout=600)
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            raise SetupError("generation authority initialization timed out; its outcome may be unknown. The setup checkpoint is retained; settle the exact owned host activity before retrying the same selection") from exc
         try:
             receipt = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
@@ -343,12 +368,14 @@ def _claim_setup_checkpoint(config, policy, project, *, fixed_project, fixed_sto
 def configure(project=None, *, provider, destination=None, transport=None, bridge_command=None,
               rclone_config=None, rclone_executable=None, home=None, limits=None, retention_days=None,
               drive_retention_days="unset", adopt=None, reconfigure=False, probe=None, host_session=None,
-              acknowledge_missing_upload=None):
+              acknowledge_missing_upload=None, authority_timeout_seconds=600):
     """An explicit selected provider authorizes its bounded verification upload."""
+    if type(authority_timeout_seconds) is not int or not 600 <= authority_timeout_seconds <= 3600:
+        raise SetupError("authority timeout must be an integer from 600 to 3600 seconds")
     home = evidence_home(home)
     _outside(home, project)
     policy_path = _policy_path(project) if project else None
-    existing_policy = validate_policy(_read(policy_path)) if policy_path and policy_path.exists() else None
+    existing_policy, previous_raw = _portable_source(policy_path) if policy_path and policy_path.exists() else (None, None)
     old_config_path = home / "bindings" / (existing_policy["project_id"] + ".json") if existing_policy else None if project else home / "default.json"
     old_config = _read(old_config_path) if old_config_path and old_config_path.exists() else None
     previous_policy = existing_policy
@@ -412,12 +439,25 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
         policy["retention"]["local_days"] = retention_days
     if drive_retention_days != "unset":
         policy["retention"]["drive_days"] = None if drive_retention_days == "never" else int(drive_retention_days)
-    policy = validate_policy(policy)
+    if existing_policy is not None:
+        same_identity = all(policy[key] == existing_policy[key] for key in ("project_id", "store_id", "provider"))
+        limits_changed = policy["limits"] != existing_policy["limits"]
+        if LINEAGE_FIELD in existing_policy or same_identity and limits_changed:
+            policy = append_policy_transition(previous_raw, policy)
+        else:
+            policy = validate_policy(policy)
+    else:
+        policy = validate_policy(policy)
     if project:
         config["project_id"] = project_id
     with _checkpoint_setup(config, policy, project, fixed_project=existing_policy is not None,
                            fixed_store=bool(same_store or existing_policy and not old_config), reconfigure=reconfigure) as pending_path:
         project_id, store_id = policy["project_id"], policy["store_id"]
+        def unchanged_policy():
+            if project and ((previous_raw is None and policy_path.exists())
+                            or previous_raw is not None and policy_path.read_bytes() != previous_raw):
+                raise SetupError("portable policy changed during explicit setup; preserve checkpoint and retry the original selection")
+        unchanged_policy()
         if acknowledge_missing_upload is not None:
             _acknowledge_setup_upload(config, policy, project, acknowledge_missing_upload, host_session=host_session)
         receipt = probe(config, project) if probe else _probe(config, project, **({"host_session": host_session} if host_session is not None else {}))
@@ -426,7 +466,10 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
         config["setup_receipt"] = receipt
         config["configured_at"] = datetime.now(timezone.utc).isoformat()
         if project:
-            _initialize_authority(config, policy, project, host_session=host_session)
+            unchanged_policy()
+            _initialize_authority(config, policy, project, host_session=host_session,
+                                  **({"timeout_seconds": authority_timeout_seconds} if authority_timeout_seconds != 600 else {}))
+            unchanged_policy()
         config_path = home / "bindings" / (project_id + ".json") if project else home / "default.json"
         _write(home / "stores" / (store_id + ".json"), config)
         _write(config_path, config)
@@ -570,6 +613,7 @@ def main(argv=None):
             sub.add_argument("--reconfigure", action="store_true")
             sub.add_argument("--non-interactive", action="store_true")
         if name == "configure":
+            sub.add_argument("--authority-timeout-seconds", type=int, default=600, help="authority initialization deadline in seconds (600 to 3600; default 600)")
             sub.add_argument("--provider", required=True, choices=("local", "folder", "google-drive"))
             sub.add_argument("--destination")
             sub.add_argument("--transport", choices=("rclone", "connected"))
@@ -618,7 +662,7 @@ def main(argv=None):
                                rclone_config=args.rclone_config, rclone_executable=args.rclone_executable,
                                home=args.evidence_home, limits=limits, retention_days=args.retention_days,
                                drive_retention_days=args.drive_retention_days, adopt=args.adopt, reconfigure=args.reconfigure, host_session=args.host_session,
-                               acknowledge_missing_upload=args.acknowledge_missing_upload)
+                               acknowledge_missing_upload=args.acknowledge_missing_upload, authority_timeout_seconds=args.authority_timeout_seconds)
         print(json.dumps(status, indent=2))
         return 0 if status["result"] == "configured" else 2
     except (OSError, SetupError, EvidenceError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:

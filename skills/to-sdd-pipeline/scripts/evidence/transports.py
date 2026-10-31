@@ -652,7 +652,8 @@ class ConnectedDriveTransport(_CheckpointedDrive):
             raise EvidenceError("Drive deletion did not remove registered object")
         self._checkpoint(info["key"]).unlink(missing_ok=True)
 
-    def keys(self, prefix=""):
+    def inventory(self, prefix=""):
+        """List fresh validated locators; callers still stat each original object."""
         if prefix:
             safe_relative(prefix.rstrip("/"))
         result, identities, seen_keys, tokens, page_token, total_bytes = [], set(), set(), set(), None, 0
@@ -669,7 +670,7 @@ class ConnectedDriveTransport(_CheckpointedDrive):
                     raise EvidenceError("Drive list returned a key outside requested prefix")
                 if item["key"] in seen_keys or item["object_id"] in identities:
                     raise EvidenceError("duplicate Drive object identity in catalog listing")
-                result.append(item["key"])
+                result.append(item)
                 seen_keys.add(item["key"])
                 identities.add(item["object_id"])
                 if len(result) > self.max_objects:
@@ -682,8 +683,11 @@ class ConnectedDriveTransport(_CheckpointedDrive):
             tokens.add(page_token)
             if len(tokens) > self.max_objects:
                 raise EvidenceError("Drive listing exceeds continuation page bound")
-        return sorted(result)
+        return sorted(result, key=lambda item: item["key"])
 
+
+    def keys(self, prefix=""):
+        return [item["key"] for item in self.inventory(prefix)]
 
 class RcloneDriveTransport(_CheckpointedDrive):
     """Optional standalone Google Drive binary-object transport, never a mount."""

@@ -26,11 +26,11 @@ For an existing plan, preserve old IDs, allocations, results and authorization r
 
 ## Record versions
 
-Use [unit contract v2](completion-preservation.md) for all new/resumed work. Version 1 remains readable for import and audit; migrate and reverify it before continued execution. Artifact owners and approval boundaries stay unchanged. History does not waive tests or grant permission.
+Use [completion preservation](completion-preservation.md). Contract 2 retains whole-unit comparison/fresh continuation; 3 adds per-check inputs/seals; 4 adds [reviewed acceptance](reviewed-acceptance.md). Version 1 is import/audit-only. Owners review adoption; installation never rewrites projects or grants permission.
 
 ## Current unit records
 
-Use `checker_contract_version: 2`, `unit_contract_version: 2` and `traceability_version: 1`. Missing/unsupported unit records require owner-reviewed migration at plan validation, implementation, audit of a plan, and release; a read-only audit reports without migrating. Earlier authoring stages remain usable. `--snapshot` does not supply unit semantics or migrate records.
+New efficient authoring uses `checker_contract_version: 3`, `unit_contract_version: 3` and `traceability_version: 1`; retain existing 2/2 records until owner-reviewed adoption. Mixed pairs are invalid. Missing/unsupported records need reconciliation at plan/implementation/release validation; read-only audits never migrate. `--snapshot` supplies no unit semantics.
 
 The plan owner writes one JSON fence in `docs/development-plan.md`, located by `definition_ref: {path, heading}`. The orchestrator mirrors it as `unit_plan`. Localize the dedicated heading (e.g. `## Unit Execution Contract`) to `working_language`; retain JSON keys. Explain scope/reconciliation in prose. Unit IDs match typed traceability definitions exactly.
 
@@ -49,13 +49,15 @@ For declared mechanisms, follow the [construction allocation contract](traceabil
 
 QA owns `acceptance`: boolean `required`, `level: unit | integration | release`, `evidence_mode: component | real_consumers`, nonempty `required_source_paths`. Its check-ID → definition object occupies one JSON fence in a dedicated localized QA section, referenced by `verification.acceptance_ref: {path, heading}` and mirrored exactly. Define scope from PRD/architecture/DoD before planning. Reconciliation resolves paths from the codebase map without creating a QA prerequisite. Give bounded checks distinct IDs; never replace system checks with component semantics.
 
+In contract 3, QA may define `verification.source_sets: {id: [relative paths]}` in a JSON section bound by `source_sets_ref: {path, heading}`. Acceptance adds `source_set_ids`; their union with `required_source_paths` must be nonempty. `dependency_review: {complete: true, reviewer, rationale}` enables per-check comparison; otherwise use whole-unit fallback. Include tests, fixtures, shared dependencies and configuration. Required checks collectively account for execution inputs; unassigned selections enter every check, preserving tree membership. Optional `reuse_policy: deterministic_isolated` permits validated sealed reuse; omitted or `fresh` requires execution. See [capture and applicability](completion-preservation.md#records-and-helper).
+
 Integration/release checks require `real_consumers` and an integration/release owner; release checks require a release owner. Required gate checks stay required. Required checks and each unit's `required_check_ids` agree bidirectionally; advisory checks still have an owner. An allocated obligation must have both a QA `verifies` link and an owner-unit `implements` link. Every required requirement clause/state needs required integration/release acceptance coverage. Unit checks demonstrate bounded contributions only. Deferred integration remains required/pending and cannot be counted as passed or not applicable.
 
 ## Runs, freshness and exceptions
 
 `unit_runs` maps current unit IDs to records; absent records mean pending, never complete. Each record has `status: pending | running | blocked | completed`. Started records require timezone-aware `started_at`, current `development_plan_hash`, and `approved_baseline_id` (null for headless); storage-managed records also require stable `run_id`. Blocked records need `reason`; completed records also require `completed_at`. Findings use the verification contract's severity, release effect and `open | closed` status. Preserve superseded runs through verified history references; never rebind hashes/times to pretend they were rerun.
 
-Required checks need prepared/passed status, actual executor, readable hash-bound evidence, no open blocker, current `evaluated_plan_hash`, and `evaluated_source_hashes` covering QA plus owner/prerequisite implementation paths. Rehash all declared sources/evidence; [shared inventories](evidence-storage-contract.md) retain identical maps. Authorization cannot be future-dated; runs follow it. Execute checks within their owning run, before consumers. Real-consumer checks require `execution_mode: real_consumers`, `integration` evidence and other required classes. Mocks/fixture execution cannot substitute; fixture data through actual consumers is allowed only by the canonical check. Labels do not prove authenticity.
+Required checks need prepared/passed status, actual executor, readable hash-bound evidence, no open blocker, valid plan/source bindings and the contract's actual input inventory. Version 2 covers QA plus owner/prerequisite implementation paths; reviewed contract-3 inputs follow the rules above. Rehash declared sources/evidence; [shared inventories](evidence-storage-contract.md) retain identical maps. Fresh checks execute within their owning run before consumers; validated contract-3 seals retain original run/times through [completion preservation](completion-preservation.md). Real-consumer checks need `execution_mode: real_consumers`, integration evidence and other required classes. Mocks cannot substitute; fixture data through actual consumers requires canonical permission. Labels prove no authenticity.
 
 Preserve failed/interrupted runs with `capture-attempt` and an `attempt_ref` on
 their unchanged running/blocked record. This path permits reviewed status-only
@@ -63,8 +65,10 @@ owner updates without completion. It retains all actual check outcomes and
 preserves stale observations separately from later partial work. A fresh retry
 uses `capture-continuation`, a distinct run ID and new pre-start context; earlier
 attempts remain in `attempt_history`. Probe the actual execution runtime and bind
-the fresh receipt to continuation checks. Follow the exact command order and
-nonaccepting-history rules in [completion preservation](completion-preservation.md).
+the fresh receipt to continuation checks. Follow the normal command order and
+nonaccepting-history rules in [completion preservation](completion-preservation.md),
+including its bounded [malformed unfinished-run recovery](completion-preservation.md#malformed-unfinished-run-recovery)
+when original metadata prevents intermediate attempt staging.
 
 Revalidate completed records, including on resume; stale evidence/open blockers invalidate completion. A predecessor must complete before its consumer starts. Release requires all units and existing gates; unit completion alone never proves release readiness.
 
@@ -72,7 +76,7 @@ Revalidate completed records, including on resume; stale evidence/open blockers 
 
 Current work uses [completion preservation](completion-preservation.md): capture authorized context before execution, retain immutable actual completion, and calculate current applicability against owner-reviewed inputs and the original run. Shared unit, security and release gates consume that same resolved acceptance. Changed relevant definitions, sources, runtime, findings or evidence require specific revalidation; no historical pass or changed-plan review grants implementation authority.
 
-The legacy `revalidation_ref` receipt is readable only for preserving and auditing imported history. Migration archives its original observations and receipts as unverified history and removes old current-acceptance claims. It does not carry version 1 acceptance into version 2. Perform genuine current checks under valid existing authorization before dependent execution.
+Legacy `revalidation_ref` is import/audit-only. Migration archives original observations and receipts as unverified history, removing old acceptance claims; version 1 acceptance does not carry into version 2. Before dependent execution, establish current acceptance through sufficient 4/4 review evidence or fresh checks within valid authority.
 
 `unit_sequence_exceptions` lists legacy `{path, content_hash}` receipts or direct/wrapped version 1 evidence references preserving actual user events. Each receipt contains `event: unit_sequence_exception`, `role: user`, original `message`, `prompt_id`, timezone-aware `received_at`, current `development_plan_hash`, explicit `approved_baseline_id`, target `unit_id`, and nonempty `prior_unit_ids` being skipped. It must follow the current implementation prompt and precede the exceptional start. Only earlier independent units may be skipped: exceptions never waive construction/acceptance prerequisites, required checks, completion evidence or release work. Unscoped generic continuation is not this event. The host authenticates original user provenance; the checker verifies its declared binding.
 

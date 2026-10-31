@@ -1,0 +1,122 @@
+{
+  "baseline_engine": "5651687",
+  "callgraph": "Checker.run enters shared SnapshotFileHashes invocation; historical HistoryView.resolve/validate_attempt/context validation invokes nested checkers and workflow progress projection;12 actual checker invocations are profiled. The source shows finite required history/projection validation, not proof of an unbounded recursion. Do not remove child gates.",
+  "frozen_core": {
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": {
+      "bytes": 176512,
+      "sha256": "03a2a74cc01073b898e223732ff263a7b1d7be9470c49ad292622d63bb0f8f46"
+    },
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": {
+      "bytes": 125003,
+      "sha256": "ce1f8c45173bf0e2fec6790f04ff0c0d8af9c3de7b84b892232379aa58718c94"
+    }
+  },
+  "observed_hotspots": [
+    {
+      "calls": 955338,
+      "cumulative_seconds": 372.096,
+      "function": "sdd_history.physical"
+    },
+    {
+      "calls": 41616,
+      "cumulative_seconds": 341.285,
+      "function": "Checker.section"
+    },
+    {
+      "calls": 12,
+      "cumulative_seconds": 300.311,
+      "function": "Checker.traceability"
+    },
+    {
+      "calls": 7152,
+      "cumulative_seconds": 291.281,
+      "function": "section_from_bytes",
+      "self_seconds": 88.024
+    },
+    {
+      "calls": 12,
+      "cumulative_seconds": 256.732,
+      "function": "validate_context"
+    },
+    {
+      "calls": 37186351,
+      "cumulative_seconds": 189.676,
+      "function": "posix.stat"
+    },
+    {
+      "calls": 14,
+      "cumulative_seconds": 162.044,
+      "function": "_checker_legacy_files"
+    },
+    {
+      "calls": 195736004,
+      "cumulative_seconds": 153.608,
+      "function": "re.match"
+    },
+    {
+      "calls": 41,
+      "cumulative_seconds": 131.34,
+      "function": "validate_files"
+    }
+  ],
+  "profile": {
+    "bytes": 2937,
+    "completion": "Root reported actual complete native after-guardrails gate exited0; the read profile is complete, not interrupted.",
+    "function_calls": 2936541457,
+    "limits": "Cumulative times overlap and must not be added. Profile overhead prevents treating these timings as an unprofiled latency estimate.",
+    "path": "forge/implementation/platform-expansion/unit-00/current-20261021-retry5/after-guardrails-policy-v8-profiled.stderr.txt",
+    "primitive_calls": 2875363938,
+    "product_root": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing",
+    "profile_header_seconds": 887.557,
+    "sha256": "f5ff3fb22e7843bf8a59d7d5e200f6d8992243d3ce93b4d642ba6ed5f7a0f914"
+  },
+  "ranked_proposals": [
+    {
+      "algorithmic_evidence": "80 distinct headings build one immutable index in the isolated owner test; same-SHA distinct paths build two and both enter final audit. No native speedup measured.",
+      "cause": "The baseline section cache keys(path,heading); every distinct heading calls section_bytes and scans/decodes the whole file.7152 full scans are visible in the actual profile. A single per-source immutable heading index eliminates repeated scans without deleting gate checks.",
+      "contract": "SnapshotFileHashes.section(path,identity,heading)->bytes; cache key physical Path+verifiedSHA; active audited owner depth only; every use validates file_hash and supplied identity; first read verifies digest+post-read identity; sources join final union; Checker preserves current path/no_links and pre/post identity checks; depth0 cache clear; generic parser always fresh.",
+      "rank": 1,
+      "source_refs": [
+        "baseline sdd_check.py:520 section_from_bytes",
+        "baseline sdd_check.py:770 Checker.section",
+        "current sdd_check.py:532 _section_index",
+        "current sdd_check.py:664 SnapshotFileHashes.section",
+        "current sdd_check.py:810 Checker.section",
+        "current sdd_history.py:37 snapshot_hash_scope"
+      ],
+      "status": "Approved and implemented by separate core owner; isolated tests by this worker."
+    },
+    {
+      "cause": "physical and filesystem-stat work remain material, including repeated current logical path membership checks by legacy-file validation.",
+      "constraint": "Do not omit/defer per-use parent/symlink/containment checks to final audit. Transient logical redirection can be followed before final audit; current conservative generic helper and transition pre-write semantics remain necessary.",
+      "rank": 2,
+      "source_refs": [
+        "current sdd_history.py:153 physical",
+        "current sdd_history.py:478 validate_files",
+        "current sdd_history.py:488 _checker_legacy_files"
+      ],
+      "status": "No implementation proposed now."
+    },
+    {
+      "cause": "read_ref rereads/hash/parses before semantic memo reuse; history_result serializes cached results to guard mutation.",
+      "constraint": "No cache or semantic changes justified without additional bounded evidence; never skip original reference bytes/hash or semantic-record mutation checks.",
+      "rank": 3,
+      "source_refs": [
+        "current sdd_history.py:167 read_ref",
+        "current sdd_check.py:644 history_result"
+      ],
+      "status": "Deprioritized source hypotheses, not proven dominant by top35 profile."
+    }
+  ],
+  "regressions": [
+    "Exact565 parser byte/error differential, fences/BOM/CRLF/duplicates/full UTF8 decode and heading precedence",
+    "many headings one parse; nested owner reuse/new top invocation fresh; outside scope no retention",
+    "sameSHA distinctphysicalfiles; wrongidentityhit; same-length changedbytes/restoredmtime; parentreplacement",
+    "read mismatch and read-time mutation; child-only source finalunion audit; exceptional exit audit and cache clearing",
+    "immediate repeated-heading symlink denial and independent final audit denial"
+  ],
+  "remaining": "Root owns consolidated suite, supported-platform CI, install and actual product acceptance. No Windows execution or native speedup claimed.",
+  "scope": "Source-only diagnosis and bounded isolated section-index regression tests; no product checker execution or live mutation by this worker.",
+  "version": 1,
+  "writing_status": "Complete; only assigned reports and test written."
+}

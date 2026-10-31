@@ -1,0 +1,132 @@
+{
+  "report_type": "read_only_github_actions_snapshot",
+  "repository": "Ingwarski/sdd-pipeline-skills",
+  "inspection": "Two exact GitHub Actions run snapshots; no polling or reruns.",
+  "runs": [
+    {
+      "run_id": 39693231975,
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39693231975",
+      "head_sha": "5bd5f76b79c52266fc530bbcc434e330e7d5db87",
+      "branch": "codex/fix-evidence-recovery",
+      "event": "push",
+      "created_at": "2026-10-21T23:24:40Z",
+      "updated_at": "2026-10-21T23:24:52Z",
+      "status": "in_progress",
+      "conclusion": "",
+      "interpretation": "Pending; not a pass or failure.",
+      "jobs": [
+        {
+          "name": "content",
+          "job_id": 119544266362,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "windows (3.14)",
+          "job_id": 119544266446,
+          "status": "in_progress",
+          "conclusion": "",
+          "active_step": "Test stage checker and installer input contract"
+        },
+        {
+          "name": "windows (3.12)",
+          "job_id": 119544266528,
+          "status": "in_progress",
+          "conclusion": "",
+          "active_step": "Test stage checker and installer input contract"
+        },
+        {
+          "name": "unix (macos-latest, 3.14)",
+          "job_id": 119544266564,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "unix (macos-latest, 3.12)",
+          "job_id": 119544266748,
+          "status": "in_progress",
+          "conclusion": "",
+          "active_step": "Test stage checker and installer input contract"
+        },
+        {
+          "name": "unix (ubuntu-latest, 3.12)",
+          "job_id": 119544266752,
+          "status": "in_progress",
+          "conclusion": "",
+          "active_step": "Test stage checker and installer input contract"
+        },
+        {
+          "name": "unix (ubuntu-latest, 3.14)",
+          "job_id": 119544266797,
+          "status": "in_progress",
+          "conclusion": "",
+          "active_step": "Test stage checker and installer input contract"
+        }
+      ],
+      "failed_job_logs": "None retrieved: snapshot had no failed jobs."
+    },
+    {
+      "run_id": 39690289337,
+      "url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39690289337",
+      "head_sha": "86ee7763935ce016a9c03b655d2dea2f4d1e3f80",
+      "branch": "codex/fix-evidence-recovery",
+      "event": "push",
+      "created_at": "2026-10-21T22:58:41Z",
+      "updated_at": "2026-10-21T22:58:44Z",
+      "status": "in_progress",
+      "conclusion": "",
+      "interpretation": "Pending; not a pass or failure.",
+      "jobs": [
+        {
+          "name": "content",
+          "job_id": 119534523816,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "unix (ubuntu-latest, 3.14)",
+          "job_id": 119534523956,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "unix (macos-latest, 3.12)",
+          "job_id": 119534523968,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "windows (3.12)",
+          "job_id": 119534523975,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "unix (ubuntu-latest, 3.12)",
+          "job_id": 119534524121,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "unix (macos-latest, 3.14)",
+          "job_id": 119534524143,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "windows (3.14)",
+          "job_id": 119534524734,
+          "status": "in_progress",
+          "conclusion": "",
+          "active_step": "Test stage checker and installer input contract"
+        }
+      ],
+      "failed_job_logs": "None retrieved: snapshot had no failed jobs."
+    }
+  ],
+  "limits": [
+    "The run-level conclusion was empty and status in_progress for both snapshots; pending jobs must not be reported as passed.",
+    "No failed-job log was available or requested because neither snapshot contained a failed job.",
+    "No rerun, polling, source change, Git operation, installation, ledger, browser, or Drive action was performed."
+  ]
+}

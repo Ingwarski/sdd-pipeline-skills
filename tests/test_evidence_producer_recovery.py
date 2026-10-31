@@ -4,6 +4,7 @@ Every command and process belongs to this disposable fixture. These checks do
 not launch a product, use installed skills, or imply product acceptance.
 """
 from pathlib import Path
+from copy import deepcopy
 import json
 import os
 import signal
@@ -13,6 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/to-sdd-pipeline/scripts"
@@ -20,7 +22,7 @@ sys.path.insert(0, str(SCRIPTS))
 from evidence.accounting import Accounting
 from evidence.io import EvidenceError
 from evidence.policy import load_defaults
-from evidence import process_identity
+from evidence import process_identity, producer, producer_runtime as runtime
 from evidence.producer import recover_producers, run_producer
 from evidence.producer_runtime import stop_registered
 
@@ -306,6 +308,14 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
         self.assertIsNone(coordinator.poll(), diagnostics())
         self._force_coordinator(coordinator)
         self._gone(fallback["coordinator"])
+        # Losing both owners closes the launch gates' pipes. Their real EOF
+        # cleanup must finish before this positive recovery case expects a
+        # terminal record; an uncertain group probe still cannot prove exit.
+        self._gone(payload)
+        self._gone(helper)
+        self._wait(lambda: runtime.verify_stopped(self.ledger, record["attempt_id"]) == [],
+                   "owned launch-gate birth and group quiescence before recovery", timeout=8)
+        self.assertEqual(runtime.verify_stopped(self.ledger, record["attempt_id"]), [], diagnostics())
         before = self._record()
         self.assertEqual(before["status"], "running", diagnostics())
         preview = recover_producers(self.ledger, dry_run=True)
@@ -349,10 +359,20 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
         log = (self.root / "coordinator.log").read_text(encoding="utf-8", errors="replace")
         self.assertNotEqual(coordinator.returncode, 0, log)
         self.assertIn("producer guardian stopped without a terminal result", log)
+        self.assertIn("recovery action=", log)
         self.assertFalse((self.root / "result.json").exists(), log)
         snapshot = self.ledger.snapshot()
         diagnostic = (snapshot, self._record(), log[-2500:])
-        self.assertEqual(self._record()["status"], "terminal", diagnostic)
+        current = self._record()
+        if current["status"] != "terminal":
+            # Native group-absence probes can fail after all known identities
+            # exit. Preserve that failed observation and require a fresh proof;
+            # neither EPERM nor payload exit establishes group absence.
+            self.assertEqual(current["status"], "stopping", diagnostic)
+            self.assertIn("group-exists", current["recovery_problem"], diagnostic)
+            self.assertIn("[Errno 1]", current["recovery_problem"], diagnostic)
+            self.assertEqual(current["first_recovery_failure"]["problem"], current["recovery_problem"], diagnostic)
+        first_failure = deepcopy(current.get("first_recovery_failure"))
         self.assertFalse(snapshot["accounting_complete"], diagnostic)
         self.assertEqual(len(snapshot["reservations"]), 1, diagnostic)
         self.assertEqual(snapshot["totals"]["pending_generated_bytes"], 65536, diagnostic)
@@ -361,10 +381,79 @@ class ProducerRecoveryWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "accounting recovery required"):
             self.ledger.reserve("unsafe-retry", "unit-fixture", 1, 1)
         charged = snapshot["totals"]["project_generated_bytes"]
+        self.assertEqual(runtime.verify_stopped(self.ledger, record["attempt_id"]), [], diagnostic)
         recovery = recover_producers(self.ledger, dry_run=False)
         self.assertTrue(recovery["incomplete"], (recovery, diagnostic))
+        self.assertEqual(self._record()["status"], "terminal", (recovery, diagnostic))
+        self.assertEqual(self._record().get("first_recovery_failure"), first_failure)
         self.assertEqual(self.ledger.snapshot()["totals"]["project_generated_bytes"], charged)
         self.assertEqual(len(self.ledger.snapshot()["reservations"]), 1)
+        self.assertIsNone(sentinel.poll(), "unrelated process was stopped")
+
+    @unittest.skipUnless(os.name == "posix", "native process-group probes require POSIX")
+    def test_denied_group_probes_and_unknown_identity_require_new_absence_proof(self):
+        sentinel = self._sentinel()
+        coordinator = self._start(self._payload(), hold_fallback_recovery=True)
+        payload, helper, record = self._ready()
+        self.assertEqual(process_identity.terminate(record["guardian"], force=True), "signalled")
+        self._gone(record["guardian"])
+        self._wait(lambda: self._marker("fallback-recovery-ready.json", root=self.root), "fallback barrier")
+        self._force_coordinator(coordinator)
+        self._gone(payload)
+        self._gone(helper)
+        self.assertEqual(runtime.verify_stopped(self.ledger, record["attempt_id"]), [])
+        groups = {item["group"] for item in record["processes"].values()}
+        self.assertEqual(len(groups), 2)
+        actual_probe, actual_state = producer._group_exists, process_identity.state
+        first_failure = None
+        for phase in ("stop.group-exists", "verify.group-exists", "identity"):
+            with self.subTest(phase=phase):
+                calls = []
+                def probe(group):
+                    calls.append(group)
+                    denied = phase == "stop.group-exists" or phase == "verify.group-exists" and len(calls) > len(groups)
+                    if denied:
+                        raise PermissionError(1, "injected native group probe denial")
+                    return actual_probe(group)
+                anchor = next(iter(record["processes"].values()))["identity"]
+                def state(owner):
+                    return "unknown" if phase == "identity" and owner == anchor else actual_state(owner)
+                with patch.object(producer, "_group_exists", side_effect=probe), patch.object(process_identity, "state", side_effect=state), patch.object(os, "killpg", wraps=os.killpg) as signals:
+                    recovery = recover_producers(self.ledger, dry_run=False)
+                self.assertTrue(all(call.args[1] == 0 for call in signals.call_args_list),
+                                "absence/unknown ownership authorized a process-group signal")
+                current = self._record()
+                self.assertTrue(recovery["incomplete"], recovery)
+                self.assertEqual(current["status"], "stopping", current)
+                problem = current["recovery_problem"]
+                self.assertIn("stage=" + ("stop.identity" if phase == "identity" else phase), problem)
+                for key, item in record["processes"].items():
+                    if phase != "identity" or item["identity"] == anchor:
+                        self.assertIn("key=" + key, problem)
+                        self.assertIn("group=" + str(item["group"]), problem)
+                if first_failure is None:
+                    first_failure = deepcopy(current["first_recovery_failure"])
+                self.assertEqual(current["first_recovery_failure"], first_failure)
+                snapshot = self.ledger.snapshot()
+                self.assertFalse(snapshot["accounting_complete"])
+                self.assertTrue(snapshot["totals_are_lower_bounds"])
+                self.assertEqual(snapshot["totals"]["pending_generated_bytes"], 65536)
+                self.assertEqual(snapshot["totals"]["pending_generated_files"], 20)
+                self.assertEqual(snapshot["totals"]["pending_local_bytes"], 65536)
+                self.assertEqual(snapshot["totals"]["pending_metadata_bytes"], runtime.MAX_RECORD * 3)
+                self.assertEqual(snapshot["runs"][0]["status"], "incomplete")
+                with self.assertRaises(EvidenceError):
+                    self.ledger.reserve("unsafe-retry", "unit-fixture", 1, 1)
+                self.assertEqual(runtime.verify_stopped(self.ledger, record["attempt_id"]), [])
+        charged = snapshot["totals"]["project_generated_bytes"]
+        recovery = recover_producers(self.ledger, dry_run=False)
+        self.assertTrue(recovery["incomplete"], recovery)
+        self.assertEqual(self._record()["status"], "terminal")
+        self.assertIsNone(self._record()["recovery_problem"])
+        self.assertEqual(self._record()["first_recovery_failure"], first_failure)
+        self.assertEqual(self.ledger.snapshot()["totals"]["project_generated_bytes"], charged)
+        self.assertEqual(len(self.ledger.snapshot()["reservations"]), 1)
+        self.assertTrue((self.output / "observation.txt").is_file())
         self.assertIsNone(sentinel.poll(), "unrelated process was stopped")
 
     def test_timeout_stops_separate_registered_term_resistant_helper(self):

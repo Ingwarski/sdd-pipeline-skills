@@ -1,0 +1,17 @@
+test_canonical_prd_coexists_with_unrelated_old_name (test_installer_inputs.InstallerInputTests.test_canonical_prd_coexists_with_unrelated_old_name) ... ok
+test_compact_reordered_and_crlf_json (test_installer_inputs.InstallerInputTests.test_compact_reordered_and_crlf_json) ... ok
+test_duplicate_keys_are_rejected_by_both_platforms (test_installer_inputs.InstallerInputTests.test_duplicate_keys_are_rejected_by_both_platforms) ... ok
+test_fresh_install_uses_canonical_names_without_legacy_skill (test_installer_inputs.InstallerInputTests.test_fresh_install_uses_canonical_names_without_legacy_skill) ... ok
+test_invalid_frontmatter_stops_before_mutation (test_installer_inputs.InstallerInputTests.test_invalid_frontmatter_stops_before_mutation) ... ok
+test_invalid_manifest_variants_fail_before_cleanup (test_installer_inputs.InstallerInputTests.test_invalid_manifest_variants_fail_before_cleanup) ... ok
+test_missing_progress_module_stops_before_any_installation_mutation (test_installer_inputs.InstallerInputTests.test_missing_progress_module_stops_before_any_installation_mutation) ... ok
+test_missing_python_stops_before_mutation (test_installer_inputs.InstallerInputTests.test_missing_python_stops_before_mutation) ... ok
+test_missing_security_resources_stop_before_mutation (test_installer_inputs.InstallerInputTests.test_missing_security_resources_stop_before_mutation) ... ok
+test_missing_shared_reference_stops_before_mutation (test_installer_inputs.InstallerInputTests.test_missing_shared_reference_stops_before_mutation) ... ok
+test_source_relative_references_survive_move_and_repair (test_installer_inputs.InstallerInputTests.test_source_relative_references_survive_move_and_repair) ... ok
+test_status_distinguishes_real_installation_from_thirteen_copies (test_installer_inputs.InstallerInputTests.test_status_distinguishes_real_installation_from_thirteen_copies) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 4.268s
+
+OK

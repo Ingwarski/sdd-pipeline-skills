@@ -1,0 +1,96 @@
+{
+  "recorded_at": "2026-10-22T10:43:43.797560+00:00",
+  "base_revision": "adaacf9fa4a6b40e711dd4ac4a43ddaf316f6fdf",
+  "finding": "Published request expires_at uses wallclock while producer polled only monotonic deadline; host could reject expiredqueue while producer remainedwaiting",
+  "change": "Before every response-presence decision, check both publishedwall expiry and originalmonotonic deadline; preserve exacttimeout and unresolvedqueue/checkpoints",
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/evidence/connected_host.py": "48fb950e2d91c9175c14a683f4b4f881c4ffc9425d1f1d06f2d6ee7c53d05694",
+    "tests/test_evidence_connected_host_deadlines.py": "b30ded704d238b08be49b24e7a0500e42a45c94a52e9502077a75c5e144069b5"
+  },
+  "focused_verification": {
+    "new_tests": 9,
+    "passed": 9,
+    "writer_original_source_negative_control_failures": 4,
+    "independent_supported_Python_tests": 9,
+    "initial_independent_unsupported3_9_setup_errors": 9,
+    "limits": "Purememoryfakeclock/FS; no live connector acceptance or hardrealtime guarantee"
+  },
+  "consolidated_verification": {
+    "command": [
+      "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests",
+      "-p",
+      "test_*.py",
+      "-v"
+    ],
+    "runtime": "Python3.12.14/macOS/isolatedTMP; child PATH includes same3.12runtime",
+    "test_cases": 1148,
+    "skipped": 11,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 462.6656929169985,
+    "stdout": {
+      "bytes": 1773,
+      "sha256": "179d836f4a876f748b3a7a9c558e96a277f4be43e9e436feb00fe583a7d9e254",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261022-retry10/root-engine-deadline-full2.stdout.txt"
+    },
+    "stderr": {
+      "bytes": 204955,
+      "sha256": "88e1692197197167367a6717c94446b041f261932549ee78acd1fb5f2cc762fc",
+      "path": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261022-retry10/root-engine-deadline-full2.stderr.txt"
+    },
+    "isolated_temp_removed": true,
+    "working_hold_settled_zero": true
+  },
+  "shell_verification": {
+    "checks": [
+      {
+        "name": "install",
+        "script": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test-install.sh",
+        "exit_code": 0,
+        "duration_seconds": 2.271,
+        "stdout_sha256": "75e998e4215bb26500d45cbe39a1705c72300225a5a4e4c1894cf02ee07e70e7",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "retirement",
+        "script": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test-retirement.sh",
+        "exit_code": 0,
+        "duration_seconds": 5.541,
+        "stdout_sha256": "c841765532d9af1aa8dc16a5c5654ea5f7478f1f860851ab8185fca815307686",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "update",
+        "script": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test-update.sh",
+        "exit_code": 0,
+        "duration_seconds": 4.854,
+        "stdout_sha256": "c9718987eb2d41efddf73bc6fd9bddf92708f5c2b67c84a27395c3d9b31f38f3",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "frozen_sources_unchanged": true,
+    "exact_empty_owned_temp_removed": true
+  },
+  "retained_failed_initial_full": {
+    "test_cases": 1148,
+    "failures": 8,
+    "errors": 1,
+    "skipped": 11,
+    "causes": [
+      "RootincorrectPATH let installerchild findunsupported3.9",
+      "Actualtwo-secondhostfixturetimeout; thresholdsunchanged, correctedrunpassed"
+    ],
+    "raw_stderr_sha256": "d77a5c78ab862bedd1bb07be75f50985284f90fda0bdbb14a8e1345d3b85fc25",
+    "status": "retained, notrelabeledaspassed"
+  },
+  "preservation": "No failed runs/accounting/quarantine/unknownholds were reset, refunded or erased",
+  "actual_product_acceptance": false,
+  "cross_platform_CI_for_this_commit": "not yet run; priorada all7passed retained separately",
+  "merge_or_deployment": false
+}

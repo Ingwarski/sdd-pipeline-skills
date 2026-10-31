@@ -1,0 +1,92 @@
+{
+  "base_head": "5651687",
+  "code_frozen": true,
+  "implementation": {
+    "API": "SnapshotFileHashes.section(path, identity, heading) -> bytes",
+    "freshness": "Checker retains no-link path resolution, fresh pre/post file_hash checks and per-heading saved identity comparison every use. Active owner.section is called even for a local per-heading cache hit. Every indexed file calls owner.file_hash each use, so canonical child-only sources join existing final union audit. Initial raw bytes SHA must equal supplied identity; post-read and post-lookup file checks retained.",
+    "heading_validation": "Same requested-heading predicate and error before index construction. Missing/duplicate-heading error unchanged.",
+    "index": "Private tuple of immutable bytes and MappingProxyType exact-heading to tuple of byte extents. Stack computes each heading end once. Duplicate occurrences remain explicit; lookup requires exactly one. No mutable index-returning API.",
+    "key": "Physical Path returned by existing Checker.path(no_links=True), plus exact verified SHA identity.",
+    "lifetime": "Only depth>0 uses owner.section_indexes. Direct depth0 owner.section performs fresh temporary hash checks and builds no retained index. snapshot_hash_scope clears section_indexes only at depth zero alongside existing hash/result/legacy caches; all original audit/error/cycle/reset logic unchanged.",
+    "parser": "Same bytes.splitlines(keepends=True), per-line full UTF-8 decode, rstrip CR/LF, lstrip BOM, existing ATX and fence regular expressions. Entire source decoded before a section is returned, including suffixes. Byte offsets preserve BOM, CRLF, no final newline and every selected byte. Generic section_from_bytes builds fresh each call and returns bytes for bytearray input as before.",
+    "sdd_history_change": "Exactly owner.section_indexes.clear() in existing depth-zero cleanup."
+  },
+  "independent_tests": {
+    "owner": "engine_recovery_analysis",
+    "path": "tests/test_markdown_section_index.py",
+    "status": "Independent test writer owns final oracle/adversarial coverage and separate report; final result pending."
+  },
+  "kind": "markdown-section-index-core-verification",
+  "limitations": [
+    "No actual product/private ledger/browser/provider/network/Git/install operation. Installed v9 untouched.",
+    "Root owns full required suite, native performance rerun, cross-platform CI and independent source review.",
+    "No product QA acceptance claim."
+  ],
+  "parent_reported_profile": {
+    "full_profiled_gate_seconds": 887,
+    "independently_rerun_by_this_worker": false,
+    "whole_markdown_parse_seconds": 291,
+    "whole_markdown_parses": 7152
+  },
+  "preserved_initial_failure": {
+    "exit_code": 1,
+    "probe": "Synthetic temporary-file owner.section benchmark",
+    "problem": "Existing no-link guard rejected /var alias parent (linked or non-directory parent: /var).",
+    "resolution": "Resolved the temporary fixture to its physical path, repeated the same comparison successfully, and verified fixture removal. No source safety check changed."
+  },
+  "scope": "One per-invocation Markdown heading index; no JSON memoization, topology, policy, accounting or product-contract change.",
+  "sources": {
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": {
+      "bytes": 176512,
+      "sha256": "03a2a74cc01073b898e223732ff263a7b1d7be9470c49ad292622d63bb0f8f46"
+    },
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": {
+      "bytes": 125003,
+      "sha256": "ce1f8c45173bf0e2fec6790f04ff0c0d8af9c3de7b84b892232379aa58718c94"
+    }
+  },
+  "synthetic_measurement": {
+    "active_owner_builds": 1,
+    "active_owner_seconds": 0.073892,
+    "fixture_removed": true,
+    "fresh_generic_builds": 640,
+    "fresh_generic_seconds": 0.160081,
+    "fresh_metadata_checks_and_final_audit": true,
+    "headings": 160,
+    "limitation": "Small synthetic workload illustrates parse reuse only; does not establish actual native gate speedup.",
+    "native_runtime_gate_rerun": false,
+    "outputs_exactly_equal": true,
+    "physical_bytes": 4900,
+    "queries": 640
+  },
+  "tests": [
+    {
+      "command": "python3 -B -m unittest test_sdd_check test_source_usage test_history_file_cache test_history_evidence -q",
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests",
+      "note": "Immutable bytes normalization finalized during this first run; final selector repeated against final frozen source.",
+      "passed": 133,
+      "phase": "Initial existing focused selector",
+      "seconds": 19.384,
+      "tests": 133
+    },
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest test_sdd_check test_source_usage test_history_file_cache test_history_evidence -q",
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests",
+      "exit_code": 0,
+      "failed": 0,
+      "passed": 133,
+      "phase": "Final frozen focused selector",
+      "seconds": 20.564,
+      "skips": 0,
+      "tests": 133
+    }
+  ],
+  "usage": {
+    "extra_API_or_reset_used": false,
+    "included_only": true,
+    "ordinary_usage_allowed": true,
+    "used_percent": 70
+  },
+  "version": 1,
+  "writing_status": "All owned source and report writes stopped. Independent new tests and review report their results separately to root."
+}

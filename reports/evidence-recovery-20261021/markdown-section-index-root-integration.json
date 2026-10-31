@@ -1,0 +1,50 @@
+{
+  "at": "2026-10-22T01:56:30.007878+00:00",
+  "parent_revision": "5651687fea1671245b928be91294b66104599c9b",
+  "source_hashes": {
+    "skills/to-sdd-pipeline/scripts/sdd_check.py": "03a2a74cc01073b898e223732ff263a7b1d7be9470c49ad292622d63bb0f8f46",
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": "ce1f8c45173bf0e2fec6790f04ff0c0d8af9c3de7b84b892232379aa58718c94",
+    "tests/test_markdown_section_index.py": "9fc654e4a7baefe7e2b5564b715022b8c9ee951a76a04c6d1bf54442ccc8e54b"
+  },
+  "implementation": "Immutable perverifiedphysicalsource heading index only inside active auditedsnapshotowner; allperusepath/hash/link/identity checks preserved; everyindexedsource registers in finalunion; scopezero clearsindex; genericparser fresh",
+  "measured_problem": "Fullnativeprofile887.557seconds;7152wholeMarkdownscans291.281cumulative seconds; actualraw retained in productR5, not a physicalwrite measurement",
+  "verification": {
+    "complete_suite": {
+      "tests": 1104,
+      "skips": 11,
+      "failures": 0,
+      "return_code": 0,
+      "seconds": 384.913
+    },
+    "shell_suites_passed": 3,
+    "new_focused_tests_passed": 17,
+    "independent_parser_comparisons": 6004,
+    "independent_cache_cases_passed": 9,
+    "independent_selected_frozen_tests_passed": 7
+  },
+  "independent_report_sha256": "d9058df82567d1bcb35bf8fa51bcb626892e44b7f2ca50d779bb01a8bec61d7c",
+  "synthetic": "640queries/640freshwholeparses versus1activeindex; outputsbyteidentical; native speedupnotyetmeasured",
+  "preserved_initial_failures": [
+    "Core/reviewer /var temporarydirectoryalias denied by existingparentguard; resolvedactualtempfixture thenpassed",
+    "Testwriter16pass1fixtureerror correctlycaughtrestoredinode metadata mutation; correctedfixture+rawoutput retained",
+    "Earlier newline PATH8failure and nativeWindows3serializationerrors retainedunchanged"
+  ],
+  "unchanged": [
+    "No failedrun/ledger/accounting mutation",
+    "No topologycache or parentguarddeferral",
+    "No existingtest removed",
+    "No productplan/QA/DoD/baseline/scope/permission change"
+  ],
+  "pending": [
+    "ExactcommitcrossplatformCI",
+    "Supportedfrozeninstallation",
+    "Actualcurrentnativegate and UNIT00 productQA/DoD"
+  ],
+  "no_merge": true,
+  "rawlog_diff_check_exception": {
+    "return_code": 2,
+    "output": "reports/evidence-recovery-20261021/root-ci-6c1fec3-failed.log:1123: trailing whitespace.\n+windows (3.14)\tTest stage checker and installer input contract\t2026-10-22T01:24:46.7753957Z \nreports/evidence-recovery-20261021/root-ci-6c1fec3-failed.log:1139: trailing whitespace.\n+windows (3.14)\tTest stage checker and installer input contract\t2026-10-22T01:24:46.7786295Z \nreports/evidence-recovery-20261021/root-ci-6c1fec3-failed.log:1155: trailing whitespace.\n+windows (3.14)\tTest stage checker and installer input contract\t2026-10-22T01:24:46.7802967Z \nreports/evidence-recovery-20261021/root-ci-6c1fec3-failed.log:1171: trailing whitespace.\n+windows (3.14)\tTest stage checker and installer input contract\t2026-10-22T01:24:46.7818782Z \nreports/evidence-recovery-20261021/root-ci-6c1fec3-failed.log:1174: trailing whitespace.\n+windows (3.14)\tTest stage checker and installer input contract\t2026-10-22T01:24:46.7819601Z \n",
+    "path": "reports/evidence-recovery-20261021/root-ci-6c1fec3-failed.log",
+    "reason": "Original CI log whitespace retained; no source/JSON exceptions"
+  }
+}

@@ -1,0 +1,189 @@
+{
+  "kind": "policy-lineage-independent-code-and-contract-review",
+  "reviewed_at": "2026-10-22T00:45:48.241608+00:00",
+  "status": "complete_one_documentation_finding_resolved_no_open_material_code_blocker",
+  "repository": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+  "verified_baseline_head": "cc31e82909c16161f995c87572a0af2dbdaa4221",
+  "requested_profile": "gpt-6.1-sol/high inherited; effective host model/effort not independently verified",
+  "usage": {
+    "ordinary_usage_allowed": true,
+    "included_weekly_used_percent_live_before_review": 69,
+    "included_only": true,
+    "extra_api_reset_used": false
+  },
+  "scope": {
+    "sole_write": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/reports/evidence-recovery-20261021/policy-lineage-independent-review.json",
+    "source_readonly": true,
+    "Git": "Read-only diff/status/rev-parse/show; no mutation",
+    "actual_product_private_ledger_provider_browser_network_install_actions": false,
+    "subagents": false
+  },
+  "findings": [
+    {
+      "id": "LINEAGE-DOC-01",
+      "severity": "P3",
+      "status": "resolved",
+      "path": "docs/evidence-storage.md",
+      "lines": [
+        43,
+        47
+      ],
+      "original_sha256": "2d860de2662626b8a5ca939c173d7c559f76e3612b031b5b969cd845d247726f",
+      "problem": "Initial new text implied provider/store/retention changes could use existing reconfiguration rules, and adjacent text unconditionally said --reconfigure could choose another store. Lineage-bearing configure actually rejects every non-limit change.",
+      "resolution": "Root clarified that lineage-bearing policies fail closed on provider/store/retention/non-limit changes and no such migration is implemented; old other-store statement now explicitly applies only without lineage.",
+      "corrected_sha256": "5287d01420dd09a9f521274b0d2434fec39c760e256678a71e9994411f0f2205",
+      "verification": "Independent read of corrected paragraphs and final hash match; source hashes unchanged."
+    }
+  ],
+  "open_findings": [],
+  "semantic_review": [
+    {
+      "file": "skills/to-sdd-pipeline/scripts/evidence/policy.py",
+      "lines": [
+        59,
+        204
+      ],
+      "result": "Optional v1 lineage absent from defaults; unlineaged normalization retained. Base stores exact originalUTF8 once with rawSHA and full normalized policySHA. Each bounded step binds prior FULL normalized policySHA, exact priorrawSHA, previous digest, fully normalized effective snapshot and exact nonempty limits diff. Every prefix reconstructed with its own lineage; no terminal self-hash or recursive embedding. Complete tail and final effective body validated before ancestor lookup; returned policies detached copies."
+    },
+    {
+      "file": "skills/to-sdd-pipeline/scripts/evidence/policy.py",
+      "lines": [
+        77,
+        105,
+        166,
+        204
+      ],
+      "result": "1MiB complete setup serialization and16transition cap enforced before append publication. Canonical serialization rejects nonfinite/nonJSON chain values; original parser rejects duplicate fields/invalidUTF8. Lineage-bearing priorraw must exactly match supported indent2/sortkeys/newline setup serializer before append. Only limits may change; identity/provider/retention/targets/Git thresholds remain fixed. Canonical exact changes comparison prevents bool/int aliases."
+    },
+    {
+      "file": "scripts/evidence_setup.py",
+      "lines": [
+        58,
+        79,
+        370,
+        475
+      ],
+      "result": "Captures semantic candidate and exact originalraw together; preserves inherited lineage and appends deterministic limits-only edge. Saved project/store/transport identity checks and pending-setup checkpoint stay intact. Raw source bytes rechecked before probe/authority and after authority before local exposure. Candidate authority publication+readback precede binding/policy rewrite; exact retry reconstructs identical candidate after remote success/local failure."
+    },
+    {
+      "file": "skills/to-sdd-pipeline/scripts/evidence/manager.py",
+      "lines": [
+        596,
+        651,
+        835,
+        851,
+        1440,
+        1485
+      ],
+      "result": "Ordinary mutation compares exact full policy against committed root when either side has lineage. Setup special path permits exact immediate predecessor only, or exact current head for idempotent retry; stale ancestor/sibling/skipped transition/cold coordinator reject. Empty catalog accepts only first oneedge with independently read existing exact authority. _publish has separate lineage guard, fresh rootkey fence and existing budgets/independent byte readback; policy-only index marker is unique per edge. Final full catalog readback must equal candidate before setup returns."
+    },
+    {
+      "file": "skills/to-sdd-pipeline/scripts/evidence/quarantine.py",
+      "lines": [
+        96,
+        104,
+        164,
+        178,
+        216,
+        235
+      ],
+      "result": "Old descriptor original digest/raw/session/ledger/reservation/floor/run/ownership/inventory/proof checks retained. Descriptor policySHA may resolve only exact validated full ancestor. Historical session read uses local SimpleNamespace(connection, historicalpolicy); no reassignment of live ledger.policy, producer session or receipt. New current operations use current policy. Original history remains incomplete/lowerbounds with full retained hold."
+    },
+    {
+      "file": "skills/to-sdd-pipeline/scripts/sdd_check.py",
+      "lines": [
+        809,
+        837
+      ],
+      "result": "Current receipt policy_sha256 still compares raw current policy file hash. Ancestor resolution does not authorize historical raw receipt against changed current bytes. Accounting, runtime session reader, evidence_store CLI and checker files byte-identical to baseline."
+    },
+    {
+      "file": "docs/evidence-storage.md",
+      "lines": [
+        39,
+        47
+      ],
+      "result": "Corrected docs match bounded limits-only compatibility, historical identity preservation, remote-before-local/readback, exact retry and serializer requirements; non-limit migration explicitly unimplemented."
+    }
+  ],
+  "actual_checks": [
+    {
+      "commands": [
+        "git diff --stat",
+        "git rev-parse HEAD",
+        "git diff -- four frozen sources",
+        "git diff -- docs/evidence-storage.md",
+        "git show cc31e82:<four unchanged adjacent files>"
+      ],
+      "result": "Expected baseline/frozen patch reviewed read-only; four adjacent files confirmed byte-identical."
+    },
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_evidence_policy_lineage.PolicyLineageTests.test_multiple_transitions_resolve_exact_full_prefix_not_effective_only test_evidence_policy_lineage.PolicyLineageTests.test_full_tail_is_validated_before_resolving_a_valid_base_digest test_evidence_policy_lineage.PolicyLineageTests.test_one_mib_policy_bound_and_oversized_original_are_enforced test_evidence_policy_lineage.PolicyLineageTests.test_resealed_boolean_integer_alias_in_exact_diff_is_denied test_evidence_policy_lineage.PolicyLineageTests.test_exact_raw_receipt_binding_is_not_relaxed_by_ancestor_resolution test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_unknown_root_upload_readback_outcome_retains_old_policy_and_exact_retry test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_crash_after_verified_publication_before_local_policy_write_replays_once test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_stale_source_fork_cannot_publish_over_advanced_head test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_first_lineage_publication_cannot_create_absent_or_take_foreign_authority test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_empty_authority_does_not_accept_skipping_multiple_transitions test_evidence_setup_policy_lineage.QuarantinedAccountingLineageTests.test_two_policy_transitions_keep_original_failed_session_and_full_hold_unchanged test_evidence_setup_policy_lineage.QuarantinedAccountingLineageTests.test_fresh_registered_known_output_and_v2_receipt_preserve_history_after_transition",
+      "cwd": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests",
+      "runtime": "3.12.14 (main, Aug 25 2026, 13:50:33) [Clang 22.1.3 ]",
+      "result": "12passed,0failed,0errors,0skipped",
+      "duration_seconds": 2.423,
+      "isolation": "TemporaryDirectory local fixture stores/project/SQLite only; setup provider/CLI subprocess seam replaced, immutable local catalog/publication/readback and original quarantine accounting real fixture logic. No private/installed/product state or live provider."
+    },
+    {
+      "command": "python3.12 -B stdin isolated SetupPolicyLineageTests fixture; configure firstedge, retain committed catalog, call _publish directly under stale originalpolicy and unpublished successor; require EvidenceError and unchanged durable_bytes after each; finally doCleanups",
+      "result": "2 independent additional adversarial cases passed; ordinary direct publication cannot bypass either lineage fence",
+      "source_file_written": false
+    },
+    {
+      "result": "All4 frozen source,2test and corrected doc hashes reverified immediately before report creation."
+    }
+  ],
+  "counterexamples_checked": [
+    "Malformed tail cannot resolve valid base prefix",
+    "Historical FULL prefix differs from effective-only body and is the only accepted SHA",
+    "1MiB escaped-base expansion bound",
+    "Resealed bool/int alias in limits diff",
+    "Current raw receipt remains rejected after policychange despite valid historical resolver",
+    "Root upload succeeds but readback response fails; retry commits local without new root",
+    "Verified remote publication then localwrite crash; exact retry does not duplicate edge/root",
+    "Stale local fork after advanced remote head cannot publish",
+    "Absent/foreign authority and emptycatalog multipleedge skip reject",
+    "Two transitions preserve byte-exact old session/run/reservation/floor/observations/quarantine and fullhold; cancel/settle/complete oldrun stillreject",
+    "Fresh distinct complete known output/newscopedreceipt coexist with immutable failedhistory and lowerboundtotals",
+    "Direct ordinary_publish rejects stale ancestor and unpublished successor"
+  ],
+  "root_or_writer_reported_not_reexecuted": [
+    "Writer38newtests finalrun pending at dispatch; this reviewer did not claim its final outcome.",
+    "Parent reports three shell suites passed and full consolidated suite running; reviewer did not duplicate them or inspect running output.",
+    "Parent owns affected content/skill-contract checks after docs correction."
+  ],
+  "limits": [
+    "Source review and isolated fixtures do not prove actual Drive publication, installed activation, private accounting preservation or UNIT00 QA/DoD acceptance. Root retains full consolidated suite/CI/install/live verification.",
+    "No supported migration for provider/store/retention after lineage; documented fail-closed limitation.",
+    "Policy lineage hashes preserve exact provenance declarations; they do not authenticate hostile same-user actors or human authority. Existing designated coordinator/locks remain trust boundary.",
+    "Manual formatting of lineage-bearing source blocks further append by design; original unlineaged bytes may retain arbitrary originalformat once.",
+    "Root must preserve original policy/receipt/history bytes and independently verify actual all-table preservation and new operational metadata after any future live configure."
+  ],
+  "cleanup": {
+    "temporary_test_fixtures": "Existing TemporaryDirectory cleanup completed; no retained test runtime/ports/browser resources",
+    "additional_adversarial_fixture": "doCleanups executed in finally",
+    "private_process_signals_or_deletions": false
+  },
+  "release_decision": "No open material code finding for exact reviewed hashes; documentation finding resolved. Root retains subsequent full-suite/content/CI/install gates and actual reconfiguration/current acceptance; no original failed history or QA promoted.",
+  "source_sha256_at_review_end": {
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/policy.py": "4a59143344bbe689a3792fe43be02965d1b79f3258169a25e0a2fa1578a4d02b",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/quarantine.py": "60759c01fa8c0c4164c23c1306aa49bf7a90e7fc96a21e3dbe69159994d5dcd0",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/manager.py": "3c630e16d7d8c1663e30f11bf09fc71bf621b3c2dd779e1a2bea2a6be55fe037",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/scripts/evidence_setup.py": "e855f016faeea293f6200b6bb9c39b961b4a77619794dc8bc9916ab80db15314",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_evidence_policy_lineage.py": "100a84928a06fbf77acc9c2a14be1c304bf9cd0d8847051ef32dddc9a978709d",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_evidence_setup_policy_lineage.py": "0b9cf00bb6772ce608e65b72781875bde293f1e47cfe61c6c8eeddbc9c51538d",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/docs/evidence-storage.md": "5287d01420dd09a9f521274b0d2434fec39c760e256678a71e9994411f0f2205"
+  },
+  "unchanged_adjacent_file_sha256": {
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/accounting.py": "4ece97d0adddb6517b516a68748bb8220c328ec1147642717de36ea1fc857e4a",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py": "7f72f0879cb16f5ce00d59f56a2bf09ebe9ae97721c5987d057422e4998653e0",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/evidence_store.py": "acb8a2f58ee810ee345b26c794170f79ab4e197a6dfd172a3d1ed18e98335bbd",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/skills/to-sdd-pipeline/scripts/sdd_check.py": "fc69413f0b6d303c092c8d3a37181e04d5b6b5a194d7417c117a6f10f101275f"
+  },
+  "effective_instruction_sha256": {
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/AGENTS.md": "18eb0920c74321337b8c9e231e785538db612378f91f8a55ab269e24833452d6",
+    "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/docs/maintenance.md": "fc1883b38ac9406c636f4cbbd1508e678e63c8cce1348356f7800e0a44a63c5e"
+  },
+  "writing_stopped_after_this_report": true
+}

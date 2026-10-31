@@ -1,0 +1,65 @@
+{
+  "purpose": "Maintenance shell verification for the frozen history-cache change",
+  "source_revision": "909483c4bcfcd1c9c3e39adc2d2c2928c0e222b0",
+  "runtime": {
+    "python": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "version": "Python 3.12.14",
+    "path_prefix_used": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin"
+  },
+  "included_usage_check": {
+    "ordinary_usage_allowed": true,
+    "used_percent": 60,
+    "extra_credits_or_api": false
+  },
+  "source_freeze": {
+    "manifest": "reports/evidence-recovery-20261021/history-cache-source-hashes.json",
+    "before_and_after_match": true,
+    "files": {
+      "skills/to-sdd-pipeline/scripts/sdd_check.py": "38959073dacfd62b555eb9ff03399cf2ba67caefac67fa6cec0277ae756bdc5e",
+      "skills/to-sdd-pipeline/scripts/sdd_history.py": "e7a3d88a6ba674178b928cd630c5a10a111df6e41e8953596d9609e90f361cef",
+      "skills/to-sdd-pipeline/scripts/progress.py": "232115c6448824e65c7909479df782065d9e9046b4517c20fc7e4c573b15984d",
+      "tests/test_history_file_cache.py": "f053bc1c3dc0fde24bcbaed56c3d8d6e262acbbf746fb8b4f11d3354db127799"
+    },
+    "note": "Each current SHA-256 matched the corresponding manifest entry immediately before and after the three shell suites."
+  },
+  "shell_suites": [
+    {
+      "command": "bash tests/test-install.sh",
+      "exit_code": 0,
+      "elapsed_seconds_real": 6.75,
+      "result": "Unix installer tests passed.",
+      "log": "reports/evidence-recovery-20261021/history-cache-shell-install.log",
+      "temporary_root": "/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/codex-sdd-installer.isTJFR",
+      "cleanup_verified": true
+    },
+    {
+      "command": "bash tests/test-retirement.sh",
+      "exit_code": 0,
+      "elapsed_seconds_real": 14.25,
+      "result": "Permanent retirement tests passed, including expected deletion failure handling and recovery.",
+      "log": "reports/evidence-recovery-20261021/history-cache-shell-retirement.log",
+      "temporary_root": "/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-retirement.wmMsfY",
+      "cleanup_verified": true
+    },
+    {
+      "command": "bash tests/test-update.sh",
+      "exit_code": 0,
+      "elapsed_seconds_real": 13.11,
+      "result": "Updater tests passed for stable/default channel, missing stable, explicit main, no downgrade, flags, dirty tree, origin, and divergence behavior.",
+      "log": "reports/evidence-recovery-20261021/history-cache-shell-update.log",
+      "temporary_root": "/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-update.NM37ak",
+      "cleanup_verified": true,
+      "network_scope": "The test redirects fetches to its disposable local bare Git remote; no live network operation was performed."
+    }
+  ],
+  "cleanup_check": {
+    "resolved_tmpdir": "/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/",
+    "all_three_exact_roots_verified_absent": true,
+    "basis": "Each mktemp-created root was observed while its own suite was running, and the exact path was checked for absence after that suite exited with status 0. All commands had completed; no suite process remained."
+  },
+  "limits": [
+    "These are isolated local maintenance shell-suite results, not live installer or product acceptance evidence.",
+    "The root-owned full unittest run was concurrent and is not part of these shell-suite results.",
+    "Requested model/reasoning settings were not independently visible or verified by this execution environment."
+  ]
+}

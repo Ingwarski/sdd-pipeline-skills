@@ -1,10 +1,15 @@
 """Generic producer recovery at durable catalog and command boundaries."""
 from contextlib import redirect_stdout
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 import json
+import os
 import socket
 import sqlite3
 import sys
+import threading
+import time
+from types import SimpleNamespace
 import unittest
 import uuid
 from unittest.mock import patch
@@ -55,6 +60,294 @@ class ProducerManagerRecoveryTests(unittest.TestCase):
         self.assertEqual(process_identity.identity(), record["owner_identity"])
         self.assertTrue(process_identity.valid_identity(record["owner_identity"]))
         self.assertTrue(self.manager.finish_generation(intent)["settled"])
+
+    def test_manager_without_quarantine_keeps_payload_timeout_and_omits_gate_publication_deadline(self):
+        from evidence import producer
+        intent = self.manager.begin_generation('ordinary-slow-preflight', 'unit', 4096, 8)
+        output = self.fixture.base / 'ordinary-timeout-output'; output.mkdir()
+        probe = self.fixture.base / 'request-probe'; probe.mkdir()
+        request_file = self.fixture.base / 'observed-native-gate-request.json'
+        # Observe the real guardian's unmodified gate request in its child
+        # interpreter; no fake producer result or patched native SDK function.
+        hook = '''import json, pathlib, subprocess
+_actual_popen = subprocess.Popen
+def _observed_popen(*args, **kwargs):
+    process = _actual_popen(*args, **kwargs)
+    argv = args[0] if args else kwargs.get('args', [])
+    if isinstance(argv, list) and argv and argv[-1] == 'gate' and process.stdin is not None:
+        original = process.stdin
+        class Stream:
+            def __getattr__(self, name): return getattr(original, name)
+            def write(self, raw):
+                pathlib.Path(REQUEST_PATH).write_bytes(raw)
+                return original.write(raw)
+        process.stdin = Stream()
+    return process
+subprocess.Popen = _observed_popen
+'''.replace('REQUEST_PATH', repr(str(request_file)))
+        (probe / 'sitecustomize.py').write_text(hook)
+        payload_timeout = 5
+        preflight_complete = threading.Event()
+        # Model an already elapsed preflight without making native interpreter
+        # startup/exit fit a subsecond timeout. Only the parent's producer-module
+        # clock is replaced; the real guardian and launch gate keep real clocks.
+        preflight_started = time.monotonic() - 2 * payload_timeout
+        clock = SimpleNamespace(sleep=time.sleep, monotonic=lambda:
+            time.monotonic() if preflight_complete.is_set() else preflight_started)
+        def delayed_preflight(ledger, *, dry_run):
+            self.assertIsNone(ledger._publication_manager[2])
+            preflight_complete.set()
+            return {'actions': [], 'incomplete': False}
+        self.recover.side_effect = delayed_preflight
+        requests = []
+        actual_popen = producer.subprocess.Popen
+        def observed_guardian(*args, **kwargs):
+            process = actual_popen(*args, **kwargs)
+            argv = args[0] if args else kwargs.get('args', [])
+            if isinstance(argv, list) and argv and argv[-1] == 'guardian' and process.stdin is not None:
+                original = process.stdin
+                class Stream:
+                    def __getattr__(self, name):
+                        return getattr(original, name)
+                    def write(self, raw):
+                        requests.append(json.loads(raw))
+                        return original.write(raw)
+                process.stdin = Stream()
+            return process
+        with self.ledger() as ledger, \
+                patch.dict(os.environ, {'PYTHONPATH': str(probe) + os.pathsep + os.environ.get('PYTHONPATH', '')}), \
+                patch.object(producer, 'time', clock), patch.object(producer.subprocess, 'Popen', observed_guardian):
+            result = producer.run_producer(ledger, 'ordinary-slow-preflight', 'unit', output,
+                [sys.executable, '-B', '-c', 'from pathlib import Path; Path("ordinary.txt").write_text("ok")'],
+                4096, 8, timeout=payload_timeout, poll_interval=.02, intent_id=intent, manager=self.manager)
+            self.assertIsNone(ledger._publication_manager)
+        self.assertTrue(preflight_complete.is_set())
+        self.assertLess(preflight_started + payload_timeout, time.monotonic())
+        self.assertEqual(1, len(requests))
+        self.assertEqual(payload_timeout, requests[0]['timeout'])
+        self.assertNotIn('publication_deadline', requests[0])
+        self.assertEqual('complete', result['status'], result)
+        self.assertEqual('ok', (output / 'ordinary.txt').read_text())
+        request = json.loads(request_file.read_bytes())
+        self.assertNotIn('publication_deadline', request)
+        self.assertTrue(self.manager.finish_generation(intent, result['reservation_id'])['settled'])
+
+    def test_begin_reuses_final_catalog_only_inside_publication_lock(self):
+        seed = self.manager.begin_generation("seed", "unit", 20, 2)
+        recovery_depths, readiness_depths, published = [], [], []
+        original_readiness = self.manager._generation_readiness
+        original_publish = self.manager._publish
+
+        def recover(ledger, *, dry_run):
+            recovery_depths.append(self.manager._catalog_lock_depth)
+            return {"actions": [], "incomplete": False}
+
+        def readiness(catalog, ledger):
+            readiness_depths.append(self.manager._catalog_lock_depth)
+            published.append(catalog)
+            return original_readiness(catalog, ledger)
+
+        def publish(catalog, segment):
+            self.assertIs(catalog, published[-1])
+            self.assertEqual(1, self.manager._catalog_lock_depth)
+            self.assertIn(seed, catalog["generation_intents"])
+            return original_publish(catalog, segment)
+
+        with patch.object(self.manager, "_catalog", wraps=self.manager._catalog) as catalogs, \
+                patch.object(self.manager, "_generation_readiness", side_effect=readiness), \
+                patch.object(self.manager, "_publish", side_effect=publish):
+            self.recover.side_effect = recover
+            first = self.manager.begin_generation("first", "unit", 20, 2)
+            second = self.manager.begin_generation("second", "unit", 20, 2)
+        self.assertEqual(4, catalogs.call_count, "each begin requires two fresh catalog validations")
+        self.assertEqual([0, 0], recovery_depths, "do not hold catalog ownership during producer shutdown")
+        self.assertEqual([1, 1], readiness_depths)
+        self.assertEqual(0, self.manager._catalog_lock_depth)
+        self.assertIn(first, published[1]["generation_intents"])
+        self.assertIn(second, self.manager._catalog()["generation_intents"])
+
+    def test_public_authority_keeps_result_shape_and_releases_catalog(self):
+        with patch.object(self.manager, "_catalog", wraps=self.manager._catalog) as catalogs:
+            result = self.manager.assert_generation_authority()
+        self.assertEqual({"coordinator_authorized": True, "coordinator": self.manager.coordinator}, result)
+        self.assertEqual(2, catalogs.call_count)
+        self.assertEqual(0, self.manager._catalog_lock_depth)
+        self.assertFalse((self.manager.state / "catalog.lock").exists())
+
+    def test_final_catalog_reads_changed_original_index_bytes_after_recovery(self):
+        self.manager.begin_generation("seed", "unit", 20, 2)
+        catalog = self.manager._catalog()
+        index = self.fixture.store / catalog["segments"][0]["locator"]["key"]
+        puts = list(self.fixture.transport.puts)
+
+        def change_bytes(ledger, *, dry_run):
+            data = index.read_bytes()
+            # Keep the size and valid JSON while changing the original bytes.
+            self.assertIn(b'"seed"', data)
+            index.write_bytes(data.replace(b'"seed"', b'"evil"'))
+            return {"actions": [], "incomplete": False}
+
+        self.recover.side_effect = change_bytes
+        with self.assertRaisesRegex(EvidenceError, "index identity mismatch"):
+            self.manager.begin_generation("must-not-start", "unit", 20, 2)
+        self.assertEqual(puts, self.fixture.transport.puts)
+        self.assertEqual(0, self.manager._catalog_lock_depth)
+
+    def test_final_catalog_rechecks_authority_after_recovery(self):
+        self.manager.begin_generation("seed", "unit", 20, 2)
+        authority = self.fixture.store / self.manager.prefix / "authority/coordinator.json"
+        puts = list(self.fixture.transport.puts)
+
+        def replace_authority(ledger, *, dry_run):
+            record = json.loads(authority.read_text())
+            record["coordinator"] = "another-coordinator"
+            authority.write_text(json.dumps(record))
+            return {"actions": [], "incomplete": False}
+
+        self.recover.side_effect = replace_authority
+        with self.assertRaisesRegex(EvidenceError, "designated coordinator"):
+            self.manager.begin_generation("must-not-start", "unit", 20, 2)
+        self.assertEqual(puts, self.fixture.transport.puts)
+        self.assertEqual(0, self.manager._catalog_lock_depth)
+
+    def test_publication_retains_fresh_root_guard_after_readiness(self):
+        seed = self.manager.begin_generation("seed", "unit", 20, 2)
+        puts = list(self.fixture.transport.puts)
+        original_publish = self.manager._publish
+
+        def concurrent_root(catalog, segment):
+            self.assertEqual(1, self.manager._catalog_lock_depth)
+            previous = self.fixture.store / catalog["root_key"]
+            # Simulate an out-of-band remote writer, outside the local lock.
+            changed = previous.parent / ("999999999999-" + "0" * 64 + ".json")
+            changed.write_bytes(previous.read_bytes())
+            try:
+                return original_publish(catalog, segment)
+            finally:
+                changed.unlink()
+
+        with patch.object(self.manager, "_publish", side_effect=concurrent_root), \
+                self.assertRaisesRegex(EvidenceError, "catalog changed on another client"):
+            self.manager.begin_generation("must-not-start", "unit", 20, 2)
+        self.assertEqual(puts, self.fixture.transport.puts)
+        self.assertEqual({seed}, set(self.manager._catalog()["generation_intents"]))
+        self.assertEqual(0, self.manager._catalog_lock_depth)
+
+    def test_begin_final_catalog_sees_automatic_recovery_settlement(self):
+        old = self.publish_intent(legacy=True)
+        with self.ledger() as ledger:
+            hold = ledger.reserve("run", "unit", 20, 2)
+            ledger.settle(hold, 5, 1)
+        self.recover.return_value = {"actions": [self.action(old, hold)], "incomplete": False}
+        with patch.object(self.manager, "_generation_owner_state", return_value="gone"), \
+                patch.object(self.manager, "_catalog", wraps=self.manager._catalog) as catalogs:
+            new = self.manager.begin_generation("new", "unit", 20, 2)
+        self.assertEqual(3, catalogs.call_count, "automatic settlement owns its additional fresh catalog")
+        actual = self.manager._catalog()
+        self.assertEqual(3, actual["sequence"])
+        self.assertTrue(actual["generation_intents"][old]["settled"])
+        self.assertIn(new, actual["generation_intents"])
+        self.assertEqual([False, True], [call.kwargs["dry_run"] for call in self.recover.call_args_list])
+        with self.ledger() as ledger:
+            self.assertEqual(5, ledger.snapshot()["totals"]["project_generated_bytes"])
+
+    def test_unknown_owner_keeps_full_original_hold_and_blocks_new_intent(self):
+        old = self.manager.begin_generation("run", "unit", 20, 2)
+        with self.ledger() as ledger:
+            hold = ledger.reserve("run", "unit", 20, 2)
+            original = dict(ledger.connection.execute("SELECT * FROM reservations WHERE id=?", (hold,)).fetchone())
+        puts = list(self.fixture.transport.puts)
+        with patch.object(self.manager, "_generation_owner_state", return_value="unknown"), \
+                self.assertRaisesRegex(EvidenceError, "unknown local accounting"):
+            self.manager.begin_generation("must-not-start", "unit", 20, 2)
+        self.assertEqual(puts, self.fixture.transport.puts)
+        self.assertEqual({old}, set(self.manager._catalog()["generation_intents"]))
+        with self.ledger() as ledger:
+            self.assertEqual(original, dict(ledger.connection.execute("SELECT * FROM reservations WHERE id=?", (hold,)).fetchone()))
+
+    def test_incomplete_recovery_preserves_hold_floor_and_publication_state(self):
+        self.manager.begin_generation("run", "unit", 20, 2)
+        with self.ledger() as ledger:
+            hold = ledger.reserve("run", "unit", 20, 2)
+            ledger.record_uncertain(hold, 7, 1)
+            before = ledger.snapshot()
+            uncertain = [tuple(row) for row in ledger.connection.execute("SELECT * FROM uncertain_generation")]
+        puts = list(self.fixture.transport.puts)
+        self.recover.return_value = {"actions": [{"action": "retained", "incomplete": True}], "incomplete": True}
+        with self.assertRaisesRegex(EvidenceError, "producer recovery remains incomplete"):
+            self.manager.begin_generation("must-not-start", "unit", 20, 2)
+        self.assertEqual(puts, self.fixture.transport.puts)
+        with self.ledger() as ledger:
+            after = ledger.snapshot()
+            self.assertEqual(before["reservations"], after["reservations"])
+            self.assertEqual(before["runs"], after["runs"])
+            # Manager control metadata is freshly accounted by catalog reads;
+            # producer charges, uncertainty and reservations never decrease.
+            for key in before["totals"]:
+                if key not in {"metadata_bytes", "metadata_files", "local_bytes", "cache_bytes", "ledger_bytes"}:
+                    self.assertEqual(before["totals"][key], after["totals"][key], key)
+            self.assertEqual(uncertain, [tuple(row) for row in ledger.connection.execute("SELECT * FROM uncertain_generation")])
+            self.assertFalse(after["accounting_complete"])
+
+    def test_capacity_failure_releases_final_lock_without_publishing(self):
+        seed = self.manager.begin_generation("seed", "unit", 20, 2)
+        puts = list(self.fixture.transport.puts)
+        original_readiness = self.manager._generation_readiness
+
+        def exhaust(catalog, ledger):
+            result = original_readiness(catalog, ledger)
+            # Capacity changes after validation must still be enforced by publish.
+            self.manager.limits["metadata_stop_files"] = catalog["metadata_files"]
+            return result
+
+        original_limit = self.manager.limits["metadata_stop_files"]
+        try:
+            with patch.object(self.manager, "_generation_readiness", side_effect=exhaust), \
+                    self.assertRaisesRegex(EvidenceError, "metadata/index/history budget"):
+                self.manager.begin_generation("must-not-start", "unit", 20, 2)
+        finally:
+            self.manager.limits["metadata_stop_files"] = original_limit
+        self.assertEqual(puts, self.fixture.transport.puts)
+        self.assertEqual({seed}, set(self.manager._catalog()["generation_intents"]))
+        self.assertFalse((self.manager.state / "catalog.lock").exists())
+
+    def test_two_clients_serialize_final_readiness_through_publication(self):
+        other = fixtures.Manager(self.fixture.transport, self.manager.home, self.manager.policy)
+        ready, release, other_started, other_entered = (threading.Event() for _ in range(4))
+        original_publish = self.manager._publish
+        original_other_catalog = other._catalog_locked
+
+        def pause(catalog, segment):
+            ready.set()
+            if not release.wait(timeout=10):
+                raise AssertionError("test publication barrier timed out")
+            return original_publish(catalog, segment)
+
+        def observe_other(**kwargs):
+            other_entered.set()
+            return original_other_catalog(**kwargs)
+
+        def start_other():
+            other_started.set()
+            return other.begin_generation("second", "unit", 20, 2)
+
+        with patch.object(self.manager, "_publish", side_effect=pause), \
+                patch.object(other, "_catalog_locked", side_effect=observe_other), \
+                ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(self.manager.begin_generation, "first", "unit", 20, 2)
+            try:
+                self.assertTrue(ready.wait(timeout=10))
+                second = pool.submit(start_other)
+                self.assertTrue(other_started.wait(timeout=10))
+                self.assertFalse(other_entered.wait(timeout=.1), "another client entered the retained catalog lock")
+            finally:
+                release.set()
+            identities = {first.result(timeout=10), second.result(timeout=10)}
+        actual = self.manager._catalog()
+        self.assertEqual(identities, set(actual["generation_intents"]))
+        self.assertEqual(2, actual["sequence"])
+        self.assertEqual(0, self.manager._catalog_lock_depth)
+        self.assertEqual(0, other._catalog_lock_depth)
 
     def test_catalog_rejects_malformed_exact_identity(self):
         owner = process_identity.identity()

@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-10-22T01:14:58.116362+00:00",
+  "finished_at": "2026-10-22T01:22:12.760642+00:00",
+  "command": [
+    "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-p",
+    "test_*.py",
+    "-v"
+  ],
+  "return_code": 1,
+  "log_sha256": "a5df87335b4f01f0e633e2f4e50216a86c9a8b58f93b4343c0fe5804154a0270",
+  "scope": "Complete consolidated newline correction regression suite; not product QA"
+}

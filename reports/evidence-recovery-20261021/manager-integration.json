@@ -1,0 +1,83 @@
+{
+  "base_revision": "82cf3979",
+  "branch": "codex/fix-evidence-recovery",
+  "checks": [
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest discover -s tests -p test_evidence_quarantine_manager.py -v",
+      "coverage": [
+        "dry-run and repeated publication preserve original run/reservation/uncertain/session/output rows",
+        "real fresh managed producer completion alongside old gap",
+        "old attempt finish and old run reuse/completion rejected",
+        "scope v2 receipt truthful global flags and original portable policy byte hash",
+        "publication interruption blocks generation until verified retry",
+        "cold catalog restores full hold and floor without readiness",
+        "unrelated unknown hold and unverified foreign intent block",
+        "CLI default dry-run and explicit --apply"
+      ],
+      "result": "passed",
+      "tests": 9
+    },
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest discover -s tests -p 'test_evidence_*manager*.py' -v",
+      "result": "passed",
+      "scope_note": "Before final two new negatives, historical-run reuse guard, prepublication collision guard and v2 successful issuance exit-code refinement; final quarantine-specific rerun covers those final changes.",
+      "tests": 78
+    },
+    {
+      "command": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest discover -s tests -p test_evidence_cli_audit.py -v",
+      "result": "passed",
+      "tests": 13
+    }
+  ],
+  "files": {
+    "skills/to-sdd-pipeline/scripts/evidence/manager.py": "729bc7fe7ed2def264bdaf25793b3c0dd4c0543bc1f3f6bf3adec01353e040a5",
+    "skills/to-sdd-pipeline/scripts/evidence_store.py": "b90a0cd701f0e7975ab1e53363ba5f0a229110359b11b138127638ef16e1d514",
+    "tests/test_evidence_quarantine_manager.py": "ce6faacf01a4ac334e6e4ac3ab53eecd59ed6b87eb3c3d1f4e5ae147ea403da4"
+  },
+  "first_failed_output": {
+    "cause": "Synthetic fixture wrote retained bytes before registering its initially empty output directory.",
+    "command": "quarantine-specific suite first fixture run",
+    "correction": "Register output first, then write synthetic retained bytes, then record uncertain floor; subsequent runs pass.",
+    "error": "EvidenceError: register an existing empty regular output directory",
+    "result": "7 errors before behavioral assertions"
+  },
+  "limitations": [
+    "Synthetic/local engine verification does not establish product/provider/live ledger acceptance.",
+    "Full regression suite, independent review, installation, Git publication and live application owned by coordinating agent.",
+    "Native cleanup attestations bind declared proof bytes and cannot authenticate the human verifier."
+  ],
+  "receipt_schema": {
+    "blocked_or_v1_incomplete_cli_exit": 1,
+    "healthy": "version 1 unchanged",
+    "quarantined": {
+      "accounting_complete": false,
+      "generation_ready": "true only when core readiness true and pending intent set equals validated quarantine intent set",
+      "history_complete": false,
+      "incomplete": true,
+      "kind": "scoped-known-generation",
+      "pending_generation_intents": "all original unsettled intents retained",
+      "policy_sha256": "hash of original portable policy file bytes",
+      "quarantines": "original validated descriptor list",
+      "selected_scope": {
+        "complete": "same scoped-readiness result",
+        "run_ids": "derived sorted complete known runs only"
+      },
+      "totals_are_lower_bounds": true,
+      "version": 2
+    },
+    "successful_scoped_receipt_cli_exit": 0
+  },
+  "recorded_at": "2026-10-21T12:08:16.602289+00:00",
+  "scope": "isolated reusable-engine changes only; no live/private accounting mutation, network, browser, Git operation or installation by this worker",
+  "task": "engine producer quarantine manager/catalog/CLI integration",
+  "usage_checks": [
+    {
+      "extra_credits_authorized": false,
+      "included_usage_allowed": true,
+      "primary_used_percent": 57,
+      "reset_unix": 1793084442
+    }
+  ],
+  "version": 1,
+  "worktree": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery"
+}

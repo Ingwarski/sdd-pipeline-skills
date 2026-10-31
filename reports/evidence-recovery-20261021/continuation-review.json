@@ -1,0 +1,119 @@
+{
+  "kind": "independent additive continuation source and pure guard review",
+  "observed_at": "2026-10-21T15:56:04.138410+00:00",
+  "scope": [
+    "skills/to-sdd-pipeline/scripts/sdd_history.py",
+    "tests/test_additive_continuation.py"
+  ],
+  "source_sha256": {
+    "skills/to-sdd-pipeline/scripts/sdd_history.py": "194bea3521fbf9534481bb018cf93c403a403cdb2329fa9ce56f7f39db45b516",
+    "tests/test_additive_continuation.py": "57f5685eac699b23ac28d6f0ef92ada0f9cdbc25673c797bf519e228b43055d7"
+  },
+  "included_usage": {
+    "used_percent": 58,
+    "ordinary_usage_allowed": true,
+    "no_extra_API_reset_requested": true
+  },
+  "findings": [],
+  "review_conclusions": [
+    "Only execution selections/fingerprints gain additive treatment. Every original selection and full original fingerprint must remain exactly equal; no removal, mode change, missing fingerprint, reselected identity or changed original bytes is allowed.",
+    "Semantic source definitions, evaluated input bindings and acceptance allocations remain exactly equal. prepare_inventory recomputes actual added fingerprints and requires complete named owner review/rationale; continuation requires owner review after attempt capture plus independently validated fresh runtime observation.",
+    "capture_continuation requires exact current original run and owned check results, unchanged original authority/plan/baseline/scope, a distinct run identity and preserved attempt history. Candidate is a deep copy; every owned check is reset to not_run with old execution fields removed and findings retained.",
+    "validate_context and validate_transition recheck the continuation against immutable prior attempts, original source snapshots and bindings. Existing evidence and failed results cannot become current passes; completion still needs fresh checks/runtime/input observations.",
+    "Adding a file inside an originally selected tree changes its fingerprint and therefore correctly fails this explicit additive-only contract; new executor paths must preserve all old tree memberships as well as bytes.",
+    "New tests exercise actual capture/transition/reset/history preservation through the existing fixture, and negative changed-original-file/mode/removal paths. Their runtime fixture execution was source-reviewed but not run by this reviewer."
+  ],
+  "pure_guard_probes": [
+    {
+      "case": "exact",
+      "actual": "accepted",
+      "expected": "accepted",
+      "error": null,
+      "passed": true
+    },
+    {
+      "case": "add-new",
+      "actual": "accepted",
+      "expected": "accepted",
+      "error": null,
+      "passed": true
+    },
+    {
+      "case": "remove-original",
+      "actual": "rejected",
+      "expected": "rejected",
+      "error": "continuation execution inputs require every exact fingerprint",
+      "passed": true
+    },
+    {
+      "case": "change-original-selection",
+      "actual": "rejected",
+      "expected": "rejected",
+      "error": "continuation changed or removed preserved execution input: src/original.py",
+      "passed": true
+    },
+    {
+      "case": "change-original-bytes",
+      "actual": "rejected",
+      "expected": "rejected",
+      "error": "continuation changed or removed preserved execution input: src/original.py",
+      "passed": true
+    },
+    {
+      "case": "missing-new-fingerprint",
+      "actual": "rejected",
+      "expected": "rejected",
+      "error": "continuation execution inputs require every exact fingerprint",
+      "passed": true
+    },
+    {
+      "case": "extra-fingerprint",
+      "actual": "rejected",
+      "expected": "rejected",
+      "error": "continuation execution inputs require every exact fingerprint",
+      "passed": true
+    },
+    {
+      "case": "semantic-change",
+      "actual": "rejected",
+      "expected": "rejected",
+      "error": "continuation changed relevant acceptance definitions or preserved work",
+      "passed": true
+    },
+    {
+      "case": "binding-change",
+      "actual": "rejected",
+      "expected": "rejected",
+      "error": "continuation changed relevant acceptance definitions or preserved work",
+      "passed": true
+    },
+    {
+      "case": "stale-review",
+      "actual": "rejected",
+      "expected": "rejected",
+      "error": "continuation needs a fresh owner review after attempt capture",
+      "passed": true
+    },
+    {
+      "case": "changed-authority",
+      "actual": "rejected",
+      "expected": "rejected",
+      "error": "attempt authority/acceptance changed: implementation_gate",
+      "passed": true
+    }
+  ],
+  "all_probe_expectations_met": true,
+  "source_unchanged_at_end": true,
+  "not_run": [
+    "new/existing unittest suites",
+    "actual runtime observation",
+    "file capture or mutable history operations",
+    "private ledger",
+    "network",
+    "Git",
+    "producer_runtime group helper review (separate next report)"
+  ],
+  "limitations": "Pure probes execute actual guards with in-memory synthetic inventories and timestamp parser only; they do not independently establish filesystem freezing, human reviewer authenticity, runtime observation or full acceptance. Root-owned full suites and final CI remain required.",
+  "sole_write": "reports/evidence-recovery-20261021/continuation-review.json",
+  "resources_created": []
+}

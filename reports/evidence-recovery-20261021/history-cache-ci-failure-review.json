@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "kind": "ci-failure-review",
+  "status": "two_python_3_14_matrix_failures_reviewed",
+  "scope": {
+    "run_id": 39647974228,
+    "run_url": "https://github.com/Ingwarski/sdd-pipeline-skills/actions/runs/39647974228",
+    "head_sha": "385a3124584e444471564676a85146ee519ec22a",
+    "branch": "codex/fix-evidence-recovery",
+    "event": "push",
+    "review_method": "read-only GitHub Actions metadata and the original failed-job logs; static inspection of exact source and test code at the checked-out SHA",
+    "rerun_performed": false,
+    "source_modified": false,
+    "source_hash_check": {
+      "baseline_file": "reports/evidence-recovery-20261021/history-cache-source-hashes.json",
+      "python_source_and_test_paths_compared": 25,
+      "changed_paths": [],
+      "missing_paths": []
+    }
+  },
+  "matrix": [
+    {
+      "job": "content",
+      "job_id": 119388477743,
+      "result": "success"
+    },
+    {
+      "job": "unix (ubuntu-latest, 3.12)",
+      "job_id": 119388478040,
+      "result": "success"
+    },
+    {
+      "job": "unix (ubuntu-latest, 3.14)",
+      "job_id": 119388478289,
+      "result": "success"
+    },
+    {
+      "job": "unix (macos-latest, 3.14)",
+      "job_id": 119388478048,
+      "result": "failure",
+      "tests_run": 1023,
+      "skips": 13,
+      "duration_seconds": 452.382
+    },
+    {
+      "job": "windows (3.14)",
+      "job_id": 119388478028,
+      "result": "failure",
+      "tests_run": 1023,
+      "skips": 27,
+      "duration_seconds": 1964.472
+    },
+    {
+      "job": "unix (macos-latest, 3.12)",
+      "job_id": 119388477831,
+      "result": "cancelled",
+      "note": "Cancellation is not an observed test failure; installer/retirement/update steps had not completed."
+    },
+    {
+      "job": "windows (3.12)",
+      "job_id": 119388478081,
+      "result": "cancelled",
+      "note": "Cancellation is not an observed test failure; do not infer a test result."
+    },
+    {
+      "job": "publish-tested-channel",
+      "job_id": 119406089881,
+      "result": "skipped"
+    }
+  ],
+  "findings": [
+    {
+      "job": "windows (3.14)",
+      "job_id": 119388478028,
+      "test": "test_history_file_cache.HistoryFileCacheTests.test_first_read_mutation_uses_stable_streaming_guard",
+      "failure_type": "test_fixture_platform_assumption",
+      "classification_confidence": "high",
+      "trace": [
+        "tests/test_history_file_cache.py:193 read_and_change invokes self.changed() during the first native read",
+        "tests/test_history_file_cache.py:45 self.changed() calls Path.write_bytes on the file currently being hashed",
+        "skills/to-sdd-pipeline/scripts/evidence/io.py:_windows_open_regular opens with FILE_SHARE_READ only, denying writable sharing while the descriptor is held",
+        "Windows raises PermissionError [Errno 13]; hash_file wraps it as EvidenceError 'cannot safely read'; the test's ValueError regex 'changed while reading' does not match"
+      ],
+      "interpretation": "The trace is consistent with the Windows no-write sharing guard working as designed. The test assumes it can rewrite the open source file, which is allowed by the POSIX fixture but intentionally blocked by the Windows handle. This does not establish a production hash-integrity defect.",
+      "bounded_fix_direction": "Make the test platform-aware: on Windows assert that an attempted concurrent write is denied while the guard holds the handle, and preserve mutation-detection coverage with a deterministic descriptor/path metadata change that does not attempt a prohibited write. Keep assertions that changed input is rejected.",
+      "reproduction": "Run only this existing unittest on a Windows 3.14 runner; no full-suite rerun is needed to verify the fixture correction.",
+      "evidence_file": "reports/evidence-recovery-20261021/history-cache-ci-failure-windows.log",
+      "log_lines": {
+        "failure_summary": 1184,
+        "traceback_start": 1187,
+        "mutation_callback": 1206,
+        "assertion": 1218,
+        "suite_summary": 1230
+      }
+    },
+    {
+      "job": "unix (macos-latest, 3.14)",
+      "job_id": 119388478048,
+      "test": "test_evidence_producer_recovery.ProducerRecoveryWorkflowTests.test_lost_guardian_with_surviving_coordinator_keeps_uncertain_hold",
+      "failure_type": "process_group_cleanup_permission_error_unresolved",
+      "classification_confidence": "medium_for_observed_failure_low_for_root_cause",
+      "trace": [
+        "tests/test_evidence_producer_recovery.py:356 expects the attempt status to be terminal after the coordinator's fallback recovery",
+        "Observed attempt status is stopping; diagnostic records first_recovery_failure.problem='[Errno 1] Operation not permitted'",
+        "The run retains the pending 65,536-byte/20-file reservation, marks accounting incomplete, and records no successful result",
+        "The coordinator log reports recovery incomplete and action retained with the same EPERM"
+      ],
+      "source_path_relevant": "skills/to-sdd-pipeline/scripts/evidence/producer_runtime.py:stop_registered",
+      "interpretation": "This is a real macOS 3.14 test failure in the recovery/cleanup path. The test deliberately terminates the guardian while leaving its coordinator alive, and stop_registered verifies the recorded helper identity/session before using killpg. The log proves EPERM occurred during recovery and that the safety hold was retained; it does not show which identity/group operation raised it or prove whether the cause is a hosted-runner permission restriction, an identity/group race, or a source defect. Do not classify it as infrastructure-only based on this log.",
+      "reproduction": "Run only this test on a fresh macOS 3.14 runner with temporary diagnostic logging around state(owner), getpgid/getsid, SIGTERM killpg and SIGKILL killpg. Record the exact failing operation and process/group identity; then compare against the same isolated test on another macOS runner before altering safety/terminal semantics.",
+      "evidence_file": "reports/evidence-recovery-20261021/history-cache-ci-failure-mac.log",
+      "log_lines": {
+        "failure_summary": 1198,
+        "assertion": 1203,
+        "diagnostic_and_problem": 1215,
+        "suite_summary": 1232
+      }
+    }
+  ],
+  "overall_assessment": {
+    "run_conclusion": "failure",
+    "observed_test_failures": 2,
+    "failed_jobs": 2,
+    "cancelled_jobs": 2,
+    "suite_pass_claim": "The CI run does not establish a green cross-platform suite: two Python 3.14 jobs each ran 1,023 tests and each reported one failure. Ubuntu 3.12 and 3.14 passed. The two cancelled jobs have no result and are not counted as failures or passes.",
+    "next_action": "Fix the Windows test's incompatible mutation setup; separately determine the exact macOS EPERM operation with a targeted runner reproduction. Then rerun affected focused tests and the required CI matrix before claiming cross-platform completion.",
+    "boundaries": "No jobs were rerun, no product/engine/test source was changed, and no browser, private ledger, provider, or old archive was accessed. The two original failed-job logs were saved as bounded report artifacts."
+  }
+}

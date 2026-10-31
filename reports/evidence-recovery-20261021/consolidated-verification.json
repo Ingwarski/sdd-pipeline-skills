@@ -1,0 +1,80 @@
+{
+  "kind": "consolidated-engine-verification",
+  "base_revision": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b",
+  "branch": "codex/fix-evidence-recovery",
+  "runtime": "Python3.12.14 on macOS arm64",
+  "source_hash_snapshot": "consolidated-source-hashes.json",
+  "source_unchanged": true,
+  "unittest": {
+    "log": "consolidated-unittest.log",
+    "tests": 960,
+    "seconds": 276.321,
+    "result": "passed",
+    "skipped": 11
+  },
+  "shell_suites": {
+    "install": "passed",
+    "retirement": "passed",
+    "update": "passed",
+    "detail": "shell-verification.json"
+  },
+  "independent_reviews": [
+    "scoped-review.json",
+    "engine-review.json"
+  ],
+  "initial_failed_baseline_preserved": "baseline-unittest.log",
+  "limits": [
+    "No product QA or DoD acceptance asserted",
+    "No actual private ledger mutation performed yet",
+    "Linux/Windows/Python3.14 not verified locally",
+    "Optional YAML/tokenizer dependencies unavailable locally; no dependency install attempted; CI must verify content and token budget"
+  ],
+  "journal_fixes": {
+    "ten_unchanged_reads_wal_delta_before": 82400,
+    "after": 0,
+    "atomic_schema_initial_ledger_saved_bytes": 57680,
+    "product_bounded_segment_harness": "prepared retry3, actual runtime remains unverified"
+  },
+  "live_original_accounting_baseline": "Captured separately in memory before live application; original tables/run/hold hashes must remain unchanged",
+  "final_unittest": {
+    "log": "final-unittest.log",
+    "tests": 960,
+    "passed": 949,
+    "skipped": 11,
+    "seconds": 276.948,
+    "exit_code": 0,
+    "source_snapshot": "final-source-hashes.json"
+  },
+  "final_shell_suites": {
+    "install": {
+      "log": "final-install.log",
+      "exit_code": 0
+    },
+    "retirement": {
+      "log": "final-retirement.log",
+      "exit_code": 0
+    },
+    "update": {
+      "log": "final-update.log",
+      "exit_code": 0
+    }
+  },
+  "post_suite_followups": [
+    {
+      "path": "skills/to-sdd-pipeline/references/evidence-storage-contract.md",
+      "change": "Restored explicit to-sdd-pipeline directory anchor, per independent review; no executable change",
+      "checks": "6 skill-resource checks, 1 optional-YAML skip; 47 evidence-checker checks passed"
+    },
+    {
+      "path": "tests/test_evidence_scoped_checker.py",
+      "change": "Use synthetic OS-native absolute paths instead of POSIX-only literals, for Windows fixture portability",
+      "checks": "9 scoped checker tests passed; native Windows execution remains pending CI"
+    }
+  ],
+  "instruction_split": {
+    "reason": "Keep recovery-specific detail conditional; preserve all normal scenario resources/retries and exact budget policy",
+    "review": "instruction-review.json",
+    "token_budget": "pending exact pinned content CI; no local dependency installation"
+  },
+  "updated_at": "2026-10-21T12:35:36.168845+00:00"
+}

@@ -314,6 +314,39 @@ def _file_id(value):
     return identity
 
 
+def _metadata_info(raw, identity, folder, key=None, *, discovery=False):
+    """Normalize native rows; discovery cannot establish membership/live state."""
+    if _file_id(raw) != identity:
+        raise EvidenceError("Drive metadata returned a different stable ID")
+    name = raw.get("name", raw.get("title"))
+    actual_key = _transport_key(name)
+    parents = raw.get("parents", raw.get("parent_ids"))
+    if discovery:
+        if parents is not None and (not isinstance(parents, list) or folder not in parents):
+            raise EvidenceError("Drive listing contradicts the selected folder")
+        if raw.get("trashed") is not None and raw["trashed"] is not False:
+            raise EvidenceError("Drive listing contradicts live file metadata")
+        if raw.get("file_or_folder") is not None and raw["file_or_folder"] != "file":
+            raise EvidenceError("Drive listing is not an original binary file")
+    elif not isinstance(parents, list) or folder not in parents or raw.get("trashed") is True:
+        raise EvidenceError("Drive object is outside the selected live folder")
+    mime = raw.get("mimeType", raw.get("mime_type", ""))
+    if discovery:
+        known_mime = ("mimeType" in raw or "mime_type" in raw) and mime is not None
+        if known_mime and (not isinstance(mime, str) or not mime or mime.startswith("application/vnd.google-apps.")):
+            raise EvidenceError("Drive listing is not an original binary file")
+        if not known_mime or raw.get("size") is None:
+            return None  # An incomplete discovery row still needs a fresh GET.
+    if not isinstance(mime, str) or mime.startswith("application/vnd.google-apps."):
+        raise EvidenceError("evidence requires stored original binary bytes, not a native Google document")
+    if key is not None and actual_key != key:
+        raise EvidenceError("Drive metadata name differs from the immutable key")
+    size = raw.get("size")
+    if isinstance(size, str) and re.fullmatch(r"[0-9]+", size):
+        size = int(size)
+    return {"object_id": identity, "key": actual_key, "size": _positive(size, "Drive object size", zero=True)}
+
+
 class ConnectedHostAdapter:
     """Use installed authenticated host tools through the bundled handoff queue."""
 
@@ -370,9 +403,14 @@ class ConnectedHostAdapter:
         atomic_json(self.path / "request.json", request)
         deadline = time.monotonic() + self.timeout_seconds
         target = self.path / "response.json"
-        while not target.exists():
-            if time.monotonic() >= deadline:
+        while True:
+            # The host rejects wall-expired requests; the monotonic bound also
+            # prevents a backward clock change from extending this wait.
+            # Check both before accepting even an already-present response.
+            if time.time() >= request["expires_at"] or time.monotonic() >= deadline:
                 raise EvidenceError("connected Drive is waiting for the active agent to service evidence_host.py next/respond; request timed out and was retained")
+            if target.exists():
+                break
             time.sleep(0.05)
         response = read_json(target, self.maximum)
         self._response_bytes += len(_bounded(response))
@@ -381,38 +419,23 @@ class ConnectedHostAdapter:
         if (response.get("request_id") != request["request_id"] or response.get("session_id") != self.session["session_id"]
                 or response.get("request_sha256") != hashlib.sha256(_bounded(request)).hexdigest()):
             raise EvidenceError("connected host response does not match the pending request")
-        # Read the response before clearing; a failed upload still retains the
-        # transport's immutable-key checkpoint independently of this session.
-        (self.path / "request.json").unlink()
-        target.unlink()
+        # Preserve the original control pair on semantic failure so the next
+        # request cannot overwrite the native result before inspection.
         result = _unwrap(response.get("result"))
         if response.get("materialized_path") is not None:
             result = dict(result, materialized_path=response["materialized_path"],
                           managed_original=response.get("managed_original") is True)
         if result.get("error"):
             raise EvidenceError("connected Drive tool reported an error; no success was recorded")
+        (self.path / "request.json").unlink()
+        target.unlink()
         return result
 
     def _metadata(self, identity, folder, key=None):
         raw = self._native("get_file_metadata", {"fileId": identity, "fields": FIELDS})
         if isinstance(raw.get("file"), dict):
             raw = raw["file"]
-        if _file_id(raw) != identity:
-            raise EvidenceError("Drive metadata returned a different stable ID")
-        name = raw.get("name", raw.get("title"))
-        actual_key = _transport_key(name)
-        parents = raw.get("parents", raw.get("parent_ids"))
-        if not isinstance(parents, list) or folder not in parents or raw.get("trashed") is True:
-            raise EvidenceError("Drive object is outside the selected live folder")
-        mime = raw.get("mimeType", raw.get("mime_type", ""))
-        if not isinstance(mime, str) or mime.startswith("application/vnd.google-apps."):
-            raise EvidenceError("evidence requires stored original binary bytes, not a native Google document")
-        if key is not None and actual_key != key:
-            raise EvidenceError("Drive metadata name differs from the immutable key")
-        size = raw.get("size")
-        if isinstance(size, str) and re.fullmatch(r"[0-9]+", size):
-            size = int(size)
-        return {"object_id": identity, "key": actual_key, "size": _positive(size, "Drive object size", zero=True)}
+        return _metadata_info(raw, identity, folder, key)
 
     def _search(self, folder, *, key=None, prefix="", page_token=None, max_objects=None):
         # Current native search omits stored binary archives. list_folder returns
@@ -446,7 +469,12 @@ class ConnectedHostAdapter:
                 continue
             if not isinstance(name, str) or not name.startswith(prefix):
                 continue
-            info = self._metadata(identity, folder, key)
+            # Only this fresh scoped native page supplies discovery hints.
+            # Membership/live state remain UNVERIFIED; size is advisory only.
+            # Exact-key lookup and selected stat/get/delete still GET by ID.
+            info = _metadata_info(item, identity, folder, discovery=True) if key is None else None
+            if info is None:
+                info = self._metadata(identity, folder, key)
             if info["key"].startswith(prefix):
                 objects.append(info)
         return {"objects": objects, "next_page_token": None, "scanned_count": len(rows), "scan_limit": scan}

@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "kind": "policy-lineage-newline-test-report",
+  "baseline": "6c1fec3 (root-reported; no Git command)",
+  "authority": {
+    "requested_model": "gpt-6.1-sol",
+    "requested_reasoning": "high",
+    "settings_independently_verified": false,
+    "included_usage_used_percent": 69,
+    "ordinary_usage_allowed": true,
+    "extra_api_reset_authorized": false
+  },
+  "ownership": {
+    "core_owner": "/root/recovery_manager_integration",
+    "our_writes": [
+      "tests/test_evidence_setup_policy_lineage.py",
+      "reports/evidence-recovery-20261021/policy-lineage-newline-test-report.json"
+    ],
+    "installed_v8_immutable_untouched": true,
+    "no_core_edits": true
+  },
+  "source": {
+    "previous_setup_sha256": "e855f016faeea293f6200b6bb9c39b961b4a77619794dc8bc9916ab80db15314",
+    "fixed_setup_sha256": "f11266bb5564185de5471dc69f1e466cb49c9474f200d5008d3dbfba5e0a5540",
+    "previous_test_sha256": "0b9cf00bb6772ce608e65b72781875bde293f1e47cfe61c6c8eeddbc9c51538d"
+  },
+  "tests_added": [
+    {
+      "name": "test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation",
+      "observes": "Fresh configured policy actual bytes equal supported canonical LF representation and contain no physical CRLF."
+    },
+    {
+      "name": "test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor",
+      "observes": "A manually constructed original CRLF plain v1 policy remains exact raw anchor/hash; first and second supported policy writes are exact LF canonical bytes; second transition resolves exact first prefix and original canonical-policy descriptor remains unchanged."
+    }
+  ],
+  "method": "Patch only the temporary text-stream factory's omitted-newline default to CRLF, using the real NamedTemporaryFile/TextIOWrapper implementation and actual fixture bytes; binary streams and explicit newline semantics unchanged. Assertions inspect bytes and end-to-end transitions, never implementation keyword presence.",
+  "negative_controls": {
+    "initial_harness_import_error": {
+      "cmd": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B - <<'PY'\nimport ast, hashlib, sys, unittest\nfrom pathlib import Path\nfrom unittest.mock import patch\nimport evidence_setup as setup\nimport test_evidence_setup_policy_lineage as tests\ncurrent=Path('scripts/evidence_setup.py').read_bytes()\nprevious=current.replace(b', newline=\"\\\\n\"',b'',1)\nassert hashlib.sha256(previous).hexdigest()=='e855f016faeea293f6200b6bb9c39b961b4a77619794dc8bc9916ab80db15314','LEGACY_SOURCE_NOT_EXACT'\ntree=ast.parse(previous);node=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='_write')\nscope=dict(vars(setup));exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'verified-pre-fix-setup-write','exec'),scope)\nsuite=unittest.TestSuite(tests.SetupPolicyLineageTests(name) for name in ['test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation','test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor'])\nwith patch.object(setup,'_write',scope['_write']):result=unittest.TextTestRunner(verbosity=2).run(suite)\nsys.exit(0 if result.wasSuccessful() else 1)\nPY",
+      "result": {
+        "chunk_id": "c343a2",
+        "wall_time_seconds": 0.011352333,
+        "exit_code": 1,
+        "original_token_count": 32,
+        "output": "Traceback (most recent call last):\n  File \"<stdin>\", line 4, in <module>\nModuleNotFoundError: No module named 'evidence_setup'\n"
+      }
+    },
+    "exact_pre_fix_writer_replay": {
+      "cmd": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B - <<'PY'\nimport ast, hashlib, sys, unittest\nfrom pathlib import Path\nfrom unittest.mock import patch\nimport test_evidence_setup_policy_lineage as tests\nimport evidence_setup as setup\ncurrent=Path('scripts/evidence_setup.py').read_bytes()\nprevious=current.replace(b', newline=\"\\\\n\"',b'',1)\nassert hashlib.sha256(previous).hexdigest()=='e855f016faeea293f6200b6bb9c39b961b4a77619794dc8bc9916ab80db15314','LEGACY_SOURCE_NOT_EXACT'\ntree=ast.parse(previous);node=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='_write')\nscope=dict(vars(setup));exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'verified-pre-fix-setup-write','exec'),scope)\nsuite=unittest.TestSuite(tests.SetupPolicyLineageTests(name) for name in ['test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation','test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor'])\nwith patch.object(setup,'_write',scope['_write']):result=unittest.TextTestRunner(verbosity=2).run(suite)\nsys.exit(0 if result.wasSuccessful() else 1)\nPY",
+      "result": {
+        "chunk_id": "da4677",
+        "wall_time_seconds": 0.262092792,
+        "exit_code": 1,
+        "original_token_count": 529,
+        "output": "test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation) ... FAIL\ntest_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor) ... FAIL\n\n======================================================================\nFAIL: test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_evidence_setup_policy_lineage.py\", line 124, in test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation\n    self.assertEqual(raw, setup_bytes(json.loads(raw)))\nAssertionError: b'{\\r\\n  \"git_review\": {\\r\\n    \"blob_bytes\":[3519 chars]\\r\\n' != b'{\\n  \"git_review\": {\\n    \"blob_bytes\": 104[3401 chars]n}\\n'\n\n======================================================================\nFAIL: test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/ingwar/.codex/worktrees/sdd-evidence-recovery/tests/test_evidence_setup_policy_lineage.py\", line 135, in test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor\n    self.assertEqual(first_raw, setup_bytes(first))\nAssertionError: b'{\\r\\n  \"git_review\": {\\r\\n    \"blob_bytes\":[12307 chars]\\r\\n' != b'{\\n  \"git_review\": {\\n    \"blob_bytes\": 104[12027 chars]n}\\n'\n\n----------------------------------------------------------------------\nRan 2 tests in 0.206s\n\nFAILED (failures=2)\n"
+      }
+    },
+    "second_transition_failure": {
+      "cmd": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B - <<'PY'\nimport ast, hashlib\nfrom pathlib import Path\nfrom unittest.mock import patch\nimport test_evidence_setup_policy_lineage as tests\nimport evidence_setup as setup\nfrom evidence.io import EvidenceError\nprevious=Path('scripts/evidence_setup.py').read_bytes().replace(b', newline=\"\\\\n\"',b'',1)\nassert hashlib.sha256(previous).hexdigest()=='e855f016faeea293f6200b6bb9c39b961b4a77619794dc8bc9916ab80db15314'\nnode=next(node for node in ast.parse(previous).body if isinstance(node,ast.FunctionDef) and node.name=='_write')\nscope=dict(vars(setup));exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'pre-fix-write','exec'),scope)\nfixture=tests.SetupPolicyLineageTests(methodName='runTest')\ntry:\n fixture.setUp()\n with patch.object(setup,'_write',scope['_write']), fixture.windows_text_defaults():\n  fixture.policy_path.write_bytes(tests.setup_bytes(fixture.original).replace(b'\\n',b'\\r\\n'))\n  fixture.configure(limits=fixture.next_limit())\n  raw=fixture.policy_path.read_bytes();assert b'\\r\\n' in raw\n  try:fixture.configure(limits=fixture.next_limit())\n  except EvidenceError as error:\n   assert 'serialization' in str(error)\n   print('legacy_first_lineage_actual_bytes=CRLF; legacy_second_transition=DENIED: '+str(error))\n  else:raise AssertionError('Expected legacy second transition failure was not reproduced')\nfinally:fixture.doCleanups()\nPY",
+      "result": {
+        "chunk_id": "15ae4b",
+        "wall_time_seconds": 0.216371458,
+        "exit_code": 0,
+        "original_token_count": 39,
+        "output": "legacy_first_lineage_actual_bytes=CRLF; legacy_second_transition=DENIED: lineage-bearing original policy bytes differ from supported setup serialization\n"
+      }
+    },
+    "provenance": "Core fix was already frozen before test authoring. Removed its sole newline keyword in memory, verified reconstructed complete source SHA equals pre-fix source, and compiled only original _write AST. No core file rollback/edit. Both new positive regressions fail under exact legacy writer plus simulated Windows translation; separate controlled flow observes first lineage CRLF bytes and rejects second transition with supported-serialization mismatch."
+  },
+  "final_run": {
+    "cmd": "PATH=/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin:$PATH PYTHONPATH=tests /Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -B -m unittest -v test_evidence_policy_lineage test_evidence_setup_policy_lineage",
+    "before": {
+      "chunk_id": "17b166",
+      "wall_time_seconds": 1.1792e-05,
+      "exit_code": 0,
+      "original_token_count": 81,
+      "output": "{\"scripts/evidence_setup.py\": \"f11266bb5564185de5471dc69f1e466cb49c9474f200d5008d3dbfba5e0a5540\", \"tests/test_evidence_policy_lineage.py\": \"100a84928a06fbf77acc9c2a14be1c304bf9cd0d8847051ef32dddc9a978709d\", \"tests/test_evidence_setup_policy_lineage.py\": \"e9bfed3cc43b018e071a590aed4b57605570e6eb9563a3fe533c7642886fd419\"}\n"
+    },
+    "result": {
+      "chunk_id": "aea685",
+      "wall_time_seconds": 5.056053583,
+      "exit_code": 0,
+      "original_token_count": 2076,
+      "output": "test_descriptor_from_fork_or_foreign_identity_never_gains_compatibility (test_evidence_policy_lineage.PolicyLineageTests.test_descriptor_from_fork_or_foreign_identity_never_gains_compatibility) ... ok\ntest_descriptors_created_before_and_after_first_transition_remain_byte_exact (test_evidence_policy_lineage.PolicyLineageTests.test_descriptors_created_before_and_after_first_transition_remain_byte_exact) ... ok\ntest_duplicate_json_fields_invalid_utf8_and_recursive_ancestry_are_denied (test_evidence_policy_lineage.PolicyLineageTests.test_duplicate_json_fields_invalid_utf8_and_recursive_ancestry_are_denied) ... ok\ntest_equal_inherited_lineage_is_allowed_but_replacement_or_null_is_not (test_evidence_policy_lineage.PolicyLineageTests.test_equal_inherited_lineage_is_allowed_but_replacement_or_null_is_not) ... ok\ntest_exact_raw_receipt_binding_is_not_relaxed_by_ancestor_resolution (test_evidence_policy_lineage.PolicyLineageTests.test_exact_raw_receipt_binding_is_not_relaxed_by_ancestor_resolution) ... ok\ntest_full_tail_is_validated_before_resolving_a_valid_base_digest (test_evidence_policy_lineage.PolicyLineageTests.test_full_tail_is_validated_before_resolving_a_valid_base_digest) ... ok\ntest_multiple_transitions_resolve_exact_full_prefix_not_effective_only (test_evidence_policy_lineage.PolicyLineageTests.test_multiple_transitions_resolve_exact_full_prefix_not_effective_only) ... ok\ntest_no_lineage_v1_validation_and_resolution_remain_unchanged (test_evidence_policy_lineage.PolicyLineageTests.test_no_lineage_v1_validation_and_resolution_remain_unchanged) ... ok\ntest_noop_adds_no_step_or_optional_field_and_replay_is_identical (test_evidence_policy_lineage.PolicyLineageTests.test_noop_adds_no_step_or_optional_field_and_replay_is_identical) ... ok\ntest_one_mib_policy_bound_and_oversized_original_are_enforced (test_evidence_policy_lineage.PolicyLineageTests.test_one_mib_policy_bound_and_oversized_original_are_enforced) ... ok\ntest_only_first_raw_anchor_may_have_arbitrary_original_format (test_evidence_policy_lineage.PolicyLineageTests.test_only_first_raw_anchor_may_have_arbitrary_original_format) ... ok\ntest_original_raw_anchor_and_exact_first_diff_are_bound (test_evidence_policy_lineage.PolicyLineageTests.test_original_raw_anchor_and_exact_first_diff_are_bound) ... ok\ntest_resealed_boolean_integer_alias_in_exact_diff_is_denied (test_evidence_policy_lineage.PolicyLineageTests.test_resealed_boolean_integer_alias_in_exact_diff_is_denied) ... ok\ntest_resealed_semantic_forgery_still_fails_exact_diff_and_identity_validation (test_evidence_policy_lineage.PolicyLineageTests.test_resealed_semantic_forgery_still_fails_exact_diff_and_identity_validation) ... ok\ntest_resolved_ancestor_is_detached_from_current_and_subsequent_resolves (test_evidence_policy_lineage.PolicyLineageTests.test_resolved_ancestor_is_detached_from_current_and_subsequent_resolves) ... ok\ntest_reverting_effective_limits_does_not_alias_full_historical_policy (test_evidence_policy_lineage.PolicyLineageTests.test_reverting_effective_limits_does_not_alias_full_historical_policy) ... ok\ntest_sixteen_transitions_are_bounded_and_seventeenth_does_not_mutate (test_evidence_policy_lineage.PolicyLineageTests.test_sixteen_transitions_are_bounded_and_seventeenth_does_not_mutate) ... ok\ntest_transition_permits_limits_only_and_preserves_inputs_on_denial (test_evidence_policy_lineage.PolicyLineageTests.test_transition_permits_limits_only_and_preserves_inputs_on_denial) ... ok\ntest_unknown_or_noncanonical_digest_is_not_a_history_alias (test_evidence_policy_lineage.PolicyLineageTests.test_unknown_or_noncanonical_digest_is_not_a_history_alias) ... ok\ntest_fresh_registered_known_output_and_v2_receipt_preserve_history_after_transition (test_evidence_setup_policy_lineage.QuarantinedAccountingLineageTests.test_fresh_registered_known_output_and_v2_receipt_preserve_history_after_transition) ... ok\ntest_two_policy_transitions_keep_original_failed_session_and_full_hold_unchanged (test_evidence_setup_policy_lineage.QuarantinedAccountingLineageTests.test_two_policy_transitions_keep_original_failed_session_and_full_hold_unchanged) ... ok\ntest_crash_after_local_policy_write_before_pending_checkpoint_retirement_is_idempotent (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_crash_after_local_policy_write_before_pending_checkpoint_retirement_is_idempotent) ... ok\ntest_crash_after_verified_publication_before_local_policy_write_replays_once (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_crash_after_verified_publication_before_local_policy_write_replays_once) ... ok\ntest_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_crlf_original_anchor_and_two_supported_lf_transitions_keep_descriptor) ... ok\ntest_empty_authority_does_not_accept_skipping_multiple_transitions (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_empty_authority_does_not_accept_skipping_multiple_transitions) ... ok\ntest_existing_empty_plain_authority_can_publish_first_transition_then_local_policy (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_existing_empty_plain_authority_can_publish_first_transition_then_local_policy) ... ok\ntest_failure_before_root_publication_never_exposes_new_local_policy_and_retries (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_failure_before_root_publication_never_exposes_new_local_policy_and_retries) ... ok\ntest_first_lineage_publication_cannot_create_absent_or_take_foreign_authority (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_first_lineage_publication_cannot_create_absent_or_take_foreign_authority) ... ok\ntest_history_bearing_nonlimits_reconfiguration_cannot_drop_lineage (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_history_bearing_nonlimits_reconfiguration_cannot_drop_lineage) ... ok\ntest_legacy_retention_only_reconfiguration_keeps_plain_v1_behavior (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_legacy_retention_only_reconfiguration_keeps_plain_v1_behavior) ... ok\ntest_manual_format_of_original_v1_is_anchored_without_changing_its_bytes (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_manual_format_of_original_v1_is_anchored_without_changing_its_bytes) ... ok\ntest_new_setup_emits_lf_canonical_bytes_under_windows_text_translation (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_new_setup_emits_lf_canonical_bytes_under_windows_text_translation) ... ok\ntest_reformatted_lineage_source_is_not_silently_normalized_by_setup (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_reformatted_lineage_source_is_not_silently_normalized_by_setup) ... ok\ntest_second_transition_and_exact_retry_do_not_duplicate_policy_steps (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_second_transition_and_exact_retry_do_not_duplicate_policy_steps) ... ok\ntest_stale_local_policy_mutation_after_publication_is_preserved_without_exposure (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_stale_local_policy_mutation_after_publication_is_preserved_without_exposure) ... ok\ntest_stale_local_policy_mutation_during_probe_cannot_publish_or_overwrite (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_stale_local_policy_mutation_during_probe_cannot_publish_or_overwrite) ... ok\ntest_stale_policy_ordinary_generation_and_cold_coordinator_cannot_mutate (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_stale_policy_ordinary_generation_and_cold_coordinator_cannot_mutate) ... ok\ntest_stale_source_fork_cannot_publish_over_advanced_head (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_stale_source_fork_cannot_publish_over_advanced_head) ... ok\ntest_unknown_root_upload_readback_outcome_retains_old_policy_and_exact_retry (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_unknown_root_upload_readback_outcome_retains_old_policy_and_exact_retry) ... ok\ntest_unpublished_lineage_cannot_mutate_through_ordinary_generation (test_evidence_setup_policy_lineage.SetupPolicyLineageTests.test_unpublished_lineage_cannot_mutate_through_ordinary_generation) ... ok\n\n----------------------------------------------------------------------\nRan 40 tests in 5.027s\n\nOK\n"
+    },
+    "after": {
+      "chunk_id": "097b08",
+      "wall_time_seconds": 7.75e-06,
+      "exit_code": 0,
+      "original_token_count": 81,
+      "output": "{\"scripts/evidence_setup.py\": \"f11266bb5564185de5471dc69f1e466cb49c9474f200d5008d3dbfba5e0a5540\", \"tests/test_evidence_policy_lineage.py\": \"100a84928a06fbf77acc9c2a14be1c304bf9cd0d8847051ef32dddc9a978709d\", \"tests/test_evidence_setup_policy_lineage.py\": \"e9bfed3cc43b018e071a590aed4b57605570e6eb9563a3fe533c7642886fd419\"}\n"
+    }
+  },
+  "results": {
+    "passed": 40,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 5.027,
+    "retained_existing_unique_methods": 38,
+    "new_unique_methods": 2,
+    "no_foreign_TestCase_imports": true,
+    "source_test_hashes_stable": true
+  },
+  "limitations": [
+    "This is a Mac run with bounded real text-stream newline simulation, not native Windows execution.",
+    "Native Windows CI is still required for actual platform qualification; no CI or network query performed.",
+    "No private/product ledger, Drive/provider account, browser, native child producer, Git, installation, dependencies or workers used.",
+    "Existing isolated local transport/SQLite fixtures and their cleanup only; no personal cleanup roots touched.",
+    "No policy limits, acceptance criteria, historical records or descriptor hashes changed. Old report/failure evidence retained separately.",
+    "Root owns consolidated suite, independent review, publication/installation and actual runtime authority."
+  ],
+  "writing_stopped": true,
+  "created_at": "2026-10-22T01:10:41.909862+00:00",
+  "test_file": {
+    "path": "tests/test_evidence_setup_policy_lineage.py",
+    "sha256": "e9bfed3cc43b018e071a590aed4b57605570e6eb9563a3fe533c7642886fd419",
+    "bytes": 24176
+  },
+  "setup_module_unique_methods": 21
+}

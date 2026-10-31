@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-10-22T00:40:56.599287+00:00",
+  "finished_at": "2026-10-22T00:46:48.999885+00:00",
+  "command": [
+    "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-p",
+    "test_*.py",
+    "-v"
+  ],
+  "return_code": 0,
+  "log_sha256": "1c150b0c26c0e0641ca45e47e85634b4c292dba453cef4929bed1fe178191d4a",
+  "scope": "complete regression suite on consolidated frozen lineagefix; not product UNIT00 QA"
+}

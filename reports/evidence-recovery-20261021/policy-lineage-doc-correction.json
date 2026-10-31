@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-22T00:44:12.599037+00:00",
+  "reviewer": "scoped_receipt_review independentcode review",
+  "finding": "Generic reconfiguration text implied non-limit migration supported after lineage exists; source currently failcloses.",
+  "correction": "Documentation explicitly distinguishes no-lineage reconfiguration from history-bearing limits-only transitions; no runtime/contractpermission expanded.",
+  "before_sha256": "2d860de2662626b8a5ca939c173d7c559f76e3612b031b5b969cd845d247726f",
+  "after_sha256": "5287d01420dd09a9f521274b0d2434fec39c760e256678a71e9994411f0f2205",
+  "source_files_changed": false,
+  "fullsuite_already_running": "docs-only clarification; root will rerun targeted content/skillcontract checks after this change"
+}

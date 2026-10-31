@@ -19,7 +19,7 @@ import subprocess
 import time
 import uuid
 
-from .io import EvidenceError, atomic_json, hash_file, read_json, _is_link
+from .io import EvidenceError, atomic_json, hash_file, read_json, _is_link, _open_regular, _verify_stable
 from .policy import validate_policy
 
 
@@ -69,6 +69,8 @@ class Accounting:
         self._dirty_runs = set()
         self._journal_ready = False
         self._recovery_problem = None
+        self._publication_manager = None
+        self._publication_channel = None
         self.connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         try:
             self.connection.row_factory = sqlite3.Row
@@ -76,6 +78,7 @@ class Accounting:
             self.connection.execute("PRAGMA synchronous=FULL")
             self.connection.execute("PRAGMA foreign_keys=ON")
             self.connection.executescript("""
+                BEGIN IMMEDIATE;
                 CREATE TABLE IF NOT EXISTS identity (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS runs (
                     id TEXT PRIMARY KEY, unit_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
@@ -113,9 +116,13 @@ class Accounting:
                     digest TEXT NOT NULL, bytes INTEGER NOT NULL,
                     PRIMARY KEY(output_id, path));
                 CREATE TABLE IF NOT EXISTS producer_sessions (id TEXT PRIMARY KEY, record TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS producer_quarantines (attempt_id TEXT PRIMARY KEY, record TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS producer_quarantine_device_witnesses (
+                    operation_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL UNIQUE, record TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS coordinator (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1), owner TEXT NOT NULL,
                     expires REAL NOT NULL, complete_knowledge INTEGER NOT NULL);
+                COMMIT;
             """)
             with self._transaction():
                 # Intermediate ledgers and future recovery clients must preserve
@@ -160,7 +167,7 @@ class Accounting:
                 reason = self._current_recovery_reason()
                 if reason:
                     self._recovery_problem = reason
-                    self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_required',?)", (reason,))
+                    self._record_recovery_reason(reason)
             yield
             if self._journal_ready:
                 checkpoint_started = bool(self._dirty_runs)
@@ -173,6 +180,13 @@ class Accounting:
             raise
         finally:
             self._dirty_runs.clear()
+
+    def _record_recovery_reason(self, reason):
+        """Keep structural causes sticky; unchanged reads do not append WAL."""
+        from .quarantine import UNKNOWN_REASON
+        prior = self.connection.execute("SELECT value FROM identity WHERE key='recovery_required'").fetchone()
+        if prior is None or prior[0] == UNKNOWN_REASON and reason != UNKNOWN_REASON:
+            self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_required',?)", (reason,))
 
     def _initialize_recovery(self):
         """Keep charge floors independently of SQLite; missing history fails closed.
@@ -262,9 +276,32 @@ class Accounting:
                     reason = reason or "pending accounting reservation recovered without its original ledger"
                 elif dict(previous) != hold:
                     reason = reason or "pending accounting reservation and checkpoint differ"
+            # Checkpoints preserve unresolved gaps, not a replacement producer
+            # journal or proof of complete history after database loss.
+            from .quarantine import validate_quarantine_descriptor
+            quarantines = item.get("quarantines", [])
+            if not isinstance(quarantines, list):
+                raise EvidenceError("invalid recovered quarantine inventory")
+            for descriptor in quarantines:
+                validate_quarantine_descriptor(descriptor, self.policy)
+                if descriptor["run_id"] != run["id"] or descriptor["ledger_id"] != self._ledger_id:
+                    raise EvidenceError("recovered quarantine binding changed")
+                encoded = json.dumps(descriptor, sort_keys=True, ensure_ascii=True, allow_nan=False)
+                previous = self.connection.execute("SELECT record FROM producer_quarantines WHERE attempt_id=?", (descriptor["attempt_id"],)).fetchone()
+                if previous is None:
+                    self.connection.execute("INSERT INTO producer_quarantines VALUES(?,?)", (descriptor["attempt_id"], encoded))
+                    floor = descriptor["uncertain"]
+                    prior_floor = self.connection.execute("SELECT * FROM uncertain_generation WHERE reservation_id=?", (floor["reservation_id"],)).fetchone()
+                    if prior_floor is None:
+                        self.connection.execute("INSERT INTO uncertain_generation VALUES(?,?,?)", (floor["reservation_id"], floor["gross_bytes"], floor["logical_files"]))
+                    elif dict(prior_floor) != floor:
+                        raise EvidenceError("recovered quarantine floor changed")
+                    reason = reason or "quarantine recovered without original producer accounting; history requires recovery"
+                elif json.loads(previous[0]) != descriptor:
+                    raise EvidenceError("recovered immutable quarantine changed")
             self._dirty_runs.add(run["id"])
         if reason:
-            self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_required',?)", (reason,))
+            self._record_recovery_reason(reason)
         self._dirty_runs.update(row[0] for row in self.connection.execute("SELECT id FROM runs"))
         self._journal_ready = True
         self._checkpoint_runs(force=True)
@@ -288,20 +325,424 @@ class Accounting:
             if row is None:
                 continue
             value = {"version": 1, "project_id": self.project_id, "ledger_id": self._ledger_id,
-                     "run": dict(row), "pending": [dict(item) for item in self.connection.execute("SELECT * FROM reservations WHERE run_id=? AND state='pending' ORDER BY id", (run_id,))]}
+                     "run": dict(row), "pending": [dict(item) for item in self.connection.execute("SELECT * FROM reservations WHERE run_id=? AND state='pending' ORDER BY id", (run_id,))],
+                     "quarantines": [json.loads(item[0]) for item in self.connection.execute("SELECT q.record FROM producer_quarantines q WHERE json_extract(q.record,'$.run_id')=? ORDER BY q.attempt_id", (run_id,))]}
             if len((json.dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False, indent=2) + "\n").encode()) > self.policy["limits"]["metadata_stop_bytes"]:
                 raise EvidenceError("accounting run checkpoint exceeds metadata byte bound")
             atomic_json(self._recovery_path(run_id), value)
         self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_revision',?)", (str(revision),))
 
-    def require_generation_ready(self):
+    def _publication_for_generation(self):
+        if not self.connection.execute('SELECT 1 FROM producer_quarantines LIMIT 1').fetchone():
+            return None
+        if self.connection.in_transaction:
+            raise EvidenceError('fresh publication coverage must precede the accounting write transaction')
+        if self._publication_manager is not None:
+            manager, intent, deadline = self._publication_manager
+            return manager._producer_publication_coverage(self, intent, deadline=deadline)
+        if self._publication_channel is not None:
+            channel, intent, attempt, phase = self._publication_channel
+            return channel.request(self, intent, attempt, phase)
+        raise EvidenceError('quarantined accounting requires fresh Manager publication coverage')
+
+    def require_generation_ready(self, *, _publication=None):
+        readiness = self.generation_readiness(_publication=_publication)
+        if not readiness["ready"]:
+            raise EvidenceError("accounting recovery required: " + str(readiness["problem"]) + "; retain the original accounting.sqlite and its journal and reconcile before generating or completing evidence")
+        self._check_publication_deadline()
+
+    def _publication_deadline(self):
+        if self._publication_channel is not None:
+            return self._publication_channel[0].deadline
+        if self._publication_manager is not None:
+            return self._publication_manager[2]
+        return None
+
+    def _check_publication_deadline(self):
+        deadline = self._publication_deadline()
+        if deadline is not None and deadline <= time.monotonic():
+            raise EvidenceError('publication verification deadline expired before native use')
+
+    def _quarantine_structure_problem(self):
+        """Check integrity independently of a possibly masking legacy reason."""
+        from .quarantine import UNKNOWN_REASON
+        if self._recovery_problem not in (None, UNKNOWN_REASON):
+            return self._recovery_problem
+        try:
+            marker = read_json(self.recovery_dir / "marker.json", 4096)
+            identity = dict(self.connection.execute("SELECT key,value FROM identity WHERE key IN ('project_id','ledger_id','version')"))
+            if identity != {"project_id": self.project_id, "ledger_id": self._ledger_id, "version": "1"}:
+                return "accounting database identity changed"
+            revision = self.connection.execute("SELECT value FROM identity WHERE key='recovery_revision'").fetchone()
+            runs = self.connection.execute("SELECT * FROM runs ORDER BY id").fetchall()
+            if (not isinstance(marker, dict) or type(marker.get("version")) is not int or marker["version"] != 1
+                    or marker.get("project_id") != self.project_id or marker.get("ledger_id") != self._ledger_id
+                    or revision is None or type(marker.get("revision")) is not int or marker["revision"] != int(revision[0])
+                    or type(marker.get("runs")) is not int or marker["runs"] != len(runs)):
+                return "accounting checkpoint/transaction identity or revision differs"
+            paths = set(self.recovery_dir.glob("run-*.json"))
+            if paths != {self._recovery_path(run["id"]) for run in runs}:
+                return "accounting recovery run inventory differs"
+            for run in runs:
+                checkpoint = read_json(self._recovery_path(run["id"]), self.policy["limits"]["metadata_stop_bytes"])
+                pending = [dict(row) for row in self.connection.execute("SELECT * FROM reservations WHERE run_id=? AND state='pending' ORDER BY id", (run["id"],))]
+                gaps = [json.loads(row[0]) for row in self.connection.execute("SELECT record FROM producer_quarantines WHERE json_extract(record,'$.run_id')=? ORDER BY attempt_id", (run["id"],))]
+                if (checkpoint.get("version") != 1 or checkpoint.get("project_id") != self.project_id
+                        or checkpoint.get("ledger_id") != self._ledger_id or checkpoint.get("run") != dict(run)
+                        or checkpoint.get("pending") != pending or checkpoint.get("quarantines", []) != gaps):
+                    return "accounting run/quarantine checkpoint differs from original ledger"
+        except (EvidenceError, OSError, ValueError, TypeError, KeyError, sqlite3.Error):
+            return "accounting recovery checkpoint is missing, malformed or unreadable"
+        return None
+
+    def quarantines(self, *, _publication=None):
+        """Return validated gaps; this never marks their history complete."""
+        from .quarantine import validate_current
+        descriptors = [json.loads(row[0]) for row in self.connection.execute("SELECT record FROM producer_quarantines ORDER BY attempt_id")]
+        witnesses = self.device_witnesses()
+        if descriptors:
+            if _publication is None:
+                _publication = self._publication_for_generation()
+            if (not isinstance(_publication, dict) or _publication.get('quarantines') != {x['reservation_id']: x for x in descriptors}
+                    or _publication.get('witnesses') != witnesses):
+                raise EvidenceError('quarantine row/sidecar/publication closure differs')
+        elif witnesses:
+            raise EvidenceError('custody witness lacks its original quarantine')
+        return [validate_current(self, value, witness=witnesses.get(value['digest']),
+                coordinator_authority=(_publication or {}).get('authority')) for value in descriptors]
+
+    def generation_readiness(self, *, _publication=None):
+        """Allow only intact, explicitly isolated gaps to coexist with new runs."""
+        from .quarantine import UNKNOWN_REASON
+        problem = self._quarantine_structure_problem()
         reason = self._current_recovery_reason()
-        if reason:
-            raise EvidenceError("accounting recovery required: " + reason + "; restore the original accounting.sqlite and its journal before generating or completing evidence")
+        raw_gaps = self.connection.execute("SELECT COUNT(*) FROM producer_quarantines").fetchone()[0]
+        uncertain = {row[0] for row in self.connection.execute("SELECT reservation_id FROM uncertain_generation")}
+        history_complete = reason is None and not uncertain and not raw_gaps and problem is None
+        result = {"ready": False, "history_complete": history_complete, "quarantines": [], "problem": problem}
+        if problem:
+            return result
+        if history_complete:
+            try:
+                if self.device_witnesses():
+                    raise EvidenceError('custody witness lacks quarantined history')
+            except (EvidenceError, OSError, ValueError, TypeError, KeyError, sqlite3.Error) as exc:
+                result['problem'] = str(exc)
+                return result
+            result.update(ready=True)
+            return result
+        if reason != UNKNOWN_REASON:
+            result["problem"] = reason or "unclassified historical accounting uncertainty"
+            return result
+        try:
+            gaps = self.quarantines(_publication=_publication)
+            if not gaps or uncertain != {item["reservation_id"] for item in gaps}:
+                raise EvidenceError("every uncertain reservation requires its own verified quarantine")
+            if len(uncertain) != len(gaps):
+                raise EvidenceError("quarantine reservation identity is not unique")
+            result.update(ready=True, quarantines=gaps, problem=None)
+        except (EvidenceError, OSError, ValueError, TypeError, KeyError, sqlite3.Error) as exc:
+            result["problem"] = str(exc)
+        return result
+
+    def _device_path(self, operation_id):
+        return self.recovery_dir / ('quarantine-device-' + hashlib.sha256(operation_id.encode()).hexdigest() + '.json')
+
+    def _device_bytes(self, path):
+        bound = min(self.policy['limits']['metadata_stop_bytes'], 1024 * 1024)
+        _, fd, info = _open_regular(path)
+        try:
+            if (os.name != 'posix' or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600
+                    or info.st_nlink not in (1, 2) or info.st_size > bound):
+                raise EvidenceError('unsafe or oversized immutable custody candidate')
+            raw = bytearray()
+            while block := os.read(fd, min(65536, info.st_size - len(raw) + 1)):
+                raw.extend(block)
+                if len(raw) > info.st_size:
+                    raise EvidenceError('custody candidate grew during read')
+            _verify_stable(path, fd, info)
+            return bytes(raw), info
+        finally:
+            os.close(fd)
+
+    def _device_value(self, raw):
+        from .quarantine import canonical
+        from .quarantine_device import validate_quarantine_device_witness
+        value = json.loads(raw)
+        if not isinstance(value, dict) or not isinstance(value.get('operation_id'), str):
+            raise EvidenceError('invalid immutable custody candidate')
+        row = self.connection.execute('SELECT record FROM producer_quarantines WHERE attempt_id=?', (value.get('attempt_id'),)).fetchone()
+        if row is None:
+            raise EvidenceError('custody candidate lacks original quarantine')
+        validate_quarantine_device_witness(value, json.loads(row[0]), self.policy)
+        if raw != canonical(value):
+            raise EvidenceError('immutable custody candidate bytes differ')
+        return value
+
+    def _device_preparations(self):
+        import re
+        complete, partial, total, count = {}, [], 0, 0
+        for path in self.recovery_dir.iterdir():
+            if not path.name.startswith('.quarantine-device-'):
+                continue
+            match = re.fullmatch(r'\.quarantine-device-([a-f0-9]{64})-([a-f0-9-]{36})\.tmp', path.name)
+            if match is None or str(uuid.UUID(match[2])) != match[2]:
+                raise EvidenceError('unknown custody preparation path; retained')
+            raw, info = self._device_bytes(path)
+            count += 1; total += len(raw)
+            if count > self.policy['limits']['metadata_stop_files'] or total > self.policy['limits']['metadata_stop_bytes']:
+                raise EvidenceError('custody preparation aggregate exceeds metadata allowance')
+            try:
+                value = self._device_value(raw)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                if info.st_nlink != 1:
+                    raise EvidenceError('interrupted custody preparation has unknown links')
+                partial.append((path, match[1]))
+                continue  # Interrupted prep is retained/charged, never authority.
+            if hashlib.sha256(value['operation_id'].encode()).hexdigest() != match[1]:
+                raise EvidenceError('custody preparation operation/path binding differs')
+            prior = complete.get(value['operation_id'], [])
+            if prior and prior[0][1] != value:
+                raise EvidenceError('conflicting frozen custody preparations')
+            complete.setdefault(value['operation_id'], []).append((path, value, (info.st_dev, info.st_ino)))
+        return complete, partial
+
+    def _device_sidecars(self):
+        preparations, _ = self._device_preparations()
+        result, total = {}, 0
+        for path in self.recovery_dir.iterdir():
+            if not path.name.startswith('quarantine-device-'):
+                continue
+            raw, info = self._device_bytes(path)
+            total += len(raw)
+            if total > self.policy['limits']['metadata_stop_bytes'] or len(result) >= self.policy['limits']['metadata_stop_files']:
+                raise EvidenceError('custody sidecar aggregate exceeds metadata allowance')
+            value = self._device_value(raw)
+            operation = value['operation_id']
+            if path != self._device_path(operation) or operation in result:
+                raise EvidenceError('custody sidecar path/binding differs')
+            related = preparations.get(operation, [])
+            if any(item[1] != value for item in related):
+                raise EvidenceError('custody final and frozen preparation differ')
+            if info.st_nlink == 2 and sum(item[2] == (info.st_dev, info.st_ino) for item in related) != 1:
+                raise EvidenceError('custody final has an unknown hard link')
+            result[operation] = value
+        return result
+
+    def device_witnesses(self, *, allow_orphan=None):
+        from .quarantine import canonical
+        sidecars = self._device_sidecars()
+        preparations, partial = self._device_preparations()
+        for operation, items in preparations.items():
+            if operation != allow_orphan and sidecars.get(operation) != items[0][1]:
+                raise EvidenceError('orphan frozen custody preparation blocks generation')
+        allowed_hashes = {hashlib.sha256(op.encode()).hexdigest() for op in sidecars}
+        if allow_orphan:
+            allowed_hashes.add(hashlib.sha256(allow_orphan.encode()).hexdigest())
+        if any(op_hash not in allowed_hashes for _, op_hash in partial):
+            raise EvidenceError('interrupted custody preparation blocks generation')
+        rows, result = {}, {}
+        attempts, reservations = set(), set()
+        for row in self.connection.execute('SELECT operation_id,attempt_id,record FROM producer_quarantine_device_witnesses'):
+            value = json.loads(row['record'])
+            if (sidecars.get(row['operation_id']) != value or row['attempt_id'] != value.get('attempt_id')
+                    or row['record'] != canonical(value).decode()):
+                raise EvidenceError('custody row/sidecar differs or is missing')
+            ident = value['original_descriptor_digest']
+            if ident in result or value['attempt_id'] in attempts or value['reservation_id'] in reservations:
+                raise EvidenceError('custody witness binding is not unique')
+            rows[row['operation_id']] = value
+            result[ident] = value
+            attempts.add(value['attempt_id']); reservations.add(value['reservation_id'])
+        if set(sidecars) - set(rows) - ({allow_orphan} if allow_orphan else set()):
+            raise EvidenceError('orphan custody sidecar blocks generation')
+        return result
+
+    def prepare_device_witness(self, descriptor, assertion_ref, operation_id, authority):
+        from .quarantine_device import build_witness, read_assertion, verify_quarantine_device_current
+        from .quarantine import canonical
+        from .quarantine import UNKNOWN_REASON
+        problem = self._quarantine_structure_problem()
+        if self._current_recovery_reason() != UNKNOWN_REASON:
+            problem = problem or 'original unknown-generation reason is not intact'
+        if problem:
+            raise EvidenceError('custody requires intact original accounting: ' + problem)
+        sidecars = self._device_sidecars()
+        self.device_witnesses(allow_orphan=operation_id)
+        preparations, _ = self._device_preparations()
+        prior = sidecars.get(operation_id)
+        if prior is None and operation_id in preparations:
+            prior = preparations[operation_id][0][1]
+        if prior is not None:
+            if prior['assertion']['ref'] != assertion_ref or prior['assertion']['payload'] != read_assertion(assertion_ref, descriptor, self.policy, frozen_witness=prior):
+                raise EvidenceError('frozen custody assertion changed')
+            return verify_quarantine_device_current(self, descriptor, prior, coordinator_authority=authority)
+        if any(x['attempt_id'] == descriptor['attempt_id'] or x['reservation_id'] == descriptor['reservation_id']
+               or x['original_descriptor_digest'] == descriptor['digest'] for x in sidecars.values()):
+            raise EvidenceError('custody supports only one immutable direct witness')
+        return build_witness(self, descriptor, assertion_ref, operation_id, authority)
+
+    def append_device_witness(self, value):
+        """Dedicated insert, never dirty/checkpoint an original historical run."""
+        from .quarantine import canonical
+        data = canonical(value)
+        assertion_size = Path(value['assertion']['ref']['path']).lstat().st_size
+        violations = self._violations(self._totals(), extra_local=len(data) * 5 + assertion_size + 131072,
+                                      extra_metadata=len(data) * 5 + assertion_size + 131072, extra_metadata_files=3)
+        if violations:
+            raise BudgetExceeded(violations)
+        path = self._device_path(value['operation_id'])
+        self.device_witnesses(allow_orphan=value['operation_id'])
+        preparations, _ = self._device_preparations()
+        prior = preparations.get(value['operation_id'], [])
+        if prior and prior[0][1] != value:
+            raise EvidenceError('immutable frozen custody preparation differs')
+        # Pin each parent, and atomically link a fully fsynced candidate into
+        # the final no-clobber name. Partial writes never occupy that name.
+        directory = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        created = None
+        try:
+            for component in path.parent.parts[1:]:
+                next_dir = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(directory); directory = next_dir
+            before = os.fstat(directory)
+            if not path.exists() and not path.is_symlink():
+                if prior:
+                    candidate = prior[0][0]
+                else:
+                    candidate = self.recovery_dir / ('.quarantine-device-' + hashlib.sha256(value['operation_id'].encode()).hexdigest()
+                                                       + '-' + str(uuid.uuid4()) + '.tmp')
+                    fd = os.open(candidate.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+                    try:
+                        with os.fdopen(fd, 'wb', closefd=False) as stream:
+                            stream.write(data); stream.flush(); os.fsync(fd)
+                    finally:
+                        os.close(fd)
+                    created = candidate
+                    os.fsync(directory)
+                try:
+                    os.link(candidate.name, path.name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+                except FileExistsError:
+                    pass  # Existing final must still match the exact candidate.
+                os.fsync(directory)
+            current = self.recovery_dir.lstat()
+            if _is_link(current) or (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
+                raise EvidenceError('custody journal path changed during append')
+            if self._device_sidecars().get(value['operation_id']) != value:
+                raise EvidenceError('immutable custody sidecar differs')
+            # Complete same-operation candidates are exact, stable, closed and
+            # covered by the original coordinator lock. Preserve partial bytes.
+            complete, _ = self._device_preparations()
+            for candidate, frozen, identity in complete.get(value['operation_id'], []):
+                raw, info = self._device_bytes(candidate)
+                if frozen != value or (info.st_dev, info.st_ino) != identity or raw != data:
+                    raise EvidenceError('custody preparation changed before cleanup; retained')
+                os.unlink(candidate.name, dir_fd=directory)
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        if self._device_sidecars().get(value['operation_id']) != value:
+            raise EvidenceError('immutable custody sidecar differs')
+        self.connection.execute('BEGIN IMMEDIATE')
+        try:
+            rows = self.device_witnesses(allow_orphan=value['operation_id'])
+            prior = rows.get(value['original_descriptor_digest'])
+            if prior is not None and prior != value:
+                raise EvidenceError('immutable custody witness differs')
+            for other in rows.values():
+                if other['operation_id'] != value['operation_id'] and any(other[k] == value[k] for k in ('attempt_id', 'reservation_id', 'original_descriptor_digest')):
+                    raise EvidenceError('custody witness replays original binding')
+            if prior is None:
+                key = 'custody-assertion:' + value['operation_id']
+                metadata = self.connection.execute('SELECT bytes,files FROM metadata_usage WHERE key=?', (key,)).fetchone()
+                local = self.connection.execute('SELECT kind,bytes FROM local_usage WHERE key=?', (key,)).fetchone()
+                if metadata is not None and tuple(metadata) != (assertion_size, 1) or local is not None and tuple(local) != ('metadata', assertion_size):
+                    raise EvidenceError('custody assertion occupancy binding changed')
+                self.connection.execute('INSERT OR IGNORE INTO metadata_usage VALUES(?,?,?)', (key, assertion_size, 1))
+                self.connection.execute('INSERT OR IGNORE INTO local_usage VALUES(?,?,?)', (key, 'metadata', assertion_size))
+                self.connection.execute('INSERT INTO producer_quarantine_device_witnesses VALUES(?,?,?)',
+                    (value['operation_id'], value['attempt_id'], data.decode()))
+            self.connection.execute('COMMIT')
+        except BaseException:
+            self.connection.execute('ROLLBACK')
+            raise
+        return value
+
+    def quarantine_producer(self, attempt_id, disposition_proof, dry_run=True):
+        """Isolate a gap without changing its session, charges, hold or failure."""
+        from .quarantine import UNKNOWN_REASON, build, canonical, validate_current
+        if type(dry_run) is not bool:
+            raise EvidenceError("quarantine dry_run must be boolean")
+        def prepare():
+            problem = self._quarantine_structure_problem()
+            if problem or self._current_recovery_reason() != UNKNOWN_REASON:
+                raise EvidenceError("quarantine requires intact original accounting: " + str(problem or self._current_recovery_reason()))
+            stored = self.connection.execute("SELECT record FROM producer_quarantines WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if stored:
+                value = validate_current(self, json.loads(stored[0]))
+                if canonical(value["proof"]) != canonical(disposition_proof):
+                    raise EvidenceError("immutable quarantine disposition proof changed")
+                return value
+            return build(self, attempt_id, disposition_proof)
+        if dry_run:
+            return prepare()
+        with self._transaction():
+            value = prepare()
+            if any(json.loads(row[0])["reservation_id"] == value["reservation_id"] and row[1] != attempt_id
+                   for row in self.connection.execute("SELECT record,attempt_id FROM producer_quarantines")):
+                raise EvidenceError("quarantine reservation is already bound to another original attempt")
+            encoded = canonical(value).decode()
+            if len(encoded.encode()) > min(self.policy["limits"]["metadata_stop_bytes"], 1024 * 1024):
+                raise EvidenceError("quarantine descriptor exceeds bounded metadata allowance")
+            exists = self.connection.execute("SELECT 1 FROM producer_quarantines WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if not exists:
+                violations = self._violations(self._totals(), extra_local=len(encoded) * 3 + 8192,
+                                              extra_metadata=len(encoded) * 3 + 8192)
+                if violations:
+                    raise BudgetExceeded(violations)
+                self.connection.execute("INSERT INTO producer_quarantines VALUES(?,?)", (attempt_id, encoded))
+                self._dirty_runs.add(value["run_id"])
+            return value
+
+    def reconcile_quarantines(self, descriptors):
+        """Preserve portable gaps after cold recovery, never certify readiness."""
+        from .quarantine import canonical, validate_quarantine_descriptor
+        if isinstance(descriptors, dict):
+            for key, value in descriptors.items():
+                if not isinstance(value, dict) or key != value.get("reservation_id"):
+                    raise EvidenceError("catalog quarantine reservation key changed")
+            descriptors = list(descriptors.values())
+        if not isinstance(descriptors, list):
+            raise EvidenceError("quarantine catalog must be a list or reservation mapping")
+        values = [validate_quarantine_descriptor(value, self.policy) for value in descriptors]
+        with self._transaction():
+            for value in values:
+                stored = self.connection.execute("SELECT record FROM producer_quarantines WHERE attempt_id=?", (value["attempt_id"],)).fetchone()
+                if stored:
+                    if json.loads(stored[0]) != value:
+                        raise EvidenceError("immutable catalog quarantine changed")
+                    continue
+                for table, item, key in (("runs", value["run"], "id"), ("reservations", value["reservation"], "id"),
+                                         ("uncertain_generation", value["uncertain"], "reservation_id")):
+                    row = self.connection.execute("SELECT * FROM " + table + " WHERE " + key + "=?", (item[key],)).fetchone()
+                    if row is not None and dict(row) != item:
+                        raise EvidenceError("catalog quarantine conflicts with original " + table)
+                    if row is None:
+                        columns = list(item)
+                        self.connection.execute("INSERT INTO " + table + "(" + ",".join(columns) + ") VALUES(" + ",".join("?" for _ in columns) + ")", tuple(item[k] for k in columns))
+                self.connection.execute("INSERT INTO producer_quarantines VALUES(?,?)", (value["attempt_id"], canonical(value).decode()))
+                self._record_recovery_reason("quarantine catalog recovered without authoritative original producer accounting; complete history requires recovery")
+                self._dirty_runs.add(value["run_id"])
+        return {"quarantines": len(values), "history_complete": False}
 
     def _current_recovery_reason(self):
+        from .quarantine import UNKNOWN_REASON
         row = self.connection.execute("SELECT value FROM identity WHERE key='recovery_required'").fetchone()
-        reason = self._recovery_problem or (row[0] if row else None)
+        # A cached ordinary producer gap must not mask a structural failure
+        # learned by another already-open client or a later recovery action.
+        reason = self._recovery_problem
+        if reason in (None, UNKNOWN_REASON) and row:
+            reason = row[0]
         if reason:
             return reason
         try:
@@ -439,8 +880,18 @@ class Accounting:
                 raise EvidenceError("producer record must contain finite JSON data") from error
             if len(session.encode("utf-8")) > metadata_bytes:
                 raise EvidenceError("producer record exceeds its reserved metadata allowance")
+        publication = self._publication_for_generation()
+        if session is not None and publication is not None and publication.get('intent') is not None:
+            intent = publication['intent']
+            if (value.get('intent_id') != publication.get('intent_id')
+                    or (run_id, unit_id, byte_count, file_count) !=
+                       (intent['run_id'], intent['unit_id'], intent['reserve_bytes'], intent['reserve_files'])
+                    or value['coordinator'] != intent.get('owner_identity')):
+                raise EvidenceError('producer reservation differs from its exact durable generation intent')
         with self._transaction():
-            self.require_generation_ready()
+            if any(json.loads(row[0])["run_id"] == run_id for row in self.connection.execute("SELECT record FROM producer_quarantines")):
+                raise EvidenceError("quarantined run cannot be reused; choose a distinct bounded run")
+            self.require_generation_ready(_publication=publication)
             if session is not None and self.connection.execute("SELECT 1 FROM producer_sessions WHERE id=?", (attempt_id,)).fetchone():
                 raise EvidenceError("producer attempt identity is already registered")
             run = self.connection.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
@@ -537,6 +988,8 @@ class Accounting:
         """
         _amount(observed_bytes, "observed bytes"); _amount(observed_files, "observed files")
         with self._transaction():
+            if any(json.loads(row[0])["reservation_id"] == reservation_id for row in self.connection.execute("SELECT record FROM producer_quarantines")):
+                raise EvidenceError("quarantined original accounting cannot be changed")
             row = self.connection.execute("SELECT q.*,r.unit_id FROM reservations q JOIN runs r ON r.id=q.run_id WHERE q.id=?", (reservation_id,)).fetchone()
             if row is None or row["state"] != "pending":
                 raise EvidenceError("uncertain reservation is unknown or no longer pending")
@@ -545,7 +998,7 @@ class Accounting:
             byte_count, file_count = max(observed_bytes, previous_bytes), max(observed_files, previous_files)
             self.connection.execute("INSERT OR REPLACE INTO uncertain_generation VALUES(?,?,?)", (reservation_id, byte_count, file_count))
             self.connection.execute("UPDATE runs SET gross_bytes=gross_bytes+?,gross_files=gross_files+?,status='incomplete' WHERE id=?", (byte_count - previous_bytes, file_count - previous_files, row["run_id"]))
-            self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_required',?)", ("managed output inventory is unknown; observed charges are lower bounds and its reservation remains held",))
+            self._record_recovery_reason("managed output inventory is unknown; observed charges are lower bounds and its reservation remains held")
             self._dirty_runs.add(row["run_id"])
             return {"reservation_id": reservation_id, "run_id": row["run_id"], "incomplete": True,
                     "violations": ["actual output inventory is unknown; reservation retained"],
@@ -598,6 +1051,45 @@ class Accounting:
             identifier = str(uuid.uuid4())
             self.connection.execute("INSERT INTO working_reservations(id,bytes,migration,metadata_bytes,metadata_files,cache_bytes,owner_pid,owner_host,created) VALUES(?,?,?,?,?,?,?,?,?)", (identifier, byte_count, int(migration), metadata_bytes, metadata_files, cache_bytes, os.getpid(), socket.gethostname(), time.time()))
             return identifier
+
+    def grow_working(self, reservation_id: str, byte_count: int, *, metadata_bytes=0,
+                     metadata_files=0, cache_bytes=0, capacity_path=None):
+        """Raise absolute bounds on this process's pending working hold atomically."""
+        _identity(reservation_id, "working reservation")
+        requested = {"bytes": _amount(byte_count, "working reservation bytes"),
+            "metadata_bytes": _amount(metadata_bytes, "working metadata bytes"),
+            "metadata_files": _amount(metadata_files, "working metadata files"),
+            "cache_bytes": _amount(cache_bytes, "working cache bytes")}
+        if cache_bytes > byte_count:
+            raise EvidenceError("working cache reservation exceeds combined working bytes")
+        with self._transaction():
+            row = self.connection.execute("SELECT * FROM working_reservations WHERE id=?", (reservation_id,)).fetchone()
+            if row is None or row["state"] != "pending":
+                raise EvidenceError("working reservation is unknown or already finished")
+            if row["owner_pid"] != os.getpid() or row["owner_host"] != socket.gethostname():
+                raise EvidenceError("working reservation is not owned by this process and host")
+            bounds = {key: max(row[key], value) for key, value in requested.items()}
+            delta = {key: bounds[key] - row[key] for key in bounds}
+            totals, limits = self._totals(), self.policy["limits"]
+            maximum = limits["migration_local_stop_bytes" if row["migration"] else "local_stop_bytes"]
+            violations = []
+            if totals["local_bytes"] + totals["pending_local_bytes"] + delta["bytes"] > maximum:
+                violations.append("combined local working reservation exceeds allowance")
+            if (metadata_bytes or metadata_files) and (
+                    totals["metadata_bytes"] + totals["pending_metadata_bytes"] + delta["metadata_bytes"] > limits["metadata_stop_bytes"]
+                    or totals["metadata_files"] + totals["pending_metadata_files"] + delta["metadata_files"] > limits["metadata_stop_files"]):
+                violations.append("combined metadata working reservation exceeds allowance")
+            if cache_bytes and totals["cache_bytes"] + totals["pending_cache_bytes"] + delta["cache_bytes"] > limits["cache_stop_bytes"]:
+                violations.append("combined cache working reservation exceeds allowance")
+            capacity = Path(capacity_path) if capacity_path is not None else self.path.parent
+            if shutil.disk_usage(capacity).free - totals["pending_local_bytes"] - delta["bytes"] < limits["free_space_reserve_bytes"]:
+                violations.append("working reservation cannot preserve free-space reserve")
+            if violations:
+                raise BudgetExceeded(violations)
+            if any(delta.values()):
+                self.connection.execute("UPDATE working_reservations SET bytes=?,metadata_bytes=?,metadata_files=?,cache_bytes=? WHERE id=? AND state='pending'",
+                    tuple(bounds[key] for key in ("bytes", "metadata_bytes", "metadata_files", "cache_bytes")) + (reservation_id,))
+            return bounds
 
     def finish_working(self, reservation_id: str, *, local_key=None, actual_bytes=0, kind="restore",
                        metadata_key=None, actual_metadata_bytes=0, actual_metadata_files=0,
@@ -674,7 +1166,9 @@ class Accounting:
         if kind not in ("capture", "cache", "staging", "readback", "restore", "durable"):
             raise EvidenceError("unknown local storage classification")
         with self._transaction():
-            self.connection.execute("INSERT OR REPLACE INTO local_usage VALUES(?,?,?)", (key, kind, byte_count))
+            current = self.connection.execute("SELECT kind,bytes FROM local_usage WHERE key=?", (key,)).fetchone()
+            if current is None or tuple(current) != (kind, byte_count):
+                self.connection.execute("INSERT OR REPLACE INTO local_usage VALUES(?,?,?)", (key, kind, byte_count))
             totals = self._totals()
             violations = self._violations(totals)
             if totals["cache_bytes"] > self.policy["limits"]["cache_stop_bytes"]:
@@ -684,7 +1178,9 @@ class Accounting:
     def reconcile_metadata(self, key: str, byte_count: int, file_count=1):
         _identity(key, "metadata allocation"); _amount(byte_count, "metadata bytes"); _amount(file_count, "metadata files")
         with self._transaction():
-            self.connection.execute("INSERT OR REPLACE INTO metadata_usage VALUES(?,?,?)", (key, byte_count, file_count))
+            current = self.connection.execute("SELECT bytes,files FROM metadata_usage WHERE key=?", (key,)).fetchone()
+            if current is None or tuple(current) != (byte_count, file_count):
+                self.connection.execute("INSERT OR REPLACE INTO metadata_usage VALUES(?,?,?)", (key, byte_count, file_count))
             totals = self._totals()
             return {"violations": self._violations(totals), "totals": totals}
 
@@ -742,7 +1238,7 @@ class Accounting:
                 else:
                     ordinal = self.connection.execute("SELECT COUNT(*) FROM runs WHERE unit_id=? AND migration=0", (unit_id,)).fetchone()[0]
                     self.connection.execute("INSERT INTO runs(id,unit_id,ordinal,gross_bytes,gross_files,migration,status,created) VALUES(?,?,?,?,?,0,'incomplete',?)", (run_id, unit_id, ordinal, byte_count, file_count, time.time()))
-                    self.connection.execute("INSERT OR REPLACE INTO identity VALUES('recovery_required',?)", ("generation charges were reconstructed from the durable catalog without original run/output accounting; known totals are lower bounds",))
+                    self._record_recovery_reason("generation charges were reconstructed from the durable catalog without original run/output accounting; known totals are lower bounds")
                     self._dirty_runs.add(run_id)
             actual = self._totals()
             return {"violations": self._violations(actual), "totals": actual}
@@ -755,6 +1251,16 @@ class Accounting:
         if any(_is_link(parent.lstat()) for parent in path.parents):
             raise EvidenceError("linked output directory parent")
         with self._transaction():
+            for row in self.connection.execute("SELECT record FROM producer_quarantines"):
+                descriptor = json.loads(row[0])
+                if descriptor["run_id"] == run_id:
+                    raise EvidenceError("quarantined run cannot register another output")
+                original = self.connection.execute("SELECT path FROM outputs WHERE id=?", (descriptor["output_id"],)).fetchone()
+                if original is None:
+                    raise EvidenceError("quarantined output binding is missing")
+                blocked = Path(original[0])
+                if path == blocked or path.is_relative_to(blocked) or blocked.is_relative_to(path):
+                    raise EvidenceError("quarantined output directory cannot be reused")
             run = self.connection.execute("SELECT unit_id FROM runs WHERE id=?", (run_id,)).fetchone()
             if run is None or run[0] != unit_id:
                 raise EvidenceError("reserve the stable run/unit before registering output")
@@ -764,6 +1270,8 @@ class Accounting:
 
     def reconcile_output(self, output_id: str) -> dict:
         """Inventory unexpected stable files; changes always charge gross bytes."""
+        if any(json.loads(row[0])["output_id"] == output_id for row in self.connection.execute("SELECT record FROM producer_quarantines")):
+            raise EvidenceError("quarantined output cannot be reconciled as new generation")
         row = self.connection.execute("SELECT o.*,r.unit_id,r.migration FROM outputs o JOIN runs r ON r.id=o.run_id WHERE o.id=?", (output_id,)).fetchone()
         if row is None:
             raise EvidenceError("unregistered output location")
@@ -803,6 +1311,8 @@ class Accounting:
         This avoids charging a managed output twice. The manager must invoke it
         only after it has compared produced bytes/counts with the settlement.
         """
+        if any(json.loads(row[0])["output_id"] == output_id for row in self.connection.execute("SELECT record FROM producer_quarantines")):
+            raise EvidenceError("quarantined output cannot acknowledge recovered accounting")
         row = self.connection.execute("SELECT * FROM outputs WHERE id=?", (output_id,)).fetchone()
         if row is None:
             raise EvidenceError("unregistered output location")
@@ -821,8 +1331,9 @@ class Accounting:
 
     def complete_run(self, run_id: str) -> dict:
         """Completion requires settled reservations and reconciled output roots."""
+        publication = self._publication_for_generation()
         with self._transaction():
-            self.require_generation_ready()
+            self.require_generation_ready(_publication=publication)
             row = self.connection.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
             if row is None:
                 raise EvidenceError("run has no required accounting")
@@ -833,6 +1344,7 @@ class Accounting:
             violations = self._violations(self._totals(run_id, row["unit_id"]), migration=bool(row["migration"]))
             if violations:
                 raise BudgetExceeded(violations)
+            self._check_publication_deadline()
             self.connection.execute("UPDATE runs SET status='complete' WHERE id=?", (run_id,))
             self._dirty_runs.add(run_id)
             return self._totals(run_id, row["unit_id"])
@@ -893,6 +1405,11 @@ class Accounting:
         with self._transaction():
             totals = self._totals(run_id, unit_id)
             recovery_reason = self._current_recovery_reason()
+            if recovery_reason is None:
+                recovery_reason = self._quarantine_structure_problem()
+            if recovery_reason is None and (self.connection.execute("SELECT 1 FROM uncertain_generation LIMIT 1").fetchone()
+                                            or self.connection.execute("SELECT 1 FROM producer_quarantines LIMIT 1").fetchone()):
+                recovery_reason = "unclassified historical accounting uncertainty remains"
             limits = self.policy["limits"]
             warnings = []
             for field, key in (("run_generated_bytes", "run_warning_bytes"), ("unit_generated_bytes", "unit_warning_bytes"),

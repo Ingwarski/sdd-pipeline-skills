@@ -1,0 +1,87 @@
+{
+  "report_type": "maintenance_shell_verification",
+  "date": "2026-10-21",
+  "repository": {
+    "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+    "branch": "codex/fix-evidence-recovery",
+    "head": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b"
+  },
+  "runtime": {
+    "requested_path_prefix": "/Users/ingwar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin",
+    "python": "3.9.6 (default, Aug 25 2026, 21:26:21) ",
+    "path_selected_python3": "Python 3.12.14"
+  },
+  "source_snapshot": {
+    "file": "reports/evidence-recovery-20261021/consolidated-source-hashes.json",
+    "before": {
+      "entry_count": 148,
+      "changed_paths": [],
+      "missing_paths": [],
+      "matches_snapshot": true
+    },
+    "after": {
+      "entry_count": 148,
+      "changed_paths": [],
+      "missing_paths": [],
+      "matches_snapshot": true
+    },
+    "unchanged_through_run": true
+  },
+  "tests": [
+    {
+      "name": "install",
+      "command": [
+        "bash",
+        "tests/test-install.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 2.591,
+      "log": "reports/evidence-recovery-20261021/shell-install.log",
+      "log_bytes": 5459,
+      "isolated_temp_parent": "/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-maintenance-shell-qlgvad6x",
+      "remaining_direct_children_after_script": [],
+      "script_cleanup_complete": true
+    },
+    {
+      "name": "retirement",
+      "command": [
+        "bash",
+        "tests/test-retirement.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 4.527,
+      "log": "reports/evidence-recovery-20261021/shell-retirement.log",
+      "log_bytes": 153,
+      "isolated_temp_parent": "/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-maintenance-shell-qlgvad6x",
+      "remaining_direct_children_after_script": [],
+      "script_cleanup_complete": true
+    },
+    {
+      "name": "update",
+      "command": [
+        "bash",
+        "tests/test-update.sh"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 4.523,
+      "log": "reports/evidence-recovery-20261021/shell-update.log",
+      "log_bytes": 168,
+      "isolated_temp_parent": "/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-maintenance-shell-qlgvad6x",
+      "remaining_direct_children_after_script": [],
+      "script_cleanup_complete": true
+    }
+  ],
+  "temp_cleanup": {
+    "private_parent": "/var/folders/x5/jqx4vkqj7xzb23y_pwb99dx00000gn/T/sdd-maintenance-shell-qlgvad6x",
+    "remaining_children": [],
+    "parent_removed_after_empty_check": true,
+    "verified_absent": true
+  },
+  "overall_exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "all_passed": true,
+  "notes": "Tests were run in isolated script-owned roots beneath a private task temp parent. No production runtime, network provider, live ledger, dependency installation, or historical archive access was used."
+}

@@ -356,7 +356,7 @@ class HistoryEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "evidence_ref must be an object"):
             self.helper.referenced_paths(self.p.root, manifest)
 
-    def test_repeated_and_overlapping_trees_are_scanned_once_and_fresh_calls_see_additions(self):
+    def test_repeated_and_overlapping_trees_are_scanned_twice_and_fresh_calls_see_additions(self):
         path = "forge/discovery/nested/first.txt"
         self.p.write(path, "First.\n")
         manifest = {"trees": [{"path": value} for value in
@@ -368,7 +368,10 @@ class HistoryEvidenceTests(unittest.TestCase):
             return iterdir(directory)
         with mock.patch.object(Path, "iterdir", observe):
             self.assertEqual({path}, self.helper.referenced_paths(self.p.root, manifest))
-        self.assertCountEqual([self.p.root.resolve() / "forge/discovery", self.p.root.resolve() / "forge/discovery/nested"], scanned)
+        # One discovery and one final membership audit per unique directory,
+        # independently of the hundred repeated and overlapping mentions.
+        self.assertCountEqual([self.p.root.resolve() / "forge/discovery",
+                               self.p.root.resolve() / "forge/discovery/nested"] * 2, scanned)
         second = "forge/discovery/nested/second.txt"
         self.p.write(second, "Second.\n")
         self.assertEqual({path, second}, self.helper.referenced_paths(self.p.root, manifest))
@@ -387,6 +390,50 @@ class HistoryEvidenceTests(unittest.TestCase):
         with mock.patch.object(self.helper, "evidence_reference", side_effect=change):
             with self.assertRaisesRegex(ValueError, "snapshot directory changed during discovery"):
                 self.helper.referenced_paths(self.p.root, manifest)
+
+    def test_directory_membership_changes_with_unchanged_metadata_are_rejected(self):
+        stat = Path.stat
+        classify = self.helper.evidence_reference
+        for operation in ("add", "remove", "rename"):
+            with self.subTest(operation=operation):
+                base = "forge/unchanged-metadata-" + operation
+                directory = self.p.root.resolve() / base / "nested"
+                first, second = directory / "first.txt", directory / "second.txt"
+                self.p.write(base + "/nested/first.txt", "Original bytes.\n")
+                original_stats = {path: stat(path, follow_symlinks=False)
+                                  for path in (directory.parent, directory)}
+                mutation = {"synthetic_mutation": True}
+                manifest = {"first": {"path": base}, "mutation": mutation,
+                            "again": {"path": base}}
+                mutations = []
+
+                def unchanged_metadata(path, *args, **kwargs):
+                    if path in original_stats:
+                        return original_stats[path]
+                    return stat(path, *args, **kwargs)
+
+                def change(value):
+                    if value is mutation:
+                        mutations.append(operation)
+                        if operation == "add":
+                            second.write_text("Added bytes.\n", encoding="utf-8")
+                        elif operation == "remove":
+                            first.unlink()
+                        else:
+                            first.rename(second)
+                    return classify(value)
+
+                # Reproduce a filesystem whose directory metadata remains equal,
+                # while actual directory entries really change between mentions.
+                with mock.patch.object(Path, "stat", unchanged_metadata), \
+                        mock.patch.object(self.helper, "evidence_reference", side_effect=change):
+                    with self.assertRaisesRegex(ValueError, "snapshot directory changed during discovery"):
+                        self.helper.referenced_paths(self.p.root, manifest)
+                    self.assertEqual(original_stats[directory], directory.stat())
+                self.assertEqual([operation], mutations)
+                expected = {"first.txt", "second.txt"} if operation == "add" else (
+                    set() if operation == "remove" else {"second.txt"})
+                self.assertEqual(expected, {path.name for path in directory.iterdir()})
 
     def test_cached_history_directory_keeps_recursive_embedding_prohibition(self):
         self.p.write("forge/unit-history/synthetic.txt", "Synthetic history.\n")

@@ -1,0 +1,140 @@
+{
+  "report_type": "bounded_source_and_size_research",
+  "date": "2026-10-21",
+  "repository": {
+    "path": "/Users/ingwar/.codex/worktrees/sdd-evidence-recovery",
+    "branch": "codex/fix-evidence-recovery",
+    "head": "82cf3979f2a4c77101a9413b0d68277e23fe3f8b",
+    "working_tree_at_review": "only reports/ was untracked before this report; no engine/test source was changed"
+  },
+  "scope_and_method": {
+    "reviewed": [
+      "AGENTS.md and /Users/ingwar/.codex/AGENTS.md",
+      "docs/maintenance.md and docs/specification-quality.md",
+      "skills/to-sdd-pipeline/scripts/evidence/accounting.py",
+      "skills/to-sdd-pipeline/scripts/evidence/connected_host.py",
+      "skills/to-sdd-pipeline/scripts/sdd_history.py",
+      "tests/test_history_evidence.py, tests/test_evidence_connected_host.py, tests/test_attempt_history.py, tests/test_unit_history.py",
+      "metadata and selected source files under the supplied current-20261021-retry1 and current-20261021-retry2 handoffs"
+    ],
+    "method": "Read-only source and file-metadata inspection. No tests, producer, browser, provider, SQL, ledger, archive retrieval, or decompression were run. Historical validated archives were not traversed or read.",
+    "limits": "The first-failure incident values are reported under root_reported_first_failed_journal_cause in retry2/media/HANDOFF.json; they were not independently reconstructed by this review. Retry2 source-derived estimates are not live runtime measurements."
+  },
+  "ranked_findings": [
+    {
+      "rank": 1,
+      "finding": "Growing working-samples array was repeatedly serialized into changing lifecycle snapshots, causing the reported 16 MiB producer overrun.",
+      "evidence": {
+        "source": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/HANDOFF.json",
+        "source_field": "root_reported_first_failed_journal_cause",
+        "measurement_status": "reported in handoff; not independently measured in this bounded review",
+        "reported_aggregate_bytes": 16888829,
+        "reported_reservation_bytes": 16777216,
+        "reported_overrun_bytes": 111613,
+        "recorded_cause": "Growing timestamped working.samples was serialized again with lifecycle snapshots; the updated_at dedupe key changed as samples accumulated.",
+        "corroborating_corrected_source": "/Users/ingwar/.codex/worktrees/platform-expansion-resume/course-landing/forge/implementation/platform-expansion/unit-00/current-20261021-retry2/media/journal-persistence.mjs",
+        "source_behavior": "Working observations are buffered as ordered NDJSON rows, emitted in 64 KiB segments or at a 5 second checkpoint; periodic snapshots omit the expanding samples array, while finalization reconstructs the full sample list. Unchanged lifecycle snapshots deduplicate by fingerprint."
+      },
+      "interpretation": "This is the only handoff-reported cause directly aligned to the overrun. The retry2 model estimates 117744110 bytes for a 900 second case against a 134217728 byte reservation, leaving 16473618 bytes of modeled headroom; its 1800 second case estimates 235684503 bytes and exceeds the bound. These figures are conditional serialization models, not runtime measurements. The overrun values and cause are reported observations in retry2/HANDOFF.json, not independently measured here.",
+      "bounded_fix": "Use retry2's segment/checkpoint pattern for the affected journal producer, preserving every observation and failure record. Keep a bounded live summary and reconstruct the complete list only in the terminal report. Preserve an unclean tail as unknown and retain the reservation until the existing recovery process resolves it.",
+      "dependencies_and_owners": "Root-owned engine integration must connect the pure journal policy to the actual producer's persistence callbacks, reservation accounting, and cleanup/finalization path. The supplied retry2 handoff explicitly says its inherited resource factory/controller assembly and native pipeline remain pending.",
+      "proof_needed": [
+        "Pure serialization test shows unchanged lifecycle polls produce no extra snapshot and every changing sample/error is present exactly once in ordered immutable segments.",
+        "Failure-injection proves segment write failure preserves pending records, marks the journal unfinalized, blocks a passing result, and retains its working reservation.",
+        "Source budget includes actual controller rows, peak staging copies, final report, miscellaneous output, cleanup grace, and configured duration; compare its worst supported case to the native reservation.",
+        "Only after separately authorized native recovery: actual output inventory, independent readback/hash, cleanup observations, and final accounting. Static or pure evidence cannot release the present unknown-generation hold."
+      ],
+      "qa_boundary": "Retains the raw evidence and existing strict cleanup, working ceiling, identity comparison, and result gates; no QA predicate is removed."
+    },
+    {
+      "rank": 2,
+      "finding": "The independent accounting recovery journal rewrites a run checkpoint and global marker on every dirty ledger transaction.",
+      "evidence": {
+        "source": "skills/to-sdd-pipeline/scripts/evidence/accounting.py",
+        "references": ["155-175", "276-295", "442-479", "496-529"],
+        "observed_behavior": "_transaction calls _checkpoint_runs before each commit. A dirty transaction atomically replaces marker.json and the full run-<hash>.json checkpoint containing the current run totals and all pending reservations. reserve and settle each dirty the run. reserve estimates journal peak as current checkpoint size plus 8192 bytes."
+      },
+      "quantification": "The review did not inspect an active ledger or enumerate old run histories. For N dirty transactions on one run, source behavior entails N marker replacements and N full run-checkpoint replacements; cumulative recovery-journal bytes written therefore scale with the sum of each checkpoint's serialized size, while the retained checkpoint is only its latest size. Atomic replacement also has temporary peak space. Actual N and serialized sizes were unavailable without ledger/runtime inspection.",
+      "bounded_fix": "Measure checkpoint serialized bytes, atomic replacements, and temporary peak bytes for a fresh synthetic reserve/settle sequence. This analysis does not propose changing checkpoint durability or recovery semantics.",
+      "dependencies_and_owners": "Accounting schema and recovery protocol owner. Any future change would require a separate explicit design and crash-recovery review; this report makes no such change proposal.",
+      "proof_needed": [
+        "Use a new isolated synthetic fixture and report per-operation checkpoint/marker bytes and replace counts, with no production ledger access.",
+        "Keep current checkpoint durability and all existing interruption/recovery behavior unchanged in this task."
+      ],
+      "qa_boundary": "The independent journal and conservative charge floors are useful recovery evidence and remain untouched by this task."
+    },
+    {
+      "rank": 3,
+      "finding": "Activation repeats expensive history/source validation at boundaries; only a subset is safely removable without weakening race detection.",
+      "evidence": {
+        "source": "skills/to-sdd-pipeline/scripts/sdd_history.py",
+        "references": ["129-157", "392-419", "1064-1098", "1257-1310", "1563-1635"],
+        "observed_behavior": "Candidate staging writes a full candidate record, computes canonical hashes, and traverses observed hashes. Activation validates transition, computes canonical hashes, runs candidate_report using a fresh checker, computes candidate_hashes, persists before/after/journal records, then rehashes live manifest and candidate inputs immediately before replacement. Historical snapshot payloads are content-addressed and hard-linked, so identical file bytes do not normally duplicate payload blocks; each history path still adds a directory entry, and record JSON remains per-event."
+      },
+      "interpretation": "The pre-journal and final candidate hash passes detect changes across the journal write and should remain unless replaced by an equally strong snapshot/locking proof. The fresh checker is explicitly used to avoid duplicate scope diagnostics. Candidate/report and history walks may be costly, but no timings or file counts from an active project were collected, so their cost is not quantified here.",
+      "bounded_fix": "Instrument a synthetic active-manifest fixture to count file reads, hashes, history validations, and record bytes across stage plus activation. Then optimize only verified duplicate work within one stable validation epoch, keeping fresh-call rechecks and the final pre-replacement source/evidence guard. Preserve every failed candidate and activation event; do not delete or rewrite old records.",
+      "dependencies_and_owners": "sdd_history validation/cache interfaces, evidence resolver cache lifetime, filesystem mutation assumptions, and activation journal contract. Existing per-operation caches must remain scoped so later calls detect changed history.",
+      "proof_needed": [
+        "Fault-injection mutates a source, nested history record, external receipt, or live manifest between staging, journal creation, and replacement; activation must refuse replacement.",
+        "Instrumented source fixture demonstrates fewer reads/writes while fresh invocations still discover additions or changed JSON.",
+        "Retain exact before/after bytes and immutable activation journal recovery behavior."
+      ],
+      "qa_boundary": "Optimistic revalidation protects real concurrent edits. Existing tests explicitly cover changed source/evidence after staging and interrupted activation; those checks are useful and must remain."
+    },
+    {
+      "rank": 4,
+      "finding": "Connected-host exact lookup and upload admission each enumerate the entire selected folder; upload preflight and upload repeat that enumeration.",
+      "evidence": {
+        "source": "skills/to-sdd-pipeline/scripts/evidence/connected_host.py",
+        "references": ["417-452", "454-464", "491-500"],
+        "observed_behavior": "_search calls native list_folder with top_k up to min(max_objects+1, 1000), filters names, and refuses incomplete/saturated results. preflight_upload invokes _upload_capacity; upload invokes _upload_capacity again before writing. Exact lookup also performs a complete scan."
+      },
+      "quantification": "Each search scans all K returned metadata rows, with K bounded at 1000, and fetches individual metadata for matching names. A preflight followed by upload performs two full listing calls at the worst-case scan bound. A capable paginated adapter is already named in the failure path; native list_folder exposes no continuation token here.",
+      "bounded_fix": "When/if a provider offers complete paginated or indexed exact-key listing, implement it behind the adapter interface and retain saturation, duplicate-ID/key, parent-folder, and completeness checks. Do not cache a listing across the write boundary unless a provider revision/conditional-write mechanism can prove it has not changed.",
+      "dependencies_and_owners": "ConnectedHostAdapter provider capability contract and host response protocol. Requires a genuine native adapter capability and live contract evidence; no API call was made in this review.",
+      "proof_needed": [
+        "Unit fixtures for multi-page enumeration, duplicate immutable keys, incomplete pages, pagination loops, saturated pages, and concurrent insertion before upload.",
+        "Live authorized provider check confirming complete listing semantics and object identity stability before claiming reduced calls."
+      ],
+      "qa_boundary": "Repeated whole-folder scans are provider-bound cost. The second preflight closes a race before immutable upload; removing it without a conditional-write guarantee would weaken safety."
+    },
+    {
+      "rank": 5,
+      "finding": "Source-level evidence does not establish redundant QA coverage; four related history/connector test files contain 111 test methods and 168547 bytes of test source.",
+      "evidence": {
+        "files": {
+          "tests/test_history_evidence.py": {"test_methods": 27, "bytes": 29312},
+          "tests/test_evidence_connected_host.py": {"test_methods": 23, "bytes": 20039},
+          "tests/test_attempt_history.py": {"test_methods": 11, "bytes": 23725},
+          "tests/test_unit_history.py": {"test_methods": 50, "bytes": 95471}
+        },
+        "examples_of_distinct_protection": [
+          "test_history_evidence.py checks repeated paths and trees scan once per traversal while fresh calls see changed files, and verifies candidate hashes include history/external evidence.",
+          "test_attempt_history.py checks repeated retry validation uses one operation cache while rejecting reuse of an old run identity.",
+          "test_unit_history.py bounds historical checker reuse per check and then mutates evidence to prove a fresh check sees it; it also covers activation interruption and candidate source changes.",
+          "test_evidence_connected_host.py separately covers pagination saturation, duplicate identities, interrupted upload recovery, bounded original-byte readback, and session ownership/cleanup."
+        ]
+      },
+      "interpretation": "The supplied baseline log records 913 tests in 285.636 seconds, but does not attribute duration per test. Counts and file sizes do not prove methods are redundant. The overlapping cache tests exercise different boundaries and assert freshness after mutation. This review measured source, fixture and log metadata without rerunning tests.",
+      "bounded_fix": "Do not delete acceptance, recovery, failure-injection, or freshness checks based on file size. The installer tests repeatedly copy a 1.29 MB source tree; any fixture optimization should first be measured against the recorded full-suite baseline and preserve each isolated mutation scenario. Correct the subprocess PATH for Python 3.12+ before interpreting the eight installer failures as code defects.",
+      "dependencies_and_owners": "Test fixture owners and docs/maintenance.md. Any consolidation must preserve isolated synthetic project roots and the invariant asserted by each test; no test execution occurred here.",
+      "proof_needed": [
+        "Per-test duration and file/output profile from an authorized isolated test run.",
+        "A before/after mapping from each removed or consolidated assertion to the retained equivalent, including mutation/failure cases.",
+        "Full prescribed suite on the exact changed revision; no existing failed history or archive should be loaded as a fixture."
+      ],
+      "qa_boundary": "No test removal is supported by current evidence. Main finding is unmeasured runtime/fixture overhead, not excessive acceptance criteria."
+    }
+  ],
+  "recommended_root_selection": {
+    "first": "Integrate the retry2 bounded-segment persistence correction into the actual producer only after engine owner review, because retry2/HANDOFF.json records a first-failure overrun and retry2 source directly addresses its stated mechanism.",
+    "next": "Measure accounting checkpoint bytes/counts on a fresh synthetic fixture while keeping checkpoint durability unchanged.",
+    "defer_until_measured": "History activation read/hash reduction and test-suite consolidation; current source shows necessary race/freshness protections and no measured performance profile."
+  },
+  "preservation_constraints": [
+    "Preserve all raw sample/error evidence, failed attempts, failed candidate records, activation journals, and historical bytes.",
+    "Do not fetch, decompress, or rerun old validated archives.",
+    "Do not weaken QA/DoD predicates or treat pure tests/source models as runtime, provider, SQL, product, or recovery acceptance.",
+    "No engine code or tests were edited and no test command was run."
+  ]
+}
