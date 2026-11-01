@@ -318,4 +318,3 @@ class EvidenceLifecycleEndToEndTests(unittest.TestCase):
         self.assertEqual("passed", resumed["result"], resumed)
         self.assertEqual(["U-1"], f.invocations())
         f.assert_original_records()
-

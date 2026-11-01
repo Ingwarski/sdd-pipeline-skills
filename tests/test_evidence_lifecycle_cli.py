@@ -50,7 +50,7 @@ class LifecycleCliTests(unittest.TestCase):
             manifest_path='forge/sdd-manifest.json', review=self.review, members=[], automatic_cleanup=True)
 
     def test_adoption_retry_preserves_original_records_and_creates_no_new_execution(self):
-        history_before = {str(path.relative_to(self.p.root)): path.read_bytes()
+        history_before = {path.relative_to(self.p.root).as_posix(): path.read_bytes()
                           for path in (self.p.root / 'forge/unit-history').rglob('*') if path.is_file()}
         first = self.adopt()
         root = self.manager._catalog()['root_key']
