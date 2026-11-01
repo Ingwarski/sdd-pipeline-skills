@@ -711,7 +711,7 @@ def _evaluate(checker, record, *, capturing=False):
 def _scope(checker):
     h = history()
     stack = ExitStack()
-    stack.enter_context(history_integrity_scope(checker.manifest))
+    stack.enter_context(history_integrity_scope(checker.manifest, project=checker.project))
     stack.enter_context(h.source_archive_scope(checker.project, checker.manifest.get("source_archive_index_ref"),
                                               checker.evidence_resolver.cache, policy_manifest=checker.manifest))
     stack.enter_context(h.snapshot_hash_scope(getattr(checker, "_history_hash_owner", None)))

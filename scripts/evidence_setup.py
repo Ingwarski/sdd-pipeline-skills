@@ -391,8 +391,11 @@ def configure(project=None, *, provider, destination=None, transport=None, bridg
         raise SetupError("archive adoption requires --project and its declarative mapping")
     if acknowledge_missing_upload and not project:
         raise SetupError("pending-upload acknowledgement during setup requires --project")
-    if provider == "google-drive" and drive_retention_days == "unset" and not (old_config and old_config.get("provider") == "google-drive" and previous_policy):
-        raise SetupError("choose --drive-retention-days DAYS or never explicitly; local retention never sets Drive archive expiry")
+    # Storage selection does not choose an age at which verification proof may
+    # disappear. Existing explicit retention metadata remains unchanged; tracked
+    # lifecycle adoption independently authorizes dependency-based cleanup.
+    if provider == "google-drive" and drive_retention_days == "unset" and not previous_policy:
+        drive_retention_days = "never"
     destination = destination or None
     if destination and provider in ("local", "folder"):
         destination = str(Path(destination).expanduser().resolve())
@@ -575,12 +578,8 @@ def wizard(project=None, *, home=None, reconfigure=False, input_fn=input, host_s
         if provider == "google-drive":
             transport_default = prior.get("transport", "connected") if prior and prior["provider"] == "google-drive" else "connected"
             options["transport"] = input_fn("Drive transport [connected/rclone, default " + transport_default + "]: ").strip() or transport_default
-            previous_drive = prior and prior["provider"] == "google-drive"
-            drive_default = str(defaults["retention"]["drive_days"]) if defaults["retention"]["drive_days"] is not None else "never"
-            label = "Drive archive expiry [days or never" + (", saved " + drive_default if previous_drive else "; explicit choice required") + "]: "
-            options["drive_retention_days"] = input_fn(label).strip() or (drive_default if previous_drive else "")
-            if not options["drive_retention_days"]:
-                raise SetupError("Drive archive expiry needs an explicit choice")
+            # Do not offer blanket archive expiry. Configure preserves saved
+            # choices; new stores retain proof until lifecycle adoption.
         limits = {}
         for key, label in (("local_stop_bytes", "Combined local capture/cache/staging/readback/restoration bytes"),
                            ("run_stop_bytes", "Gross run bytes"), ("unit_stop_bytes", "Cumulative unit bytes"),
@@ -626,7 +625,7 @@ def main(argv=None):
             sub.add_argument("--project-retained-bytes", type=int)
             sub.add_argument("--limit", action="append", default=[], metavar="KEY=INTEGER", help="override any named aggregate policy limit")
             sub.add_argument("--retention-days", type=int, help="local expiry eligibility; first setup defaults to 30, reconfiguration preserves saved days")
-            sub.add_argument("--drive-retention-days", default="unset", help="explicit DAYS or never for Google Drive")
+            sub.add_argument("--drive-retention-days", default="unset", help="Legacy retention metadata; permanent cleanup requires lifecycle adoption")
             sub.add_argument("--adopt", type=Path)
             sub.add_argument("--acknowledge-missing-upload", metavar="KEY", help="verify absence and acknowledge this exact pending project upload before retrying initial setup")
             sub.add_argument("--reconfigure", action="store_true")

@@ -23,6 +23,8 @@ from .io import EvidenceError, atomic_json, hash_file, read_json, safe_relative,
 from .policy import validate_policy, resolve_historical_policy, LINEAGE_FIELD
 from .identity import same_reference, same_imported_original
 from . import process_identity
+from .lifecycle import LifecycleMixin, empty_state, apply_event
+from .relocation import validate_relocation, create_relocation
 
 
 def canonical(value):
@@ -43,7 +45,7 @@ def timestamp(value):
         raise EvidenceError("sealed_at must be an original timezone-aware completion time") from error
 
 
-class Manager:
+class Manager(LifecycleMixin):
     def __init__(self, transport, home, policy, *, project=None):
         self.transport, self.policy = transport, validate_policy(policy)
         self.project = Path(project) if project is not None else None
@@ -157,15 +159,16 @@ class Manager:
                     yield
                 finally:
                     try:
-                        self._audit_source_payloads()
+                        self._audit_source_payloads(full=True)
                     finally:
                         self._source_payload_scope = None
                         self._catalog_lock_depth = 0
 
-    def _audit_source_payloads(self):
+    def _audit_source_payloads(self, *, full=False):
         """Check retained proofs before metadata-dependent commit boundaries."""
         if self._source_payload_scope is not None:
-            self._source_payload_scope.audit()
+            scope = self._source_payload_scope
+            (scope.audit if full else getattr(scope, "audit_pins", scope.audit))()
 
     def _catalog_guard(self, timeout=600):
         return self._advisory_lock(self.state / ".catalog-lifecycle.lock", timeout)
@@ -804,8 +807,8 @@ class Manager:
 
     def _transport_call(self, method, *args, **kwargs):
         """Reserve durable transfer checkpoints separately from host queue peaks."""
-        if method == "put":
-            self._audit_source_payloads()
+        if method in ("put", "delete"):
+            self._audit_source_payloads(full=True)
         if method == "put" and self._checkpoint_root() is not None:
             with self._checkpoint_working(Path(args[1]).stat().st_size):
                 return self._transport_host_call(method, *args, **kwargs)
@@ -923,14 +926,14 @@ class Manager:
                 raise EvidenceError("policy lineage is not committed; finish explicit evidence setup first")
             return {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"],
                     "sequence": 0, "coordinator": authority["coordinator"] if authority else self.coordinator, "segments": [], "refs": {}, "packs": {},
-                    "generation": {}, "generation_intents": {}, "generation_quarantines": {}, "generation_quarantine_device_witnesses": {}, "generation_quarantine_device_bindings": {}, "reference_aliases": {}, "import_retention_decisions": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
+                    "generation": {}, "generation_intents": {}, "generation_quarantines": {}, "generation_quarantine_device_witnesses": {}, "generation_quarantine_device_bindings": {}, "reference_aliases": {}, "import_retention_decisions": {}, "lifecycle": empty_state(), "storage_relocations": {}, "root_key": None, "metadata_bytes": authority_bytes, "metadata_files": len(authorities), "unreconciled_packs": self._unreconciled_packs({})}
         keys = sorted((x if isinstance(x, str) else x["key"]) for x in roots)
         latest = keys[-1]
         latest_locator = next(item for item in roots if (item if isinstance(item, str) else item["key"]) == latest)
         root, (digest, size) = self._read_remote_json(latest_locator, self.limits["metadata_stop_bytes"])
         if latest != self.prefix + "roots/" + str(root.get("sequence", 0)).zfill(12) + "-" + digest + ".json":
             raise EvidenceError("catalog root identity/hash mismatch")
-        if root.get("version") != 1 or root.get("project_id") != self.policy["project_id"] or root.get("store_id") != self.policy["store_id"]:
+        if type(root.get("version")) is not int or root.get("version") not in (1, 2) or root.get("project_id") != self.policy["project_id"] or root.get("store_id") != self.policy["store_id"]:
             raise EvidenceError("unsupported or mismatched remote catalog")
         if authority is not None and root.get("coordinator") != authority["coordinator"]:
             raise EvidenceError("catalog and generation coordinator authority disagree; reconciliation required")
@@ -955,7 +958,8 @@ class Manager:
         # All published roots are retained by this format; there is no root
         # compaction authority. Verify their append-only ancestry so a later
         # valid hash cannot erase an older witness by omitting its segment.
-        total, previous_key, previous_segments, sequence = authority_bytes, None, [], 0
+        total, previous_key, previous_segments, sequence, catalog_version = authority_bytes, None, [], 0, 1
+        root_versions = []
         for locator in sorted(roots, key=lambda item: item if isinstance(item, str) else item['key']):
             key = locator if isinstance(locator, str) else locator['key']
             historical, (root_sha, root_size) = ((root, (digest, size)) if key == latest
@@ -964,14 +968,16 @@ class Manager:
             if total > self.limits['metadata_stop_bytes']:
                 raise EvidenceError('catalog root ancestry exceeds metadata allowance')
             if (not isinstance(historical, dict) or type(historical.get('sequence')) is not int
-                    or historical['sequence'] != sequence + 1 or historical.get('version') != 1
+                    or historical['sequence'] != sequence + 1 or type(historical.get('version')) is not int
+                    or historical['version'] not in (1, 2) or historical['version'] < catalog_version
                     or historical.get('project_id') != self.policy['project_id'] or historical.get('store_id') != self.policy['store_id']
                     or key != self.prefix + 'roots/' + str(historical['sequence']).zfill(12) + '-' + root_sha + '.json'
                     or historical.get('previous') != previous_key or not isinstance(historical.get('segments'), list)
                     or len(historical['segments']) > self.limits['metadata_stop_files']
                     or historical['segments'][:len(previous_segments)] != previous_segments):
                 raise EvidenceError('catalog root ancestry/fork or preserved segment prefix differs')
-            previous_key, previous_segments, sequence = key, historical['segments'], historical['sequence']
+            previous_key, previous_segments, sequence, catalog_version = key, historical['segments'], historical['sequence'], historical['version']
+            root_versions.append((len(previous_segments), catalog_version))
         indexes = self._catalog_inventory(self.prefix + "indexes/")
         index_locators = {(item if isinstance(item, str) else item["key"]): item for item in indexes}
         index_keys = set(index_locators)
@@ -981,8 +987,9 @@ class Manager:
         refs, packs, generation, pending_deletions, retired_refs, import_retention_decisions = {}, {}, {}, {}, {}, {}
         generation_intents, generation_quarantines, reference_aliases = {}, {}, {}
         device_witnesses, device_bindings = {}, {}
+        lifecycle, storage_relocations = empty_state(), {}
         seen = set()
-        for descriptor in root["segments"]:
+        for segment_number, descriptor in enumerate(root["segments"], 1):
             if descriptor["sha256"] in seen:
                 raise EvidenceError("duplicate catalog segment")
             seen.add(descriptor["sha256"])
@@ -996,6 +1003,8 @@ class Manager:
             for ref in data.get("refs", []):
                 if ref["artifact_id"] in refs and refs[ref["artifact_id"]] != ref:
                     raise EvidenceError("artifact identity collision in catalog")
+                if ref["artifact_id"] in retired_refs and not same_reference(retired_refs[ref["artifact_id"]], ref):
+                    raise EvidenceError("retired artifact original identity cannot change")
                 refs[ref["artifact_id"]] = ref
             packs.update(data.get("packs", {}))
             generation.update(data.get("generation", {}))
@@ -1061,6 +1070,10 @@ class Manager:
                 if ident not in packs:
                     raise EvidenceError("deletion intent lacks registered archive identity")
                 pending_deletions[ident] = packs[ident]
+            for ident in data.get("cancelled_deletions", []):
+                if ident not in pending_deletions or ident not in packs:
+                    raise EvidenceError("deletion cancellation lacks its pending archive")
+                pending_deletions.pop(ident)
             for ident in data.get("retired", []):
                 removed = refs.pop(ident, None)
                 if removed is not None:
@@ -1100,11 +1113,26 @@ class Manager:
                 if ident in import_retention_decisions and import_retention_decisions[ident] != decision:
                     raise EvidenceError("conflicting imported retention decisions")
                 import_retention_decisions[ident] = decision
+            for lifecycle_event in data.get("lifecycle_events", []):
+                apply_event(lifecycle, lifecycle_event, {**retired_refs, **refs})
+            for ident, relocation in data.get("storage_relocations", {}).items():
+                if not lifecycle["adopted"] or ident not in refs:
+                    raise EvidenceError("storage relocation requires adopted active evidence")
+                chain = storage_relocations.setdefault(ident, [])
+                if len(chain) >= 32:
+                    raise EvidenceError("storage relocation ancestry exceeds bound")
+                validate_relocation(refs[ident], relocation, chain[-1] if chain else None)
+                chain.append(relocation)
+            if any((version == 2) != lifecycle["adopted"] for count, version in root_versions if count == segment_number):
+                raise EvidenceError("historical catalog lifecycle adoption/version boundary differs")
         if len(keys) + len(index_keys) + len(authorities) > self.limits["metadata_stop_files"] or total > self.limits["metadata_stop_bytes"]:
             raise EvidenceError("combined metadata allowance exhausted")
         for ident, value in generation_quarantines.items():
             self._validate_generation_quarantine(ident, value, generation_intents)
+        if (root["version"] == 2) != lifecycle["adopted"]:
+            raise EvidenceError("catalog lifecycle adoption/version boundary differs")
         root.update(refs=refs, packs=packs, unreconciled_packs=self._unreconciled_packs(packs), generation=generation, generation_intents=generation_intents, generation_quarantines=generation_quarantines, reference_aliases=reference_aliases, pending_deletions=pending_deletions, retired_refs=retired_refs, import_retention_decisions=import_retention_decisions, root_key=latest,
+                    lifecycle=lifecycle, storage_relocations=storage_relocations,
                     generation_quarantine_device_witnesses=device_witnesses, generation_quarantine_device_bindings=device_bindings,
                     metadata_bytes=total, metadata_files=len(keys) + len(index_keys) + len(authorities))
         from .accounting import Accounting
@@ -1200,6 +1228,10 @@ class Manager:
         return {"locator": locator, "sha256": digest, "size": len(data)}
 
     def _publish(self, catalog, segment, *, allow_policy_transition=False):
+        new_references = any(ref["artifact_id"] not in catalog.get("retired_refs", {}) or
+            not same_reference(ref, catalog["retired_refs"][ref["artifact_id"]]) for ref in segment.get("refs", []))
+        if new_references or any(key in segment for key in ("generation", "generation_intents")):
+            self._lifecycle_writer_guard(catalog)
         head = catalog.get("policy")
         if LINEAGE_FIELD in self.policy or isinstance(head, dict) and LINEAGE_FIELD in head:
             current = validate_policy(self.policy)
@@ -1212,7 +1244,10 @@ class Manager:
                 self._require_policy_successor(validate_policy(head))
         segment_bytes = len(canonical(segment))
         segments = catalog["segments"] + [{"sha256": "0" * 64, "size": segment_bytes, "locator": {"object_id": "pending", "key": "pending", "size": segment_bytes}}]
-        root = {"version": 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"], "policy": self.policy,
+        lifecycle = deepcopy(catalog.get("lifecycle", empty_state()))
+        for lifecycle_event in segment.get("lifecycle_events", []):
+            apply_event(lifecycle, lifecycle_event, {**catalog.get("retired_refs", {}), **catalog["refs"]})
+        root = {"version": 2 if lifecycle["adopted"] else 1, "project_id": self.policy["project_id"], "store_id": self.policy["store_id"], "policy": self.policy,
                 "sequence": catalog["sequence"] + 1, "coordinator": self.coordinator,
                 "previous": catalog["root_key"], "segments": segments}
         # Allow locator length variation, then check exact serialized bytes before root upload.
@@ -1382,6 +1417,7 @@ class Manager:
     def _small_packs(self, logical, checkpoint, known):
         """Batch many small originals into packs; pack size never limits total migration."""
         locations, group, group_bytes, seen = {}, [], 0, set()
+        group_lifetime = None
         def flush():
             nonlocal group, group_bytes
             if not group:
@@ -1413,8 +1449,11 @@ class Manager:
                 locations[digest] = {"object_id": prior["locator"]["object_id"], "key": prior["locator"]["key"],
                     "pack_sha256": prior["sha256"], "pack_size": prior["size"], "member": member["member"]}
                 continue
-            if group and (group_bytes + entry["size"] > self.limits["archive_pack_target_bytes"] or len(group) >= self.limits["migration_batch_stop_files"]):
+            lifetime = (entry.get("retention_class", "diagnostic"), tuple(sorted(entry.get("protections", []))),
+                entry.get("provenance", {}).get("run_id"), entry.get("provenance", {}).get("unit_id"))
+            if group and (lifetime != group_lifetime or group_bytes + entry["size"] > self.limits["archive_pack_target_bytes"] or len(group) >= self.limits["migration_batch_stop_files"]):
                 flush()
+            group_lifetime = lifetime
             group.append(entry)
             group_bytes += entry["size"]
         flush()
@@ -1449,6 +1488,7 @@ class Manager:
         from .accounting import Accounting
         with self.locked():
             catalog = self._catalog(mutation=True)
+            self._lifecycle_writer_guard(catalog)
             operation = hashlib.sha256(canonical(specification)).hexdigest()
             journal = self.state / ("archive-" + operation + ".json")
             checkpoint = read_json(journal, self.limits["metadata_stop_bytes"]) if journal.exists() else {
@@ -1532,6 +1572,10 @@ class Manager:
                 # Byte grouping and count grouping can each force a boundary.
                 small_files = sum(1 for item in new_content.values() if item["size"] <= target)
                 upper_packs += (small_bytes + target - 1) // target + (small_files + self.limits["migration_batch_stop_files"] - 1) // self.limits["migration_batch_stop_files"]
+                # Distinct lifecycle groups cannot share a new physical pack.
+                upper_packs += max(0, len({(item.get("retention_class", "diagnostic"),
+                    tuple(sorted(item.get("protections", []))), item.get("provenance", {}).get("run_id"),
+                    item.get("provenance", {}).get("unit_id")) for item in new_content.values() if item["size"] <= target}) - 1)
                 checkpoint["reservation"] = ledger.reserve(first["run_id"], first["unit_id"], gross, len(logical),
                                                           local_bytes=min(gross, self.limits["archive_pack_target_bytes"]) * 3,
                                                           retry=bool(specification.get("retry")),
@@ -1550,13 +1594,19 @@ class Manager:
             # Deduplicate contents, preserving every logical path/check association.
             existing = {}
             for ref in catalog["refs"].values():
-                existing.setdefault(ref["sha256"], ref["locator"])
+                existing.setdefault(ref["sha256"], self._storage_reference(catalog, ref)["locator"])
+            def association(entry, location):
+                reference = self._reference(entry, location)
+                prior = catalog["refs"].get(reference["artifact_id"])
+                if prior is not None and same_reference(self._storage_reference(catalog, prior), reference):
+                    return deepcopy(prior)
+                return reference
             # Verify reused bytes under their new logical interpretation. A prior
             # failed schema/dependency association must not prevent a corrected
             # reference from reusing the same intact immutable original.
             reuse = {entry["sha256"] for entry in logical} & set(existing)
             if reuse:
-                proposed = [self._reference(entry, existing[entry["sha256"]])
+                proposed = [association(entry, existing[entry["sha256"]])
                             for entry in logical if entry["sha256"] in reuse]
                 for reference in proposed:
                     prior = catalog["refs"].get(reference["artifact_id"])
@@ -1572,9 +1622,9 @@ class Manager:
             for index in range(checkpoint["next_file"], len(logical)):
                 entry = logical[index]
                 if entry["sha256"] in existing:
-                    reference = self._reference(entry, existing[entry["sha256"]])
+                    reference = association(entry, existing[entry["sha256"]])
                 elif entry["sha256"] in small:
-                    reference = self._reference(entry, small[entry["sha256"]])
+                    reference = association(entry, small[entry["sha256"]])
                     existing[entry["sha256"]] = reference["locator"]
                 else:
                     segments = []
@@ -1697,7 +1747,7 @@ class Manager:
             if journal.name.startswith("archive-"):
                 ledger.reconcile_local("source:" + journal.stem.removeprefix("archive-"), 0)
 
-    def prepare(self, refs, *, catalog=None, reverify_durable=False):
+    def prepare(self, refs, *, catalog=None, reverify_durable=False, _metadata_only=False):
         """Serialize cache mutation; reuse freshly verified objects without replacement.
 
         Deletion callers explicitly retain independent durable payload readback.
@@ -1708,7 +1758,7 @@ class Manager:
             try:
                 with tempfile.TemporaryDirectory(dir=self.staging, prefix="verified-pack-") as temp:
                     self._session_path = Path(temp).resolve()
-                    return self._prepare(refs, catalog=catalog, reverify_durable=reverify_durable)
+                    return self._prepare(refs, catalog=catalog, reverify_durable=reverify_durable, metadata_only=_metadata_only)
             finally:
                 self._preparing.clear()
                 self._session_pack = None
@@ -1759,11 +1809,36 @@ class Manager:
             return None, str(error)
 
     @staticmethod
+    def _storage_reference(catalog, reference):
+        from .relocation import receipt_storage_reference
+        chain = catalog.get("storage_relocations", {}).get(reference["artifact_id"])
+        return receipt_storage_reference(reference, chain) if chain else reference
+
+    @staticmethod
     def _shared_rebuild_required(target, problem):
         raise EvidenceError("cache object has retained source aliases; explicit source-view rebuild required before replacement: "
             + str(target) + "; " + str(problem))
 
-    def _prepare(self, refs, *, catalog=None, reverify_durable=False):
+    def read_lifecycle_metadata(self, reference, *, catalog):
+        """Retrieve one hash-bound JSON original without preparing its binary closure.
+
+        This supplies discovery bytes only, never an acceptance verdict. Ordinary
+        preparation and the read-only resolver still validate the complete closure.
+        """
+        from .resolver import JSON_LIMIT
+        if reference["size"] > JSON_LIMIT:
+            raise EvidenceError("lifecycle metadata must be a bounded JSON original")
+        actual = catalog["refs"].get(reference["artifact_id"])
+        aliases = catalog.get("reference_aliases", {}).get(reference["artifact_id"], [])
+        if actual is None or not (same_reference(actual, reference) or any(same_reference(alias, reference) for alias in aliases)):
+            raise EvidenceError("lifecycle metadata identity is not registered")
+        path = self.cache / "objects" / actual["sha256"]
+        if self._cache_object_info(path) is not None and hash_file(path) == (actual["sha256"], actual["size"]):
+            return path
+        self.prepare([reference], catalog=catalog, _metadata_only=True)
+        return path
+
+    def _prepare(self, refs, *, catalog=None, reverify_durable=False, metadata_only=False):
         """Network and cache writes live here, never in the checker."""
         from .resolver import payload_references, JSON_LIMIT
         catalog = catalog if catalog is not None else self._catalog()
@@ -1787,9 +1862,12 @@ class Manager:
                 matching = True
             if not matching:
                 raise EvidenceError("reference is missing/mismatched in authoritative durable catalog")
-            for dependency in ref.get("dependencies", []):
-                self._prepare([dependency], catalog=catalog, reverify_durable=reverify_durable)
-            locator = ref["locator"]
+            if not metadata_only:
+                for dependency in ref.get("dependencies", []):
+                    self._prepare([dependency], catalog=catalog, reverify_durable=reverify_durable)
+            relocation_chain = catalog.get("storage_relocations", {}).get(ref["artifact_id"], [])
+            storage = self._storage_reference(catalog, ref)
+            locator = storage["locator"]
             segments = locator.get("segments") or [{**locator, "offset": 0, "length": ref["size"], "sha256": ref["sha256"]}]
             packs = []
             for seg in segments:
@@ -1799,9 +1877,12 @@ class Manager:
                 packs.append(pack)
             target = objects / ref["sha256"]
             existing = self._cache_object_info(target)
+            receipt_path = receipts / (ref["artifact_id"] + ".json")
+            prior_receipt = read_json(receipt_path, self.limits["metadata_stop_bytes"]) if receipt_path.exists() else {}
+            refresh_receipt = prior_receipt.get("storage_relocations", []) != relocation_chain
             reusable = None
             if existing is not None:
-                reusable, problem = self._prepared_cache_resolver(ref, supplied, catalog,
+                reusable, problem = (None, "metadata original requires byte preparation") if metadata_only else self._prepared_cache_resolver(ref, supplied, catalog,
                     reverify_durable=reverify_durable)
                 current = self._cache_object_info(target)
                 if reusable is None and (current is not None and current.st_nlink > 1 or
@@ -1809,7 +1890,7 @@ class Manager:
                     self._shared_rebuild_required(target, problem)
             elif self._missing_object_aliases(target):
                 self._shared_rebuild_required(target, "canonical object is missing while digest-named aliases remain")
-            if reusable is not None and not reverify_durable:
+            if reusable is not None and not reverify_durable and not refresh_receipt:
                 for pack in packs:
                     actual = self._transport_call("stat", pack["locator"])
                     if (actual["object_id"], actual["size"]) != (pack["locator"]["object_id"], pack["size"]):
@@ -1827,11 +1908,11 @@ class Manager:
                 shutil.rmtree(self._session_path / "members")
                 self._session_pack = None
             proofs, offset = [], 0
-            receipt_peak = 0 if reusable is not None else (local_json_size(ref) + local_json_size(aliases) + len(segments) * 1024 + 4096) * 2
+            receipt_peak = 0 if reusable is not None and not refresh_receipt else (local_json_size(ref) + local_json_size(aliases) + local_json_size(relocation_chain) + len(segments) * 1024 + 4096) * 2
             existing = self._cache_object_info(target)
             if reusable is None and existing is not None and existing.st_nlink > 1:
                 self._shared_rebuild_required(target, "aliases appeared before preparation")
-            cache_growth = 0 if reusable is not None else max(0, ref["size"] - (existing.st_size if existing else 0)) + receipt_peak
+            cache_growth = (receipt_peak if refresh_receipt else 0) if reusable is not None else max(0, ref["size"] - (existing.st_size if existing else 0)) + receipt_peak
             with self._preparation_working(ref, packs, reverify_durable=reverify_durable, receipt_peak=receipt_peak,
                 metadata_files=0 if (receipts / (ref["artifact_id"] + ".json")).exists() else 1,
                 cache_growth=cache_growth), tempfile.TemporaryDirectory(dir=self.staging, prefix="prepare-") as temp:
@@ -1894,11 +1975,18 @@ class Manager:
                     if current is None and self._missing_object_aliases(target):
                         self._shared_rebuild_required(target, "canonical object disappeared while aliases remain")
                     whole.replace(target)
+                if reusable is None or refresh_receipt:
                     receipt = {**ref, "verified_archive": proofs}
                     if aliases:
                         receipt["original_references"] = aliases
-                    atomic_json(receipts / (ref["artifact_id"] + ".json"), receipt)
-            if ref["schema"] not in ("evidence-bytes-v1", "archive-attachment-v1"):
+                    if relocation_chain:
+                        receipt["storage_relocations"] = deepcopy(relocation_chain)
+                    if refresh_receipt and self._source_payload_scope is not None:
+                        with self._source_payload_scope.verified_receipt_transition(ref, receipt):
+                            atomic_json(receipts / (ref["artifact_id"] + ".json"), receipt)
+                    else:
+                        atomic_json(receipts / (ref["artifact_id"] + ".json"), receipt)
+            if not metadata_only and ref["schema"] not in ("evidence-bytes-v1", "archive-attachment-v1"):
                 value = read_json(target, min(JSON_LIMIT, self.limits["metadata_stop_bytes"]))
                 for nested in payload_references(value, ref["schema"]):
                     self._prepare([nested], catalog=catalog, reverify_durable=reverify_durable)
@@ -1912,6 +2000,7 @@ class Manager:
         refs, packs = normalize(mapping, store_id=self.policy["store_id"], provider=self.policy["provider"])
         with self.locked():
             catalog = self._catalog(mutation=True)
+            self._lifecycle_writer_guard(catalog)
             if len(refs) > self.limits["project_generation_stop_files"] or len(packs) > self.limits["retained_stop_objects"]:
                 raise EvidenceError("import logical/object count exceeds configured aggregate bounds")
             for pack in packs.values():
@@ -2512,6 +2601,9 @@ class Manager:
         if (self.state / "pruning.json").exists():
             actions += self.cleanup(dry_run=dry_run, expire=False)
         catalog = self._catalog()
+        if catalog.get("lifecycle", {}).get("adopted") and ((self.state / "lifecycle-pruning.json").exists() or catalog.get("pending_deletions")):
+            actions.extend(self.cleanup_lifecycle(dry_run=dry_run))
+            catalog = self._catalog()
         with Accounting(self.state / "accounting.sqlite", self.policy["project_id"], self.policy) as ledger:
             self._reconcile_ledger(catalog, ledger)
             validated_quarantines = {item["intent_id"]: item
@@ -2609,6 +2701,13 @@ class Manager:
             "occupancy_scope": "distinct regular inode lengths under owned cache; not allocated disk blocks"}
 
     def cleanup(self, *, now=None, dry_run=True, expire=False, protected_refs=(), reference_snapshot_complete=False):
+        if expire:
+            # An agent-supplied completeness assertion cannot authorize deletion.
+            catalog = self._catalog(mutation=True)
+            if catalog.get("lifecycle", {}).get("adopted"):
+                return self.cleanup_lifecycle(dry_run=dry_run)
+            if not dry_run:
+                raise EvidenceError("lifecycle adoption required for permanent deletion")
         now = now or datetime.now(timezone.utc)
         with self.locked():
             catalog = self._catalog(mutation=expire)
@@ -2653,7 +2752,7 @@ class Manager:
                 if catalog["coordinator"] != self.coordinator:
                     raise EvidenceError("pending pruning belongs to another coordinator")
                 if not dry_run:
-                    catalog = self._resume_pruning(catalog, intent, journal, results)
+                    raise EvidenceError("legacy pruning requires explicit lifecycle recovery before deletion")
                 else:
                     results += [{"pack": key, "action": "resume-pending-delete", "dry_run": True} for key in intent["packs"] if key not in intent["done"]]
             for ref in catalog["refs"].values():
@@ -2714,9 +2813,7 @@ class Manager:
                     if obsolete:
                         results.append({"action": "expire-local-originals", "paths": [entry["path"] for entry in obsolete], "dry_run": dry_run})
                         if not dry_run:
-                            expiry = self.state / ("expired-sources-" + hashlib.sha256(canonical(expired_pairs)).hexdigest() + ".json")
-                            atomic_json(expiry, {"inventory": [x[0] for x in expired_pairs], "refs": [x[1] for x in expired_pairs], "retirement_root": catalog["root_key"]})
-                            self._remove_captured([x[0] for x in expired_pairs], [x[1] for x in expired_pairs], expiry, permanent=True)
+                            results[-1].update(action="retain-retired-originals", reason="originals require current lifecycle ownership and dependency validation")
                 # Original evacuation may have prepared a fresh cache copy. Evict that copy last.
                 if not dry_run:
                     for ref in catalog["refs"].values():

@@ -114,6 +114,20 @@ class EvidenceManagerTests(unittest.TestCase):
         self.manager.prepare([reference])
         return EvidenceResolver(self.manager.cache).resolve(reference).read_bytes()
 
+    def adopt_cleanup(self, *, required=(), optional=()):
+        """Storage fixture only: explicit synthetic lifecycle policy and dependencies."""
+        project = self.base / "lifecycle-project"
+        (project / "forge").mkdir(parents=True, exist_ok=True)
+        (project / "forge/sdd-manifest.json").write_text(json.dumps({"checker_contract_version": 3,
+            "unit_contract_version": 3, "verification": {"checks": [{"evidence": list(required)}]}}))
+        self.manager = Manager(self.transport, self.home, self.policy, project=project)
+        review = {"reviewer": "synthetic-owner", "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "rationale": "Isolated storage lifecycle regression, not product approval."}
+        self.manager.adopt_lifecycle("synthetic-main", review=review)
+        if optional:
+            self.manager.classify_lifecycle([ref["artifact_id"] for ref in optional], role="optional_diagnostic",
+                purpose_complete=True, review=review)
+
     def test_many_small_files_share_pack_but_preserve_all_logical_associations(self):
         paths = [self.file("observations/" + str(index) + ".bin", ("Synthetic observation " + str(index)).encode() * 100)
                  for index in range(24)]
@@ -299,12 +313,13 @@ class EvidenceManagerTests(unittest.TestCase):
         mapping, _, _ = self.imported_mapping()
         refs = self.manager.import_archive(mapping)
         actions = self.manager.cleanup(now=SEALED_TIME + timedelta(days=30), expire=True,
-                                      reference_snapshot_complete=True, dry_run=False)
+                                      reference_snapshot_complete=True, dry_run=True)
         protected = [action for action in actions if action["action"] == "expired-but-protected"]
         self.assertEqual(1, len(protected))
         self.assertIn("imported-migration-policy-pending", protected[0]["reasons"])
         self.assertEqual(1, self.manager.status()["refs"])
         self.manager.establish_import_retention([refs[0]["artifact_id"]])
+        self.adopt_cleanup(optional=refs)
         self.manager.cleanup(now=SEALED_TIME + timedelta(days=30), expire=True,
                              reference_snapshot_complete=True, dry_run=False)
         self.assertEqual(0, self.manager.status()["refs"])
@@ -370,7 +385,10 @@ class EvidenceManagerTests(unittest.TestCase):
         self.assertTrue(any(action["action"] == "retire" for action in dry))
         self.assertTrue(durable.exists())
         self.assertEqual(1, self.manager.status()["refs"])
-        self.manager.cleanup(now=SEALED_TIME + timedelta(days=30), expire=True, dry_run=False, reference_snapshot_complete=True)
+        with self.assertRaisesRegex(EvidenceError, "lifecycle adoption required"):
+            self.manager.cleanup(now=SEALED_TIME + timedelta(days=30), expire=True, dry_run=False, reference_snapshot_complete=True)
+        self.adopt_cleanup(optional=[ref])
+        self.manager.cleanup_lifecycle(dry_run=False)
         self.assertFalse(durable.exists())
         self.assertEqual(0, self.manager.status()["refs"])
         self.assertEqual(len(b"Obsolete synthetic diagnostics"), self.manager.status()["gross_generated_bytes"])
@@ -388,10 +406,13 @@ class EvidenceManagerTests(unittest.TestCase):
         self.assertFalse((self.manager.cache / "objects" / ref["sha256"]).exists())
         self.assertTrue(durable.exists())
         for age in (30, 89):
-            actions = self.manager.cleanup(now=SEALED_TIME + timedelta(days=age), expire=True, dry_run=False, reference_snapshot_complete=True)
+            actions = self.manager.cleanup(now=SEALED_TIME + timedelta(days=age), expire=True, dry_run=True, reference_snapshot_complete=True)
             self.assertEqual([], actions)
             self.assertTrue(durable.exists())
-        self.manager.cleanup(now=SEALED_TIME + timedelta(days=90), expire=True, dry_run=False, reference_snapshot_complete=True)
+        with self.assertRaisesRegex(EvidenceError, "lifecycle adoption required"):
+            self.manager.cleanup(now=SEALED_TIME + timedelta(days=90), expire=True, dry_run=False, reference_snapshot_complete=True)
+        self.adopt_cleanup(optional=[ref])
+        self.manager.cleanup_lifecycle(dry_run=False)
         self.assertFalse(durable.exists())
 
     def test_explicit_never_remote_expiry_does_not_inherit_local_30_days(self):
@@ -400,7 +421,7 @@ class EvidenceManagerTests(unittest.TestCase):
         self.manager = Manager(self.transport, self.home, self.policy)
         path = self.file("remote-recovery.bin", b"Synthetic remote never-expire bytes")
         ref = self.manager.archive(self.spec(path))[0]
-        actions = self.manager.cleanup(now=SEALED_TIME + timedelta(days=365), expire=True, dry_run=False, reference_snapshot_complete=True)
+        actions = self.manager.cleanup(now=SEALED_TIME + timedelta(days=365), expire=True, dry_run=True, reference_snapshot_complete=True)
         self.assertEqual([], actions)
         self.assertTrue((self.store / ref["locator"]["key"]).exists())
 
@@ -413,19 +434,18 @@ class EvidenceManagerTests(unittest.TestCase):
         receipt_ref = self.manager.archive(self.spec(receipt, kinds=["approval"]))[0]
         obsolete = self.file("unneeded.bin", b"Synthetic obsolete diagnostics")
         obsolete_ref = self.manager.archive(self.spec(obsolete))[0]
+        self.adopt_cleanup(required=[parent_ref], optional=[obsolete_ref])
         actions = self.manager.cleanup(now=SEALED_TIME + timedelta(days=30), expire=True, dry_run=False,
                                       protected_refs=[parent_ref["artifact_id"]], reference_snapshot_complete=True)
         current = self.manager._catalog()["refs"]
         self.assertEqual({child_ref["artifact_id"], parent_ref["artifact_id"], receipt_ref["artifact_id"]}, set(current))
         self.assertNotIn(obsolete_ref["artifact_id"], current)
-        reasons = {action["artifact_id"]: action.get("reasons", []) for action in actions if action["action"] == "expired-but-protected"}
-        self.assertIn("current-claim-or-prerequisite", reasons[child_ref["artifact_id"]])
-        self.assertIn("approval", reasons[receipt_ref["artifact_id"]])
+        self.assertTrue(any(action.get("artifact_id") == obsolete_ref["artifact_id"] and action["action"] == "retire" for action in actions))
 
     def test_permanent_expiry_requires_complete_reference_snapshot(self):
         path = self.file("result.bin", b"Synthetic complete snapshot obligation")
         ref = self.manager.archive(self.spec(path))[0]
-        with self.assertRaisesRegex(EvidenceError, "complete current claim"):
+        with self.assertRaisesRegex(EvidenceError, "lifecycle adoption required"):
             self.manager.cleanup(now=SEALED_TIME + timedelta(days=30), expire=True, dry_run=False)
         self.assertEqual(1, self.manager.status()["refs"])
         self.assertTrue((self.store / ref["locator"]["key"]).exists())
@@ -475,6 +495,7 @@ class EvidenceManagerTests(unittest.TestCase):
         second = self.file("second.bin", b"B" * 30)
         refs = self.manager.archive(self.spec(first, second))
         self.assertEqual(2, self.manager.status()["physical_objects"])
+        self.adopt_cleanup(optional=refs)
         failed_key = refs[0]["locator"]["key"]
         self.transport.fail_deletions.add(failed_key)
         actions = self.manager.cleanup(now=SEALED_TIME + timedelta(days=30), expire=True, dry_run=False,
@@ -483,27 +504,28 @@ class EvidenceManagerTests(unittest.TestCase):
         self.assertEqual(0, self.manager.status()["refs"])
         self.assertEqual(1, self.manager.status()["physical_objects"])
         self.assertTrue((self.store / failed_key).exists())
-        self.assertTrue((self.manager.state / "pruning.json").is_file())
+        self.assertTrue((self.manager.state / "lifecycle-pruning.json").is_file())
         self.transport.fail_deletions.clear()
         self.manager.reconcile(dry_run=False)
         self.assertEqual(0, self.manager.status()["physical_objects"])
         self.assertFalse((self.store / failed_key).exists())
-        self.assertFalse((self.manager.state / "pruning.json").exists())
+        self.assertFalse((self.manager.state / "lifecycle-pruning.json").exists())
 
     def test_remote_pruning_intent_survives_lost_local_deletion_journal(self):
         path = self.file("obsolete.bin", b"Synthetic recoverable pending deletion")
         ref = self.manager.archive(self.spec(path))[0]
         key = ref["locator"]["key"]
+        self.adopt_cleanup(optional=[ref])
         self.transport.fail_deletions.add(key)
         self.manager.cleanup(now=SEALED_TIME + timedelta(days=30), expire=True, dry_run=False, reference_snapshot_complete=True)
         self.assertEqual(1, self.manager.status()["physical_objects"])
-        (self.manager.state / "pruning.json").unlink()
+        (self.manager.state / "lifecycle-pruning.json").unlink()
         self.transport.fail_deletions.clear()
-        restarted = Manager(self.transport, self.home, self.policy)
-        restarted.cleanup(now=SEALED_TIME + timedelta(days=31), expire=False, dry_run=False)
+        restarted = Manager(self.transport, self.home, self.policy, project=self.manager.project)
+        restarted.cleanup_lifecycle(dry_run=False)
         self.assertFalse((self.store / key).exists())
         self.assertEqual(0, restarted.status()["physical_objects"])
-        self.assertFalse((restarted.state / "pruning.json").exists())
+        self.assertFalse((restarted.state / "lifecycle-pruning.json").exists())
 
     def test_combined_root_and_index_byte_limit_cannot_be_bypassed_by_splitting(self):
         self.policy["limits"]["metadata_stop_bytes"] = 2 * 1024 * 1024

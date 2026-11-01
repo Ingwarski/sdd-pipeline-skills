@@ -5,6 +5,7 @@ import os
 import shutil
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import unittest
+from unittest.mock import patch
 
 import test_history_source_archive as sources
 import test_unit_history as native
@@ -81,6 +82,27 @@ class SourcePayloadClassificationTests(unittest.TestCase):
         self.assertEqual(len(records), len(aware._metadata_records()))
         proof.audit()
         self.assertEqual(before, (aware._cache_bytes(), aware._usage()))
+
+    def test_unchanged_operation_reuses_classification_but_final_audit_stays_full(self):
+        scope = self.scope()
+        candidates = self.candidates()
+        expected = scope.payload_paths(candidates)
+        archive = next(iter(scope.archives.values()))[0]
+        with patch.object(archive, 'validate_view', wraps=archive.validate_view) as validate:
+            self.assertEqual(expected, scope.payload_paths(candidates))
+            scope.audit_pins()
+            self.assertEqual(0, validate.call_count)
+            scope.audit()
+            self.assertGreater(validate.call_count, 0)
+
+    def test_unchanged_json_candidates_cannot_hide_new_binary_view_member(self):
+        scope = self.scope()
+        candidates = self.candidates()
+        scope.payload_paths(candidates)
+        tree = next(iter(scope.archives.values()))[0].view_memos.values()
+        next(iter(tree))[0].joinpath('unexpected-binary.bin').write_bytes(b'new member')
+        with self.assertRaisesRegex(ValueError, 'directory membership changed'):
+            scope.payload_paths(candidates)
 
     def test_real_manager_corrupt_proof_cannot_exempt(self):
         receipt = next(self.cache.glob('source-views/*/views/*/receipt.json'))

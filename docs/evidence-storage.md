@@ -21,7 +21,7 @@ Use `python` on Windows when it is the detected supported executable. For a new 
 | Folder/disk/mount | An explicitly selected available folder outside the checkout | Writable destination and sufficient measured working space; no Drive plugin/connector or rclone |
 | Google Drive | Explicit selected Drive destination/account | First install/connect Google Drive in Codex Plugins, or authenticate the Drive connector/MCP in Claude's Customize → Connectors, use the same Claude account in Code and verify `/mcp`. The active agent uses the bundled adapter and verifies upload/readback. Authenticated rclone is an optional alternative. |
 
-The wizard reviews combined local space, run/unit/project byte/file limits, retained content/object limits, metadata budget, retention and optional archive adoption. Changing a folder on the same disk reduces Git clutter but does not free disk space. A mounted destination being unavailable is a storage failure; the tool never silently changes providers.
+The wizard reviews combined local space, run/unit/project byte/file limits, retained content/object limits, metadata budget, local-copy retention and optional archive import. It does not offer blanket Drive archive expiry. Lifecycle adoption separately enables dependency-based cleanup. Changing a folder on the same disk reduces Git clutter but does not free disk space. An unavailable mounted destination is a storage failure; the tool never silently changes providers.
 
 `SDD_EVIDENCE_HOME` overrides the external machine configuration/state root, otherwise `~/.sdd-pipeline/evidence`. Machine paths and transport configuration stay outside Git. Portable `forge/evidence-policy.json` holds version 1 policy, stable project/store IDs, limits and retention. Preserve that policy across worktrees. Saved choices avoid repeated questions; changing them requires explicit reconfiguration:
 
@@ -59,16 +59,16 @@ Standalone hosts may use optional rclone. Authenticate with `rclone config`, sel
 The connected host runs configuration with its active session:
 
 ```bash
-python3 scripts/evidence_setup.py configure --project /path/to/product --provider google-drive --destination SELECTED_FOLDER_ID --host-session /external/active-session --drive-retention-days never
+python3 scripts/evidence_setup.py configure --project /path/to/product --provider google-drive --destination SELECTED_FOLDER_ID --host-session /external/active-session
 ```
 
 For the separately selected rclone alternative, authenticate first:
 
 ```bash
-python3 scripts/evidence_setup.py configure --project /path/to/product --provider google-drive --transport rclone --destination evidence:synthetic-project --rclone-config /private/config/rclone.conf --drive-retention-days never
+python3 scripts/evidence_setup.py configure --project /path/to/product --provider google-drive --transport rclone --destination evidence:synthetic-project --rclone-config /private/config/rclone.conf
 ```
 
-`never` is an explicit policy choice, not an implicit default; a positive day count is also supported. Setup verifies and removes its synthetic probe, then establishes the selected project's coordinator record before publishing the binding. Missing credentials, expired authorization, unavailable storage, corrupt readback or incomplete capabilities fail setup. Credential values never belong in logs, manifests, fixtures or Git.
+New setup has no age-based expiry. Saved day counts remain legacy metadata; permanent deletion requires adopted dependency tracking. Setup verifies and removes its synthetic probe, then establishes the selected project's coordinator record before publishing the binding. Missing credentials, expired authorization, unavailable storage, corrupt readback or incomplete capabilities fail setup. Credential values never belong in logs, manifests, fixtures or Git.
 
 Transfers use immutable archive-pack identities and external recoverable journals. After an unknown upload outcome, look up and verify the deterministic object before retrying; do not blindly duplicate uploads. A connector that cannot resume one upload resumes at verified pack boundaries. Real Drive verification must be reported separately from synthetic/mock transport tests.
 
@@ -161,39 +161,37 @@ Unpublished remote objects consume physical-object allowance and are charged con
 
 ## Retention and cleanup
 
-Default **local generated-artifact retention is 30 days**, measured from original run completion/sealing: day 29 is ineligible; day 30 is eligible. Copy, access, download and import do not refresh age. Managed-operation boundaries verify durable bytes before removing eligible registered originals or replaceable cache; permanent expiry remains explicit and requires complete claims. Eligibility is also evaluated by explicit cleanup, not by a default scheduler; no tool running means deletion is not guaranteed at an exact time.
+Required evidence has **no blanket age expiry**. Read the [evidence lifecycle](../skills/to-sdd-pipeline/references/evidence-lifecycle.md) before enabling permanent cleanup or migrating existing storage. Adoption is an operation in the consuming project's own authorized work; installation/update never changes its records or enables deletion. The portable policy and historical accounting identities stay intact; adopted stores publish catalog version 2, which old storage clients reject.
 
-Cache eviction removes replaceable local bytes after verified durable storage. Permanent expiry removes obsolete evidence only under selected retention policy and reference/protection checks. A selected local folder can contain the only durable copy and is not disposable cache. Unavailable remote storage prevents pretending a disposable copy has verified durable coverage.
+The coordinator discovers dependencies from current records, retained history, nested references and registered participants. It records why each item remains required and updates affected records at managed checkpoints. Scope or revision uncertainty blocks deletion. Caller-provided `complete: true` lists are not deletion authority; legacy permanent-expiry requests require lifecycle adoption.
 
-Protect current/prerequisite acceptance, required approved-baseline material, approvals/authorization, unresolved failure evidence, explicitly retained material, and imported recovery collections until an explicit migration retention decision. Report expired-but-protected items with their reason. Routine obsolete diagnostics do not become permanent merely because they belong to a run.
+Keep original required proof in the selected store. Generate optional diagnostics only when useful; remove them after their purpose ends and no supported obligation remains. Investigation-required material is protected and may use the durable store. Historical obligations need recorded retirement; a newer test or elapsed time is insufficient. Exact optional snapshot members require an immutable owner review and a before/after audit with their bytes withheld. Required proof remains strict.
 
-Cleanup defaults to dry-run. Cache cleanup and permanent expiry are explicit separate modes:
+Cache cleanup removes only replaceable local bytes with verified durable coverage. A sole durable local store is not cache. Existing `local_days` metadata retains its local-copy meaning; access/import/restore do not reset original age. Inspect or apply this bounded local cleanup with:
 
 ```bash
 python3 skills/to-sdd-pipeline/scripts/evidence_store.py cleanup --project /path/to/product
 python3 skills/to-sdd-pipeline/scripts/evidence_store.py cleanup --project /path/to/product --apply
-python3 skills/to-sdd-pipeline/scripts/evidence_store.py cleanup --project /path/to/product --expire --claims /external/current-claims.json
-python3 skills/to-sdd-pipeline/scripts/evidence_store.py cleanup --project /path/to/product --expire --claims /external/current-claims.json --apply
 ```
 
-Permanent expiry requires a complete current claim snapshot `{version:1, project_id:..., complete:true, evidence_refs:[artifact IDs]}` from the coordinator. Include current/prerequisite/baseline references and explicit protections; an incomplete snapshot cannot authorize pruning. Cleanup journals intent, reconciles interruption, checks actual absence and reports partial failures. Inspect pending registered deletion intents, then resume them explicitly:
+For durable cleanup, use the lifecycle commands and their `--help` after adoption. They bind decisions to computed dependencies and catalog revisions, recheck before deletion, verify absence and report actual reclaimed bytes. A shared pack is retained until every surviving member has verified replacement storage. No default daemon or account-wide cleanup is installed. Inspect pending registered deletion intents before reconciliation:
 
 ```bash
 python3 skills/to-sdd-pipeline/scripts/evidence_store.py reconcile --project /path/to/product
 python3 skills/to-sdd-pipeline/scripts/evidence_store.py reconcile --project /path/to/product --apply
 ```
 
-`reconcile` defaults to dry-run. It resumes individually recorded producer recovery and archive/pruning deletion intents. Archive-copy removal revalidates durable evidence; pruning resumes catalogued retirement under its coordinator checks. It does not discover arbitrary disposable paths or waive changed-byte/ownership protections. It also reconciles a stale catalog lock only after verifying that its recorded process has exited on the same host and belongs to this coordinator. Live, foreign-host, unknown-owner or otherwise unverifiable locks remain intact with a precise limitation; no unrelated process is stopped. Explicit reconciliation may release a dead local working reservation only after charging actual staged usage, without deleting those files. Dead-owner cloud reservations remain held when transfer-helper exit is unknown; inspect/recover the named helper operation before release. An exited coordinator alone does not prove a cloud transfer ended. It targets registered verified objects/paths only, never account-wide trash or broad unregistered files. Temporary task-owned browser contexts/processes/profiles also require the applicable AGENTS.md cleanup; preserve other tasks' profiles and deliverable captures.
+`reconcile` defaults to dry-run. It resumes individually recorded producer recovery and archive/pruning deletion intents. Archive-copy removal revalidates durable evidence; interrupted lifecycle deletion must recheck current dependencies and authority. It does not discover arbitrary disposable paths or waive changed-byte/ownership protections. It also reconciles a stale catalog lock only after verifying that its recorded process has exited on the same host and belongs to this coordinator. Live, foreign-host, unknown-owner or otherwise unverifiable locks remain intact with a precise limitation; no unrelated process is stopped. Explicit reconciliation may release a dead local working reservation only after charging actual staged usage, without deleting those files. Dead-owner cloud reservations remain held when transfer-helper exit is unknown; inspect/recover the named helper operation before release. An exited coordinator alone does not prove a cloud transfer ended. It targets registered verified objects/paths only, never account-wide trash or broad unregistered files. Temporary task-owned browser contexts/processes/profiles also require the applicable AGENTS.md cleanup; preserve other tasks' profiles and deliverable captures.
 
 For projects that use GitHub Actions, artifact and log retention follows the project's selected policy. This skillset repository uses **30 days** separately from local retention. Its relevant uploads use `retention-days: 30`; no upload is added solely to demonstrate retention. Repository artifact/log retention uses the repository Actions setting or the applicable REST endpoint `GET`/`PUT /repos/{owner}/{repo}/actions/permissions/artifact-and-log-retention`, with `days: 30` for this repository or the consuming project's selected value. Verify the returned setting; report exact permission or organization-policy limits and remaining action. Workflow YAML does not configure log retention. Preserve required artifacts in the selected durable store before GitHub expiry; local flags cannot stop GitHub deleting them. [Official retention guidance](https://docs.github.com/en/actions/tutorials/store-and-share-data).
 
-Drive retention is explicit during setup and never inherits local cache expiry. Imported collections remain protected until the user explicitly accepts their migration retention policy. Review/select the applicable local or Drive retention days first, then acknowledge individual imported artifact IDs:
+New Drive setup does not choose an expiry age for required proof. Saved legacy retention values are preserved as policy history, not interpreted as permission to bypass lifecycle checks. Imported collections retain their pending-import protection until an explicit migration retention decision acknowledges individual artifact IDs:
 
 ```bash
 python3 skills/to-sdd-pipeline/scripts/evidence_store.py retention-policy --project /path/to/product --artifact imported-report-1
 ```
 
-Repeat `--artifact` for each chosen imported record. This command records an administrative catalog decision to use the selected portable policy and releases only the pending-import protection. The decision remains separate from immutable evidence references: original sealing times, provenance, bindings and payloads stay intact, with no new execution or refreshed verification time. Legacy Boolean retention flags remain compatibility metadata and cannot authorize pruning. The command uploads no payload and does not immediately delete content. Current claims, dependencies and other protections still prevent permanent expiry; actual expiry requires the explicit cleanup mode with a complete claim snapshot.
+Repeat `--artifact` for each chosen imported record. This administrative decision releases only pending-import protection. Original sealing times, provenance, bindings and payloads stay intact, with no new execution or refreshed verification time. Legacy Boolean flags cannot authorize pruning. The command uploads no payload and deletes nothing; lifecycle adoption, classification and dependency checks still govern any later deletion.
 
 ## Adopt existing archives and recover
 

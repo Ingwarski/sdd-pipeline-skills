@@ -105,11 +105,11 @@ class EvidenceSetupTests(unittest.TestCase):
         self.assertEqual(before, binding.read_bytes())
         self.assertFalse(folder.exists())
 
-    def test_drive_retention_requires_explicit_selection_before_any_probe(self):
-        with self.assertRaisesRegex(setup.SetupError, "drive-retention-days"):
-            setup.configure(self.project, home=self.home, provider="google-drive", destination="synthetic:", probe=self.probe)
-        self.assertEqual([], self.probes)
-        self.assertFalse(self.home.exists())
+    def test_new_drive_setup_does_not_select_blanket_archive_expiry(self):
+        setup.configure(self.project, home=self.home, provider="google-drive", destination="synthetic:", probe=self.probe)
+        policy = setup._read(self.project / "forge/evidence-policy.json")
+        self.assertIsNone(policy["retention"]["drive_days"])
+        self.assertEqual(1, len(self.probes))
 
     def test_failed_probe_does_not_commit_provider_or_policy(self):
         def fail(config, project):
@@ -226,7 +226,7 @@ class EvidenceSetupTests(unittest.TestCase):
         self.assertEqual(before, setup._read(Path(result["config_path"])))
 
     def test_wizard_defaults_to_connected_tools_without_custom_bridge_question(self):
-        answers = iter(["3", "synthetic-folder-id", "", "never", *("" for _ in range(10)), "", ""])
+        answers = iter(["3", "synthetic-folder-id", "", *("" for _ in range(10)), "", ""])
         prompts = []
         def answer(prompt):
             prompts.append(prompt)
@@ -236,6 +236,7 @@ class EvidenceSetupTests(unittest.TestCase):
         config = setup._read(Path(result["config_path"]))
         self.assertEqual("connected", config["transport"])
         self.assertEqual("synthetic-folder-id", config["destination"])
+        self.assertIsNone(setup._read(self.project / "forge/evidence-policy.json")["retention"]["drive_days"])
         self.assertFalse(any("bridge command" in prompt for prompt in prompts))
 
     def test_source_repository_contains_no_machine_config_after_setup(self):

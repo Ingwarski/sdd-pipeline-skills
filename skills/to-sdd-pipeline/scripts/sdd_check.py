@@ -791,6 +791,8 @@ class Checker:
         parsed = PurePosixPath(relative)
         if not parsed.parts or parsed.is_absolute() or ".." in parsed.parts or ":" in parsed.parts[0]:
             raise ValueError("path escapes project: " + relative)
+        from evidence import diagnostics
+        diagnostics.guard_path(self.project, relative)
         if observation and hasattr(self, "_history_observation_overlay"):
             reference = self._history_observation_overlay.get(relative)
             return history_api().source_view_path(self.project, self._history_observation_snapshot_root,
@@ -799,12 +801,15 @@ class Checker:
             reference = self._history_overlay.get(relative)
             return history_api().source_view_path(self.project, self._history_snapshot_root,
                                                   self._history_overlay, relative, getattr(self, "_history_source_archive", None))
-        resolved = (self.project / relative).resolve()
+        from evidence.history_namespace import HISTORY, is_reserved_path, physical_path
+        mapped_history = relative == HISTORY or relative.startswith(HISTORY + "/") or is_reserved_path(relative)
+        native = physical_path(self.project, relative) if mapped_history else self.project / relative
+        resolved = native.resolve()
         if not resolved.is_relative_to(self.project):
             raise ValueError("link escapes project: " + relative)
         if no_links:
             current = self.project
-            for part in parsed.parts:
+            for part in native.relative_to(self.project).parts:
                 current = current / part
                 if (current.exists() or current.is_symlink()) and is_link(current):
                     raise ValueError("frozen source path contains a link/reparse point: " + relative)
@@ -2654,7 +2659,7 @@ class Checker:
             require(set(completed) == unit_ids, "release requires every unit, including integration, completed")
 
     def run(self, node, after=False, audit=False, unit_action=None, unit_id=None, *, require_current=False, projections=True):
-        with history_integrity_scope(self._source_manifest, force_full=audit or node == "release") as integrity, metrics.phase("historical_gate" if hasattr(self, "_history_stack") else "root_gate"):
+        with history_integrity_scope(self._source_manifest, force_full=audit or node == "release", project=self.project) as integrity, metrics.phase("historical_gate" if hasattr(self, "_history_stack") else "root_gate"):
             report = self._run_scoped(node, after, audit, unit_action, unit_id, require_current=require_current, projections=projections)
             if integrity.is_root and "history_integrity" in self._source_manifest:
                 report["history_integrity"] = integrity.report()
