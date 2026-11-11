@@ -2,10 +2,12 @@
 
 Use this checklist within existing documents, only for applicable product risks. It defines the handoff; it does not authorize deployment, scanning or production execution.
 
+Select qualification environments under the [virtual-first verification policy](test-environments.md). Platform execution can use a simulator, emulator or matching OS CI/VM; it does not inherently require physical hardware.
+
 | Concern | Resolve where applicable |
 |---|---|
 | Delivery | Exact supported environment/version/use mode and required test combinations, deployment verification, rollout/rollback, compatible migrations and irreversible-step authority. |
-| Continuity | Recovery, backup/restore, degraded operation and integrity. For local persistent data, distinguish application guarantees from platform inactivity/quota/eviction rules; use dated primary sources, actual environment and retention-mode outcomes. Qualify material limits and retained-backup recovery; simulated deletion proves recovery, not real platform retention. |
+| Continuity | Recovery, backup/restore, degraded operation and integrity. For local persistent data, distinguish application guarantees from platform inactivity/quota/eviction rules; use dated primary sources and observed environment/retention-mode outcomes with their limits. Forced deletion tests recovery, not platform eviction/retention policy. Apply the virtual-first evidence-gap rules to required outcomes the environment cannot reproduce. |
 | Operations | Useful telemetry without secrets, alert/incident owner, escalation, runbook and verification after recovery. |
 | Maintenance | Supported runtime/dependency policy, vulnerability response, updates and end-of-life/data export/deletion. |
 | Performance and cost | Source-backed latency/load/resource budgets, external-service limits and cost owner. Do not invent thresholds. |

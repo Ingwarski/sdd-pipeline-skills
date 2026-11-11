@@ -57,6 +57,14 @@ class BudgetTests(unittest.TestCase):
             paths = [path for path, _ in measure.resource_loads("to-qa-checklist", scenario)]
             self.assertEqual(1, paths.count(measure.SHARED + "acceptance-coverage-review.md"))
 
+    def test_environment_selection_policy_is_counted_once_for_each_consumer(self):
+        consumers = measure.LIFECYCLE_CONSUMERS | measure.HEURISTIC_CONSUMERS
+        for scenario in measure.scenarios_from_disk().values():
+            for owner in consumers:
+                with self.subTest(owner=owner):
+                    paths = [path for path, _ in measure.resource_loads(owner, scenario)]
+                    self.assertEqual(1, paths.count(measure.SHARED + "test-environments.md"))
+
     def test_missing_required_resource_fails_instead_of_reducing_cost(self):
         scenario = {"intake": False, "claude_design": False, "prototype_reuse": False}
         with patch.object(measure, "read_version", return_value=None):

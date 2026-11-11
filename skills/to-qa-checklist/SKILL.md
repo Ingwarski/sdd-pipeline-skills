@@ -33,12 +33,12 @@ Planning output uses `Release Readiness: not_evaluated`. An explicitly requested
 
 ## Workflow
 
-Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Define allowed and denied/adversarial checks for each PRD security obligation at its real enforcement seam. Bind `product_security_requirements`; return `security_coverage` and per-check `security_requirement_ids`. Simulation cannot verify production controls; authoring runs no tests or scanners.
+Read the [security traceability contract](../to-sdd-pipeline/references/security-contract.md). Define allowed and denied/adversarial checks for each PRD security obligation at its real enforcement seam. Bind `product_security_requirements`; return `security_coverage` and per-check `security_requirement_ids`. Mocked controls cannot verify actual enforcement; authoring runs no tests or scanners.
 
 1. Inspect current sources and recheck any repository observations; source truth defines behavior, not discovered implementation drift.
 2. For UI scope, use proposed visual expectations with `Binding Status: pending_baseline` before approval. After architecture/DoD reconciliation, bind the active Baseline ID, immutable target hash and permitted variance.
 3. Map requirement clauses, journeys and states to stable checks or blockers using the [coverage review](../to-sdd-pipeline/references/acceptance-coverage-review.md). Separate differing claims/rerun conditions; group compatible assertions into shared executions under the verification contract. Parent IDs are insufficient.
-4. Separate bounded mechanism construction checks from native/device qualification and full integration/release checks. Use architecture's mechanism duties, owned interfaces and declared success/failure outcomes; later qualification cannot hide missing construction checks.
+4. Separate bounded mechanism construction checks from platform qualification and full integration/release checks. Use architecture's mechanism duties, owned interfaces and declared success/failure outcomes; later qualification cannot hide missing construction checks.
 5. Resolve H1-H10 and user-task scope/evidence through the shared verification contract for applicable UI or nonvisual tasks; include supported input modes, errors/recovery and accessible critical actions.
 6. H7: source-backed novice flow and applicable shortcuts, bulk/repeated work and customization using supported input modes/platforms. H10: contextual help, searchable docs when needed, actionable empty states, inline instructions and recovery links.
 7. Specify each applicable failure sequence: cause → preserved work → required action or recovery trigger → observable completion. Exercise specified recovery controls or observe the defined automatic/external transition and its result. Cover retained candidates, changed decisions, Cancel, pending recovery records and other live pages where the PRD requires them.
@@ -52,11 +52,11 @@ Changed baselines, targets, overrides or obligations invalidate affected results
 
 ## Environment scope and UI defaults
 
-Declare supported environments and their source, or a bounded testing assumption when unspecified. Do not infer a multi-browser or named-device matrix. For web UI, choose representative layouts from actual breakpoint bands, required input modes and critical paths; add engine/device-specific checks for supported behavior. Reconcile existing coverage through its owner before removing it. Reuse compatible layout states while retaining navigation-time, short-height and input-specific observations where needed.
+Declare supported environments and their source, or a bounded testing assumption when unspecified. Apply the verification contract's [virtual-first environments](../to-sdd-pipeline/references/test-environments.md); do not infer a multi-browser or physical-device matrix. For web UI, choose representative layouts from actual breakpoint bands, required input modes and critical paths; add platform-specific checks for supported behavior. Reconcile existing coverage through its owner before removing it. Reuse compatible layout states while retaining navigation-time, short-height and input-specific observations where needed.
 
 Apply [platform-appropriate accessibility](../to-sdd-pipeline/references/accessibility-policy.md), including applicable 320 CSS px reflow and 200% text resizing. Web house defaults remain overridable: 44×44px targets, 8px separation, 16px mobile inputs, 14–16px body, no emoji-as-icons. These do not replace standard criteria/exceptions; native products use platform guidance.
 
-Use [lifecycle guidance](../to-sdd-pipeline/references/lifecycle-contract.md) for source-defined operations and early feasibility. Bind supported environments, versions and use modes. Where persistence/recovery applies, cover its platform limits and required outcomes. Actual platform qualification differs from simulated recovery; unreproduced required conditions stay pending.
+Use [lifecycle guidance](../to-sdd-pipeline/references/lifecycle-contract.md) for source-defined operations and early feasibility. Bind supported environments, versions and use modes. Where persistence/recovery applies, cover its platform limits and required outcomes. Forced deletion tests recovery, not platform eviction/retention policy; unreproduced required conditions stay pending under the virtual-first policy.
 
 ## Artifact coverage
 

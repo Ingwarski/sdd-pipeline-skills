@@ -9,7 +9,7 @@ boundary.
 |---|---|
 | Recovery data | Consequential decisions account for recoverable data and pending work across affected contexts. Define applicable cancellation and replacement effects. |
 | Construction | Architecture declares required mechanisms. The plan assigns each mechanism to an owning unit, its production files and required construction checks. Later qualification is separate. |
-| Platform limits | Specify source-defined environments, versions and use modes. For persistent data, state applicable retention and recovery limits. Separate simulated recovery from actual platform-policy qualification. |
+| Platform limits | Specify source-defined environments, versions and use modes under the shared [virtual-first policy](../skills/to-sdd-pipeline/references/test-environments.md). For persistent data, distinguish forced-deletion recovery from observed platform-policy outcomes. |
 | Feasibility | Where a required capability is uncertain, use a disposable experiment before dependent construction. Observe its required outcome; starting an operation does not prove completion. |
 | Interfaces | Specify inputs, outputs, errors and recovery ownership at each material boundary. |
 | Recovery | Observe each required action or specified automatic/external recovery trigger. Preserve valid work/decision bindings where applicable. |

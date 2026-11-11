@@ -29,7 +29,7 @@ Bounded acceptance proves contributions only. Integration/release owners retain 
 
 ## Economical execution
 
-Choose the least costly boundary that proves each claim: logic for deterministic rules, the actual platform's enforcement/persistence boundary, UI for layout/input, and supported native/provider environments where required. Retain real integration coverage; browser repetition does not strengthen an engine-independent assertion.
+Choose the least costly boundary that proves each claim: logic for deterministic rules, platform execution for enforcement/persistence, UI for layout/input, and supported provider environments where required. Use [virtual-first test environments](test-environments.md) when selecting execution environments. Retain real integration coverage; browser repetition does not strengthen an engine-independent assertion.
 
 One setup or journey may support several separately observed assertions, including applicable H1-H10. Record each outcome; a successful bundle cannot pass skipped or unexecuted checks. Share infrastructure with isolated contexts/data. Resize existing states for layout where equivalent; separately cover initialization and interactions that depend on the starting environment. Independent groups may run concurrently inside the active unit, with shared mutations serialized.
 
@@ -53,7 +53,7 @@ After approval, owners act in order: brief records baseline → architecture rev
 
 Headless scope excludes visual fidelity. Source-backed applicability/exclusion determines interaction gates; use the nonvisual record when applicable.
 
-Visual, heuristic, participant, accessibility and runtime evidence remain separate. Simulations prove no production auth, persistence, integration, security or actual data/actions. Screenshots alone cannot establish WCAG conformance.
+Visual, heuristic, participant, accessibility and runtime evidence remain separate. Design prototypes and mocked outcomes prove no production auth, persistence, integration, security or actual data/actions; virtual execution follows the test-environment policy. Screenshots alone cannot establish WCAG conformance.
 
 For high-risk, regulated, safety- or accessibility-critical flows, plan representative-user validation before approval when feasible. Otherwise record assumption, risk, owner, timing and follow-up; claim no validation. No extra approval is created.
 
