@@ -8,23 +8,23 @@
     "path": "instruction-baseline.json",
     "sha256": "b9aa3ae4416890799774b00466dde9d16c84b18d11e61c94417873a1991529ce"
   },
-  "reason": "The original checksum-pinned numerical baseline, scenarios, seeds, invocation order and retries remain unchanged. Earlier reviewed cumulative allowances remain in force. Independent review approved only the completion-preservation ceiling increase from 224222 to 242045 and cumulative growth of 55327 against 186718. The new reviewed-acceptance procedure is 1997 tokens, counted on all nine history-owner invocations including the retry (17973 tokens); other instructions save 150 tokens in that scenario, for net growth of 17823 (7.9488%). All 48 ordered resource loads were independently checked and recomputed with the pinned tokenizer. All other ceilings are unchanged; README remains 3555 and every other measured workflow is below its prior ceiling. The new ceiling has no spare allowance. Future growth requires independent review of the full instructions, loads and rationale. Static estimates exclude executable helpers and tool output and establish no live-run savings. See docs/maintenance.md.",
+  "reason": "The original checksum-pinned numerical baseline, scenarios, seeds, invocation order and retries remain unchanged. Prior reviewed allowances remain accounted for. Independent review approved the virtual-first environment policy: its 425 tokens are counted once per relevant lifecycle or heuristic consumer, including PRD and architecture, with 14/7/7/7/9 loads in the five workflows. Including reconciled owner instructions and links, changes from the previous source are +50 entrypoint tokens and +6744/+3469/+3385/+3385/+4397 workflow tokens. README stays at 3555. New ceilings equal the independently recomputed current totals, with no spare allowance; cumulative growth is measured against the unchanged original baseline. The focused policy avoids loading unrelated verification fields into PRD and architecture. No scenario, retry or required resource was removed. Static counts exclude generated output, execution savings and billing; future growth still requires independent review. See docs/maintenance.md.",
   "absolute": {
-    "entrypoints": 16810,
+    "entrypoints": 16842,
     "readme": 3555,
-    "first_setup_with_retry": 167251,
-    "approved_design_revision": 108316,
-    "interrupted_claude_resume": 126792,
-    "approved_decision_correction": 126583,
-    "completion_preservation": 242045
+    "first_setup_with_retry": 173900,
+    "approved_design_revision": 111710,
+    "interrupted_claude_resume": 130083,
+    "approved_decision_correction": 129874,
+    "completion_preservation": 246424
   },
   "approved_growth_tokens": {
-    "entrypoints": 218,
+    "entrypoints": 250,
     "readme": 0,
-    "first_setup_with_retry": 19241,
-    "approved_design_revision": 16295,
-    "interrupted_claude_resume": 19878,
-    "approved_decision_correction": 19878,
-    "completion_preservation": 55327
+    "first_setup_with_retry": 25890,
+    "approved_design_revision": 19689,
+    "interrupted_claude_resume": 23169,
+    "approved_decision_correction": 23169,
+    "completion_preservation": 59706
   }
 }

@@ -49,6 +49,8 @@ def resource_loads(skill, scenario, revision=None):
         paths.append(SHARED + "traceability-contract.md")
     if skill in LIFECYCLE_CONSUMERS:
         paths.append(SHARED + "lifecycle-contract.md")
+    if skill in LIFECYCLE_CONSUMERS | HEURISTIC_CONSUMERS:
+        paths.append(SHARED + "test-environments.md")
     if skill in ("to-product-idea", "to-sdd-pipeline", "to-screen-map"):
         paths.append(SHARED + "scope-and-execution.md")
     if skill in ("to-sdd-prd", "to-design-brief", "to-qa-checklist"):
