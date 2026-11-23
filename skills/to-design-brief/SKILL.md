@@ -42,9 +42,9 @@ The screen map owns which states exist; wireframes own their structure. PRD/jour
 
 ## Source inventory
 
-Each material resolves: `material_id`, kind, repository-relative path/URL, required-for-generation flag, purpose, source basis, access status (`resolved | unavailable | not_required`), hash/capture ID where applicable, and authorized access mode for external material.
+Record per material: `material_id`, kind, repository-relative path/URL, required-for-generation flag, purpose (intake selections, use and exclusions), source basis, access status (`resolved | unavailable | not_required`), applicable hash/capture ID and authorized external access mode.
 
-Every named material has one entry; every entry has a use. An unavailable **required** source blocks candidate generation and stays visible in Open Questions; do not silently substitute it. An optional aesthetic reference may use a disclosed fallback. Claude Design additionally requires its source-access/read receipts.
+Inventory named materials; carry their scope into the brief and handoff, without assuming whole-design use. **Required** unavailable sources block generation; list them in Open Questions. Optional aesthetic references may use disclosed fallbacks. Claude Design requires source-access/read receipts.
 
 ## Approval and reconciliation
 
