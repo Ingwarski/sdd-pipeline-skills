@@ -28,7 +28,7 @@ Confirmed headless scope omits visual design and visual-material questions.
 5. The pipeline records the UI baseline when applicable, reconciles architecture, completion rules and QA, creates `docs/development-plan.md`, then pauses.
 6. Send a **new explicit implementation prompt after that pause** to start production work.
 
-A rough description or existing `docs/product-idea.md` is enough to enter. Intake shows its understanding and gaps before one question; coherent intent needs no redundant interview. Share links, screenshots, brand materials or HTML/assets through the prompt or `docs/design-inputs/` in your product repository. “None yet” or “later” is valid. References supply design grounding, never approval.
+Start with a rough description or `docs/product-idea.md`. Intake shows understanding and gaps before one question; coherent intent needs no interview. Share links, screenshots, brand materials or HTML/assets in chat or the product's `docs/design-inputs/`. Say which elements to use or avoid from each reference. “None yet” or “later” is valid. References are not design approval.
 
 Existing changes reuse valid documents/baselines and reconcile affected owners. Confirmed headless products skip UI documents and design approval while retaining requirements, security, QA, planning and the implementation prompt. [Scope and direct-host execution](skills/to-sdd-pipeline/references/scope-and-execution.md).
 
