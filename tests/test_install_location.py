@@ -78,6 +78,14 @@ class InstallationLocationTests(unittest.TestCase):
         if WINDOWS:
             self.env.update(HOMEDRIVE=self.home.drive, HOMEPATH=str(self.home)[2:],
                             APPDATA=str(temp / "appdata"), LOCALAPPDATA=str(temp / "localappdata"))
+            # Windows PowerShell 5.1 caches startup data via USERPROFILE even with
+            # -NoProfile and redirected LOCALAPPDATA. Isolate only its cache.
+            (self.home / "AppData/Roaming").mkdir(parents=True)
+            cache = self.home / "AppData/Local/Microsoft/Windows/PowerShell"
+            cache.parent.mkdir(parents=True)
+            runtime = temp / "powershell-runtime"
+            runtime.mkdir()
+            self.link_directory(cache, runtime)
         # Keep the publisher, the downloaded one-file entry point, and its Git config
         # outside the inventoried client. No caller credential or external remote is used.
         self.remote = temp / "publisher.git"
@@ -222,6 +230,40 @@ class InstallationLocationTests(unittest.TestCase):
         before = inventory(self.claude)
         self.assert_success(self.bootstrap(extra=("--agent", "codex"), SDD_PRODUCT_ROOT=str(self.product)), ("codex",))
         self.assert_inventory(before, inventory(self.claude))
+
+    @unittest.skipUnless(WINDOWS, "requires Windows PowerShell")
+    def test_powershell_startup_alone_preserves_client_inventory(self):
+        before = inventory(self.client)
+        for _ in range(2):
+            result = self.run_client(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "exit 0"])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assert_inventory(before, inventory(self.client))
+
+    def test_codex_only_from_product_into_empty_sibling_then_update(self):
+        self.destination.mkdir()
+        allowed = (self.destination, self.codex)
+        before = inventory(self.client, exclude=allowed)
+        for operation in ("bootstrap", "update"):
+            with self.subTest(operation=operation):
+                if WINDOWS:
+                    # Exercise the course's UTF-8 pipeline through Windows PowerShell.
+                    command = (
+                        "$OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n"
+                        "$guard = [IO.File]::ReadAllText($env:GUARD_SCRIPT)\n"
+                        "$guard | python -I -B - $env:GUARD_OPERATION --destination $env:GUARD_DESTINATION "
+                        "--revision $env:GUARD_REVISION --channel stable --agent codex\n"
+                        "exit $LASTEXITCODE"
+                    )
+                    result = self.run_client(
+                        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                        SDD_PRODUCT_ROOT=str(self.product), GUARD_SCRIPT=str(self.bootstrap_script),
+                        GUARD_OPERATION=operation, GUARD_DESTINATION=str(self.destination), GUARD_REVISION=self.sha,
+                    )
+                else:
+                    result = self.bootstrap(operation=operation, via_stdin=True, extra=("--agent", "codex"),
+                                            SDD_PRODUCT_ROOT=str(self.product))
+                self.assert_success(result, ("codex",))
+                self.assert_inventory(before, inventory(self.client, exclude=allowed))
 
     def test_linked_standalone_collection_reports_physical_checkout(self):
         alias = self.client / "my projects"
