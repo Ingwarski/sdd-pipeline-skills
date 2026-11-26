@@ -58,6 +58,13 @@ Do not use the personal installer to test authoring changes. Installer tests use
 isolated temporary roots; default retirement cleanup permanently removes named
 skills. Do not install dependencies without user authorization.
 
+For installation-location changes, run the native incident cases on macOS and
+Windows from inside a populated disposable product. Check the selected sibling,
+registration roots and all 13 physical targets per agent. Include hidden and
+untracked files, Git metadata, links or junctions and retirement sentinels in
+before/after inventories of refusals. Exercise repair and a verified existing
+checkout update. Record each platform and its actual results separately.
+
 ## Verification
 
 Use a supported Python version from [runtime policy](../runtime-policy.json).

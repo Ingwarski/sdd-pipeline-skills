@@ -9,64 +9,54 @@ retired_removed=0
 retired_backups_removed=0
 
 retired_normalize() {
-  local value=$1 ancestor suffix="" physical
-  [[ "$value" == /* && "$value" != *$'\n'* && "$value" != *$'\r'* ]] || return 1
-  if [[ -d "$value" ]]; then
-    (cd "$value" && pwd -P)
-  else
-    value=$(printf '%s\n' "$value" | awk -F/ '{
-      n=0
-      for(i=1;i<=NF;i++) {
-        if($i=="" || $i==".") continue
-        if($i=="..") { if(n>0) n--; continue }
-        parts[++n]=$i
-      }
-      if(n==0) { print "/"; next }
-      for(i=1;i<=n;i++) printf "/%s",parts[i]
-      printf "\n"
-    }')
-    ancestor=$value
-    while [[ ! -d "$ancestor" && "$ancestor" != / ]]; do
-      suffix="/${ancestor##*/}$suffix"
-      ancestor=${ancestor%/*}
-      [[ -n "$ancestor" ]] || ancestor=/
-    done
-    physical=$(cd "$ancestor" && pwd -P) || return 1
-    value="${physical%/}$suffix"
-    printf '%s\n' "${value:-/}"
-  fi
+  # Marker paths may have missing suffixes. Resolve links before interpreting "..".
+  python3 -B -c 'import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+if not p.is_absolute() or any(c in str(p) for c in "\r\n"):
+    sys.exit(1)
+print(p.resolve())' "$1"
 }
 
-retired_known_sdd_origin() {
-  local origin
-  origin=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-  origin=${origin%/}
-  origin=${origin%.git}
-  case "$origin" in
-    https://github.com/ingwarski/sdd-pipeline-skills|git@github.com:ingwarski/sdd-pipeline-skills|ssh://git@github.com/ingwarski/sdd-pipeline-skills|https://github.com/ingwarski/codex-skills|git@github.com:ingwarski/codex-skills|ssh://git@github.com/ingwarski/codex-skills) return 0 ;;
-  esac
-  return 1
-}
-
-retired_add_root() {
-  local root=$1 i
-  [[ "$root" == /* ]] || root="$PWD/$root"
-  root=$(retired_normalize "$root") || return 1
-  [[ "$root" != / ]] || { printf 'Cleanup root cannot be a filesystem root.\n' >&2; return 1; }
-  if [[ -e "$root" || -L "$root" ]]; then
-    [[ -d "$root" && -r "$root" && -x "$root" ]] || {
-      printf 'Cleanup root is not an accessible directory: %s\n' "$root" >&2; return 1;
-    }
-  fi
-  for ((i=0; i<retired_root_count; i++)); do
-    [[ "${retired_roots[i]}" != "$root" ]] || return 0
-  done
-  retired_roots[retired_root_count]=$root
+retired_plan_root() {
+  location_args+=("$1" "$2")
+  retired_roots[retired_root_count]=$2
   retired_root_count=$((retired_root_count + 1))
 }
 
+retired_plan() {
+  local root i
+  retired_plan_root --source-root "$repo_root/skills"
+  if [[ $want_codex -eq 1 ]]; then
+    retired_plan_root --registration "$codex_dir"
+    retired_plan_root --source-root "$repo_root/.agents/skills"
+    retired_plan_root --source-root "$repo_root/.codex/skills"
+  fi
+  if [[ $want_claude -eq 1 ]]; then
+    retired_plan_root --registration "$claude_dir"
+    retired_plan_root --source-root "$repo_root/.claude/skills"
+  fi
+
+  # Extra cleanup is a separate request. A first install or ordinary update
+  # touches only its verified checkout and the selected registration roots.
+  [[ $retire_only -eq 1 ]] || return 0
+  if [[ $want_codex -eq 1 && $codex_dir_explicit -eq 0 ]]; then
+    retired_plan_root --personal-root "$HOME/.agents/skills"
+    retired_plan_root --personal-root "$HOME/.codex/skills"
+    [[ -z "${CODEX_HOME:-}" ]] || retired_plan_root --personal-root "$CODEX_HOME/skills"
+  fi
+  for ((i=0; i<retired_extra_count; i++)); do
+    retired_plan_root --cleanup-dir "${retired_extra_roots[i]}"
+  done
+  for root in "$HOME/.sdd-pipeline/retired-skills" "${SDD_SKILL_BACKUP_DIR:-}"; do
+    [[ -n "$root" ]] || continue
+    location_args+=(--personal-root "$root")
+    retired_backup_roots[retired_backup_root_count]=$root
+    retired_backup_root_count=$((retired_backup_root_count + 1))
+  done
+}
+
 retired_prepare() {
-  local name root i policy
+  local name i policy
   [[ -f "$retired_policy" && ! -L "$retired_policy" ]] || {
     printf 'Missing retirement policy.\n' >&2; return 1;
   }
@@ -79,33 +69,12 @@ retired_prepare() {
       printf 'Retired skill is still active: %s\n' "$name" >&2; return 1
     fi
   done
-  retired_add_root "$repo_root/skills"
-  if [[ $want_codex -eq 1 ]]; then
-    retired_add_root "$codex_dir"
-    retired_add_root "$repo_root/.agents/skills"
-    retired_add_root "$repo_root/.codex/skills"
-    if [[ $codex_dir_explicit -eq 0 ]]; then
-      retired_add_root "$HOME/.agents/skills"
-      retired_add_root "$HOME/.codex/skills"
-      [[ -z "${CODEX_HOME:-}" ]] || retired_add_root "$CODEX_HOME/skills"
-    fi
-  fi
-  if [[ $want_claude -eq 1 ]]; then
-    retired_add_root "$claude_dir"
-    retired_add_root "$repo_root/.claude/skills"
-  fi
-  for ((i=0; i<retired_extra_count; i++)); do retired_add_root "${retired_extra_roots[i]}"; done
-  if [[ $retired_source_count -gt 0 ]]; then
-    printf '%s\n' '--retired-source is no longer needed. Use --cleanup-dir OLD_CLONE/skills to include another clone.'
-  fi
-  # These locations are read only to purge backups made by the former updater.
-  # Never create a backup or delete a container based on its name alone.
-  for root in "$HOME/.sdd-pipeline/retired-skills" "${SDD_SKILL_BACKUP_DIR:-}"; do
-    [[ -n "$root" ]] || continue
-    root=$(retired_normalize "$root") || return 1
-    [[ "$root" != / ]] || { printf 'Invalid former backup location.\n' >&2; return 1; }
-    retired_backup_roots[retired_backup_root_count]=$root
-    retired_backup_root_count=$((retired_backup_root_count + 1))
+  # Use the same physical paths as preflight when matching old backup markers.
+  for ((i=0; i<retired_root_count; i++)); do
+    retired_roots[i]=$(retired_normalize "${retired_roots[i]}") || return 1
+  done
+  for ((i=0; i<retired_backup_root_count; i++)); do
+    retired_backup_roots[i]=$(retired_normalize "${retired_backup_roots[i]}") || return 1
   done
 }
 

@@ -10,6 +10,11 @@ cleanup() {
   esac
 }
 trap cleanup EXIT
+fixture="$repo_root/tests/install_fixture.py"
+repo_root="$test_root/source"
+python3 "$fixture" create "$repo_root"
+test_home="$test_root/home"
+mkdir -p "$test_home"
 export SDD_EVIDENCE_HOME="$test_root/evidence-machine-state"
 export SDD_SKILL_BACKUP_DIR="$test_root/former-backups"
 codex_dir="$test_root/codex"
@@ -22,7 +27,7 @@ mkdir -p "$history/skills/communications-audit/references" "$history/skills/issu
 printf '%s\n' 'Synthetic audit retirement fixture.' > "$history/skills/communications-audit/SKILL.md"
 printf '%s\n' 'Synthetic support-file retirement fixture.' > "$history/skills/communications-audit/references/report-contract.md"
 printf '%s\n' 'Synthetic certificate retirement fixture.' > "$history/skills/issue-happypro-certificate/SKILL.md"
-install() { "$repo_root/install.sh" --all --repair --codex-dir "$codex_dir" --claude-dir "$claude_dir" "$@"; }
+install() { env HOME="$test_home" "$repo_root/install.sh" --all --repair --codex-dir "$codex_dir" --claude-dir "$claude_dir" "$@"; }
 assert_absent() { [[ ! -e "$1" && ! -L "$1" ]]; }
 assert_retired_absent() {
   local root
@@ -67,7 +72,7 @@ project_skills="$test_root/project/.agents/skills"
 mkdir -p "$project_skills/communications-audit"
 printf local-copy > "$project_skills/communications-audit/SKILL.md"
 printf keep > "$project_skills/unrelated.txt"
-install --cleanup-dir "$project_skills" > /dev/null
+install --retire-only --cleanup-dir "$project_skills" > /dev/null
 assert_absent "$project_skills/communications-audit"
 [[ -f "$project_skills/unrelated.txt" ]]
 
@@ -78,7 +83,7 @@ for name in communications-audit issue-happypro-certificate; do
   cp -R "$history/skills/$name" "$former/$name"
   printf '%s\r\n' "$codex_dir/$name" > "$former/original-path.txt"
 done
-result=$(install)
+result=$(install --retire-only)
 [[ "$result" == *"former-backups-deleted=2 remaining=0 backups-created=0"* ]]
 assert_absent "$SDD_SKILL_BACKUP_DIR/communications-audit.ABC123"
 assert_absent "$SDD_SKILL_BACKUP_DIR/issue-happypro-certificate.ABC123"
@@ -102,30 +107,33 @@ grep -q 'Retirement deletion failed' "$test_root/failure.log"
 install > /dev/null
 assert_retired_absent
 
-# An unrelated SDD conflict does not prevent retirement; no other links change.
+# A link conflict preserves the retired copy until separately authorized cleanup.
 rm "$codex_dir/to-wireframes" "$codex_dir/to-sdd-pipeline"
 mkdir -p "$codex_dir/to-sdd-pipeline" "$codex_dir/issue-happypro-certificate"
 if install > "$test_root/conflict.log" 2>&1; then exit 1; fi
-assert_absent "$codex_dir/issue-happypro-certificate"
+[[ -d "$codex_dir/issue-happypro-certificate" ]]
 assert_absent "$codex_dir/to-wireframes"
+install --retire-only > /dev/null
+assert_absent "$codex_dir/issue-happypro-certificate"
 rmdir "$codex_dir/to-sdd-pipeline"
 install > /dev/null
 
-# Delete source-checkout and repo-local installs as well.
-export_root="$test_root/source export"
+# A verified source may retire its exact legacy items through explicit cleanup.
+export_root="$test_root/legacy checkout"
 export_dest="$test_root/export installs"
+python3 "$fixture" create "$export_root"
 mkdir -p "$export_root/.agents/skills/issue-happypro-certificate"
-cp "$repo_root/install.sh" "$repo_root/skills-manifest.json" "$repo_root/retired-skills.txt" "$export_root/"
-cp -R "$repo_root/scripts" "$repo_root/skills" "$export_root/"
 cp -R "$history/skills/communications-audit" "$export_root/skills/communications-audit"
-"$export_root/install.sh" --codex --codex-dir "$export_dest" > /dev/null
+env HOME="$test_home" "$export_root/install.sh" --retire-only --codex --codex-dir "$export_dest" > /dev/null
 assert_absent "$export_root/skills/communications-audit"
 assert_absent "$export_root/.agents/skills/issue-happypro-certificate"
+"$export_root/install.sh" --codex --codex-dir "$export_dest" > /dev/null
 [[ -f "$export_dest/to-sdd-pipeline/SKILL.md" ]]
 
 # The policy cannot silently expand deletion to another skill.
 mkdir "$export_dest/communications-audit"
 printf '%s\n' 'communications-audit' 'issue-happypro-certificate' 'to-wireframes' > "$export_root/retired-skills.txt"
+python3 "$fixture" publish "$export_root"
 if "$export_root/install.sh" --codex --codex-dir "$export_dest" > "$test_root/policy.log" 2>&1; then exit 1; fi
 grep -q 'Invalid retirement policy' "$test_root/policy.log"
 [[ -d "$export_dest/communications-audit" && -f "$export_dest/to-wireframes/SKILL.md" ]]

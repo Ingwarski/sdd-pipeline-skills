@@ -6,6 +6,7 @@ param(
     [switch]$Repair,
     [switch]$Uninstall,
     [switch]$RetireOnly,
+    [switch]$CheckLocationsOnly,
     [string]$CodexDir,
     [string]$ClaudeDir,
     [string[]]$RetiredSource = @(),
@@ -26,18 +27,19 @@ if ($Uninstall -and ($RetireOnly -or $RetiredSource.Count -gt 0 -or $CleanupDir.
     throw 'Retirement options apply to install/update, not -Uninstall.'
 }
 
+if (-not $RetireOnly -and ($CleanupDir.Count -gt 0 -or $RetiredSource.Count -gt 0)) {
+    throw 'Use -RetireOnly for a separate, explicitly requested legacy cleanup.'
+}
+$EvidenceRequested = $EvidenceNonInteractive -or $EvidenceReconfigure -or -not [string]::IsNullOrWhiteSpace($EvidenceProject)
+$PersonalHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+
 if ($All -or (-not $Codex -and -not $Claude)) {
     $Codex = $true
     $Claude = $true
 }
 
 $RepoRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
-$ManifestPath = Join-Path $RepoRoot 'skills-manifest.json'
 $ReceiptName = '.codex-sdd-skills-source'
-
-if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
-    throw "Missing manifest: $ManifestPath"
-}
 
 # Use the same strict parser and source/reference preflight as the Unix installer.
 # Detect Python before cleanup or any link/receipt write; never install it silently.
@@ -49,29 +51,19 @@ foreach ($Candidate in @('python3', 'python', 'py')) {
     $Prefix = if ($Candidate -eq 'py') { @('-3') } else { @() }
     try {
         & $Executable.Source @Prefix -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>$null
-        if ($LASTEXITCODE -eq 0) { $PythonCommand = $Executable.Source; $PythonPrefix = $Prefix; break }
+        if ($global:LASTEXITCODE -eq 0) { $PythonCommand = $Executable.Source; $PythonPrefix = $Prefix; break }
     } catch { }
 }
 if ($null -eq $PythonCommand) { throw 'Python 3.12+ is required. Install Python 3, then rerun; no installation changes made.' }
-$ParserArgs = @((Join-Path $RepoRoot 'scripts/install_manifest.py'), '--root', $RepoRoot)
-if ($RetireOnly) { $ParserArgs += '--metadata-only' }
-$Rows = @(& $PythonCommand @PythonPrefix @ParserArgs)
-if ($LASTEXITCODE -ne 0) { throw 'Installation preflight failed; no installation changes made.' }
-$Skills = @($Rows | ForEach-Object {
-    $Fields = $_ -split '\|', 3
-    [pscustomobject]@{ name=$Fields[0]; path=$Fields[1]; legacy_name=if ($Fields[2]) { $Fields[2] } else { $null } }
-})
-$Manifest = [pscustomobject]@{ schema_version=1; skill_set='sdd-pipeline'; skill_count=13; skills=$Skills }
-
 if ([string]::IsNullOrWhiteSpace($CodexDir)) {
     if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SKILLS_DIR)) {
         $CodexDir = $env:CODEX_SKILLS_DIR
     } elseif (-not [string]::IsNullOrWhiteSpace($env:CODEX_HOME)) {
         $CodexDir = Join-Path $env:CODEX_HOME 'skills'
     } else {
-        $LegacyCodexDir = Join-Path $HOME '.codex\skills'
-        $OfficialCodexDir = Join-Path $HOME '.agents\skills'
-        if ((Test-Path -LiteralPath $LegacyCodexDir) -and -not (Test-Path -LiteralPath $OfficialCodexDir)) {
+        $LegacyCodexDir = Join-Path $PersonalHome '.codex\skills'
+        $OfficialCodexDir = Join-Path $PersonalHome '.agents\skills'
+        if ((Test-Path -LiteralPath $LegacyCodexDir -PathType Container) -and -not (Test-Path -LiteralPath $OfficialCodexDir -PathType Container)) {
             $CodexDir = $LegacyCodexDir
         } else {
             $CodexDir = $OfficialCodexDir
@@ -82,10 +74,66 @@ if ([string]::IsNullOrWhiteSpace($CodexDir)) {
 if ([string]::IsNullOrWhiteSpace($ClaudeDir)) {
     if (-not [string]::IsNullOrWhiteSpace($env:CLAUDE_SKILLS_DIR)) {
         $ClaudeDir = $env:CLAUDE_SKILLS_DIR
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:CLAUDE_CONFIG_DIR)) {
+        $ClaudeDir = Join-Path $env:CLAUDE_CONFIG_DIR 'skills'
     } else {
-        $ClaudeDir = Join-Path $HOME '.claude\skills'
+        $ClaudeDir = Join-Path $PersonalHome '.claude\skills'
     }
 }
+
+# Keep these lists as provided until the guard has inspected physical ancestors.
+# The retirement implementation below consumes the same enumerated paths.
+$SourceCleanupRoots = @()
+$LegacyPersonalRoots = @()
+$BackupRoots = @()
+$GuardArgs = @('-X', 'utf8', '-B', (Join-Path $RepoRoot 'scripts/install_location.py'), '--source', $RepoRoot)
+if ($Codex) { $GuardArgs += @('--registration', $CodexDir) }
+if ($Claude) { $GuardArgs += @('--registration', $ClaudeDir) }
+if (-not $Uninstall) {
+    $SourceCleanupRoots += Join-Path $RepoRoot 'skills'
+    if ($Codex) {
+        $SourceCleanupRoots += Join-Path $RepoRoot '.agents/skills'
+        $SourceCleanupRoots += Join-Path $RepoRoot '.codex/skills'
+    }
+    if ($Claude) { $SourceCleanupRoots += Join-Path $RepoRoot '.claude/skills' }
+    foreach ($Root in $SourceCleanupRoots) { $GuardArgs += @('--source-root', $Root) }
+}
+if ($RetireOnly) {
+    if ($Codex -and -not $CodexDirExplicit) {
+        $LegacyPersonalRoots += Join-Path $PersonalHome '.agents/skills'
+        $LegacyPersonalRoots += Join-Path $PersonalHome '.codex/skills'
+        if ($env:CODEX_HOME) { $LegacyPersonalRoots += Join-Path $env:CODEX_HOME 'skills' }
+    }
+    $BackupRoots += Join-Path $PersonalHome '.sdd-pipeline/retired-skills'
+    if ($env:SDD_SKILL_BACKUP_DIR) { $BackupRoots += $env:SDD_SKILL_BACKUP_DIR }
+    foreach ($Root in ($LegacyPersonalRoots + $BackupRoots)) { $GuardArgs += @('--personal-root', $Root) }
+    foreach ($Root in $CleanupDir) { $GuardArgs += @('--cleanup-dir', $Root) }
+}
+if ($EvidenceRequested -and -not ($RetireOnly -or $Uninstall)) {
+    $EvidenceHome = if ($env:SDD_EVIDENCE_HOME) { $env:SDD_EVIDENCE_HOME } else { Join-Path $PersonalHome '.sdd-pipeline/evidence' }
+    $GuardArgs += @('--evidence-home', $EvidenceHome)
+    if ($EvidenceProject) { $GuardArgs += @('--evidence-project', $EvidenceProject) }
+}
+# Match the Python pipe encoding in Windows PowerShell 5.1, including non-ASCII home paths.
+$PreviousEncoding = [Console]::OutputEncoding
+try {
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $PhysicalRoot = & $PythonCommand @PythonPrefix @GuardArgs
+    if ($global:LASTEXITCODE -ne 0) { throw "Location preflight refused $RepoRoot. See the conflicting paths above and docs/installation.md." }
+} finally {
+    [Console]::OutputEncoding = $PreviousEncoding
+}
+$RepoRoot = $PhysicalRoot
+
+$ParserArgs = @('-B', (Join-Path $RepoRoot 'scripts/install_manifest.py'), '--root', $RepoRoot)
+if ($RetireOnly) { $ParserArgs += '--metadata-only' }
+$Rows = @(& $PythonCommand @PythonPrefix @ParserArgs)
+if ($global:LASTEXITCODE -ne 0) { throw 'Installation preflight failed; no installation changes made.' }
+$Skills = @($Rows | ForEach-Object {
+    $Fields = $_ -split '\|', 3
+    [pscustomobject]@{ name=$Fields[0]; path=$Fields[1]; legacy_name=if ($Fields[2]) { $Fields[2] } else { $null } }
+})
+$Manifest = [pscustomobject]@{ schema_version=1; skill_set='sdd-pipeline'; skill_count=13; skills=$Skills }
 
 function Normalize-Path([string]$Path) {
     return [System.IO.Path]::GetFullPath($Path).TrimEnd(
@@ -134,15 +182,6 @@ function Test-RepairAuthorized([string]$Path, [string]$RelativePath, [string]$Pr
     return $null -ne $ActualTarget -and $ActualTarget -eq $ExpectedPriorTarget
 }
 
-if ($RetireOnly) {
-    . (Join-Path $RepoRoot 'scripts/retired-skills.ps1')
-    Initialize-RetiredCleanup
-    Invoke-RetiredCleanup
-    exit 0
-}
-
-Write-Host 'Validated 13 source skills and their shared references.'
-
 function Test-DestinationRoot([string]$InstallRoot) {
     $Conflicts = 0
     $PriorRoot = Get-ReceiptRoot $InstallRoot
@@ -157,10 +196,10 @@ function Test-DestinationRoot([string]$InstallRoot) {
             if ((Test-LinkPointsTo $Destination $SourceDir) -or (Test-RepairAuthorized $Destination $Skill.path $PriorRoot)) {
                 continue
             }
-            Write-Error "$($Skill.name): link points elsewhere: $Destination" -ErrorAction Continue
+            Write-Error "$($Skill.name): $Destination links to $(Get-LinkTarget $Destination); expected $SourceDir. See docs/installation.md." -ErrorAction Continue
             $Conflicts++
         } else {
-            Write-Error "$($Skill.name): real file/directory exists: $Destination" -ErrorAction Continue
+            Write-Error "$($Skill.name): $Destination is a real file/directory; expected a link to $SourceDir. See docs/installation.md." -ErrorAction Continue
             $Conflicts++
         }
     }
@@ -170,7 +209,8 @@ function Test-DestinationRoot([string]$InstallRoot) {
 if (-not $Uninstall) {
     . (Join-Path $RepoRoot 'scripts/retired-skills.ps1')
     Initialize-RetiredCleanup
-    Invoke-RetiredCleanup
+}
+if (-not ($Uninstall -or $RetireOnly)) {
     $DestinationConflicts = 0
     if ($Codex) { $DestinationConflicts += Test-DestinationRoot $CodexDir }
     if ($Claude) { $DestinationConflicts += Test-DestinationRoot $ClaudeDir }
@@ -178,6 +218,16 @@ if (-not $Uninstall) {
         throw "Installation stopped before SDD link changes: $DestinationConflicts conflict(s)"
     }
 }
+
+if ($CheckLocationsOnly) {
+    return [pscustomobject]@{ Source=$RepoRoot; Python=$PythonCommand; PythonPrefix=@($PythonPrefix) }
+}
+
+if (-not $Uninstall) {
+    Invoke-RetiredCleanup
+    if ($RetireOnly) { exit 0 }
+}
+Write-Host 'Validated 13 source skills and their shared references.'
 
 $script:Created = 0
 $script:AlreadyInstalled = 0
@@ -297,7 +347,7 @@ function Install-Root([string]$InstallRoot, [string]$ToolLabel) {
                 Remove-Item -LiteralPath $ReceiptPath -Force
             }
         }
-    } elseif ($script:PostFailures -eq 0) {
+    } elseif ($script:PostFailures -eq 0 -and $PriorRoot -cne $RepoRoot) {
         Set-Content -LiteralPath $ReceiptPath -Value $RepoRoot -Encoding UTF8
     }
 }
@@ -310,17 +360,24 @@ if ($PostFailures -ne 0) {
     exit 1
 }
 
-if (-not $Uninstall) {
-    $EvidenceArgs = @((Join-Path $RepoRoot 'scripts/evidence_setup.py'), 'ensure')
+if ($EvidenceRequested -and -not $Uninstall) {
+    $EvidenceArgs = @('-B', (Join-Path $RepoRoot 'scripts/evidence_setup.py'), 'ensure')
     if (-not [string]::IsNullOrWhiteSpace($EvidenceProject)) { $EvidenceArgs += @('--project', $EvidenceProject) }
     if ($EvidenceReconfigure) { $EvidenceArgs += '--reconfigure' }
     if ($EvidenceNonInteractive) { $EvidenceArgs += '--non-interactive' }
     & $PythonCommand @PythonPrefix @EvidenceArgs
-    if ($LASTEXITCODE -eq 2) {
+    if ($global:LASTEXITCODE -eq 2) {
         Write-Host 'Evidence storage setup is required; skill links are installed. Run scripts/evidence_setup.py wizard before managed evidence operations.'
-    } elseif ($LASTEXITCODE -ne 0) {
+    } elseif ($global:LASTEXITCODE -ne 0) {
         throw 'Evidence setup failed; skill links are installed but storage is not ready.'
     }
+}
+if (-not $Uninstall) {
+    $StatusArgs = @('-B', (Join-Path $RepoRoot 'scripts/installation_status.py'), '--root', $RepoRoot, '--exit-on-links')
+    if ($Codex) { $StatusArgs += @('--codex-dir', $CodexDir) }
+    if ($Claude) { $StatusArgs += @('--claude-dir', $ClaudeDir) }
+    & $PythonCommand @PythonPrefix @StatusArgs
+    if ($global:LASTEXITCODE -ne 0) { throw 'Installation report could not verify every selected link target.' }
     Write-Host 'Skills are linked to this clone. Use .\update.ps1 for updates and retirement cleanup.'
     Write-Host 'Codex normally discovers new skills automatically. Restart only if they do not appear.'
     Write-Host 'Claude Code reloads SKILL.md changes live; restart if its top-level skills directory was created during this session.'
