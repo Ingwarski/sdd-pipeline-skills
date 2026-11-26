@@ -213,10 +213,11 @@ function Test-DestinationRoot([string]$InstallRoot) {
             if ((Test-LinkPointsTo $Destination $SourceDir) -or (Test-RepairAuthorized $Destination $Skill.path $PriorRoot)) {
                 continue
             }
-            Write-Error "$($Skill.name): $Destination links to $(Get-LinkTarget $Destination); expected $SourceDir. See docs/installation.md." -ErrorAction Continue
+            # Windows PowerShell wraps Write-Error at spaces inside paths.
+            [Console]::Error.WriteLine("$($Skill.name): $Destination links to $(Get-LinkTarget $Destination); expected $SourceDir. See docs/installation.md.")
             $Conflicts++
         } else {
-            Write-Error "$($Skill.name): $Destination is a real file/directory; expected a link to $SourceDir. See docs/installation.md." -ErrorAction Continue
+            [Console]::Error.WriteLine("$($Skill.name): $Destination is a real file/directory; expected a link to $SourceDir. See docs/installation.md.")
             $Conflicts++
         }
     }
