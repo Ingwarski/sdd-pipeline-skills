@@ -27,12 +27,10 @@ retired_plan() {
   local root i
   retired_plan_root --source-root "$repo_root/skills"
   if [[ $want_codex -eq 1 ]]; then
-    retired_plan_root --registration "$codex_dir"
     retired_plan_root --source-root "$repo_root/.agents/skills"
     retired_plan_root --source-root "$repo_root/.codex/skills"
   fi
   if [[ $want_claude -eq 1 ]]; then
-    retired_plan_root --registration "$claude_dir"
     retired_plan_root --source-root "$repo_root/.claude/skills"
   fi
 
@@ -55,8 +53,31 @@ retired_plan() {
   done
 }
 
+# Consume the physical paths approved by the guard, in its documented role
+# order (source cleanup, legacy personal, former backups, explicit cleanup).
+retired_read_paths() {
+  local i
+  for ((i=0; i<retired_root_count-retired_extra_count; i++)); do
+    IFS= read -r 'retired_roots[i]'
+  done
+  for ((i=0; i<retired_backup_root_count; i++)); do
+    IFS= read -r 'retired_backup_roots[i]'
+  done
+  for ((i=retired_root_count-retired_extra_count; i<retired_root_count; i++)); do
+    IFS= read -r 'retired_roots[i]'
+  done
+  if [[ $want_codex -eq 1 ]]; then
+    retired_roots[retired_root_count]=$codex_dir
+    retired_root_count=$((retired_root_count + 1))
+  fi
+  if [[ $want_claude -eq 1 ]]; then
+    retired_roots[retired_root_count]=$claude_dir
+    retired_root_count=$((retired_root_count + 1))
+  fi
+}
+
 retired_prepare() {
-  local name i policy
+  local name policy
   [[ -f "$retired_policy" && ! -L "$retired_policy" ]] || {
     printf 'Missing retirement policy.\n' >&2; return 1;
   }
@@ -68,13 +89,6 @@ retired_prepare() {
     if manifest_entries | awk -F '|' -v name="$name" '$1==name {found=1} END {exit !found}'; then
       printf 'Retired skill is still active: %s\n' "$name" >&2; return 1
     fi
-  done
-  # Use the same physical paths as preflight when matching old backup markers.
-  for ((i=0; i<retired_root_count; i++)); do
-    retired_roots[i]=$(retired_normalize "${retired_roots[i]}") || return 1
-  done
-  for ((i=0; i<retired_backup_root_count; i++)); do
-    retired_backup_roots[i]=$(retired_normalize "${retired_backup_roots[i]}") || return 1
   done
 }
 

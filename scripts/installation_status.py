@@ -90,7 +90,7 @@ def main():
             raise ValueError("provide --skill-root or --installer-args")
         report = inspect(args.root, roots, cleanup, project, args.evidence_home,
                          {directory: agent for agent, directory in selected.items()})
-        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print(json.dumps(report, indent=2))
         return 0 if report["links_result" if args.exit_on_links else "result"] == "current" else 1
     except (OSError, ValueError, TypeError) as error:
         print(json.dumps({"result": "blocked", "error": str(error)}))

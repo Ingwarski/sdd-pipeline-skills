@@ -6,9 +6,9 @@ Immutable history publication requires filesystem support for atomic exclusive r
 
 ## Guarded entry point
 
-Supply **one absolute destination** for the permanent source checkout. Choose its exact path even when the agent is running inside a product. For example, `Projects/Bookstore` and `Projects/SDD Pipeline Skills` can be siblings under an ordinary collection. A product root, an empty child anywhere inside it, a Git worktree, or a path that resolves into one through a symlink or Windows junction will be refused. Identifiable non-Git products also count. A fresh destination may be absent or an existing directory with zero entries, including hidden files.
+Supply **one absolute destination** for the permanent source checkout. Choose its exact path even when the agent is running inside a product. For example, `Projects/Bookstore` and `Projects/SDD Pipeline Skills` can be siblings under an ordinary collection. A product root, an empty child anywhere inside it, a Git worktree, or a path that resolves into one through a symlink or Windows junction will be refused. The guard recognizes non-Git products through code, build and SDD files. For a known product without recognizable markers, such as an asset collection, set `SDD_PRODUCT_ROOT` to its absolute path. A fresh destination may be absent or an existing directory with zero entries, including hidden files.
 
-Select `bootstrap` for a fresh destination or `update` for an existing standalone checkout. Both commands use the same file downloaded from the **exact official revision**. In the examples replace the sample destination with your own absolute path. Run the block from any working directory. The temporary file contains only the bootstrap program. If the selected release does not contain it, wait for an appropriate release.
+Select `bootstrap` for a fresh destination or `update` for an existing standalone checkout. Both commands use the same file downloaded from the **exact official revision**. In the examples replace the sample destination with your own absolute path. Run the block from any working directory. The examples download the complete bootstrap into memory before running it with isolated Python. If the selected release does not contain it, wait for an appropriate release.
 
 ### macOS or Linux
 
@@ -21,12 +21,9 @@ Select `bootstrap` for a fresh destination or `update` for an existing standalon
   ref=$(git ls-remote --exit-code "$origin" refs/heads/stable)
   revision=${ref%%[[:space:]]*}
   [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
-  script=$(mktemp "${TMPDIR:-/tmp}/sdd-bootstrap.XXXXXXXX")
-  trap 'rm -f -- "$script"' EXIT
-  curl --fail --silent --show-error --location \
-    "https://raw.githubusercontent.com/Ingwarski/sdd-pipeline-skills/$revision/scripts/install_location.py" \
-    --output "$script"
-  python3 -B "$script" "$operation" --destination "$destination" --revision "$revision" --channel stable
+  url="https://raw.githubusercontent.com/Ingwarski/sdd-pipeline-skills/$revision/scripts/install_location.py"
+  guard=$(curl --fail --silent --show-error --location "$url")
+  printf '%s\n' "$guard" | python3 -I -B - "$operation" --destination "$destination" --revision "$revision" --channel stable
 )
 ```
 
@@ -41,14 +38,16 @@ if ($LASTEXITCODE -ne 0 -or $ref -notmatch '^([0-9a-f]{40})\s+refs/heads/stable$
     throw 'Could not resolve the official stable revision.'
 }
 $revision = $Matches[1]
-$scriptFile = [System.IO.Path]::GetTempFileName()
+$url = "https://raw.githubusercontent.com/Ingwarski/sdd-pipeline-skills/$revision/scripts/install_location.py"
+$guard = (Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri $url).Content
+if ($guard -is [byte[]]) { $guard = [Text.Encoding]::UTF8.GetString($guard) }
+$previousEncoding = $OutputEncoding
 try {
-    $url = "https://raw.githubusercontent.com/Ingwarski/sdd-pipeline-skills/$revision/scripts/install_location.py"
-    Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri $url -OutFile $scriptFile
-    python -B $scriptFile $operation --destination $destination --revision $revision --channel stable
+    $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $guard | python -I -B - $operation --destination $destination --revision $revision --channel stable
     if ($LASTEXITCODE -ne 0) { throw "SDD $operation exited with code $LASTEXITCODE." }
 } finally {
-    Remove-Item -LiteralPath $scriptFile
+    $OutputEncoding = $previousEncoding
 }
 ```
 

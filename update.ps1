@@ -33,7 +33,11 @@ foreach ($Key in $PSBoundParameters.Keys) {
 $Preflight = & (Join-Path $RepoRoot 'install.ps1') @InstallArgs -CheckLocationsOnly -Repair
 $RepoRoot = $Preflight.Source
 $Prefix = $Preflight.PythonPrefix
-& $Preflight.Python @Prefix -B (Join-Path $RepoRoot 'scripts/install_location.py') advance --source $RepoRoot --channel $Channel
+$AdvanceArgs = @('-B', (Join-Path $RepoRoot 'scripts/install_location.py'), 'advance', '--source', $RepoRoot, '--channel', $Channel)
+if ($Preflight.Registrations.ContainsKey('CodexDir')) { $AdvanceArgs += @('--codex-dir', $Preflight.Registrations.CodexDir) }
+if ($Preflight.Registrations.ContainsKey('ClaudeDir')) { $AdvanceArgs += @('--claude-dir', $Preflight.Registrations.ClaudeDir) }
+foreach ($Key in $Preflight.Registrations.Keys) { $InstallArgs[$Key] = $Preflight.Registrations[$Key] }
+& $Preflight.Python @Prefix @AdvanceArgs
 if ($global:LASTEXITCODE -ne 0) { throw "Update refused for $RepoRoot on $Channel. See the path and revision details above." }
 
 # Re-run the installer from the selected revision. Current links and receipts

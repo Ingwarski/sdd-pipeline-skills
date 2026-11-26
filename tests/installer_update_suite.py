@@ -31,7 +31,9 @@ class UpdaterTests(unittest.TestCase):
             git(self.root, "config", "--file", str(config), "--add",
                 "url." + self.remote.as_uri() + ".insteadOf", origin)
         self.trace = personal / "update.trace"
-        self.environment = dict(os.environ, HOME=str(personal), USERPROFILE=str(personal),
+        isolated = {key: value for key, value in os.environ.items()
+                    if not key.startswith(("GIT_", "SDD_", "CODEX_", "CLAUDE_"))}
+        self.environment = dict(isolated, HOME=str(personal), USERPROFILE=str(personal),
                                 LOCALAPPDATA=str(personal / "local"), APPDATA=str(personal / "roaming"),
                                 SDD_EVIDENCE_HOME=str(self.evidence), SDD_SKILL_BACKUP_DIR=str(personal / "old-backups"),
                                 CODEX_SKILLS_DIR=str(self.codex), CLAUDE_SKILLS_DIR=str(self.claude),
@@ -48,7 +50,7 @@ class UpdaterTests(unittest.TestCase):
             # -Command supplies actual named parameters; string-array splatting
             # in a PS script would bind these flags as positional arguments.
             command = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
-                       "$script:LASTEXITCODE = 0; & $env:SDD_TEST_UPDATER " +
+                       "$ErrorActionPreference = 'Stop'; $script:LASTEXITCODE = 0; & $env:SDD_TEST_UPDATER " +
                        " ".join(flags.get(arg, arg) for arg in arguments) + "; exit $global:LASTEXITCODE"]
         else:
             command = ["/bin/bash", str(self.source / "update.sh"), *arguments]
@@ -75,7 +77,8 @@ class UpdaterTests(unittest.TestCase):
     def test_update(self):
         # The initial remote has only main. Students request stable by default.
         before = self.head()
-        self.assertIn("stable", self.update("--codex", success=False).lower())
+        self.update("--codex", success=False)
+        self.assertIn("refs/heads/stable", self.trace.read_text(errors="replace"))
         self.assertEqual(before, self.head())
         self.assertFalse(self.codex.exists())
 
@@ -152,6 +155,17 @@ class UpdaterTests(unittest.TestCase):
         self.update("--all", success=False)
         self.assertEqual(maintenance_head, self.head())
         self.assertTrue((self.source / "unverified.txt").is_file())
+
+        # Unpublished personal commits remain intact and are refused before remote I/O.
+        local = self.source / "local-commit.txt"
+        local.write_text("work owned by the student")
+        git(self.source, "add", "--", local.name)
+        git(self.source, "-c", "user.name=Student", "-c", "user.email=student@example.invalid",
+            "commit", "--quiet", "-m", "Student work")
+        self.assert_local_refusal("origin")
+        self.assertEqual("work owned by the student", local.read_text())
+        git(self.source, "branch", "-m", "preserved-student-work")
+        git(self.source, "switch", "--quiet", "-c", "main", maintenance_head.decode().strip())
 
         # A diverged stable branch also cannot replace this maintenance checkout.
         git(self.publisher, "switch", "--quiet", "-c", "other-release", "HEAD~1")

@@ -40,6 +40,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated checkout.' }
     $env:USERPROFILE = Join-Path $TestRoot 'test-home'
     New-Item -ItemType Directory -Path $env:USERPROFILE | Out-Null
+    $ChildHome = & powershell -NoProfile -NonInteractive -Command '$HOME'
+    Assert-True ($LASTEXITCODE -eq 0 -and $ChildHome -eq $env:USERPROFILE) 'Retirement test requires a disposable PowerShell home.'
     $env:SDD_EVIDENCE_HOME = Join-Path $TestRoot 'evidence-machine-state'
     foreach ($Directory in @($CodexDir, $ClaudeDir, $History, (Join-Path $TestRoot 'external'))) {
         New-Item -ItemType Directory -Path $Directory -Force | Out-Null

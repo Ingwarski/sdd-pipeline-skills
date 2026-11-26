@@ -12,6 +12,8 @@ repair=0
 uninstall=0
 retire_only=0
 check_locations_only=0
+advance_channel=""
+next_args=(--repair)
 codex_dir=""
 claude_dir=""
 codex_dir_explicit=0
@@ -69,6 +71,11 @@ while [[ $# -gt 0 ]]; do
       uninstall=1
       shift
       ;;
+    --advance-channel)
+      [[ $# -ge 2 && ( "$2" == stable || "$2" == main ) && -z "$advance_channel" ]] || exit 2
+      advance_channel=$2
+      shift 2
+      ;;
     --check-locations-only)
       check_locations_only=1
       shift
@@ -78,17 +85,15 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --evidence-project)
-      [[ $# -ge 2 && "$2" == /* ]] || { printf 'An absolute --evidence-project path is required.\n' >&2; exit 2; }
+      [[ $# -ge 2 && "$2" == /* && -z "$evidence_project" ]] || { printf 'An absolute --evidence-project path is required.\n' >&2; exit 2; }
       evidence_project=$2
+      evidence_project_index=$((${#evidence_args[@]} + 1))
       evidence_args+=(--project "$2")
       shift 2
       ;;
-    --evidence-reconfigure)
-      evidence_args+=(--reconfigure)
-      shift
-      ;;
-    --evidence-non-interactive)
-      evidence_args+=(--non-interactive)
+    --evidence-reconfigure|--evidence-non-interactive)
+      evidence_args+=("--${1#--evidence-}")
+      next_args+=("$1")
       shift
       ;;
     --codex-dir)
@@ -124,6 +129,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$advance_channel" && ( $repair -eq 0 || $uninstall -eq 1 || $retire_only -eq 1 || $check_locations_only -eq 1 ) ]]; then
+  printf '%s\n' 'Use update.sh to advance a verified standalone checkout.' >&2
+  exit 2
+fi
 if [[ $repair -eq 1 && $uninstall -eq 1 ]]; then
   printf '%s\n' '--repair and --uninstall cannot be used together.' >&2
   exit 2
@@ -163,29 +172,42 @@ manifest_entries() {
   printf '%s\n' "$validated_manifest_rows"
 }
 
-if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
+if ! command -v python3 >/dev/null 2>&1 || ! python3 -B -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
   printf '%s\n' 'Python 3.12+ is required. Install Python 3, then rerun; no installation changes made.' >&2
   exit 1
 fi
 location_args=(--source "$repo_root")
-status_args=(--root "$repo_root" --exit-on-links)
-[[ $want_codex -eq 0 ]] || status_args+=(--codex-dir "$codex_dir")
-[[ $want_claude -eq 0 ]] || status_args+=(--claude-dir "$claude_dir")
-if [[ $uninstall -eq 1 ]]; then
-  [[ $want_codex -eq 0 ]] || location_args+=(--registration "$codex_dir")
-  [[ $want_claude -eq 0 ]] || location_args+=(--registration "$claude_dir")
-else
+[[ $want_codex -eq 0 ]] || location_args+=(--registration "$codex_dir")
+[[ $want_claude -eq 0 ]] || location_args+=(--registration "$claude_dir")
+if [[ $uninstall -eq 0 ]]; then
   source "$repo_root/scripts/retired-skills.sh"
   retired_plan
 fi
 if [[ $uninstall -eq 0 && $retire_only -eq 0 && ${#evidence_args[@]} -gt 0 ]]; then
   location_args+=(--evidence-home "${SDD_EVIDENCE_HOME:-$HOME/.sdd-pipeline/evidence}")
-  if [[ -n "$evidence_project" ]]; then
-    location_args+=(--evidence-project "$evidence_project")
-    status_args+=(--project "$evidence_project")
-  fi
+  [[ -z "$evidence_project" ]] || location_args+=(--evidence-project "$evidence_project")
 fi
-python3 -B "$repo_root/scripts/install_location.py" "${location_args[@]}" >/dev/null
+checked_paths=$(python3 -B "$repo_root/scripts/install_location.py" --print-paths "${location_args[@]}")
+{
+  IFS= read -r repo_root
+  [[ $want_codex -eq 0 ]] || IFS= read -r codex_dir
+  [[ $want_claude -eq 0 ]] || IFS= read -r claude_dir
+  [[ $uninstall -eq 1 ]] || retired_read_paths
+  if [[ $uninstall -eq 0 && $retire_only -eq 0 && ${#evidence_args[@]} -gt 0 ]]; then
+    IFS= read -r SDD_EVIDENCE_HOME
+    export SDD_EVIDENCE_HOME
+    if [[ -n "$evidence_project" ]]; then
+      IFS= read -r evidence_project
+      # The parser accepts --evidence-project once. Bind its physical value.
+      evidence_args[evidence_project_index]=$evidence_project
+    fi
+  fi
+} <<< "$checked_paths"
+registration_args=()
+[[ $want_codex -eq 0 ]] || registration_args+=(--codex-dir "$codex_dir")
+[[ $want_claude -eq 0 ]] || registration_args+=(--claude-dir "$claude_dir")
+status_args=(--root "$repo_root" --exit-on-links "${registration_args[@]}")
+[[ -z "$evidence_project" ]] || status_args+=(--project "$evidence_project")
 manifest_args=(--root "$repo_root")
 [[ $retire_only -eq 0 ]] || manifest_args+=(--metadata-only)
 # Capture success before using rows: process substitutions can hide parser errors.
@@ -260,6 +282,13 @@ if [[ $uninstall -eq 0 && $retire_only -eq 0 ]]; then
 fi
 
 [[ $check_locations_only -eq 0 ]] || exit 0
+if [[ -n "$advance_channel" ]]; then
+  python3 -B "$repo_root/scripts/install_location.py" advance --source "$repo_root" --channel "$advance_channel" "${registration_args[@]}"
+  [[ $want_codex -eq 0 ]] || next_args+=(--codex)
+  [[ $want_claude -eq 0 ]] || next_args+=(--claude)
+  [[ -z "$evidence_project" ]] || next_args+=(--evidence-project "$evidence_project")
+  exec bash "$repo_root/install.sh" "${next_args[@]}" "${registration_args[@]}"
+fi
 
 if [[ $uninstall -eq 0 ]]; then
   retired_apply

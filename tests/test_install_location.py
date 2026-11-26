@@ -42,6 +42,16 @@ def inventory(root, exclude=()):
 
 
 class InstallationLocationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        snapshot = tempfile.TemporaryDirectory(prefix="sdd-test-release-")
+        cls.addClassCleanup(snapshot.cleanup)
+        cls.release = Path(snapshot.name) / "candidate.git"
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_ALLOW_PROTOCOL="file")
+        subprocess.run(["git", "clone", "--quiet", "--bare", "--single-branch", "--no-tags",
+                        "--no-local", str(ROOT), str(cls.release)], env=env, check=True)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="sdd-location-")
         self.addCleanup(self.temp.cleanup)
@@ -71,7 +81,7 @@ class InstallationLocationTests(unittest.TestCase):
         # Keep the publisher, the downloaded one-file entry point, and its Git config
         # outside the inventoried client. No caller credential or external remote is used.
         self.remote = temp / "publisher.git"
-        self.git("clone", "--quiet", "--bare", "--single-branch", "--no-tags", "--no-local", str(ROOT), str(self.remote))
+        self.git("clone", "--quiet", "--bare", str(self.release), str(self.remote))
         self.sha = self.git("--git-dir", str(self.remote), "rev-parse", "HEAD")
         self.publish(self.sha)
         self.git("config", "--global", "url." + self.remote.as_uri() + ".insteadOf", OFFICIAL)
@@ -99,10 +109,10 @@ class InstallationLocationTests(unittest.TestCase):
             self.git("--git-dir", str(self.remote), "update-ref", f"refs/heads/{branch}", sha)
         self.git("--git-dir", str(self.remote), "symbolic-ref", "HEAD", "refs/heads/main")
 
-    def run_client(self, args, **env):
+    def run_client(self, args, *, stdin="\n", **env):
         return subprocess.run(
             [str(a) for a in args], cwd=self.product, env={**self.env, **env},
-            input="\n", capture_output=True, text=True, errors="replace", timeout=120,
+            input=stdin, capture_output=True, text=True, errors="replace", timeout=120,
         )
 
     def git(self, *args):
@@ -110,10 +120,13 @@ class InstallationLocationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
-    def bootstrap(self, destination=None, *, operation="bootstrap", revision=None, extra=(), **env):
-        return self.run_client([sys.executable, "-B", self.bootstrap_script, operation, "--destination",
-                                destination or self.destination, "--revision", revision or self.sha,
-                                "--channel", "stable", *extra], **env)
+    def bootstrap(self, destination=None, *, operation="bootstrap", revision=None, extra=(), via_stdin=False, **env):
+        args = [operation, "--destination", destination or self.destination,
+                "--revision", revision or self.sha, "--channel", "stable", *extra]
+        if via_stdin:
+            program = self.bootstrap_script.read_text(encoding="utf-8")
+            return self.run_client([sys.executable, "-I", "-B", "-", *args], stdin=program, **env)
+        return self.run_client([sys.executable, "-B", self.bootstrap_script, *args], **env)
 
     def clone(self, destination=None):
         self.git("clone", "--quiet", "--branch", "main", OFFICIAL, str(destination or self.destination))
@@ -202,12 +215,12 @@ class InstallationLocationTests(unittest.TestCase):
         (self.home / "src").mkdir()
         allowed = (self.destination, self.codex, self.claude)
         before = inventory(self.client, exclude=allowed)
-        self.assert_success(self.bootstrap(), ("codex", "claude"))
+        self.assert_success(self.bootstrap(via_stdin=True), ("codex", "claude"))
         self.assert_inventory(before, inventory(self.client, exclude=allowed))
 
     def test_absent_destination_single_agent(self):
         before = inventory(self.claude)
-        self.assert_success(self.bootstrap(extra=("--agent", "codex")), ("codex",))
+        self.assert_success(self.bootstrap(extra=("--agent", "codex"), SDD_PRODUCT_ROOT=str(self.product)), ("codex",))
         self.assert_inventory(before, inventory(self.claude))
 
     def test_linked_standalone_collection_reports_physical_checkout(self):
@@ -231,6 +244,12 @@ class InstallationLocationTests(unittest.TestCase):
         (product / "pyproject.toml").write_text('[project]\nname = "student"\n')
         self.assert_refusal(lambda: self.bootstrap(child), product, child)
 
+        assets = self.projects / "Unversioned photo product"
+        empty = assets / "empty"
+        empty.mkdir(parents=True)
+        (assets / "catalog.csv").write_text("name,filename\nOriginal,photo.jpg\n")
+        self.assert_refusal(lambda: self.bootstrap(empty, SDD_PRODUCT_ROOT=str(assets)), assets, empty)
+
     def test_hidden_only_destination_and_invalid_release(self):
         self.destination.mkdir()
         (self.destination / ".keep").touch()
@@ -244,6 +263,9 @@ class InstallationLocationTests(unittest.TestCase):
     def test_environment_registration_rejected_before_clone(self):
         local = self.product / ".agents/skills"
         self.assert_refusal(lambda: self.bootstrap(CODEX_SKILLS_DIR=str(local)), self.product, local)
+        scratch = self.product / "scratch"
+        scratch.mkdir()
+        self.assert_refusal(lambda: self.bootstrap(TMPDIR=str(scratch)), self.product, scratch)
 
     def test_install_repair_launchers_and_update_refuse_product_local_registration(self):
         self.clone()
@@ -261,6 +283,7 @@ class InstallationLocationTests(unittest.TestCase):
                 self.assert_refusal(lambda: self.native(operation, *flags, **env), self.product, local)
         codex_home = self.product / "codex home"
         self.assert_refusal(lambda: self.native("install", CODEX_HOME=str(codex_home)), self.product)
+        self.assert_refusal(lambda: self.native("install", CLAUDE_CONFIG_DIR=str(self.product)), self.product)
         self.assert_refusal(lambda: self.bootstrap(operation="update", CODEX_SKILLS_DIR=str(local)),
                             self.product, local)
 
@@ -280,6 +303,34 @@ class InstallationLocationTests(unittest.TestCase):
         self.assert_refusal(lambda: self.native("install", "--evidence-non-interactive",
                                                 SDD_EVIDENCE_HOME=str(dangerous_evidence_home)),
                             self.product, dangerous_evidence_home)
+
+    def test_foreign_skill_link_blocks_clone_install_and_update_before_retirement(self):
+        skill = "to-sdd-prd"
+        foreign = self.product / "third party skill"
+        foreign.mkdir()
+        (foreign / "SKILL.md").write_bytes(b"Student's existing skill")
+        link = self.claude / skill
+        self.link_directory(link, foreign)
+        expected = self.destination / "skills" / skill
+        self.assert_refusal(self.bootstrap, link, foreign, expected)
+        self.clone()
+        for operation in ("install", "update"):
+            with self.subTest(operation=operation):
+                self.assert_refusal(lambda: self.native(operation), link, foreign, expected)
+
+    def test_ignored_product_files_block_install_and_update(self):
+        self.clone()
+        project = self.destination / "student application"
+        project.mkdir()
+        manifest = project / "pyproject.toml"
+        manifest.write_text('[project]\nname = "mixed-in"\n')
+        with (self.destination / ".git/info/exclude").open("a") as stream:
+            stream.write("\n/student application/\n")
+        relative = manifest.relative_to(self.destination).as_posix()
+        self.assertEqual(self.git("-C", str(self.destination), "check-ignore", "--", relative), relative)
+        for operation in ("install", "update"):
+            with self.subTest(operation=operation):
+                self.assert_refusal(lambda: self.native(operation), self.destination, project)
 
     def test_nested_official_clone_and_mixed_source_block_before_mutation(self):
         nested = self.product / "actual SDD clone"

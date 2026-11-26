@@ -86,7 +86,7 @@ if ([string]::IsNullOrWhiteSpace($ClaudeDir)) {
 $SourceCleanupRoots = @()
 $LegacyPersonalRoots = @()
 $BackupRoots = @()
-$GuardArgs = @('-X', 'utf8', '-B', (Join-Path $RepoRoot 'scripts/install_location.py'), '--source', $RepoRoot)
+$GuardArgs = @('-X', 'utf8', '-B', (Join-Path $RepoRoot 'scripts/install_location.py'), '--source', $RepoRoot, '--print-paths')
 if ($Codex) { $GuardArgs += @('--registration', $CodexDir) }
 if ($Claude) { $GuardArgs += @('--registration', $ClaudeDir) }
 if (-not $Uninstall) {
@@ -109,7 +109,8 @@ if ($RetireOnly) {
     foreach ($Root in ($LegacyPersonalRoots + $BackupRoots)) { $GuardArgs += @('--personal-root', $Root) }
     foreach ($Root in $CleanupDir) { $GuardArgs += @('--cleanup-dir', $Root) }
 }
-if ($EvidenceRequested -and -not ($RetireOnly -or $Uninstall)) {
+$GuardEvidence = $EvidenceRequested -and -not ($RetireOnly -or $Uninstall)
+if ($GuardEvidence) {
     $EvidenceHome = if ($env:SDD_EVIDENCE_HOME) { $env:SDD_EVIDENCE_HOME } else { Join-Path $PersonalHome '.sdd-pipeline/evidence' }
     $GuardArgs += @('--evidence-home', $EvidenceHome)
     if ($EvidenceProject) { $GuardArgs += @('--evidence-project', $EvidenceProject) }
@@ -118,12 +119,24 @@ if ($EvidenceRequested -and -not ($RetireOnly -or $Uninstall)) {
 $PreviousEncoding = [Console]::OutputEncoding
 try {
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
-    $PhysicalRoot = & $PythonCommand @PythonPrefix @GuardArgs
+    $PhysicalPaths = @(& $PythonCommand @PythonPrefix @GuardArgs)
     if ($global:LASTEXITCODE -ne 0) { throw "Location preflight refused $RepoRoot. See the conflicting paths above and docs/installation.md." }
 } finally {
     [Console]::OutputEncoding = $PreviousEncoding
 }
-$RepoRoot = $PhysicalRoot
+# Use the verified physical paths for each later operation, even if the agent
+# originally selected a junction. The guard returns groups in the order below.
+$Pinned = [System.Collections.Generic.Queue[string]]::new([string[]]$PhysicalPaths)
+$RepoRoot = $Pinned.Dequeue()
+if ($Codex) { $CodexDir = $Pinned.Dequeue() }
+if ($Claude) { $ClaudeDir = $Pinned.Dequeue() }
+foreach ($Group in ($SourceCleanupRoots, $LegacyPersonalRoots, $BackupRoots, $CleanupDir)) {
+    for ($i = 0; $i -lt $Group.Length; $i++) { $Group[$i] = $Pinned.Dequeue() }
+}
+if ($GuardEvidence) {
+    $EvidenceHome = $Pinned.Dequeue()
+    if ($EvidenceProject) { $EvidenceProject = $Pinned.Dequeue() }
+}
 
 $ParserArgs = @('-B', (Join-Path $RepoRoot 'scripts/install_manifest.py'), '--root', $RepoRoot)
 if ($RetireOnly) { $ParserArgs += '--metadata-only' }
@@ -142,7 +155,11 @@ function Normalize-Path([string]$Path) {
 }
 
 function Get-InstallItem([string]$Path) {
-    return (Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue)
+    try { return Get-Item -LiteralPath $Path -Force -ErrorAction Stop }
+    catch {
+        if ($_.CategoryInfo.Category -eq 'ObjectNotFound') { return $null }
+        throw
+    }
 }
 
 function Get-LinkTarget([string]$Path) {
@@ -168,7 +185,7 @@ function Test-LinkPointsTo([string]$Path, [string]$ExpectedTarget) {
 function Get-ReceiptRoot([string]$InstallRoot) {
     $ReceiptPath = Join-Path $InstallRoot $ReceiptName
     if (Test-Path -LiteralPath $ReceiptPath -PathType Leaf) {
-        return (Get-Content -LiteralPath $ReceiptPath -TotalCount 1).Trim()
+        return ([string](Get-Content -LiteralPath $ReceiptPath -TotalCount 1)).Trim()
     }
     return ''
 }
@@ -220,7 +237,10 @@ if (-not ($Uninstall -or $RetireOnly)) {
 }
 
 if ($CheckLocationsOnly) {
-    return [pscustomobject]@{ Source=$RepoRoot; Python=$PythonCommand; PythonPrefix=@($PythonPrefix) }
+    $Selected = @{}
+    if ($Codex) { $Selected['CodexDir'] = $CodexDir }
+    if ($Claude) { $Selected['ClaudeDir'] = $ClaudeDir }
+    return [pscustomobject]@{ Source=$RepoRoot; Python=$PythonCommand; PythonPrefix=@($PythonPrefix); Registrations=$Selected }
 }
 
 if (-not $Uninstall) {
@@ -362,6 +382,7 @@ if ($PostFailures -ne 0) {
 
 if ($EvidenceRequested -and -not $Uninstall) {
     $EvidenceArgs = @('-B', (Join-Path $RepoRoot 'scripts/evidence_setup.py'), 'ensure')
+    $EvidenceArgs += @('--evidence-home', $EvidenceHome)
     if (-not [string]::IsNullOrWhiteSpace($EvidenceProject)) { $EvidenceArgs += @('--project', $EvidenceProject) }
     if ($EvidenceReconfigure) { $EvidenceArgs += '--reconfigure' }
     if ($EvidenceNonInteractive) { $EvidenceArgs += '--non-interactive' }
@@ -374,6 +395,8 @@ if ($EvidenceRequested -and -not $Uninstall) {
 }
 if (-not $Uninstall) {
     $StatusArgs = @('-B', (Join-Path $RepoRoot 'scripts/installation_status.py'), '--root', $RepoRoot, '--exit-on-links')
+    if ($GuardEvidence) { $StatusArgs += @('--evidence-home', $EvidenceHome) }
+    if ($EvidenceProject) { $StatusArgs += @('--project', $EvidenceProject) }
     if ($Codex) { $StatusArgs += @('--codex-dir', $CodexDir) }
     if ($Claude) { $StatusArgs += @('--claude-dir', $ClaudeDir) }
     & $PythonCommand @PythonPrefix @StatusArgs
