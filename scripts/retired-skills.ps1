@@ -6,10 +6,6 @@ $script:RetiredBackupRoots = @()
 $script:RetiredRemoved = 0
 $script:RetiredBackupsRemoved = 0
 
-function Test-RetiredSddOrigin([string]$Origin) {
-    return $Origin -match '^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)ingwarski/(sdd-pipeline-skills|codex-skills)(\.git)?/?$'
-}
-
 function Get-RetiredItem([string]$Path) {
     try { return Get-Item -LiteralPath $Path -Force -ErrorAction Stop }
     catch {
@@ -49,32 +45,13 @@ function Initialize-RetiredCleanup {
     foreach ($Name in $script:RetiredNames) {
         if (@($Manifest.skills | Where-Object { $_.name -eq $Name }).Count -gt 0) { throw "Retired skill is still active: $Name" }
     }
-    Add-RetiredRoot (Join-Path $RepoRoot 'skills')
-    if ($Codex) {
-        Add-RetiredRoot $CodexDir
-        Add-RetiredRoot (Join-Path $RepoRoot '.agents/skills')
-        Add-RetiredRoot (Join-Path $RepoRoot '.codex/skills')
-        if (-not $CodexDirExplicit) {
-            Add-RetiredRoot (Join-Path $HOME '.agents/skills')
-            Add-RetiredRoot (Join-Path $HOME '.codex/skills')
-            if (-not [string]::IsNullOrWhiteSpace($env:CODEX_HOME)) { Add-RetiredRoot (Join-Path $env:CODEX_HOME 'skills') }
-        }
-    }
-    if ($Claude) {
-        Add-RetiredRoot $ClaudeDir
-        Add-RetiredRoot (Join-Path $RepoRoot '.claude/skills')
-    }
-    foreach ($Root in $CleanupDir) { Add-RetiredRoot (Get-RetiredAbsolutePath $Root) }
+    if ($Codex) { Add-RetiredRoot $CodexDir }
+    if ($Claude) { Add-RetiredRoot $ClaudeDir }
+    foreach ($Root in ($SourceCleanupRoots + $LegacyPersonalRoots + $CleanupDir)) { Add-RetiredRoot $Root }
     if ($RetiredSource.Count -gt 0) {
         Write-Host '-RetiredSource is no longer needed. Use -CleanupDir OLD_CLONE/skills to include another clone.'
     }
-    # Only inspect these locations for backups made by the former updater.
-    foreach ($Root in @((Join-Path $HOME '.sdd-pipeline/retired-skills'), $env:SDD_SKILL_BACKUP_DIR)) {
-        if (-not [string]::IsNullOrWhiteSpace($Root)) {
-            $Root = Get-RetiredAbsolutePath $Root
-            if ($script:RetiredBackupRoots -notcontains $Root) { $script:RetiredBackupRoots += $Root }
-        }
-    }
+    $script:RetiredBackupRoots = @($BackupRoots | ForEach-Object { Get-RetiredAbsolutePath $_ })
 }
 
 function Remove-RetiredTree([string]$Path) {

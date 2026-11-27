@@ -12,6 +12,10 @@ cleanup() {
   esac
 }
 trap cleanup EXIT
+fixture="$repo_root/tests/install_fixture.py"
+repo_root="$test_root/source"
+python3 "$fixture" create "$repo_root"
+repo_root=$(cd "$repo_root" && pwd -P)
 export SDD_EVIDENCE_HOME="$test_root/evidence-machine-state"
 
 codex_dir="$test_root/codex"
@@ -52,6 +56,8 @@ status_result=0
 status_report=$(python3 "$repo_root/scripts/installation_status.py" --root "$repo_root" --skill-root "$codex_dir" --skill-root "$claude_dir") || status_result=$?
 [[ $status_result -eq 1 ]]
 python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["links_result"] == "current"; assert value["result"] == "setup_required"' <<< "$status_report"
+[[ ! -e "$SDD_EVIDENCE_HOME" ]]
+"$repo_root/install.sh" --codex --codex-dir "$codex_dir" --evidence-non-interactive > /dev/null
 [[ -f "$SDD_EVIDENCE_HOME/setup-status.json" && ! -e "$SDD_EVIDENCE_HOME/default.json" ]]
 python3 "$repo_root/scripts/evidence_setup.py" configure --provider local > /dev/null
 python3 "$repo_root/scripts/installation_status.py" --root "$repo_root" --skill-root "$codex_dir" --skill-root "$claude_dir" > /dev/null

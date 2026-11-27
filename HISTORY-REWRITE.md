@@ -1,31 +1,30 @@
 # Move an existing installation to the current repository
 
-The current repository starts from one consolidated, tested SDD snapshot.
-Older clones have unrelated history. The updater deliberately refuses to merge
-or overwrite them. New installations use the normal installation guide.
+The current repository starts from one consolidated, tested SDD snapshot. Older
+clones with unrelated history need a separate new installation. A clean,
+compatible standalone checkout can use the [guarded update](docs/installation.md#guarded-entry-point),
+even if its own updater predates location checks.
 
-For an existing installation:
+1. Inventory the existing checkout, Git identity, hidden and untracked files,
+   registration roots, receipts and actual link targets. Make a private backup
+   that includes local work and Git metadata, and verify a restore to a different
+   directory. Keep old history and recovery bundles private.
+2. For a misplaced installation in a product or an ambiguous checkout, follow
+   [misplaced-installation recovery](docs/installation.md#recover-a-misplaced-installation)
+   with the owner. Quarantine only approved, individually identified accidental
+   additions. Preserve the product and all uncertain files.
+3. Select a new permanent **absolute path** outside all products and worktrees.
+   Use the official release's [guarded bootstrap](docs/installation.md#guarded-entry-point).
+   It checks the chosen location before cloning, pins the revision and
+   validates each selected personal registration root. If a former registration
+   conflicts, preserve the reported path and check its ownership against the
+   inventory before a separate repair.
+4. Verify the physical checkout, exact SHA, personal registration directories
+   and all 13 actual link targets and resources for each selected agent. Retain
+   the old installation privately until recovery is verified. Preserve local
+   customizations for separate review. Resume regular updates from the new
+   standalone checkout.
 
-1. Preserve uncommitted work and needed local changes privately before replacing
-   the old checkout. Do not upload old Git history or recovery bundles.
-2. Clone `https://github.com/Ingwarski/sdd-pipeline-skills.git` into a new durable
-   folder using the tested `stable` channel, then create the local `main` branch
-   as described in [installation](docs/installation.md).
-3. If local skill customizations are needed, review and transfer their file
-   changes individually onto the new checkout. Do not merge old branches, copy
-   an old `.git` directory, or push old tags. Exclude the retired personal skills
-   and their supporting content.
-4. Run the documented installer from the new durable checkout to reconnect the
-   SDD links in the selected agent installations. Verify all 13 exact targets and
-   their resources with `scripts/installation_status.py`.
-5. Disable pushing from the old checkout and retain it privately only while
-   needed for recovery. Resume normal updates from the new checkout.
-
-Existing product repositories, their work, approvals and test evidence remain
-intact. Skill installation does not migrate product records. The current SDD
-workflow handles migration and revalidation when a project is resumed within
-its existing authorization.
-
-Independent personal skills outside the SDD checkout are not distributed here.
-The installer continues to remove the two retired original invocation names
-from its explicitly managed roots while preserving unrelated personal names.
+The project workflow handles product migration and revalidation on authorized
+resume. Installing the skillset alone does not authorize moving project files,
+rewriting history or transferring local edits into the release checkout.

@@ -26,6 +26,10 @@ function Assert-UnrelatedPreserved {
 }
 
 try {
+    $Fixture = Join-Path $RepoRoot 'tests/install_fixture.py'
+    $RepoRoot = Join-Path $TestRoot 'source'
+    & python $Fixture create $RepoRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated checkout.' }
     $env:SDD_EVIDENCE_HOME = Join-Path $TestRoot 'evidence-machine-state'
     New-Item -ItemType Directory -Path $CodexDir -Force | Out-Null
     $UnrelatedPrd = Join-Path $ClaudeDir 'to-prd'
@@ -67,7 +71,9 @@ try {
     if ($LASTEXITCODE -ne 1) { throw 'Missing evidence setup must block full current status.' }
     $Status = ($StatusText -join "`n") | ConvertFrom-Json
     if ($Status.links_result -ne 'current' -or $Status.result -ne 'setup_required') { throw 'Exact links and missing setup were not distinguished.' }
-    if (-not (Test-Path -LiteralPath (Join-Path $env:SDD_EVIDENCE_HOME 'setup-status.json'))) { throw 'First install omitted the isolated setup-required state.' }
+    if (Test-Path -LiteralPath $env:SDD_EVIDENCE_HOME) { throw 'Installation wrote evidence state without an explicit request.' }
+    & (Join-Path $RepoRoot 'install.ps1') -Codex -CodexDir $CodexDir -EvidenceNonInteractive
+    if (-not (Test-Path -LiteralPath (Join-Path $env:SDD_EVIDENCE_HOME 'setup-status.json'))) { throw 'Explicit evidence setup omitted the setup-required state.' }
     & $TestPython @TestPythonPrefix (Join-Path $RepoRoot 'scripts/evidence_setup.py') configure --provider local | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Explicit isolated local evidence setup failed.' }
     & $TestPython @TestPythonPrefix @StatusArgs | Out-Null

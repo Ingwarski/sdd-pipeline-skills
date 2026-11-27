@@ -1,50 +1,73 @@
 # Installation, Updating and Cleanup
 
-Run commands from the durable SDD clone. Mutating installer/update work requires Python 3.12+; Python 3.14 is the recommended stable series under [runtime policy](../runtime-policy.json). Both installers and the checker use the standard library, with no additional Python packages or Node dependency. Missing Python or invalid sources/references stop before cleanup or link changes.
+Installation requires Git and Python 3.12+. Python 3.14 is the recommended stable series under the [runtime policy](../runtime-policy.json). The installer and checker use the standard library. The [copyable agent prompt](../INSTALL-OR-UPDATE-PROMPT.md) keeps a supported Python for an already-current installation and follows the existing official Python policy when an installation or update is needed.
 
 Immutable history publication requires filesystem support for atomic exclusive rename: Linux `renameat2`, macOS `renamex_np`, or Windows rename. An unsupported API or filesystem stops publication and preserves any existing record.
 
-For new installations, use `git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git`, then inside the clone `git switch -c main`. The local branch remains `main`; its selected remote channel is `stable`, the latest release that passed CI. Run the installer below. It creates links, never skill copies. Later use the updater: plain `git pull` does not perform retirement cleanup.
+## Guarded entry point
 
-### Agent-assisted installation or update
+Supply **one absolute destination** for the permanent source checkout. Choose its exact path even when the agent is running inside a product. For example, `Projects/Bookstore` and `Projects/SDD Pipeline Skills` can be siblings under an ordinary collection. A product root, an empty child anywhere inside it, a Git worktree, or a path that resolves into one through a symlink or Windows junction will be refused. The guard recognizes non-Git products through code, build and SDD files. For a known product without recognizable markers, such as an asset collection, set `SDD_PRODUCT_ROOT` to its absolute path. A fresh destination may be absent or an existing directory with zero entries, including hidden files.
 
-Paste the single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md) into a local file/terminal agent. It first checks revision, exact installed targets, packaged resources and Python support. A clean, current installation with supported Python skips reinstalling and upgrading Python; it still checks evidence setup and initializes only missing configuration with the user's selected policy. Necessary install/update work uses the latest official stable Python, without replacing the OS interpreter. Opening this repository alone does not authorize installation.
+Select `bootstrap` for a fresh destination or `update` for an existing standalone checkout. Both commands use the same file downloaded from the **exact official revision**. In the examples replace the sample destination with your own absolute path. Run the block from any working directory. The examples download the complete bootstrap into memory before running it with isolated Python. If the selected release does not contain it, wait for an appropriate release.
 
-macOS or Linux:
+### macOS or Linux
 
 ```bash
-./install.sh --all
+(
+  set -eu
+  destination="$HOME/Projects/SDD Pipeline Skills"
+  operation=bootstrap
+  origin=https://github.com/Ingwarski/sdd-pipeline-skills.git
+  ref=$(git ls-remote --exit-code "$origin" refs/heads/stable)
+  revision=${ref%%[[:space:]]*}
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+  url="https://raw.githubusercontent.com/Ingwarski/sdd-pipeline-skills/$revision/scripts/install_location.py"
+  guard=$(curl --fail --silent --show-error --location "$url")
+  printf '%s\n' "$guard" | python3 -I -B - "$operation" --destination "$destination" --revision "$revision" --channel stable
+)
 ```
 
-Windows PowerShell:
+### Windows PowerShell
 
 ```powershell
-.\install.ps1 -All
+$destination = Join-Path $HOME 'Projects\SDD Pipeline Skills'
+$operation = 'bootstrap'
+$origin = 'https://github.com/Ingwarski/sdd-pipeline-skills.git'
+$ref = git ls-remote --exit-code $origin refs/heads/stable
+if ($LASTEXITCODE -ne 0 -or $ref -notmatch '^([0-9a-f]{40})\s+refs/heads/stable$') {
+    throw 'Could not resolve the official stable revision.'
+}
+$revision = $Matches[1]
+$url = "https://raw.githubusercontent.com/Ingwarski/sdd-pipeline-skills/$revision/scripts/install_location.py"
+$guard = (Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri $url).Content
+if ($guard -is [byte[]]) { $guard = [Text.Encoding]::UTF8.GetString($guard) }
+$previousEncoding = $OutputEncoding
+try {
+    $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $guard | python -I -B - $operation --destination $destination --revision $revision --channel stable
+    if ($LASTEXITCODE -ne 0) { throw "SDD $operation exited with code $LASTEXITCODE." }
+} finally {
+    $OutputEncoding = $previousEncoding
+}
 ```
 
-Nontechnical users can double-click `Install Skills.command` on macOS or `Install Skills.cmd` on Windows. Both launch the same platform installer and install the complete 13-skill SDD set for local Codex and local Claude Code.
+The default registers both Codex and Claude Code. Add `--agent codex` or `--agent claude` to select one. Use `--codex-dir` or `--claude-dir` with an absolute personal skill directory to override discovery. The guard resolves the checkout and each registration root separately. A valid checkout paired with a project-local override is refused before cloning or modifying existing installations. Review the conflicting paths in the message. Leave any existing files in place and select a different path explicitly. For an earlier accidental installation, follow [recovery](#recover-a-misplaced-installation).
 
-The source of every link is always this repository clone. For example, if Windows cloned the repository to `C:\Users\Alex\Projects\sdd-pipeline-skills`, the Claude Code link is `%USERPROFILE%\.claude\skills\to-sdd-pipeline -> C:\Users\Alex\Projects\sdd-pipeline-skills\skills\to-sdd-pipeline`. Codex uses `$HOME/.agents/skills` by default. Existing installations that already use `$CODEX_HOME/skills` or the legacy `$HOME/.codex/skills` continue there. Override detection with `CODEX_SKILLS_DIR`, `CLAUDE_SKILLS_DIR`, `--codex-dir`/`--claude-dir`, or `-CodexDir`/`-ClaudeDir`.
+The supported workflow pins the commit, clones into the exact physical destination, uses local branch `main` and links the selected agents to that durable checkout. Keep the final report showing the physical checkout, full revision, each registration directory and the 13 resolved targets **per selected agent**. A skill count alone cannot identify a misplaced installation.
+
+## Registration and repair
+
+From a verified checkout containing the location guard, `./install.sh --all --repair` or `.\install.ps1 -All -Repair` repairs recorded links. The Install and Update launchers in that checkout call the guarded platform scripts. A standalone copy of a launcher or a launcher from an older release is unsuitable for bootstrapping a fresh checkout.
+
+The source of every link is always this repository clone. For example, if Windows cloned the repository to `C:\Users\Alex\Projects\sdd-pipeline-skills`, the Claude Code link is `%USERPROFILE%\.claude\skills\to-sdd-pipeline -> C:\Users\Alex\Projects\sdd-pipeline-skills\skills\to-sdd-pipeline`. Codex uses `$HOME/.agents/skills` by default. For Codex, an explicit directory takes precedence over `CODEX_SKILLS_DIR`, then `$CODEX_HOME/skills`. Without overrides, an existing `$HOME/.codex/skills` continues to serve a legacy installation when `$HOME/.agents/skills` is absent. For Claude Code, an explicit directory takes precedence over `CLAUDE_SKILLS_DIR`, then `$CLAUDE_CONFIG_DIR/skills`, then `$HOME/.claude/skills`. The platform installer flags are `--codex-dir` / `--claude-dir` or `-CodexDir` / `-ClaudeDir`.
 
 Windows first attempts a true directory symbolic link. When local policy blocks that operation, it creates an NTFS directory junction instead. Both remain links to the clone; neither copies skill contents.
 
-The installers validate the 13 sources, permanently remove the retired skills, then preflight active SDD destinations before changing SDD links. A real directory, file, or foreign link occupying an active SDD name is a conflict and is not overwritten. Retirement can therefore complete even if a separate SDD conflict blocks installation. `--repair`/`-Repair` replaces only previously recorded SDD links. `--uninstall`/`-Uninstall` removes only active SDD links owned by this clone; retirement applies to install, repair, and update.
+Before retirement or link changes, the installers validate the 13 sources and check active destinations for conflicts. A real directory, file or foreign link occupying an active SDD name stops installation and preserves the existing path. `--repair`/`-Repair` replaces only previously recorded SDD links. `--uninstall`/`-Uninstall` removes only active SDD links owned by this clone; retirement applies to install, repair, and update.
 
 Use `skills-manifest.json` from the selected revision for current installation names and paths. Its `legacy_name: "to-prd"` maps the old SDD request name to `name: "to-sdd-prd"`: the same PRD owner, not a different skill or a fourteenth entry. Agents must normalize an old SDD list before checking availability and continue without rename confirmation, even if no old `to-prd` is installed. Clarify genuinely unknown names or explicit no-renaming constraints; do not invent aliases.
 
 The canonical name allows third-party `to-prd` skills to coexist. The installer removes an old `to-prd` link/junction only when its target matches this clone or its recorded prior source; unrelated skills and unproven copies remain untouched. Do not create a second `to-prd` alias or change its third-party invocation. Installing skills does not authorize creating product documents or running the pipeline.
-
-Install only one local agent when needed:
-
-```bash
-./install.sh --codex
-./install.sh --claude
-```
-
-```powershell
-.\install.ps1 -Codex
-.\install.ps1 -Claude
-```
 
 Moving or deleting the clone breaks its links. Re-run the installer from the new clone with `--repair` or `-Repair`; the installer uses its prior source receipt to replace only links it owns. These personal filesystem links apply to local Codex and Claude Code sessions, not remote/cloud sessions that cannot read the user's local disk.
 
@@ -52,34 +75,22 @@ Moving or deleting the clone breaks its links. Re-run the installer from the new
 
 Clones from before the repository fresh start have unrelated history. Follow the [fresh-clone migration guide](../HISTORY-REWRITE.md); do not force a merge, reset the old clone or upload its history. The updater procedure below applies to a clone of the current repository.
 
-From local `main`, update to the latest tested release:
+For an existing standalone checkout on local `main`, change `operation=bootstrap` to `operation=update` (PowerShell: `$operation = 'update'`) in the [guarded entry point](#guarded-entry-point) and supply that checkout’s exact path. This also handles clean, compatible checkouts from before the location guard. On an already guarded release the in-checkout update commands are `./update.sh --channel stable --all` and `.\update.ps1 -Channel stable -All`.
 
-```bash
-./update.sh --all
-```
-
-```powershell
-.\update.ps1 -All
-```
-
-Omitting the channel, including the double-click launchers, selects `stable`. Explicit `--channel stable` / `-Channel stable` is equivalent. `main` is an explicit override for skillset maintenance or testing; it may contain changes whose CI has not finished and is not the project-workflow default.
-For setup, migration from an older clone or a regular agent-run update, use the
-single [install-or-update prompt](../INSTALL-OR-UPDATE-PROMPT.md).
-
-The updater verifies the GitHub origin and `main` branch, permanently removes the
-two retired names, then checks for unrelated local edits or unpublished/diverging
-commits. It fast-forwards and runs the newly downloaded installer with repair
-enabled. Retirement can finish even if a later Git check stops the update. It does
-not reset Git history or discard unrelated work. Use
-`--codex` / `--claude` or `-Codex` / `-Claude` to select one agent.
+The updater preflights the source and selected personal roots before a Git update or retirement, then fast-forwards a verified checkout. Preserve local edits, unexpected hidden/untracked content and diverging commits for review. An unavailable channel is an error. Use `main` only when explicitly selected for skillset maintenance or testing.
 
 `stable` advances only after all content, Linux, macOS and Windows CI checks pass for the current `main` commit. Publication never force-pushes. If the channel is absent, unavailable, or behind/divergent from the local checkout, stop: do not silently fall back or downgrade.
 
 Updating the installed skillset does not scan or modify product repositories. When a project is next resumed for SDD work, the current workflow upgrades older records and reverifies existing work before continuing. It preserves product files, original records and approval boundaries; migration does not authorize new implementation or deployment. Follow the [completion-preservation procedure](../skills/to-sdd-pipeline/references/completion-preservation.md) in that project's context. This is separate from downloading a tested skillset release, and needs no version-choice question.
 
-Read-only local validation: run `python3 scripts/installation_status.py --root CLONE --skill-root CODEX_ROOT --skill-root CLAUDE_ROOT`, substituting discovered absolute paths and the detected Python executable. Add confirmed legacy/project roots via repeated `--cleanup-root`. It checks exact link/junction targets and recursively linked resources, not merely 13 existing SKILL.md files. Its `scope: local_installation` and `release_provenance: not_checked` remain explicit even when links and storage are `current`. Remote revision, clean Git state and Python support are separate checks; never interpret this helper alone as “up to date.”
+For a read-only report with named agent roots, run `python3 -B scripts/installation_status.py --root CLONE --codex-dir CODEX_ROOT --claude-dir CLAUDE_ROOT`, substituting discovered absolute paths and the detected Python executable. Add confirmed legacy/project roots via repeated `--cleanup-root`. It checks exact link/junction targets and recursively linked resources, not merely 13 existing SKILL.md files. Its `scope: local_installation` and `release_provenance: not_checked` remain explicit even when links and storage are `current`. Remote revision, clean Git state and Python support are separate checks; never interpret this helper alone as “up to date.”
 
-For old clones missing the helper/updater/channel option, a clean `git merge --ff-only FETCH_HEAD` after fetching `stable` bootstraps current tooling. If retired copies block that merge, use a full temporary checkout of the fetched revision only for its `--retire-only` / `-RetireOnly` installer, with explicit managed roots and the old clone's `skills/` as a cleanup root. Never install links from that temporary checkout or recreate deletion logic by hand. Unrelated changes still block updating; cleanup already performed is irreversible and must be reported.
+### Recover a misplaced installation
+
+1. Stop installation and scheduled updates. Record the product and checkout paths, each actual registration root and link target, any source receipts, Git top level and origin, and the installer transcript. Include hidden, ignored, untracked and staged files and any changes to ignore rules. On Windows record junction targets. A directory name or a clean Git status alone cannot establish ownership.
+2. Before repair, make a private backup outside the affected locations. Preserve product files, hidden entries, links as links, local work and Git metadata, including any external worktree or common Git directory. Restore it to a separate folder and compare the inventory, contents and link targets.
+3. Review an exact list of proven accidental additions with the owner. Only after approval, quarantine those specific entries intact at unused paths outside all projects. Record original and quarantine paths. Keep ambiguous or overwritten files for review against a trusted pre-install copy. An existing installation is never a reason to empty a folder or run recursive project cleanup.
+4. Recheck the product inventory including hidden and untracked files, known product history, personal registrations and ordinary product checks. Then make a **separate** guarded installation at the chosen standalone path. Keep the verified backup and quarantine until the owner accepts recovery. See also [old repository histories](../HISTORY-REWRITE.md).
 
 ### Explicitly selected prerelease
 
@@ -119,27 +130,10 @@ Every install, repair, and update permanently deletes `communications-audit` and
 
 The exact deletion list is [retired-skills.txt](../retired-skills.txt). Other skill
 names are not retired, and all 13 SDD skill names and behavior remain unchanged.
-For cleanup without installing or changing SDD links, run `./install.sh --all
---retire-only` or `.\install.ps1 -All -RetireOnly` with the same destination and
-cleanup-directory options. The updater uses this mode before its local-change
-check, so untracked retired copies inside the clone cannot block their removal.
 
-Cleanup covers this clone's `skills/`, its selected agents' repo-local skill
-folders, and the selected personal agent roots. Default Codex discovery includes
-`.agents/skills`, legacy `.codex/skills`, and `$CODEX_HOME/skills`. Explicit
-destination overrides limit personal-root discovery.
+During a normal install, repair or update, retirement is confined to the verified checkout and selected personal registration roots. To request additional legacy cleanup separately, inventory the affected paths and confirm the exact directories and intended permanent deletions. Run `./install.sh --all --retire-only --cleanup-dir "/absolute/legacy/skills"` or `.\install.ps1 -All -RetireOnly -CleanupDir 'C:\absolute\legacy\skills'` from a verified checkout. Repeat `--cleanup-dir` or pass a PowerShell array for multiple confirmed roots. Linked parents and former backup directories are checked before retirement. Inspect all errors and remaining paths.
 
-Add other confirmed project skill folders or old SDD clones' `skills/` folders
-with `--cleanup-dir PATH` (repeatable) or `-CleanupDir PATH1,PATH2`. There is no
-whole-disk scan. Directory links are removed without following their targets;
-include another old clone's skill folder explicitly to delete its source copies.
-The former `--retired-source` / `-RetiredSource` proof option is no longer needed.
-
-The updater also permanently deletes matching retirement backups made by the
-previous version in `$HOME/.sdd-pipeline/retired-skills/` or the former
-`SDD_SKILL_BACKUP_DIR`. An `original-path.txt` record must match one of the selected
-skill roots; unrelated backup folders are not deletion targets. No new backup
-location is created.
+The separate operation can purge matching former retirement backups identified by an `original-path.txt` record. Its roots include the former `$HOME/.sdd-pipeline/retired-skills/` and explicit `SDD_SKILL_BACKUP_DIR`. Use the [recovery procedure](#recover-a-misplaced-installation) for an accidental installation inside a product.
 
 This is irreversible filesystem deletion, not Git-history rewriting. A GitHub
 push cannot delete files on a machine that has not run the update.
@@ -159,7 +153,9 @@ from downloading GitHub changes. See [official skill documentation](https://deve
 
 ## Evidence setup and reconfiguration
 
-The installer/update flow runs `scripts/evidence_setup.py ensure` after valid links. A terminal wizard selects managed local, chosen folder/disk/mount, or Google Drive, plus limits/retention/adoption. For an agent's storage-choice popup/dialog, use the plain-language question and option descriptions in the [pipeline entry contract](../skills/to-sdd-pipeline/references/evidence-storage-contract.md#pipeline-entry), including the low-storage note and Drive connection prerequisite before the user answers. Keep connector verification and optional rclone setup in the relevant follow-up steps. Non-interactive execution reports `setup_required` without choosing a provider or uploading data. Saved choices are reused without repeating the choice; the already-current status path still detects missing setup. Installing skills alone never uploads existing project evidence or purges it.
+A normal install, repair or update sets up skill links. Configure a product’s evidence storage separately after the user selects that project and authorizes setup. The installer’s working directory supplies no evidence project. Read-only storage status may report `setup_required` even when every skill link is current.
+
+The terminal wizard offers managed local, chosen folder/disk/mount, or Google Drive, plus limits, retention and adoption. In an agent's storage-choice dialog, use the question and option descriptions in the [pipeline entry contract](../skills/to-sdd-pipeline/references/evidence-storage-contract.md#pipeline-entry), including the low-storage note and Drive connection prerequisite before the user answers. Noninteractive execution reports `setup_required` without choosing a provider or uploading data. Saved choices are reused.
 
 Use the complete [setup guide](evidence-storage.md) for authentication and policy. In this durable clone:
 
@@ -169,7 +165,7 @@ python3 scripts/evidence_setup.py status --project /path/to/product
 python3 scripts/evidence_setup.py wizard --project /path/to/product --reconfigure
 ```
 
-Windows uses the detected supported `python`. The manager's first evidence use after a plain Git pull calls `ensure --project PATH`; status remains read-only. This does not replace the updater's separate retirement cleanup. Configure an installation's product explicitly with `--evidence-project PATH`, `--evidence-reconfigure`, `--evidence-non-interactive`, or PowerShell `-EvidenceProject`, `-EvidenceReconfigure`, `-EvidenceNonInteractive`.
+Windows uses the detected supported `python`. The manager's first evidence use after a plain Git pull calls `ensure --project PATH`; status remains read-only. This does not replace the updater's separate retirement cleanup. For separately authorized product setup, the guarded platform installer also accepts `--evidence-project PATH`, `--evidence-reconfigure`, `--evidence-non-interactive`, or PowerShell `-EvidenceProject`, `-EvidenceReconfigure`, `-EvidenceNonInteractive`.
 
 `SDD_EVIDENCE_HOME` overrides the external configuration/state root, otherwise `~/.sdd-pipeline/evidence`. Machine destinations and credential configuration remain there or in provider configuration outside Git. Portable `forge/evidence-policy.json` contains stable project/store IDs, numeric limits and retention only. Preserve it across worktrees and reuse the same configured store; a new run path or chat is not a new accounting identity.
 

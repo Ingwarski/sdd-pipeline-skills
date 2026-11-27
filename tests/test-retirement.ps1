@@ -6,6 +6,7 @@ $CodexDir = Join-Path $TestRoot 'codex'
 $ClaudeDir = Join-Path $TestRoot 'claude'
 $History = Join-Path $TestRoot 'history'
 $ExportDest = Join-Path $TestRoot 'export installs'
+$OriginalProfile = $env:USERPROFILE
 $OriginalBackup = $env:SDD_SKILL_BACKUP_DIR
 $OriginalEvidenceHome = $env:SDD_EVIDENCE_HOME
 $LockedFile = $null
@@ -26,7 +27,21 @@ function Run-Install([hashtable]$Extra = @{}) {
     Assert-True ($LASTEXITCODE -eq 0) 'Installer returned failure.'
 }
 
+function Run-Retirement([string]$Source, [string[]]$Arguments) {
+    # A fresh process resolves its personal default backup location in the test home.
+    & powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $Source 'install.ps1') -RetireOnly @Arguments
+    Assert-True ($LASTEXITCODE -eq 0) 'Explicit retirement failed.'
+}
+
 try {
+    $Fixture = Join-Path $RepoRoot 'tests/install_fixture.py'
+    $RepoRoot = Join-Path $TestRoot 'source'
+    & python $Fixture create $RepoRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated checkout.' }
+    $env:USERPROFILE = Join-Path $TestRoot 'test-home'
+    New-Item -ItemType Directory -Path $env:USERPROFILE | Out-Null
+    $ChildHome = & powershell -NoProfile -NonInteractive -Command '$HOME'
+    Assert-True ($LASTEXITCODE -eq 0 -and $ChildHome -eq $env:USERPROFILE) 'Retirement test requires a disposable PowerShell home.'
     $env:SDD_EVIDENCE_HOME = Join-Path $TestRoot 'evidence-machine-state'
     foreach ($Directory in @($CodexDir, $ClaudeDir, $History, (Join-Path $TestRoot 'external'))) {
         New-Item -ItemType Directory -Path $Directory -Force | Out-Null
@@ -76,7 +91,7 @@ try {
     $ProjectSkills = Join-Path $TestRoot 'project/.agents/skills'
     New-Item -ItemType Directory -Path (Join-Path $ProjectSkills 'communications-audit') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $ProjectSkills 'unrelated.txt') -Value keep
-    Run-Install @{ CleanupDir=@($ProjectSkills) }
+    Run-Retirement $RepoRoot @('-All','-CodexDir',$CodexDir,'-ClaudeDir',$ClaudeDir,'-CleanupDir',$ProjectSkills)
     Assert-Absent (Join-Path $ProjectSkills 'communications-audit')
     Assert-True (Test-Path -LiteralPath (Join-Path $ProjectSkills 'unrelated.txt')) 'Unrelated file was deleted.'
 
@@ -87,7 +102,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $History "skills/$Name") -Destination (Join-Path $Former $Name) -Recurse
         Set-Content -LiteralPath (Join-Path $Former 'original-path.txt') -Value (Join-Path $CodexDir $Name) -Encoding UTF8
     }
-    Run-Install
+    Run-Retirement $RepoRoot @('-All','-CodexDir',$CodexDir,'-ClaudeDir',$ClaudeDir)
     Assert-Absent (Join-Path $env:SDD_SKILL_BACKUP_DIR 'communications-audit.ABC123')
     Assert-Absent (Join-Path $env:SDD_SKILL_BACKUP_DIR 'issue-happypro-certificate.ABC123')
 
@@ -103,7 +118,7 @@ try {
     Run-Install
     Assert-RetiredAbsent
 
-    # Retire the business skills even when unrelated SDD links need attention.
+    # A link conflict preserves the retired copy until separately authorized cleanup.
     [System.IO.Directory]::Delete((Join-Path $CodexDir 'to-wireframes'))
     [System.IO.Directory]::Delete((Join-Path $CodexDir 'to-sdd-pipeline'))
     New-Item -ItemType Directory -Path (Join-Path $CodexDir 'to-sdd-pipeline') | Out-Null
@@ -111,26 +126,27 @@ try {
     $Conflict = $false
     try { Run-Install } catch { $Conflict = $true }
     Assert-True $Conflict 'Expected active-skill conflict.'
-    Assert-Absent (Join-Path $CodexDir 'issue-happypro-certificate')
+    Assert-True (Test-Path -LiteralPath (Join-Path $CodexDir 'issue-happypro-certificate')) 'Conflict deleted the retirement sentinel.'
     Assert-Absent (Join-Path $CodexDir 'to-wireframes')
+    Run-Retirement $RepoRoot @('-All','-CodexDir',$CodexDir,'-ClaudeDir',$ClaudeDir)
+    Assert-Absent (Join-Path $CodexDir 'issue-happypro-certificate')
     [System.IO.Directory]::Delete((Join-Path $CodexDir 'to-sdd-pipeline'))
     Run-Install
 
-    $ExportRoot = Join-Path $TestRoot 'source export'
+    $ExportRoot = Join-Path $TestRoot 'legacy checkout'
+    & python $Fixture create $ExportRoot
+    Assert-True ($LASTEXITCODE -eq 0) 'Could not create the isolated legacy checkout.'
     New-Item -ItemType Directory -Path (Join-Path $ExportRoot '.agents/skills/issue-happypro-certificate') -Force | Out-Null
-    foreach ($File in @('install.ps1', 'skills-manifest.json', 'retired-skills.txt')) {
-        Copy-Item -LiteralPath (Join-Path $RepoRoot $File) -Destination (Join-Path $ExportRoot $File)
-    }
-    foreach ($Directory in @('scripts', 'skills')) {
-        Copy-Item -LiteralPath (Join-Path $RepoRoot $Directory) -Destination (Join-Path $ExportRoot $Directory) -Recurse
-    }
     Copy-Item -LiteralPath (Join-Path $History 'skills/communications-audit') -Destination (Join-Path $ExportRoot 'skills/communications-audit') -Recurse
+    Run-Retirement $ExportRoot @('-Codex','-CodexDir',$ExportDest)
     & (Join-Path $ExportRoot 'install.ps1') -Codex -CodexDir $ExportDest
     Assert-Absent (Join-Path $ExportRoot 'skills/communications-audit')
     Assert-Absent (Join-Path $ExportRoot '.agents/skills/issue-happypro-certificate')
 
     New-Item -ItemType Directory -Path (Join-Path $ExportDest 'communications-audit') | Out-Null
     Set-Content -LiteralPath (Join-Path $ExportRoot 'retired-skills.txt') -Value @('communications-audit', 'issue-happypro-certificate', 'to-wireframes')
+    & python $Fixture publish $ExportRoot
+    Assert-True ($LASTEXITCODE -eq 0) 'Could not publish the invalid fixture policy.'
     $PolicyFailed = $false
     try { & (Join-Path $ExportRoot 'install.ps1') -Codex -CodexDir $ExportDest } catch { $PolicyFailed = $true }
     Assert-True $PolicyFailed 'Invalid retirement policy was accepted.'
@@ -138,6 +154,7 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $ExportDest 'to-wireframes/SKILL.md')) 'Policy retired an unrelated skill.'
     Write-Host 'Windows permanent retirement tests passed.'
 } finally {
+    $env:USERPROFILE = $OriginalProfile
     $env:SDD_EVIDENCE_HOME = $OriginalEvidenceHome
     if ($null -ne $LockedFile) { $LockedFile.Dispose() }
     $env:SDD_SKILL_BACKUP_DIR = $OriginalBackup

@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-manifest_path="$repo_root/skills-manifest.json"
+repo_root="$(CDPATH= cd -P -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 receipt_name=".codex-sdd-skills-source"
 
 want_codex=1
@@ -12,14 +11,17 @@ platform_selected=0
 repair=0
 uninstall=0
 retire_only=0
+check_locations_only=0
+advance_channel=""
+next_args=(--repair)
 codex_dir=""
 claude_dir=""
 codex_dir_explicit=0
-retired_sources=()
 retired_source_count=0
 retired_extra_roots=()
 retired_extra_count=0
 evidence_args=()
+evidence_project=""
 
 usage() {
   printf '%s\n' \
@@ -27,7 +29,7 @@ usage() {
     "" \
     "Usage: ./install.sh [--all|--codex|--claude] [--repair|--uninstall|--retire-only]" \
     "                    [--codex-dir PATH] [--claude-dir PATH]" \
-    "                    [--retired-source OLD_CLONE] [--cleanup-dir SKILL_ROOT]" \
+    "                    [--retire-only --cleanup-dir SKILL_ROOT]" \
     "                    [--evidence-project PATH] [--evidence-reconfigure] [--evidence-non-interactive]" \
     "" \
     "With no platform flag, both Codex and Claude Code are installed." \
@@ -69,38 +71,45 @@ while [[ $# -gt 0 ]]; do
       uninstall=1
       shift
       ;;
+    --advance-channel)
+      [[ $# -ge 2 && ( "$2" == stable || "$2" == main ) && -z "$advance_channel" ]] || exit 2
+      advance_channel=$2
+      shift 2
+      ;;
+    --check-locations-only)
+      check_locations_only=1
+      shift
+      ;;
     --retire-only)
       retire_only=1
       shift
       ;;
     --evidence-project)
-      [[ $# -ge 2 ]] || { printf 'Missing value for --evidence-project\n' >&2; exit 2; }
+      [[ $# -ge 2 && "$2" == /* && -z "$evidence_project" ]] || { printf 'An absolute --evidence-project path is required.\n' >&2; exit 2; }
+      evidence_project=$2
+      evidence_project_index=$((${#evidence_args[@]} + 1))
       evidence_args+=(--project "$2")
       shift 2
       ;;
-    --evidence-reconfigure)
-      evidence_args+=(--reconfigure)
-      shift
-      ;;
-    --evidence-non-interactive)
-      evidence_args+=(--non-interactive)
+    --evidence-reconfigure|--evidence-non-interactive)
+      evidence_args+=("--${1#--evidence-}")
+      next_args+=("$1")
       shift
       ;;
     --codex-dir)
-      [[ $# -ge 2 ]] || { printf 'Missing value for --codex-dir\n' >&2; exit 2; }
+      [[ $# -ge 2 && -n "$2" ]] || { printf 'Missing value for --codex-dir\n' >&2; exit 2; }
       codex_dir=$2
       codex_dir_explicit=1
       shift 2
       ;;
     --claude-dir)
-      [[ $# -ge 2 ]] || { printf 'Missing value for --claude-dir\n' >&2; exit 2; }
+      [[ $# -ge 2 && -n "$2" ]] || { printf 'Missing value for --claude-dir\n' >&2; exit 2; }
       claude_dir=$2
       shift 2
       ;;
     --retired-source|--cleanup-dir)
       [[ $# -ge 2 && "$2" == /* ]] || { printf 'An absolute path is required for %s\n' "$1" >&2; exit 2; }
       if [[ "$1" == --retired-source ]]; then
-        retired_sources[retired_source_count]=$2
         retired_source_count=$((retired_source_count + 1))
       else
         retired_extra_roots[retired_extra_count]=$2
@@ -120,6 +129,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$advance_channel" && ( $repair -eq 0 || $uninstall -eq 1 || $retire_only -eq 1 || $check_locations_only -eq 1 ) ]]; then
+  printf '%s\n' 'Use update.sh to advance a verified standalone checkout.' >&2
+  exit 2
+fi
 if [[ $repair -eq 1 && $uninstall -eq 1 ]]; then
   printf '%s\n' '--repair and --uninstall cannot be used together.' >&2
   exit 2
@@ -130,9 +143,12 @@ if [[ $uninstall -eq 1 && ( $retire_only -eq 1 || $retired_source_count -gt 0 ||
   exit 2
 fi
 
-if [[ ! -f "$manifest_path" ]]; then
-  printf 'Missing manifest: %s\n' "$manifest_path" >&2
-  exit 1
+if [[ $retire_only -eq 0 && ( $retired_extra_count -gt 0 || $retired_source_count -gt 0 ) ]]; then
+  printf '%s\n' 'Use --retire-only for separately requested legacy cleanup directories.' >&2
+  exit 2
+fi
+if [[ $retired_source_count -gt 0 ]]; then
+  printf '%s\n' '--retired-source is no longer needed. Use --cleanup-dir OLD_CLONE/skills to include a prior checkout.'
 fi
 
 if [[ -z "$codex_dir" ]]; then
@@ -149,37 +165,56 @@ if [[ -z "$codex_dir" ]]; then
 fi
 
 if [[ -z "$claude_dir" ]]; then
-  claude_dir="${CLAUDE_SKILLS_DIR:-${HOME:?HOME is required}/.claude/skills}"
+  claude_dir="${CLAUDE_SKILLS_DIR:-${CLAUDE_CONFIG_DIR:-${HOME:?HOME is required}/.claude}/skills}"
 fi
 
 manifest_entries() {
   printf '%s\n' "$validated_manifest_rows"
 }
 
-if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
+if ! command -v python3 >/dev/null 2>&1 || ! python3 -B -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
   printf '%s\n' 'Python 3.12+ is required. Install Python 3, then rerun; no installation changes made.' >&2
   exit 1
 fi
+location_args=(--source "$repo_root")
+[[ $want_codex -eq 0 ]] || location_args+=(--registration "$codex_dir")
+[[ $want_claude -eq 0 ]] || location_args+=(--registration "$claude_dir")
+if [[ $uninstall -eq 0 ]]; then
+  source "$repo_root/scripts/retired-skills.sh"
+  retired_plan
+fi
+if [[ $uninstall -eq 0 && $retire_only -eq 0 && ${#evidence_args[@]} -gt 0 ]]; then
+  location_args+=(--evidence-home "${SDD_EVIDENCE_HOME:-$HOME/.sdd-pipeline/evidence}")
+  [[ -z "$evidence_project" ]] || location_args+=(--evidence-project "$evidence_project")
+fi
+checked_paths=$(python3 -B "$repo_root/scripts/install_location.py" --print-paths "${location_args[@]}")
+{
+  IFS= read -r repo_root
+  [[ $want_codex -eq 0 ]] || IFS= read -r codex_dir
+  [[ $want_claude -eq 0 ]] || IFS= read -r claude_dir
+  [[ $uninstall -eq 1 ]] || retired_read_paths
+  if [[ $uninstall -eq 0 && $retire_only -eq 0 && ${#evidence_args[@]} -gt 0 ]]; then
+    IFS= read -r SDD_EVIDENCE_HOME
+    export SDD_EVIDENCE_HOME
+    if [[ -n "$evidence_project" ]]; then
+      IFS= read -r evidence_project
+      # The parser accepts --evidence-project once. Bind its physical value.
+      evidence_args[evidence_project_index]=$evidence_project
+    fi
+  fi
+} <<< "$checked_paths"
+registration_args=()
+[[ $want_codex -eq 0 ]] || registration_args+=(--codex-dir "$codex_dir")
+[[ $want_claude -eq 0 ]] || registration_args+=(--claude-dir "$claude_dir")
+status_args=(--root "$repo_root" --exit-on-links "${registration_args[@]}")
+[[ -z "$evidence_project" ]] || status_args+=(--project "$evidence_project")
 manifest_args=(--root "$repo_root")
 [[ $retire_only -eq 0 ]] || manifest_args+=(--metadata-only)
 # Capture success before using rows: process substitutions can hide parser errors.
-validated_manifest_rows=$(python3 "$repo_root/scripts/install_manifest.py" "${manifest_args[@]}") || exit 1
-
-if [[ $retire_only -eq 1 ]]; then
-  source "$repo_root/scripts/retired-skills.sh"
-  retired_prepare
-  retired_apply
-  exit 0
-fi
-
-printf 'Validated %d source skills and their shared references.\n' 13
-
+validated_manifest_rows=$(python3 -B "$repo_root/scripts/install_manifest.py" "${manifest_args[@]}") || exit 1
 if [[ $uninstall -eq 0 ]]; then
-  source "$repo_root/scripts/retired-skills.sh"
   retired_prepare
-  retired_apply
 fi
-
 link_raw_target() {
   readlink "$1" 2>/dev/null || true
 }
@@ -195,7 +230,7 @@ link_points_to() {
     *) candidate_target="$(dirname "$link_path")/$raw_target" ;;
   esac
   if [[ -d "$candidate_target" ]]; then
-    candidate_target=$(cd "$candidate_target" && pwd -P)
+    candidate_target=$(cd -P -- "$candidate_target" && pwd -P)
     [[ "$candidate_target" == "$expected_path" ]]
     return
   fi
@@ -223,28 +258,44 @@ preflight_destination_root() {
   prior_root=$(receipt_root "$install_root")
   while IFS='|' read -r skill_name relative_path legacy_name; do
     destination="$install_root/$skill_name"
-    source_dir=$(cd "$repo_root/$relative_path" && pwd -P)
+    source_dir=$(cd -P -- "$repo_root/$relative_path" && pwd -P)
     if [[ -L "$destination" ]]; then
       if link_points_to "$destination" "$source_dir" || repair_authorized "$destination" "$relative_path" "$prior_root"; then
         continue
       fi
-      printf '%-24s CONFLICT link points elsewhere: %s\n' "$skill_name" "$destination" >&2
+      printf '%-24s CONFLICT %s -> %s (expected %s)\n' "$skill_name" "$destination" "$(link_raw_target "$destination")" "$source_dir" >&2
       destination_conflicts=$((destination_conflicts + 1))
     elif [[ -e "$destination" ]]; then
-      printf '%-24s CONFLICT real file/directory exists: %s\n' "$skill_name" "$destination" >&2
+      printf '%-24s CONFLICT real file/directory exists: %s (expected link to %s)\n' "$skill_name" "$destination" "$source_dir" >&2
       destination_conflicts=$((destination_conflicts + 1))
     fi
   done < <(manifest_entries)
 }
 
-if [[ $uninstall -eq 0 ]]; then
+if [[ $uninstall -eq 0 && $retire_only -eq 0 ]]; then
   [[ $want_codex -eq 0 ]] || preflight_destination_root "$codex_dir"
   [[ $want_claude -eq 0 ]] || preflight_destination_root "$claude_dir"
   if [[ $destination_conflicts -ne 0 ]]; then
-    printf 'Installation stopped before SDD link changes: %d conflict(s)\n' "$destination_conflicts" >&2
+    printf 'Installation stopped before changes: %d conflict(s). See docs/installation.md#recover-a-misplaced-installation\n' "$destination_conflicts" >&2
     exit 1
   fi
 fi
+
+[[ $check_locations_only -eq 0 ]] || exit 0
+if [[ -n "$advance_channel" ]]; then
+  python3 -B "$repo_root/scripts/install_location.py" advance --source "$repo_root" --channel "$advance_channel" "${registration_args[@]}"
+  [[ $want_codex -eq 0 ]] || next_args+=(--codex)
+  [[ $want_claude -eq 0 ]] || next_args+=(--claude)
+  [[ -z "$evidence_project" ]] || next_args+=(--evidence-project "$evidence_project")
+  exec bash "$repo_root/install.sh" "${next_args[@]}" "${registration_args[@]}"
+fi
+
+if [[ $uninstall -eq 0 ]]; then
+  retired_apply
+  [[ $retire_only -eq 0 ]] || exit 0
+fi
+
+printf 'Validated %d source skills and their shared references.\n' 13
 
 created=0
 already_installed=0
@@ -256,10 +307,11 @@ install_root() {
   install_root_path=$1
   tool_label=$2
   prior_root=$(receipt_root "$install_root_path")
+  if [[ $uninstall -eq 1 && ! -d "$install_root_path" ]]; then return 0; fi
   mkdir -p "$install_root_path"
 
   while IFS='|' read -r skill_name relative_path legacy_name; do
-    source_dir=$(cd "$repo_root/$relative_path" && pwd -P)
+    source_dir=$(cd -P -- "$repo_root/$relative_path" && pwd -P)
     destination="$install_root_path/$skill_name"
 
     if [[ $uninstall -eq 1 ]]; then
@@ -337,7 +389,7 @@ install_root() {
         rm "$receipt_path"
       fi
     fi
-  elif [[ $post_failures -eq 0 ]]; then
+  elif [[ $post_failures -eq 0 && "$prior_root" != "$repo_root" ]]; then
     printf '%s\n' "$repo_root" > "$receipt_path"
   fi
 }
@@ -356,15 +408,18 @@ if [[ $post_failures -ne 0 ]]; then
   exit 1
 fi
 
-if [[ $uninstall -eq 0 ]]; then
+if [[ $uninstall -eq 0 && ${#evidence_args[@]} -gt 0 ]]; then
   evidence_result=0
-  python3 "$repo_root/scripts/evidence_setup.py" ensure ${evidence_args[@]+"${evidence_args[@]}"} || evidence_result=$?
+  python3 -B "$repo_root/scripts/evidence_setup.py" ensure ${evidence_args[@]+"${evidence_args[@]}"} || evidence_result=$?
   if [[ $evidence_result -eq 2 ]]; then
     printf '%s\n' 'Evidence storage setup is required; skill links are installed. Run scripts/evidence_setup.py wizard before managed evidence operations.'
   elif [[ $evidence_result -ne 0 ]]; then
     printf '%s\n' 'Evidence setup failed; skill links are installed but storage is not ready.' >&2
     exit "$evidence_result"
   fi
+fi
+if [[ $uninstall -eq 0 ]]; then
+  python3 -B "$repo_root/scripts/installation_status.py" "${status_args[@]}"
   printf '%s\n' 'Skills are linked to this clone. Use ./update.sh for updates and retirement cleanup.'
   printf '%s\n' 'Codex normally discovers new skills automatically. Restart only if they do not appear.'
   printf '%s\n' 'Claude Code reloads SKILL.md changes live; restart if its top-level skills directory was created during this session.'

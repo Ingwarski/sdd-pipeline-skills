@@ -36,28 +36,13 @@ Existing changes reuse valid documents/baselines and reconcile affected owners. 
 
 Requires **Python 3.12+**; local installer/checker/storage tools use its standard library. Python 3.14 is recommended under [runtime policy](runtime-policy.json); no Node installation is required. If necessary, use the [official Python installers](https://www.python.org/downloads/) and [platform instructions](docs/installation.md). Already-current setups preserve a supported runtime; never replace the OS interpreter.
 
-Paste the complete [install-or-update prompt](INSTALL-OR-UPDATE-PROMPT.md) into a local agent. It checks repository revision, exact installed links/resources, Python and evidence setup before deciding what needs work. A current skill installation can still need storage setup; existing choices are preserved. Opening a repository does not install skills, choose a cloud account or upload evidence.
+Choose one **absolute path for the standalone checkout**, for example a sibling of your product under your personal Projects directory. A fresh destination must be absent or completely empty, including hidden files. An agent may start in the product while you choose its sibling. The checkout and each selected personal skill directory are checked independently, including linked directories.
 
-For the tested channel:
+Paste the [install-or-update prompt](INSTALL-OR-UPDATE-PROMPT.md) into a local Codex or Claude Code session and give it the exact destination. For a manual install, use the [macOS/Linux or Windows commands](docs/installation.md#guarded-entry-point). They retrieve the location guard by the full commit ID from the official `stable` release and run it **before cloning**. The same entry point accepts `update` for an existing standalone checkout. It defaults to both agents. Use `--agent codex` or `--agent claude` for one.
 
-```bash
-git clone --branch stable https://github.com/Ingwarski/sdd-pipeline-skills.git
-cd sdd-pipeline-skills
-git switch -c main
-```
+On success, check the reported physical checkout, full Git revision, personal registration directories and all 13 actual link targets per agent. Windows supports NTFS junctions. If a path is refused, keep the paths and local files intact and follow [misplaced-installation recovery](docs/installation.md#recover-a-misplaced-installation).
 
-| Platform | Install | Update |
-|---|---|---|
-| macOS / Linux | `./install.sh --all` | `./update.sh --channel stable --all` |
-| Windows PowerShell | `.\install.ps1 -All` | `.\update.ps1 -Channel stable -All` |
-
-Launchers use the same scripts. Select `--codex`/`--claude` or `-Codex`/`-Claude` for one agent. Windows falls back to NTFS junctions when symbolic links are unavailable. Links always point to the durable clone; use repair after moving it. Conflicting unrelated files are reported, never overwritten. [Destination overrides, bootstrap, repair and uninstall](docs/installation.md).
-
-The updater defaults to `stable`; select `main` explicitly only for skillset maintenance or testing. CI advances stable only after the current main passes Linux/macOS/Windows checks. Missing channels and divergent/ahead local commits never cause fallback or downgrade. Plain Git pull performs no retirement cleanup; first evidence use still detects missing setup. No scheduler, hook or background updater is installed.
-
-Retirement permanently removes exactly the two names in [retired-skills.txt](retired-skills.txt), including edited copies/links and matching old backups in selected roots. Additional roots require explicit `--cleanup-dir`/`-CleanupDir`. There is no disk-wide scan, backup, Trash move or link-target traversal. Retirement may finish before a separate Git/link conflict blocks update; failures and remaining paths must be reported.
-
-Legacy names and old-clone migration are documented in [installation](docs/installation.md). The manifest resolves SDD `to-prd` to `to-sdd-prd`; unrelated third-party skills remain unchanged.
+Normal installation, repair and update can permanently remove the two [retired names](retired-skills.txt) in managed roots. Additional legacy cleanup and project evidence setup are separate operations. [Registration overrides, retirement, repair and update](docs/installation.md). The manifest resolves the old SDD name `to-prd` to `to-sdd-prd`.
 
 ## Workflow and ownership
 

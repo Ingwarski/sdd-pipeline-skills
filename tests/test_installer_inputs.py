@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[1]
+from install_fixture import create_checkout, publish_snapshot
 
 
 class InstallerInputTests(unittest.TestCase):
@@ -20,11 +20,7 @@ class InstallerInputTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.clone = self.root / "Skills with spaces"
-        self.clone.mkdir()
-        for directory in ("scripts", "skills"):
-            shutil.copytree(ROOT / directory, self.clone / directory, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        for name in ("install.sh", "install.ps1", "skills-manifest.json", "retired-skills.txt"):
-            shutil.copy2(ROOT / name, self.clone / name)
+        create_checkout(self.clone)
         self.dest = self.root / "agent-skills"
         self.dest.mkdir()
         self.retired = self.dest / "communications-audit"
@@ -39,6 +35,8 @@ class InstallerInputTests(unittest.TestCase):
         (self.clone / "skills-manifest.json").write_text(json.dumps(manifest or self.manifest, **kwargs), encoding="utf-8")
 
     def install(self, repair=False, environment=None):
+        # Exercise manifest validation against published fixture bytes.
+        publish_snapshot(self.clone)
         if os.name == "nt":
             command = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
                        str(self.clone / "install.ps1"), "-Codex", "-CodexDir", str(self.dest)]
@@ -49,6 +47,7 @@ class InstallerInputTests(unittest.TestCase):
             if repair:
                 command.append("--repair")
         isolated_environment = dict(environment if environment is not None else os.environ,
+                                    HOME=str(self.root), USERPROFILE=str(self.root),
                                     SDD_EVIDENCE_HOME=str(self.evidence_home))
         return subprocess.run(command, cwd=self.unrelated_project, env=isolated_environment, capture_output=True, text=True, timeout=60)
 
